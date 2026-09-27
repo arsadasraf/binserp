@@ -46,6 +46,67 @@ export const createVendorQuotation = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Vendor Quotation with this number already exists");
   }
 
+  const processedItems = Array.isArray(items) ? items.map(it => {
+    const qty = Number(it.quantity || 0);
+    const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+    const secUnit = hasSec ? String(it.secondaryUnit).trim() : '';
+    const convFactor = Number(it.conversionFactor) || 1;
+    const secQty = hasSec ? Number(it.secondaryQuantity || 0) : undefined;
+    const rateUnit = (it.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
+    const enteredRate = Number(it.unitPrice ?? it.rate ?? 0);
+    const taxPct = Number(it.tax || 0);
+
+    let primaryRate = Number(it.primaryRate || 0);
+    let secondaryRate = Number(it.secondaryRate || 0);
+    let lineSubtotal = 0;
+
+    if (rateUnit === 'secondary' && hasSec && (secQty > 0 || convFactor > 0)) {
+      secondaryRate = enteredRate;
+      if (qty > 0 && secQty > 0) {
+        primaryRate = Math.round(((secQty * enteredRate) / qty) * 1000) / 1000;
+      } else if (convFactor > 0) {
+        primaryRate = Math.round((enteredRate / convFactor) * 1000) / 1000;
+      } else {
+        primaryRate = enteredRate;
+      }
+      lineSubtotal = (secQty || (qty * convFactor)) * enteredRate;
+    } else {
+      primaryRate = enteredRate;
+      if (hasSec) {
+        if (qty > 0 && secQty > 0) {
+          secondaryRate = Math.round(((qty * enteredRate) / secQty) * 1000) / 1000;
+        } else if (convFactor > 0) {
+          secondaryRate = Math.round((enteredRate * convFactor) * 1000) / 1000;
+        } else {
+          secondaryRate = enteredRate;
+        }
+      }
+      lineSubtotal = qty * enteredRate;
+    }
+
+    const lineTotal = Number(it.total) || (lineSubtotal * (1 + taxPct / 100));
+
+    return {
+      ...it,
+      quantity: qty,
+      unit: it.unit || 'PCS',
+      hasSecondaryUnit: hasSec,
+      secondaryUnit: secUnit,
+      conversionFactor: convFactor,
+      secondaryQuantity: secQty,
+      rateUnit,
+      primaryRate,
+      secondaryRate,
+      unitPrice: enteredRate,
+      tax: taxPct,
+      total: lineTotal
+    };
+  }) : [];
+
+  const computedSubtotal = subtotal !== undefined ? subtotal : processedItems.reduce((acc, it) => acc + ((it.rateUnit === 'secondary' && it.hasSecondaryUnit && it.secondaryQuantity ? it.secondaryQuantity : it.quantity) * it.unitPrice), 0);
+  const computedTotalTax = totalTax !== undefined ? totalTax : processedItems.reduce((acc, it) => acc + (((it.rateUnit === 'secondary' && it.hasSecondaryUnit && it.secondaryQuantity ? it.secondaryQuantity : it.quantity) * it.unitPrice) * (it.tax / 100)), 0);
+  const computedGrandTotal = grandTotal !== undefined ? grandTotal : (computedSubtotal + computedTotalTax);
+
   const newQuotation = await VendorQuotation.create({
     company: companyId,
     quotationNumber,
@@ -58,10 +119,10 @@ export const createVendorQuotation = asyncHandler(async (req, res) => {
     vendorPhone,
     vendorGst,
     date: date || new Date(),
-    items: Array.isArray(items) ? items : [],
-    subtotal,
-    totalTax,
-    grandTotal,
+    items: processedItems,
+    subtotal: computedSubtotal,
+    totalTax: computedTotalTax,
+    grandTotal: computedGrandTotal,
     validUntil,
     status: status || "Pending Approval",
     termsAndConditions,
@@ -141,9 +202,69 @@ export const updateVendorQuotation = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const companyId = getCompanyId(req);
 
+  const updatePayload = { ...req.body };
+  if (Array.isArray(updatePayload.items)) {
+    updatePayload.items = updatePayload.items.map((it) => {
+      const qty = Number(it.quantity || 0);
+      const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+      const secUnit = hasSec ? String(it.secondaryUnit).trim() : '';
+      const convFactor = Number(it.conversionFactor) || 1;
+      const secQty = hasSec ? Number(it.secondaryQuantity || 0) : undefined;
+      const rateUnit = (it.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
+      const enteredRate = Number(it.unitPrice ?? it.rate ?? 0);
+      const taxPct = Number(it.tax || 0);
+
+      let primaryRate = Number(it.primaryRate || 0);
+      let secondaryRate = Number(it.secondaryRate || 0);
+      let lineSubtotal = 0;
+
+      if (rateUnit === 'secondary' && hasSec && (secQty > 0 || convFactor > 0)) {
+        secondaryRate = enteredRate;
+        if (qty > 0 && secQty > 0) {
+          primaryRate = Math.round(((secQty * enteredRate) / qty) * 1000) / 1000;
+        } else if (convFactor > 0) {
+          primaryRate = Math.round((enteredRate / convFactor) * 1000) / 1000;
+        } else {
+          primaryRate = enteredRate;
+        }
+        lineSubtotal = (secQty || (qty * convFactor)) * enteredRate;
+      } else {
+        primaryRate = enteredRate;
+        if (hasSec) {
+          if (qty > 0 && secQty > 0) {
+            secondaryRate = Math.round(((qty * enteredRate) / secQty) * 1000) / 1000;
+          } else if (convFactor > 0) {
+            secondaryRate = Math.round((enteredRate * convFactor) * 1000) / 1000;
+          } else {
+            secondaryRate = enteredRate;
+          }
+        }
+        lineSubtotal = qty * enteredRate;
+      }
+
+      const lineTotal = Number(it.total) || (lineSubtotal * (1 + taxPct / 100));
+
+      return {
+        ...it,
+        quantity: qty,
+        unit: it.unit || 'PCS',
+        hasSecondaryUnit: hasSec,
+        secondaryUnit: secUnit,
+        conversionFactor: convFactor,
+        secondaryQuantity: secQty,
+        rateUnit,
+        primaryRate,
+        secondaryRate,
+        unitPrice: enteredRate,
+        tax: taxPct,
+        total: lineTotal
+      };
+    });
+  }
+
   const updatedQuotation = await VendorQuotation.findOneAndUpdate(
     { _id: id, company: companyId },
-    req.body,
+    updatePayload,
     { new: true, runValidators: true }
   );
 

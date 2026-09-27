@@ -14,6 +14,14 @@ export interface MRPItemWiseViewProps {
   onViewPlanDetails: (plan: any) => void;
   searchTerm?: string;
   filterStatus?: string;
+  selectedStatuses?: string[];
+  planDateFilter?: string;
+  planStartDate?: string;
+  planEndDate?: string;
+  commitDateFilter?: string;
+  commitStartDate?: string;
+  commitEndDate?: string;
+  onResetFilters?: () => void;
 }
 
 interface LinkedPlanEntry {
@@ -49,24 +57,115 @@ interface AggregatedMRPItem {
   latestTargetDate?: string;
 }
 
+// Date preset matching helper
+const matchDatePreset = (
+  rawDate: any,
+  preset: string = 'all',
+  customStart?: string,
+  customEnd?: string
+) => {
+  if (!preset || preset === 'all') return true;
+  if (!rawDate) return false;
+  const d = new Date(rawDate);
+  if (isNaN(d.getTime())) return false;
+
+  const today = new Date();
+  const isSameDay = (d1: Date, d2: Date) =>
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate();
+
+  if (preset === 'today') {
+    return isSameDay(d, today);
+  } else if (preset === 'yesterday') {
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+    return isSameDay(d, yesterday);
+  } else if (preset === '7days') {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(today.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+    return d >= sevenDaysAgo && d <= today;
+  } else if (preset === 'next7days') {
+    const nextSevenDays = new Date();
+    nextSevenDays.setDate(today.getDate() + 7);
+    nextSevenDays.setHours(23, 59, 59, 999);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    return d >= startOfToday && d <= nextSevenDays;
+  } else if (preset === 'thisMonth') {
+    return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+  } else if (preset === 'custom') {
+    if (customStart && customEnd) {
+      const s = new Date(customStart);
+      s.setHours(0, 0, 0, 0);
+      const e = new Date(customEnd);
+      e.setHours(23, 59, 59, 999);
+      return d >= s && d <= e;
+    } else if (customStart) {
+      const s = new Date(customStart);
+      return isSameDay(d, s) || d >= s;
+    } else if (customEnd) {
+      const e = new Date(customEnd);
+      return isSameDay(d, e) || d <= e;
+    }
+  }
+  return true;
+};
+
 export default function MRPItemWiseView({
   mrpPlans = [],
   fgItems = [],
   onViewPlanDetails,
   searchTerm = '',
-  filterStatus = 'All'
+  filterStatus = 'All',
+  selectedStatuses = [],
+  planDateFilter = 'all',
+  planStartDate = '',
+  planEndDate = '',
+  commitDateFilter = 'all',
+  commitStartDate = '',
+  commitEndDate = '',
+  onResetFilters
 }: MRPItemWiseViewProps) {
   const [selectedItemForPreview, setSelectedItemForPreview] = useState<AggregatedMRPItem | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'completed'>('all');
 
-  // Aggregate FG items across all MRP plans
+  // Check if any filter is active
+  const isAnyFilterActive = Boolean(
+    (selectedStatuses && selectedStatuses.length > 0) ||
+    (planDateFilter && planDateFilter !== 'all') ||
+    Boolean(planStartDate || planEndDate) ||
+    (commitDateFilter && commitDateFilter !== 'all') ||
+    Boolean(commitStartDate || commitEndDate) ||
+    searchTerm
+  );
+
+  // Aggregate FG items dynamically across filtered MRP plans
   const aggregatedItems: AggregatedMRPItem[] = useMemo(() => {
     const itemMap = new Map<string, AggregatedMRPItem>();
 
     (Array.isArray(mrpPlans) ? mrpPlans : []).forEach((plan) => {
+      // Status check on plan level
+      if (selectedStatuses && selectedStatuses.length > 0 && !selectedStatuses.includes(plan.status)) {
+        return;
+      }
+
+      // Plan Date filter check on plan level
+      const planDateVal = plan.createdAt || plan.planDate || plan.date;
+      if (planDateFilter && planDateFilter !== 'all' && !matchDatePreset(planDateVal, planDateFilter, planStartDate, planEndDate)) {
+        return;
+      }
+
       const planFgItems = Array.isArray(plan.fgItems) ? plan.fgItems : [];
 
       planFgItems.forEach((it: any) => {
+        // Committed Date filter check on item level (or plan level fallback)
+        const committedDate = it.committedDate || it.poDeliveryDate || it.targetDate || plan.committedDate || plan.targetDate || plan.committedDeliveryDate;
+        if (commitDateFilter && commitDateFilter !== 'all' && !matchDatePreset(committedDate, commitDateFilter, commitStartDate, commitEndDate)) {
+          return;
+        }
+
         const fgObj = it.fgItem && typeof it.fgItem === 'object' ? it.fgItem : null;
         const fgId = fgObj?._id?.toString() || (typeof it.fgItem === 'string' && it.fgItem ? it.fgItem : null);
         const rawName = (it.fgItemName || fgObj?.name || it.name || it.productName || 'Finished Good').trim();
@@ -78,7 +177,6 @@ export default function MRPItemWiseView({
         const received = Number(it.receivedQuantity || it.grnQuantity || it.completedQuantity || 0);
         const balance = Math.max(0, planned - received);
 
-        const committedDate = it.committedDate || plan.committedDate || plan.committedDeliveryDate || it.poDeliveryDate;
         const targetDate = it.targetDate || plan.targetDate || plan.deliveryDate;
         const poDate = it.poDate || plan.poDate || plan.date || plan.createdAt;
 
@@ -88,7 +186,7 @@ export default function MRPItemWiseView({
           mrpNumber: plan.mrpNumber || 'MRP-N/A',
           customerName: plan.customerName || 'Internal Demand',
           customerPoNumber: plan.customerPoNumber,
-          planDate: plan.planDate || plan.date || plan.createdAt,
+          planDate: planDateVal,
           poDate,
           committedDate,
           targetDate,
@@ -132,7 +230,7 @@ export default function MRPItemWiseView({
         ? Math.min(100, Math.round((item.totalReceivedQty / item.totalPlannedQty) * 100)) 
         : 0;
       
-      // Calculate earliest committed date
+      // Calculate earliest committed date among the matching linked plans
       const committedDates = item.linkedPlans
         .map(lp => lp.committedDate)
         .filter(Boolean)
@@ -149,9 +247,9 @@ export default function MRPItemWiseView({
         earliestCommittedDate: earliestDate
       };
     });
-  }, [mrpPlans]);
+  }, [mrpPlans, selectedStatuses, planDateFilter, planStartDate, planEndDate, commitDateFilter, commitStartDate, commitEndDate]);
 
-  // Filter items by search term and status tab
+  // Filter items by search term and secondary status tab
   const filteredItems = useMemo(() => {
     return aggregatedItems.filter((item) => {
       const q = searchTerm.toLowerCase().trim();
@@ -263,17 +361,26 @@ export default function MRPItemWiseView({
       {/* Standard Table View */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
         {filteredItems.length === 0 ? (
-          <div className="text-center py-16">
+          <div className="text-center py-16 px-4">
             <Package className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600 mb-3" />
             <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Demand Items Found</h3>
-            <p className="text-xs text-slate-500 mt-1">No finished good items match the current search or status filter.</p>
+            <p className="text-xs text-slate-500 mt-1 mb-4">No finished good items match the selected status or date filters.</p>
+            {onResetFilters && isAnyFilterActive && (
+              <button
+                type="button"
+                onClick={onResetFilters}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl cursor-pointer transition-colors shadow-2xs"
+              >
+                Reset All Filters
+              </button>
+            )}
           </div>
         ) : (
           <>
             {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+            <div className="hidden md:block overflow-x-auto scroll-smooth touch-pan-x">
+              <table className="w-full min-w-[900px] text-sm text-left">
+                <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                   <tr>
                     <th className="px-4 py-3.5 text-center w-12">#</th>
                     <th className="px-4 py-3.5">Finished Good Name & Description</th>
@@ -480,6 +587,21 @@ export default function MRPItemWiseView({
 
             {/* Modal Body */}
             <div className="p-4 sm:p-6 overflow-y-auto space-y-5">
+              {/* Active Filter Notice if filters are active */}
+              {isAnyFilterActive && (
+                <div className="flex items-center gap-2 px-3.5 py-2 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/60 rounded-xl text-xs text-indigo-700 dark:text-indigo-300">
+                  <Info size={14} className="shrink-0 text-indigo-600 dark:text-indigo-400" />
+                  <span className="font-medium">
+                    Showing demand filtered by active criteria ({[
+                      selectedStatuses?.length ? `Status: ${selectedStatuses.join(', ')}` : null,
+                      planDateFilter !== 'all' ? `Plan Date: ${planDateFilter}` : null,
+                      commitDateFilter !== 'all' ? `Committed Date: ${commitDateFilter}` : null,
+                      searchTerm ? `Search: "${searchTerm}"` : null
+                    ].filter(Boolean).join(' • ')})
+                  </span>
+                </div>
+              )}
+
               {/* Item Aggregate Metric Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">

@@ -317,7 +317,12 @@ export default function MasterDetailModal({ isOpen, onClose, data, type }: Maste
                                                             <span className="text-xs text-gray-500 block">{b.itemType}</span>
                                                         </div>
                                                         <div className="text-right">
-                                                            <span className="font-bold text-gray-900">{b.quantity}</span> <span className="text-xs text-gray-500">{b.unit || 'Nos'}</span>
+                                                            <div className="font-bold text-gray-900">{b.quantity} <span className="text-xs text-gray-500 font-normal">{b.unit || 'Nos'}</span></div>
+                                                            {(b.hasSecondaryUnit || b.item?.hasSecondaryUnit) && (b.secondaryUnit || b.item?.secondaryUnit) && (
+                                                                <div className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400">
+                                                                    ↳ = {b.secondaryQuantity !== undefined && b.secondaryQuantity !== null ? b.secondaryQuantity : Number(((b.quantity || 0) * (b.conversionFactor || b.item?.conversionFactor || 1)).toFixed(4))} {b.secondaryUnit || b.item?.secondaryUnit}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 ))

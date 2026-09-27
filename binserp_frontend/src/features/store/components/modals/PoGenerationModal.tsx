@@ -42,24 +42,57 @@ export default function PoGenerationModal({
       setRemarks(quotation.termsAndConditions || '');
       setStatus("Released");
 
-      const formattedItems = (quotation.items || []).map((it: any) => ({
-        materialId: it.materialId || it.material,
-        materialName: it.materialName || 'Material Item',
-        quantity: Number(it.quantity) || 1,
-        unit: it.unit || it.uom || 'PCS',
-        rate: Number(it.unitPrice || it.rate) || 0,
-        tax: Number(it.tax) || 18,
-        amount: Number(it.total) || ((Number(it.quantity) || 1) * (Number(it.unitPrice || it.rate) || 0))
-      }));
+      const formattedItems = (quotation.items || []).map((it: any) => {
+        const qty = Number(it.quantity) || 1;
+        const rate = Number(it.unitPrice || it.rate) || 0;
+        const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+        const secUnit = hasSec ? it.secondaryUnit : '';
+        const convFactor = Number(it.conversionFactor) || 1;
+        const secQty = hasSec ? (Number(it.secondaryQuantity) || (qty * convFactor)) : undefined;
+        const rateUnit = (it.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
+        const primaryRate = Number(it.primaryRate) || (rateUnit === 'primary' ? rate : (qty > 0 && secQty ? (secQty * rate) / qty : (convFactor > 0 ? rate / convFactor : rate)));
+        const secondaryRate = Number(it.secondaryRate) || (rateUnit === 'secondary' ? rate : (qty > 0 && secQty ? (qty * rate) / secQty : (convFactor > 0 ? rate * convFactor : rate)));
+        const lineSubtotal = (rateUnit === 'secondary' && hasSec && secQty) ? (secQty * rate) : (qty * rate);
+        const taxPct = Number(it.tax) || 18;
+        const lineTotal = lineSubtotal * (1 + taxPct / 100);
+
+        return {
+          materialId: it.materialId || it.material,
+          materialName: it.materialName || 'Material Item',
+          description: it.description || '',
+          quantity: qty,
+          unit: it.unit || it.uom || 'PCS',
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: secUnit,
+          conversionFactor: convFactor,
+          secondaryQuantity: secQty,
+          rateUnit,
+          primaryRate,
+          secondaryRate,
+          rate,
+          tax: taxPct,
+          amount: lineTotal,
+          subtotal: lineSubtotal
+        };
+      });
 
       setItems(formattedItems.length > 0 ? formattedItems : [{
         materialId: '',
         materialName: 'Item',
+        description: '',
         quantity: 1,
         unit: 'PCS',
+        hasSecondaryUnit: false,
+        secondaryUnit: '',
+        conversionFactor: 1,
+        secondaryQuantity: undefined,
+        rateUnit: 'primary',
+        primaryRate: 0,
+        secondaryRate: 0,
         rate: 0,
         tax: 18,
-        amount: 0
+        amount: 0,
+        subtotal: 0
       }]);
     }
   }, [isOpen, quotation]);
@@ -68,15 +101,50 @@ export default function PoGenerationModal({
 
   const handleItemChange = (index: number, field: string, value: any) => {
     const updated = [...items];
-    updated[index] = { ...updated[index], [field]: value };
+    const current = { ...updated[index], [field]: value };
+    const hasSec = Boolean(current.hasSecondaryUnit && current.secondaryUnit);
+    const convFactor = Number(current.conversionFactor) || 1;
 
-    if (field === 'quantity' || field === 'rate' || field === 'tax') {
-      const qty = Number(updated[index].quantity) || 0;
-      const rate = Number(updated[index].rate) || 0;
-      const tax = Number(updated[index].tax) || 0;
-      updated[index].amount = (qty * rate) * (1 + tax / 100);
+    if (field === 'quantity') {
+      const qtyVal = Number(value) || 0;
+      if (hasSec && convFactor > 0 && !current.secondaryQuantity) {
+        current.secondaryQuantity = parseFloat((qtyVal * convFactor).toFixed(3));
+      }
+    } else if (field === 'secondaryQuantity') {
+      const secVal = Number(value) || 0;
+      if (hasSec && convFactor > 0 && !current.quantity) {
+        current.quantity = parseFloat((secVal / convFactor).toFixed(3));
+      }
     }
 
+    const qty = Number(current.quantity) || 0;
+    const secQty = Number(current.secondaryQuantity) || 0;
+    const rate = Number(current.rate) || 0;
+    const rateUnit = (current.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
+    const tax = Number(current.tax) || 0;
+
+    let primaryRate = Number(current.primaryRate || 0);
+    let secondaryRate = Number(current.secondaryRate || 0);
+    let lineSubtotal = 0;
+
+    if (rateUnit === 'secondary' && hasSec) {
+      secondaryRate = rate;
+      primaryRate = (qty > 0 && secQty > 0) ? ((secQty * rate) / qty) : (convFactor > 0 ? rate / convFactor : rate);
+      const activeQty = secQty > 0 ? secQty : (qty * convFactor);
+      lineSubtotal = activeQty * rate;
+    } else {
+      primaryRate = rate;
+      secondaryRate = (qty > 0 && secQty > 0) ? ((qty * rate) / secQty) : (convFactor > 0 ? rate * convFactor : rate);
+      lineSubtotal = qty * rate;
+    }
+
+    current.rateUnit = rateUnit;
+    current.primaryRate = primaryRate;
+    current.secondaryRate = secondaryRate;
+    current.subtotal = lineSubtotal;
+    current.amount = lineSubtotal * (1 + tax / 100);
+
+    updated[index] = current;
     setItems(updated);
   };
 
@@ -84,11 +152,20 @@ export default function PoGenerationModal({
     setItems([...items, {
       materialId: '',
       materialName: 'Custom Material',
+      description: '',
       quantity: 1,
       unit: 'PCS',
+      hasSecondaryUnit: false,
+      secondaryUnit: '',
+      conversionFactor: 1,
+      secondaryQuantity: undefined,
+      rateUnit: 'primary',
+      primaryRate: 0,
+      secondaryRate: 0,
       rate: 0,
       tax: 18,
-      amount: 0
+      amount: 0,
+      subtotal: 0
     }]);
   };
 
@@ -97,8 +174,8 @@ export default function PoGenerationModal({
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const subtotal = items.reduce((acc, item) => acc + ((Number(item.quantity) || 0) * (Number(item.rate) || 0)), 0);
-  const totalTax = items.reduce((acc, item) => acc + (((Number(item.quantity) || 0) * (Number(item.rate) || 0)) * ((Number(item.tax) || 0) / 100)), 0);
+  const subtotal = items.reduce((acc, item) => acc + (Number(item.subtotal || ((Number(item.quantity) || 0) * (Number(item.rate) || 0)))), 0);
+  const totalTax = items.reduce((acc, item) => acc + ((Number(item.subtotal || ((Number(item.quantity) || 0) * (Number(item.rate) || 0)))) * ((Number(item.tax) || 0) / 100)), 0);
   const grandTotal = subtotal + totalTax;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -117,10 +194,18 @@ export default function PoGenerationModal({
       items: items.map(it => ({
         material: it.materialId || undefined,
         materialName: it.materialName,
+        description: it.description || '',
         quantity: Number(it.quantity) || 1,
         unit: it.unit || 'PCS',
+        hasSecondaryUnit: Boolean(it.hasSecondaryUnit && it.secondaryUnit),
+        secondaryUnit: it.secondaryUnit || '',
+        conversionFactor: Number(it.conversionFactor) || 1,
+        secondaryQuantity: it.hasSecondaryUnit ? Number(it.secondaryQuantity || 0) : undefined,
+        rateUnit: (it.rateUnit === 'secondary' && it.hasSecondaryUnit) ? 'secondary' : 'primary',
+        primaryRate: Number(it.primaryRate) || Number(it.rate),
+        secondaryRate: Number(it.secondaryRate) || Number(it.rate),
         rate: Number(it.rate) || 0,
-        amount: Number(it.amount) || ((Number(it.quantity) || 1) * (Number(it.rate) || 0))
+        amount: Number(it.subtotal || it.amount) || ((Number(it.quantity) || 1) * (Number(it.rate) || 0))
       })),
       totalAmount: grandTotal
     };
@@ -248,6 +333,9 @@ export default function PoGenerationModal({
                           onChange={(e) => handleItemChange(idx, 'materialName', e.target.value)}
                           className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-slate-900 dark:text-white"
                         />
+                        {item.description && (
+                          <div className="text-[10px] text-slate-400 italic mt-0.5">{item.description}</div>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <input
@@ -258,6 +346,20 @@ export default function PoGenerationModal({
                           onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
                           className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-bold"
                         />
+                        {item.hasSecondaryUnit && item.secondaryUnit && (
+                          <div className="mt-1 flex items-center gap-1 text-[10px]">
+                            <input
+                              type="number"
+                              step="any"
+                              value={item.secondaryQuantity || ''}
+                              onChange={(e) => handleItemChange(idx, 'secondaryQuantity', e.target.value)}
+                              placeholder="Sec"
+                              className="w-full px-1 py-0.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded text-center font-mono font-bold text-indigo-900 dark:text-indigo-200"
+                              title={`Secondary Quantity in ${item.secondaryUnit}`}
+                            />
+                            <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0">{item.secondaryUnit}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <input
@@ -266,16 +368,46 @@ export default function PoGenerationModal({
                           onChange={(e) => handleItemChange(idx, 'unit', e.target.value)}
                           className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-center"
                         />
+                        {item.hasSecondaryUnit && item.secondaryUnit && (
+                          <div className="text-[9px] text-indigo-500 font-semibold text-center mt-1">
+                            Sec: {item.secondaryUnit}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={item.rate}
-                          onChange={(e) => handleItemChange(idx, 'rate', e.target.value)}
-                          className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right font-bold"
-                        />
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={item.rate}
+                            onChange={(e) => handleItemChange(idx, 'rate', e.target.value)}
+                            className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right font-bold"
+                          />
+                          {item.hasSecondaryUnit && item.secondaryUnit ? (
+                            <button
+                              type="button"
+                              onClick={() => handleItemChange(idx, 'rateUnit', item.rateUnit === 'secondary' ? 'primary' : 'secondary')}
+                              className={`px-1.5 py-1 rounded text-[10px] font-bold border transition-colors cursor-pointer shrink-0 ${
+                                item.rateUnit === 'secondary'
+                                  ? 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300'
+                                  : 'bg-cyan-100 text-cyan-800 border-cyan-300 dark:bg-cyan-950 dark:text-cyan-300'
+                              }`}
+                              title="Toggle Rate Unit between Primary and Secondary"
+                            >
+                              /{item.rateUnit === 'secondary' ? item.secondaryUnit : item.unit}
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 font-bold shrink-0">/{item.unit}</span>
+                          )}
+                        </div>
+                        {item.hasSecondaryUnit && item.secondaryUnit && Number(item.rate) > 0 && (
+                          <div className="text-[9px] text-slate-400 font-mono text-right italic mt-0.5">
+                            {item.rateUnit === 'secondary'
+                              ? `≈ ₹${Number(item.primaryRate || 0).toFixed(2)}/${item.unit}`
+                              : `≈ ₹${Number(item.secondaryRate || 0).toFixed(2)}/${item.secondaryUnit}`}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <input

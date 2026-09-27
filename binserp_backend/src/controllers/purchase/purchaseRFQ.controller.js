@@ -27,6 +27,49 @@ export const createPurchaseRFQ = asyncHandler(async (req, res) => {
     throw new ApiError(400, "RFQ with this number already exists");
   }
 
+  const processedItems = Array.isArray(items) ? items.map(it => {
+    const qty = Number(it.quantity || 0);
+    const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+    const secUnit = hasSec ? String(it.secondaryUnit).trim() : '';
+    const convFactor = Number(it.conversionFactor) || 1;
+    const secQty = hasSec ? Number(it.secondaryQuantity || (qty * convFactor)) : undefined;
+    const rateUnit = (it.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
+    const enteredTarget = Number(it.targetPrice || 0);
+
+    let primaryTarget = Number(it.primaryTargetPrice || 0);
+    let secondaryTarget = Number(it.secondaryTargetPrice || 0);
+
+    if (enteredTarget > 0) {
+      if (rateUnit === 'secondary' && hasSec && (secQty > 0 || convFactor > 0)) {
+        secondaryTarget = enteredTarget;
+        primaryTarget = qty > 0 && secQty > 0 
+          ? Math.round(((secQty * enteredTarget) / qty) * 1000) / 1000 
+          : (convFactor > 0 ? Math.round((enteredTarget / convFactor) * 1000) / 1000 : enteredTarget);
+      } else {
+        primaryTarget = enteredTarget;
+        if (hasSec) {
+          secondaryTarget = qty > 0 && secQty > 0 
+            ? Math.round(((qty * enteredTarget) / secQty) * 1000) / 1000 
+            : (convFactor > 0 ? Math.round((enteredTarget * convFactor) * 1000) / 1000 : enteredTarget);
+        }
+      }
+    }
+
+    return {
+      ...it,
+      quantity: qty,
+      unit: it.unit || 'PCS',
+      hasSecondaryUnit: hasSec,
+      secondaryUnit: secUnit,
+      conversionFactor: convFactor,
+      secondaryQuantity: secQty,
+      rateUnit,
+      targetPrice: enteredTarget,
+      primaryTargetPrice: primaryTarget,
+      secondaryTargetPrice: secondaryTarget,
+    };
+  }) : [];
+
   const newRFQ = await PurchaseRFQ.create({
     company: companyId,
     rfqNumber,
@@ -36,7 +79,7 @@ export const createPurchaseRFQ = asyncHandler(async (req, res) => {
     vendorEmail,
     vendorPhone,
     vendorIds: Array.isArray(vendorIds) ? vendorIds : [],
-    items: Array.isArray(items) ? items : [],
+    items: processedItems,
     remarks,
     status: "Sent",
     createdBy: userId,
@@ -181,6 +224,51 @@ export const updatePurchaseRFQ = asyncHandler(async (req, res) => {
   }
 
   const updatePayload = { ...req.body, updatedBy: userId };
+
+  if (Array.isArray(updatePayload.items)) {
+    updatePayload.items = updatePayload.items.map((it) => {
+      const qty = Number(it.quantity || 0);
+      const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+      const secUnit = hasSec ? String(it.secondaryUnit).trim() : '';
+      const convFactor = Number(it.conversionFactor) || 1;
+      const secQty = hasSec ? Number(it.secondaryQuantity || (qty * convFactor)) : undefined;
+      const rateUnit = (it.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
+      const enteredTarget = Number(it.targetPrice || 0);
+
+      let primaryTarget = Number(it.primaryTargetPrice || 0);
+      let secondaryTarget = Number(it.secondaryTargetPrice || 0);
+
+      if (enteredTarget > 0) {
+        if (rateUnit === 'secondary' && hasSec && (secQty > 0 || convFactor > 0)) {
+          secondaryTarget = enteredTarget;
+          primaryTarget = qty > 0 && secQty > 0 
+            ? Math.round(((secQty * enteredTarget) / qty) * 1000) / 1000 
+            : (convFactor > 0 ? Math.round((enteredTarget / convFactor) * 1000) / 1000 : enteredTarget);
+        } else {
+          primaryTarget = enteredTarget;
+          if (hasSec) {
+            secondaryTarget = qty > 0 && secQty > 0 
+              ? Math.round(((qty * enteredTarget) / secQty) * 1000) / 1000 
+              : (convFactor > 0 ? Math.round((enteredTarget * convFactor) * 1000) / 1000 : enteredTarget);
+          }
+        }
+      }
+
+      return {
+        ...it,
+        quantity: qty,
+        unit: it.unit || 'PCS',
+        hasSecondaryUnit: hasSec,
+        secondaryUnit: secUnit,
+        conversionFactor: convFactor,
+        secondaryQuantity: secQty,
+        rateUnit,
+        targetPrice: enteredTarget,
+        primaryTargetPrice: primaryTarget,
+        secondaryTargetPrice: secondaryTarget,
+      };
+    });
+  }
 
   // Track status change audit history
   if (req.body.status && req.body.status !== existingRFQ.status) {

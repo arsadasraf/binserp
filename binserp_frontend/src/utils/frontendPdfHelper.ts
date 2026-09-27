@@ -490,16 +490,30 @@ export const generateFrontendRfqPDF = (data: { rfq: any; vendor?: any; companyIn
         items.forEach((item: any, idx: number) => {
             const qty = Number(item.quantity || 0);
             totalQty += qty;
+            const hasSec = Boolean(item.hasSecondaryUnit);
+            const secQty = Number(item.secondaryQuantity || 0);
+            const secUnit = item.secondaryUnit || '';
+            const rateUnit = item.rateUnit || 'primary';
+            const unitLabel = item.unit || item.uom || 'PCS';
+
+            const qtyHtml = `${qty} ${unitLabel}${hasSec && secQty ? `<br><span style="font-size: 8.5px; color: #0284c7; font-weight: normal;">(${secQty} ${secUnit})</span>` : ''}`;
+
+            const targetPriceHtml = item.targetPrice 
+                ? `<div style="font-size: 8.5px; color: #0369a1; font-weight: bold; margin-top: 2px;">Target: ₹${Number(item.targetPrice).toLocaleString(undefined, { minimumFractionDigits: 2 })} / ${rateUnit === 'secondary' && secUnit ? secUnit : unitLabel}</div>`
+                : '';
 
             itemsTableRowsHtml += `
                 <tr>
                     <td style="text-align: center; padding: 6px;">${idx + 1}</td>
                     <td style="text-align: left; font-weight: bold; padding: 6px;">
                         ${item.materialName || item.itemName || ''}
-                        ${item.description ? `<div style="font-size: 9px; color: #475569; font-weight: normal;">${item.description}</div>` : ''}
+                        ${item.description ? `<div style="font-size: 9px; color: #475569; font-weight: normal; font-style: italic;">${item.description}</div>` : ''}
                     </td>
-                    <td style="text-align: center; font-weight: bold; padding: 6px;">${qty} ${item.unit || item.uom || 'PCS'}</td>
-                    <td style="text-align: left; padding: 6px;">${item.remarks || ''}</td>
+                    <td style="text-align: center; font-weight: bold; padding: 6px;">${qtyHtml}</td>
+                    <td style="text-align: left; padding: 6px;">
+                        ${item.remarks || ''}
+                        ${targetPriceHtml}
+                    </td>
                     <td style="text-align: center; padding: 6px; border-left: 2px solid #0284c7; background: #fafafa;">&nbsp;</td>
                 </tr>
             `;
@@ -1197,18 +1211,41 @@ export const generateFrontendVendorQuotationPDF = (data: { quotation: any; vendo
             const qty = Number(item.quantity || 0);
             const rate = Number(item.unitPrice || 0);
             const tax = Number(item.tax || 0);
-            const lineTotal = item.total ? Number(item.total) : (qty * rate * (1 + tax / 100));
+            const hasSec = Boolean(item.hasSecondaryUnit);
+            const secQty = Number(item.secondaryQuantity || 0);
+            const secUnit = item.secondaryUnit || '';
+            const rateUnit = item.rateUnit || 'primary';
+            const unitLabel = item.unit || item.uom || 'PCS';
+            const isSecRate = rateUnit === 'secondary' && hasSec;
+
+            const lineSub = isSecRate ? (secQty * rate) : (qty * rate);
+            const lineTotal = item.total ? Number(item.total) : (lineSub * (1 + tax / 100));
 
             totalQty += qty;
+
+            const qtyHtml = `${qty} ${unitLabel}${hasSec && secQty ? `<br><span style="font-size: 8.5px; color: #0891b2; font-weight: normal;">(${secQty} ${secUnit})</span>` : ''}`;
+
+            const activeRateUnit = isSecRate && secUnit ? secUnit : unitLabel;
+            const reciprocalText = isSecRate && item.primaryRate
+                ? `<br><span style="font-size: 8px; color: #64748b; font-weight: normal;">(~₹${Number(item.primaryRate).toFixed(2)} / ${unitLabel})</span>`
+                : (!isSecRate && hasSec && item.secondaryRate
+                    ? `<br><span style="font-size: 8px; color: #64748b; font-weight: normal;">(~₹${Number(item.secondaryRate).toFixed(2)} / ${secUnit})</span>`
+                    : '');
 
             itemsTableRowsHtml += `
                 <tr>
                     <td style="text-align: center; padding: 6px;">${idx + 1}</td>
-                    <td style="text-align: left; font-weight: bold; padding: 6px;">${item.materialName || item.itemName || ''}</td>
-                    <td style="text-align: center; font-weight: bold; padding: 6px;">${qty} ${item.unit || item.uom || 'PCS'}</td>
-                    <td style="text-align: right; padding: 6px; font-weight: bold;">₹${rate.toLocaleString()}</td>
+                    <td style="text-align: left; font-weight: bold; padding: 6px;">
+                        ${item.materialName || item.itemName || ''}
+                        ${item.description ? `<div style="font-size: 9px; color: #475569; font-weight: normal; font-style: italic;">${item.description}</div>` : ''}
+                    </td>
+                    <td style="text-align: center; font-weight: bold; padding: 6px;">${qtyHtml}</td>
+                    <td style="text-align: right; padding: 6px; font-weight: bold;">
+                        ₹${rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${activeRateUnit}
+                        ${reciprocalText}
+                    </td>
                     <td style="text-align: center; padding: 6px;">${tax > 0 ? tax + '%' : '-'}</td>
-                    <td style="text-align: right; padding: 6px; font-weight: 800; color: #0f172a;">₹${lineTotal.toLocaleString()}</td>
+                    <td style="text-align: right; padding: 6px; font-weight: 800; color: #0f172a;">₹${lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
             `;
         });
@@ -1474,7 +1511,16 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
     items.forEach((item: any, idx: number) => {
         const qty = Number(item.quantity || 1);
         const rate = Number(item.rate || item.unitPrice || 0);
-        const lineNet = qty * rate; // Actual amount without tax
+        const hasSec = Boolean(item.hasSecondaryUnit);
+        const secQty = Number(item.secondaryQuantity || 0);
+        const secUnit = item.secondaryUnit || '';
+        const rateUnit = item.rateUnit || 'primary';
+        const unitLabel = item.unit || item.uom || 'PCS';
+        const isSecRate = rateUnit === 'secondary' && hasSec;
+
+        const lineNet = isSecRate 
+            ? (secQty * rate) 
+            : (item.amount != null ? Number(item.amount) : (qty * rate));
         const rawItemDesc = item.description || item.itemDescription || item.remarks || item.specifications || item.material?.description || (idx === 0 ? (po.description || po.remarks) : '') || '';
         let itemDesc = rawItemDesc;
         if (itemDesc && resolvedMrp) {
@@ -1487,6 +1533,14 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
 
         itemsSubtotal += lineNet;
 
+        const qtyHtml = `${qty} ${unitLabel}${hasSec && secQty ? `<br><span style="font-size: 8.5px; color: #4338ca; font-weight: normal;">(${secQty} ${secUnit})</span>` : ''}`;
+        const activeRateUnit = isSecRate && secUnit ? secUnit : unitLabel;
+        const reciprocalText = isSecRate && item.primaryRate
+            ? `<br><span style="font-size: 8px; color: #64748b; font-weight: normal;">(~₹${Number(item.primaryRate).toFixed(2)} / ${unitLabel})</span>`
+            : (!isSecRate && hasSec && item.secondaryRate
+                ? `<br><span style="font-size: 8px; color: #64748b; font-weight: normal;">(~₹${Number(item.secondaryRate).toFixed(2)} / ${secUnit})</span>`
+                : '');
+
         itemsTableRowsHtml += `
             <tr>
                 <td style="text-align: center; padding: 7px 4px; vertical-align: top;">${idx + 1}</td>
@@ -1498,8 +1552,11 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                 </td>
                 <td style="text-align: center; font-family: monospace; padding: 7px 4px; vertical-align: top; color: #475569;">${itemHsn}</td>
                 <td style="text-align: center; font-weight: bold; color: #7c2d12; padding: 7px 4px; vertical-align: top;">${pieceCount > 0 ? `${pieceCount} Pcs` : '-'}</td>
-                <td style="text-align: center; font-weight: bold; padding: 7px 4px; vertical-align: top;">${qty} ${item.unit || item.uom || 'PCS'}</td>
-                <td style="text-align: right; padding: 7px 8px; font-weight: bold; vertical-align: top;">₹${rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td style="text-align: center; font-weight: bold; padding: 7px 4px; vertical-align: top;">${qtyHtml}</td>
+                <td style="text-align: right; padding: 7px 8px; font-weight: bold; vertical-align: top;">
+                    ₹${rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${activeRateUnit}
+                    ${reciprocalText}
+                </td>
                 <td style="text-align: right; padding: 7px 8px; font-weight: 800; color: #0f172a; vertical-align: top;">₹${lineNet.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             </tr>
         `;

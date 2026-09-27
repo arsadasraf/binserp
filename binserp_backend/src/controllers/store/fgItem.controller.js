@@ -69,7 +69,15 @@ export const createFGItem = async (req, res) => {
         item: b.item,
         itemName: b.itemName || '',
         quantity: Number(b.quantity) || 1,
-        unit: b.unit || 'Nos'
+        unit: b.unit || 'Nos',
+        hasSecondaryUnit: Boolean(b.hasSecondaryUnit),
+        secondaryUnit: (b.secondaryUnit || '').toString().trim(),
+        conversionFactor: Number(b.conversionFactor) || 1,
+        secondaryQuantity: b.secondaryQuantity !== undefined ? Number(b.secondaryQuantity) : undefined,
+        selectedUnit: b.selectedUnit || b.unit || 'Nos',
+        inputQuantity: b.inputQuantity !== undefined ? Number(b.inputQuantity) : (Number(b.quantity) || 1),
+        fgType: b.fgType,
+        itemClassification: b.itemClassification
       }));
     }
 
@@ -147,7 +155,7 @@ export const getAllFGItems = async (req, res) => {
       .populate('location', 'name')
       .populate('category', 'name code unit')
       .populate('categoryId', 'name code unit')
-      .populate('bom.item', 'name componentName code componentCode unit rate descriptions description type') 
+      .populate('bom.item', 'name componentName code componentCode unit rate descriptions description type hasSecondaryUnit secondaryUnit conversionFactor') 
       .sort({ createdAt: -1 })
       .lean();
 
@@ -316,7 +324,15 @@ export const updateFGItem = async (req, res) => {
         item: b.item,
         itemName: b.itemName || '',
         quantity: Number(b.quantity) || 1,
-        unit: b.unit || 'Nos'
+        unit: b.unit || 'Nos',
+        hasSecondaryUnit: Boolean(b.hasSecondaryUnit),
+        secondaryUnit: (b.secondaryUnit || '').toString().trim(),
+        conversionFactor: Number(b.conversionFactor) || 1,
+        secondaryQuantity: b.secondaryQuantity !== undefined ? Number(b.secondaryQuantity) : undefined,
+        selectedUnit: b.selectedUnit || b.unit || 'Nos',
+        inputQuantity: b.inputQuantity !== undefined ? Number(b.inputQuantity) : (Number(b.quantity) || 1),
+        fgType: b.fgType,
+        itemClassification: b.itemClassification
       }));
     }
     

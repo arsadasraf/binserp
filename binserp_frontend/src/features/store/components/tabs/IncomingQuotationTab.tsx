@@ -183,9 +183,23 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
             const itemType = it.itemType || foundMaster?._itemType || 'rm';
             const unit = it.unit || it.uom || foundMaster?.unit || foundMaster?.uom || (typeof foundMaster?.category === 'object' ? foundMaster?.category?.unit : '') || 'PCS';
             const qty = Number(it.quantity) || 1;
+            const hasSecondaryUnit = Boolean(it.hasSecondaryUnit ?? foundMaster?.hasSecondaryUnit);
+            const secondaryUnit = it.secondaryUnit || foundMaster?.secondaryUnit || '';
+            const conversionFactor = Number(it.conversionFactor ?? foundMaster?.conversionFactor ?? 1);
+            const secondaryQuantity = Number(it.secondaryQuantity || 0) || (hasSecondaryUnit && conversionFactor > 0 ? Number((qty / conversionFactor).toFixed(4)) : 0);
+            const rateUnit = (it.rateUnit === 'secondary' && secondaryUnit) ? 'secondary' : 'primary';
+
             const rate = Number(it.targetPrice ?? it.unitPrice ?? foundMaster?.standardCost ?? foundMaster?.rate ?? 0);
             const taxPct = 18;
-            const total = (qty * rate) * (1 + taxPct / 100);
+            const lineSub = rateUnit === 'secondary' && hasSecondaryUnit ? (secondaryQuantity * rate) : (qty * rate);
+            const total = lineSub * (1 + taxPct / 100);
+
+            const primaryRate = rateUnit === 'secondary' && hasSecondaryUnit
+                ? (qty > 0 ? Number((lineSub / qty).toFixed(4)) : (conversionFactor > 0 ? Number((rate / conversionFactor).toFixed(4)) : rate))
+                : rate;
+            const secondaryRate = rateUnit === 'secondary' && hasSecondaryUnit
+                ? rate
+                : (secondaryQuantity > 0 ? Number((lineSub / secondaryQuantity).toFixed(4)) : Number((rate * conversionFactor).toFixed(4)));
 
             return {
                 fromRfq: true,
@@ -195,6 +209,13 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                 itemType,
                 quantity: qty,
                 unit,
+                hasSecondaryUnit,
+                secondaryUnit,
+                conversionFactor,
+                secondaryQuantity,
+                rateUnit,
+                primaryRate,
+                secondaryRate,
                 unitPrice: rate,
                 tax: taxPct,
                 total,
@@ -202,8 +223,16 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
             };
         });
 
-        const sub = autoItems.reduce((acc: number, cur: any) => acc + (cur.quantity * cur.unitPrice), 0);
-        const tax = autoItems.reduce((acc: number, cur: any) => acc + (cur.quantity * cur.unitPrice * ((Number(cur.tax) || 0) / 100)), 0);
+        let sub = 0;
+        let tax = 0;
+        autoItems.forEach((it: any) => {
+            const lineSub = it.rateUnit === 'secondary' && it.hasSecondaryUnit
+                ? (Number(it.secondaryQuantity) || 0) * (Number(it.unitPrice) || 0)
+                : (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
+            const lineTax = lineSub * ((Number(it.tax) || 0) / 100);
+            sub += lineSub;
+            tax += lineTax;
+        });
 
         setNewQuote(prev => ({
             ...prev,
@@ -246,6 +275,13 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                 description: '',
                 quantity: 1,
                 unit: 'PCS',
+                hasSecondaryUnit: false,
+                secondaryUnit: '',
+                conversionFactor: 1,
+                secondaryQuantity: 0,
+                rateUnit: 'primary',
+                primaryRate: 0,
+                secondaryRate: 0,
                 unitPrice: 0,
                 tax: 18,
                 total: 0,
@@ -260,7 +296,9 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
             let sub = 0;
             let tax = 0;
             updated.forEach((it: any) => {
-                const lineSub = (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
+                const lineSub = it.rateUnit === 'secondary' && it.hasSecondaryUnit
+                    ? (Number(it.secondaryQuantity) || 0) * (Number(it.unitPrice) || 0)
+                    : (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
                 const lineTax = lineSub * ((Number(it.tax) || 0) / 100);
                 sub += lineSub;
                 tax += lineTax;
@@ -284,6 +322,13 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
             materialName: '',
             description: '',
             unit: 'PCS',
+            hasSecondaryUnit: false,
+            secondaryUnit: '',
+            conversionFactor: 1,
+            secondaryQuantity: 0,
+            rateUnit: 'primary',
+            primaryRate: 0,
+            secondaryRate: 0,
             unitPrice: 0,
             total: 0
         };
@@ -303,9 +348,23 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
         const autoUnit = found?.unit || found?.uom || (typeof found?.category === 'object' ? found?.category?.unit : '') || 'PCS';
         const autoRate = updatedItems[index].unitPrice || Number(found?.standardCost || found?.rate || 0);
 
+        const hasSec = Boolean(found?.hasSecondaryUnit);
+        const secUnit = found?.secondaryUnit || '';
+        const convFactor = Number(found?.conversionFactor) || 1;
         const qty = Number(updatedItems[index].quantity) || 1;
+        const secQty = hasSec && convFactor > 0 ? Number((qty / convFactor).toFixed(4)) : (Number(updatedItems[index].secondaryQuantity) || 0);
+        const rateUnit = (updatedItems[index].rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
         const taxPct = Number(updatedItems[index].tax) || 18;
-        const lineTotal = (qty * autoRate) * (1 + taxPct / 100);
+
+        const lineSub = rateUnit === 'secondary' && hasSec ? (secQty * autoRate) : (qty * autoRate);
+        const lineTotal = lineSub * (1 + taxPct / 100);
+
+        const primaryRate = rateUnit === 'secondary' && hasSec
+            ? (qty > 0 ? Number((lineSub / qty).toFixed(4)) : (convFactor > 0 ? Number((autoRate / convFactor).toFixed(4)) : autoRate))
+            : autoRate;
+        const secondaryRate = rateUnit === 'secondary' && hasSec
+            ? autoRate
+            : (secQty > 0 ? Number((lineSub / secQty).toFixed(4)) : Number((autoRate * convFactor).toFixed(4)));
 
         updatedItems[index] = {
             ...updatedItems[index],
@@ -313,6 +372,13 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
             materialName: autoName,
             description: autoDesc,
             unit: autoUnit,
+            hasSecondaryUnit: hasSec,
+            secondaryUnit: secUnit,
+            conversionFactor: convFactor,
+            secondaryQuantity: secQty,
+            rateUnit,
+            primaryRate,
+            secondaryRate,
             unitPrice: autoRate,
             total: lineTotal
         };
@@ -320,10 +386,12 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
         let sub = 0;
         let tax = 0;
         updatedItems.forEach((it: any) => {
-            const lineSub = (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
-            const lineTax = lineSub * ((Number(it.tax) || 0) / 100);
-            sub += lineSub;
-            tax += lineTax;
+            const lSub = it.rateUnit === 'secondary' && it.hasSecondaryUnit
+                ? (Number(it.secondaryQuantity) || 0) * (Number(it.unitPrice) || 0)
+                : (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
+            const lTax = lSub * ((Number(it.tax) || 0) / 100);
+            sub += lSub;
+            tax += lTax;
         });
 
         setNewQuote(prev => ({
@@ -337,21 +405,59 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
 
     const handleItemPriceChange = (index: number, field: string, value: any) => {
         const updatedItems = [...newQuote.items];
-        updatedItems[index] = { ...updatedItems[index], [field]: field === 'quantity' || field === 'unitPrice' || field === 'tax' ? (parseFloat(value) || 0) : value };
+        const curItem = { ...updatedItems[index] };
 
-        const qty = Number(updatedItems[index].quantity) || 0;
-        const rate = Number(updatedItems[index].unitPrice) || 0;
-        const taxPct = Number(updatedItems[index].tax) || 0;
-        const total = (qty * rate) * (1 + taxPct / 100);
-        updatedItems[index].total = total;
+        if (field === 'rateUnit') {
+            curItem.rateUnit = value;
+        } else if (field === 'quantity') {
+            const num = parseFloat(value) || 0;
+            curItem.quantity = num;
+            if (curItem.hasSecondaryUnit && Number(curItem.conversionFactor) > 0) {
+                curItem.secondaryQuantity = Number((num / Number(curItem.conversionFactor)).toFixed(4));
+            }
+        } else if (field === 'secondaryQuantity') {
+            const num = parseFloat(value) || 0;
+            curItem.secondaryQuantity = num;
+            if (curItem.hasSecondaryUnit && Number(curItem.conversionFactor) > 0) {
+                curItem.quantity = Number((num * Number(curItem.conversionFactor)).toFixed(4));
+            }
+        } else if (field === 'unitPrice' || field === 'tax') {
+            curItem[field] = parseFloat(value) || 0;
+        } else {
+            curItem[field] = value;
+        }
+
+        const qty = Number(curItem.quantity) || 0;
+        const secQty = Number(curItem.secondaryQuantity) || 0;
+        const rate = Number(curItem.unitPrice) || 0;
+        const taxPct = Number(curItem.tax) || 0;
+        const conv = Number(curItem.conversionFactor) || 1;
+        const isSec = curItem.rateUnit === 'secondary' && Boolean(curItem.hasSecondaryUnit);
+
+        const lineSub = isSec ? (secQty * rate) : (qty * rate);
+        const lineTax = lineSub * (taxPct / 100);
+        curItem.total = lineSub + lineTax;
+
+        if (isSec) {
+            curItem.secondaryRate = rate;
+            curItem.primaryRate = qty > 0 ? Number((lineSub / qty).toFixed(4)) : (conv > 0 ? Number((rate / conv).toFixed(4)) : rate);
+        } else {
+            curItem.primaryRate = rate;
+            curItem.secondaryRate = secQty > 0 ? Number((lineSub / secQty).toFixed(4)) : Number((rate * conv).toFixed(4));
+        }
+
+        updatedItems[index] = curItem;
 
         let sub = 0;
         let tax = 0;
         updatedItems.forEach((it: any) => {
-            const lineSub = (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
-            const lineTax = lineSub * ((Number(it.tax) || 0) / 100);
-            sub += lineSub;
-            tax += lineTax;
+            const q = Number(it.quantity) || 0;
+            const sq = Number(it.secondaryQuantity) || 0;
+            const r = Number(it.unitPrice) || 0;
+            const lSub = it.rateUnit === 'secondary' && it.hasSecondaryUnit ? (sq * r) : (q * r);
+            const lTax = lSub * ((Number(it.tax) || 0) / 100);
+            sub += lSub;
+            tax += lTax;
         });
 
         setNewQuote(prev => ({
@@ -852,7 +958,7 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                                             </div>
                                                             <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-3 border border-slate-100 dark:border-slate-800 space-y-1.5 max-h-48 overflow-y-auto">
                                                                 {(quote.items || []).map((it: any, idx: number) => (
-                                                                    <div key={idx} className="flex justify-between items-center text-xs py-1 border-b border-slate-100 dark:border-slate-800/60 last:border-0">
+                                                                    <div key={idx} className="flex justify-between items-center text-xs py-1.5 border-b border-slate-100 dark:border-slate-800/60 last:border-0">
                                                                         <div className="truncate max-w-[190px]">
                                                                             <ItemNameAndDescription
                                                                                 name={it.materialName || 'Material'}
@@ -860,10 +966,28 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                                                                 nameClassName="font-bold text-slate-800 dark:text-slate-200 text-xs truncate block"
                                                                                 descClassName="text-[10px] text-slate-500 dark:text-slate-400 italic truncate block"
                                                                             />
+                                                                            <div className="text-[10px] text-slate-400 mt-0.5">
+                                                                                Qty: <span className="font-semibold text-slate-700 dark:text-slate-300">{it.quantity} {it.unit || 'PCS'}</span>
+                                                                                {it.hasSecondaryUnit && it.secondaryQuantity ? (
+                                                                                    <span className="text-cyan-600 dark:text-cyan-400 ml-1">({it.secondaryQuantity} {it.secondaryUnit})</span>
+                                                                                ) : null}
+                                                                            </div>
                                                                         </div>
-                                                                        <span className="font-bold text-slate-900 dark:text-white font-mono shrink-0 ml-2">
-                                                                            ₹{Number(it.unitPrice || 0).toLocaleString()} <span className="text-[10px] text-slate-400">/{it.unit || 'PCS'}</span>
-                                                                        </span>
+                                                                        <div className="text-right shrink-0 ml-2">
+                                                                            <div className="font-bold text-slate-900 dark:text-white font-mono">
+                                                                                ₹{Number(it.unitPrice || 0).toLocaleString()} <span className="text-[10px] text-slate-400">/{it.rateUnit === 'secondary' && it.secondaryUnit ? it.secondaryUnit : (it.unit || 'PCS')}</span>
+                                                                            </div>
+                                                                            {it.hasSecondaryUnit && (
+                                                                                <div className="text-[9.5px] text-slate-500 font-mono">
+                                                                                    {it.rateUnit === 'secondary' && it.primaryRate
+                                                                                        ? `(~₹${Number(it.primaryRate).toFixed(2)}/${it.unit || 'PCS'})`
+                                                                                        : it.secondaryRate
+                                                                                            ? `(~₹${Number(it.secondaryRate).toFixed(2)}/${it.secondaryUnit})`
+                                                                                            : null
+                                                                                    }
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                 ))}
                                                             </div>
@@ -1002,11 +1126,10 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                     <table className="w-full text-xs text-left">
                                         <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-700">
                                             <tr>
-                                                <th className="px-3 py-3 w-28">Category</th>
+                                                <th className="px-3 py-3 w-24">Category</th>
                                                 <th className="px-3 py-3 min-w-[200px]">Material Item</th>
-                                                <th className="px-3 py-3 text-center w-24">Req Qty</th>
-                                                <th className="px-3 py-3 text-center w-20">Unit</th>
-                                                <th className="px-3 py-3 text-right w-32">Unit Rate (₹)</th>
+                                                <th className="px-3 py-3 text-center w-36">Req Qty & Unit</th>
+                                                <th className="px-3 py-3 text-right w-44">Quoted Rate</th>
                                                 <th className="px-3 py-3 text-center w-20">GST %</th>
                                                 <th className="px-3 py-3 text-right w-28">Total (₹)</th>
                                                 <th className="px-2 py-3 text-center w-10"></th>
@@ -1059,33 +1182,83 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                                             )}
                                                         </td>
 
-                                                        {/* Qty */}
-                                                        <td className="px-2 py-2 text-center">
-                                                            <input
-                                                                type="number"
-                                                                min="1"
-                                                                value={item.quantity || ''}
-                                                                onChange={(e) => handleItemPriceChange(idx, 'quantity', e.target.value)}
-                                                                className="w-full px-1.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-center"
-                                                            />
-                                                        </td>
-
-                                                        {/* Unit */}
-                                                        <td className="px-2 py-2 text-center font-bold text-slate-600 dark:text-slate-300">
-                                                            {item.unit || 'PCS'}
-                                                        </td>
-
-                                                        {/* Rate */}
+                                                        {/* Qty & Units */}
                                                         <td className="px-2 py-2">
-                                                            <input
-                                                                type="number"
-                                                                min="0"
-                                                                step="any"
-                                                                value={item.unitPrice || ''}
-                                                                onChange={(e) => handleItemPriceChange(idx, 'unitPrice', e.target.value)}
-                                                                placeholder="0.00"
-                                                                className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-right"
-                                                            />
+                                                            <div className="space-y-1">
+                                                                <div className="flex items-center gap-1">
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0.001"
+                                                                        step="any"
+                                                                        value={item.quantity || ''}
+                                                                        onChange={(e) => handleItemPriceChange(idx, 'quantity', e.target.value)}
+                                                                        placeholder="Qty"
+                                                                        className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-center text-xs"
+                                                                    />
+                                                                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded shrink-0">
+                                                                        {item.unit || 'PCS'}
+                                                                    </span>
+                                                                </div>
+                                                                {item.hasSecondaryUnit && (
+                                                                    <div className="flex items-center gap-1">
+                                                                        <input
+                                                                            type="number"
+                                                                            min="0.001"
+                                                                            step="any"
+                                                                            value={item.secondaryQuantity || ''}
+                                                                            onChange={(e) => handleItemPriceChange(idx, 'secondaryQuantity', e.target.value)}
+                                                                            placeholder="Sec Qty"
+                                                                            className="w-full px-2 py-0.5 bg-cyan-50/50 dark:bg-cyan-950/30 border border-cyan-300 dark:border-cyan-800 rounded font-semibold text-center text-[11px] text-cyan-700 dark:text-cyan-300"
+                                                                        />
+                                                                        <span className="text-[10px] font-bold text-cyan-700 dark:text-cyan-300 px-1 py-0.5 bg-cyan-100/60 dark:bg-cyan-900/60 rounded shrink-0">
+                                                                            {item.secondaryUnit}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </td>
+
+                                                        {/* Rate & Unit */}
+                                                        <td className="px-2 py-2">
+                                                            <div className="space-y-1">
+                                                                <div className="flex items-center gap-1">
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0"
+                                                                        step="any"
+                                                                        value={item.unitPrice || ''}
+                                                                        onChange={(e) => handleItemPriceChange(idx, 'unitPrice', e.target.value)}
+                                                                        placeholder="0.00"
+                                                                        className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-right text-xs"
+                                                                    />
+                                                                    {item.hasSecondaryUnit ? (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleItemPriceChange(idx, 'rateUnit', item.rateUnit === 'secondary' ? 'primary' : 'secondary')}
+                                                                            className={`px-1.5 py-1 rounded text-[10px] font-extrabold uppercase shrink-0 transition-colors border cursor-pointer ${
+                                                                                item.rateUnit === 'secondary'
+                                                                                    ? 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950 dark:text-amber-200'
+                                                                                    : 'bg-cyan-100 text-cyan-900 border-cyan-300 dark:bg-cyan-950 dark:text-cyan-200'
+                                                                            }`}
+                                                                            title="Click to toggle rate per Primary or Secondary Unit"
+                                                                        >
+                                                                            /{item.rateUnit === 'secondary' ? item.secondaryUnit : (item.unit || 'PCS')}
+                                                                        </button>
+                                                                    ) : (
+                                                                        <span className="text-[10px] font-bold text-slate-500 px-1 shrink-0">
+                                                                            /{item.unit || 'PCS'}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                {item.hasSecondaryUnit && (
+                                                                    <div className="text-[9.5px] text-slate-500 font-mono text-right italic">
+                                                                        {item.rateUnit === 'secondary'
+                                                                            ? `~₹${Number(item.primaryRate || 0).toFixed(2)}/${item.unit || 'PCS'}`
+                                                                            : `~₹${Number(item.secondaryRate || 0).toFixed(2)}/${item.secondaryUnit}`
+                                                                        }
+                                                                    </div>
+                                                                )}
+                                                            </div>
                                                         </td>
 
                                                         {/* GST */}

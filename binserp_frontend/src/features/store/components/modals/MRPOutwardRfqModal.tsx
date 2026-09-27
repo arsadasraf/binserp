@@ -16,6 +16,11 @@ interface MRPOutwardRfqModalProps {
     description?: string;
     quantity: number;
     unit?: string;
+    hasSecondaryUnit?: boolean;
+    secondaryUnit?: string;
+    conversionFactor?: number;
+    secondaryQuantity?: number;
+    rateUnit?: 'primary' | 'secondary';
     itemType?: string;
     category?: string;
     targetPrice?: number | string;
@@ -53,6 +58,11 @@ export default function MRPOutwardRfqModal({
     description: string;
     quantity: number;
     unit: string;
+    hasSecondaryUnit?: boolean;
+    secondaryUnit?: string;
+    conversionFactor?: number;
+    secondaryQuantity?: number;
+    rateUnit?: 'primary' | 'secondary';
     itemType: string;
     targetPrice: string | number;
   }>>([]);
@@ -75,18 +85,30 @@ export default function MRPOutwardRfqModal({
       setDueDate(d.toISOString().split('T')[0]);
 
       if (initialItems && initialItems.length > 0) {
-        setItems(initialItems.map(item => ({
-          planId: item.planId,
-          sourceMRP: item.sourceMRP,
-          materialId: item.materialId || item.material || '',
-          materialName: item.materialName || '',
-          materialCode: item.materialCode || '',
-          description: item.description || (item.sourceMRP ? `From MRP: ${item.sourceMRP}` : ''),
-          quantity: Number(item.quantity) || 1,
-          unit: item.unit || 'PCS',
-          itemType: (item.itemType || 'rm').toLowerCase().includes('bo') || (item.category || '').toLowerCase().includes('bought') ? 'bo' : 'rm',
-          targetPrice: item.targetPrice || ''
-        })));
+        setItems(initialItems.map((item: any) => {
+          const hasSec = Boolean(item.hasSecondaryUnit);
+          const secUnit = item.secondaryUnit || '';
+          const convFactor = Number(item.conversionFactor) || 1;
+          const qty = Number(item.quantity) || 1;
+          const secQty = Number(item.secondaryQuantity) || (hasSec && convFactor > 0 ? Number((qty / convFactor).toFixed(4)) : 0);
+          return {
+            planId: item.planId,
+            sourceMRP: item.sourceMRP,
+            materialId: item.materialId || item.material || '',
+            materialName: item.materialName || '',
+            materialCode: item.materialCode || '',
+            description: item.description || (item.sourceMRP ? `From MRP: ${item.sourceMRP}` : ''),
+            quantity: qty,
+            unit: item.unit || 'PCS',
+            hasSecondaryUnit: hasSec,
+            secondaryUnit: secUnit,
+            conversionFactor: convFactor,
+            secondaryQuantity: secQty,
+            rateUnit: (item.rateUnit === 'secondary' && secUnit) ? 'secondary' : 'primary',
+            itemType: (item.itemType || 'rm').toLowerCase().includes('bo') || (item.category || '').toLowerCase().includes('bought') ? 'bo' : 'rm',
+            targetPrice: item.targetPrice || ''
+          };
+        }));
       } else {
         setItems([{
           materialId: '',
@@ -95,6 +117,11 @@ export default function MRPOutwardRfqModal({
           description: '',
           quantity: 1,
           unit: 'PCS',
+          hasSecondaryUnit: false,
+          secondaryUnit: '',
+          conversionFactor: 1,
+          secondaryQuantity: 0,
+          rateUnit: 'primary',
           itemType: 'rm',
           targetPrice: ''
         }]);
@@ -138,7 +165,21 @@ export default function MRPOutwardRfqModal({
   const handleItemChange = (index: number, field: string, value: any) => {
     setItems(prev => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
+      const cur = { ...updated[index], [field]: value };
+      if (field === 'quantity') {
+        const num = parseFloat(value) || 0;
+        cur.quantity = num;
+        if (cur.hasSecondaryUnit && Number(cur.conversionFactor) > 0) {
+          cur.secondaryQuantity = Number((num / Number(cur.conversionFactor)).toFixed(4));
+        }
+      } else if (field === 'secondaryQuantity') {
+        const num = parseFloat(value) || 0;
+        cur.secondaryQuantity = num;
+        if (cur.hasSecondaryUnit && Number(cur.conversionFactor) > 0) {
+          cur.quantity = Number((num * Number(cur.conversionFactor)).toFixed(4));
+        }
+      }
+      updated[index] = cur;
       return updated;
     });
   };
@@ -153,6 +194,11 @@ export default function MRPOutwardRfqModal({
         description: '',
         quantity: 1,
         unit: 'PCS',
+        hasSecondaryUnit: false,
+        secondaryUnit: '',
+        conversionFactor: 1,
+        secondaryQuantity: 0,
+        rateUnit: 'primary',
         itemType: 'rm',
         targetPrice: ''
       }
@@ -199,6 +245,11 @@ export default function MRPOutwardRfqModal({
           description: it.description.trim(),
           quantity: Number(it.quantity),
           unit: it.unit || 'PCS',
+          hasSecondaryUnit: Boolean(it.hasSecondaryUnit),
+          secondaryUnit: it.secondaryUnit || undefined,
+          conversionFactor: Number(it.conversionFactor) || undefined,
+          secondaryQuantity: Number(it.secondaryQuantity) || undefined,
+          rateUnit: it.rateUnit || 'primary',
           itemType: it.itemType || 'rm',
           targetPrice: it.targetPrice ? Number(it.targetPrice) : undefined
         }))
@@ -385,9 +436,8 @@ export default function MRPOutwardRfqModal({
                     <tr>
                       <th className="px-3 py-2.5">Material Name</th>
                       <th className="px-3 py-2.5 w-24">Type</th>
-                      <th className="px-3 py-2.5 w-28">Quantity</th>
-                      <th className="px-3 py-2.5 w-20">Unit</th>
-                      <th className="px-3 py-2.5 w-28">Target Price</th>
+                      <th className="px-3 py-2.5 w-44">Required Qty & Unit</th>
+                      <th className="px-3 py-2.5 w-36">Target Price (₹)</th>
                       <th className="px-3 py-2.5">Description / Ref</th>
                       <th className="px-3 py-2.5 w-10 text-center"></th>
                     </tr>
@@ -417,33 +467,72 @@ export default function MRPOutwardRfqModal({
                           </select>
                         </td>
                         <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            min="0.01"
-                            step="any"
-                            value={item.quantity}
-                            onChange={e => handleItemChange(idx, 'quantity', parseFloat(e.target.value) || 0)}
-                            required
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-indigo-600 dark:text-indigo-400"
-                          />
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min="0.001"
+                                step="any"
+                                value={item.quantity}
+                                onChange={e => handleItemChange(idx, 'quantity', parseFloat(e.target.value) || 0)}
+                                required
+                                placeholder="Qty"
+                                className="w-full px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-indigo-600 dark:text-indigo-400 text-xs"
+                              />
+                              <input
+                                type="text"
+                                value={item.unit}
+                                onChange={e => handleItemChange(idx, 'unit', e.target.value)}
+                                className="w-14 px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-400 text-center text-xs"
+                              />
+                            </div>
+                            {item.hasSecondaryUnit && (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min="0.001"
+                                  step="any"
+                                  value={item.secondaryQuantity || ''}
+                                  onChange={e => handleItemChange(idx, 'secondaryQuantity', parseFloat(e.target.value) || 0)}
+                                  placeholder="Sec Qty"
+                                  className="w-full px-2 py-0.5 rounded-lg border border-cyan-300 dark:border-cyan-800 bg-cyan-50/50 dark:bg-cyan-950/30 font-semibold text-cyan-700 dark:text-cyan-300 text-[11px]"
+                                />
+                                <span className="w-14 px-1.5 py-0.5 rounded-lg bg-cyan-100/60 dark:bg-cyan-900/60 text-cyan-700 dark:text-cyan-300 font-bold text-center text-[10px]">
+                                  {item.secondaryUnit}
+                                </span>
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2">
-                          <input
-                            type="text"
-                            value={item.unit}
-                            onChange={e => handleItemChange(idx, 'unit', e.target.value)}
-                            className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-medium text-slate-600 dark:text-slate-400"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            step="any"
-                            placeholder="Optional ₹"
-                            value={item.targetPrice}
-                            onChange={e => handleItemChange(idx, 'targetPrice', e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
-                          />
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              step="any"
+                              placeholder="Target ₹"
+                              value={item.targetPrice}
+                              onChange={e => handleItemChange(idx, 'targetPrice', e.target.value)}
+                              className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs"
+                            />
+                            {item.hasSecondaryUnit ? (
+                              <button
+                                type="button"
+                                onClick={() => handleItemChange(idx, 'rateUnit', item.rateUnit === 'secondary' ? 'primary' : 'secondary')}
+                                className={`px-1.5 py-1 rounded text-[10px] font-extrabold uppercase shrink-0 transition-colors border cursor-pointer ${
+                                  item.rateUnit === 'secondary'
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950 dark:text-amber-200'
+                                    : 'bg-cyan-100 text-cyan-900 border-cyan-300 dark:bg-cyan-950 dark:text-cyan-200'
+                                }`}
+                                title="Click to toggle rate per Primary or Secondary Unit"
+                              >
+                                /{item.rateUnit === 'secondary' ? item.secondaryUnit : (item.unit || 'PCS')}
+                              </button>
+                            ) : (
+                              <span className="text-[10px] font-bold text-slate-400 px-1 shrink-0">
+                                /{item.unit || 'PCS'}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2">
                           <input
@@ -451,7 +540,7 @@ export default function MRPOutwardRfqModal({
                             placeholder="Specifications or Source MRP"
                             value={item.description}
                             onChange={e => handleItemChange(idx, 'description', e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs"
                           />
                         </td>
                         <td className="px-3 py-2 text-center">

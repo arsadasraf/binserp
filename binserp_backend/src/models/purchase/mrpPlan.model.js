@@ -135,6 +135,8 @@ export const mrpPlanSchema = new mongoose.Schema(
         sourceFGNames: [{ type: String }],
         sourceCustomerPOs: [{ type: String }],
         status: { type: String, default: "Pending" },
+        rfqNumber: { type: String, default: "" },
+        poNumber: { type: String, default: "" },
       },
     ],
     // Calculated BO Requirements
@@ -157,6 +159,8 @@ export const mrpPlanSchema = new mongoose.Schema(
         sourceFGNames: [{ type: String }],
         sourceCustomerPOs: [{ type: String }],
         status: { type: String, default: "Pending" },
+        rfqNumber: { type: String, default: "" },
+        poNumber: { type: String, default: "" },
       },
     ],
     // Calculated Consumables
@@ -175,6 +179,8 @@ export const mrpPlanSchema = new mongoose.Schema(
         sourceFGNames: [{ type: String }],
         sourceCustomerPOs: [{ type: String }],
         status: { type: String, default: "Pending" },
+        rfqNumber: { type: String, default: "" },
+        poNumber: { type: String, default: "" },
       },
     ],
     // Calculated In-House Sub-Assemblies & Components

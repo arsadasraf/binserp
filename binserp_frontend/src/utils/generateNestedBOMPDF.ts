@@ -27,12 +27,20 @@ export interface NestedBOMPDFData {
       itemClassification?: string;
       level?: number;
       quantityPerFG?: number;
+      secondaryQuantityPerFG?: number;
       totalRequired?: number;
+      secondaryRequiredQuantity?: number;
       requiredQuantity?: number;
       currentPhysicalStock?: number;
+      secondaryCurrentPhysicalStock?: number;
       totalInTransitPO?: number;
+      secondaryTotalInTransitPO?: number;
       netShortage?: number;
+      secondaryNetShortage?: number;
       unit?: string;
+      hasSecondaryUnit?: boolean;
+      secondaryUnit?: string;
+      conversionFactor?: number;
       bestVendor?: {
         vendorName?: string;
         rate?: number;
@@ -240,15 +248,30 @@ export const generateNestedBOMPDF = (data: NestedBOMPDFData) => {
           displayType = 'Consumable';
         }
 
+        const isDual = Boolean(m.hasSecondaryUnit && m.secondaryUnit && Number(m.conversionFactor) > 0);
+        const convFactor = Number(m.conversionFactor) || 1;
+        const fmtDual = (qty: number) => {
+          if (!isDual) return `${qty} ${m.unit || "PCS"}`;
+          const secQty = parseFloat((qty * convFactor).toFixed(3));
+          return `${qty} ${m.unit || "PCS"}\n(${secQty} ${m.secondaryUnit})`;
+        };
+
+        const perFGDual = () => {
+          const pQty = m.quantityPerFG || 1;
+          if (!isDual) return `${pQty}`;
+          const secQty = parseFloat((pQty * convFactor).toFixed(3));
+          return `${pQty}\n(${secQty} ${m.secondaryUnit})`;
+        };
+
         return [
           `L${level}`,
           nameAndDesc,
           displayType,
-          `${m.quantityPerFG || 1}`,
-          `${reqQty} ${m.unit || "PCS"}`,
-          `${liveStock} ${m.unit || "PCS"}`,
-          inTransit > 0 ? `${inTransit} ${m.unit || "PCS"}` : "-",
-          shortage > 0 ? `${shortage} ${m.unit || "PCS"}` : "Covered",
+          perFGDual(),
+          fmtDual(reqQty),
+          fmtDual(liveStock),
+          inTransit > 0 ? fmtDual(inTransit) : "-",
+          shortage > 0 ? fmtDual(shortage) : "Covered",
           rate > 0 ? `₹${rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "-",
           val > 0 ? `₹${val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "-"
         ];

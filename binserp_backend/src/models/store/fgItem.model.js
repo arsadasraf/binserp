@@ -24,6 +24,29 @@ const fgBOMItemSchema = new mongoose.Schema({
     type: String,
     default: undefined,
   },
+  hasSecondaryUnit: {
+    type: Boolean,
+    default: false,
+  },
+  secondaryUnit: {
+    type: String,
+    trim: true,
+    default: "",
+  },
+  conversionFactor: {
+    type: Number,
+    default: 1,
+  },
+  secondaryQuantity: {
+    type: Number,
+  },
+  selectedUnit: {
+    type: String,
+    trim: true,
+  },
+  inputQuantity: {
+    type: Number,
+  },
 });
 
 export const fgItemSchema = new mongoose.Schema(

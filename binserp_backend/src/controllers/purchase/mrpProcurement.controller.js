@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { mrpPlanSchema, purchaseOrderSchema, vendorPriceListSchema, vendorQuotationSchema, purchaseRFQSchema } from "../../models/purchase/index.js";
+import { mrpPlanSchema, purchaseOrderSchema, vendorPriceListSchema, vendorQuotationSchema, purchaseRFQSchema, purchaseItemMappingSchema } from "../../models/purchase/index.js";
 import { 
   inventorySchema,
   rawMaterialSchema, 
@@ -230,11 +230,14 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       description: comp.description || comp.descriptions || "",
       currentStock: qty,
       unit: comp.unit || "PCS",
+      hasSecondaryUnit: Boolean(comp.hasSecondaryUnit && comp.secondaryUnit),
+      secondaryUnit: comp.secondaryUnit || "",
+      conversionFactor: Number(comp.conversionFactor) || 1,
       itemType: "Component",
       category: "In-House Component",
       priority: 3
     };
-    setStockEntry([cleanStr(code), cleanStr(name), cleanKey(code), cleanKey(name)], info);
+    setStockEntry([String(comp._id), cleanStr(code), cleanStr(name), cleanKey(code), cleanKey(name)], info);
   });
 
   // Populate FG Stock respecting explicit FG type (Sub Assembly, Component, or Assembly)
@@ -264,11 +267,14 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       description: fg.description || fg.descriptions || "",
       currentStock: qty,
       unit: fg.unit || "PCS",
+      hasSecondaryUnit: Boolean(fg.hasSecondaryUnit && fg.secondaryUnit),
+      secondaryUnit: fg.secondaryUnit || "",
+      conversionFactor: Number(fg.conversionFactor) || 1,
       itemType,
       category,
       priority: 3
     };
-    setStockEntry([cleanStr(code), cleanStr(name), cleanKey(code), cleanKey(name)], info);
+    setStockEntry([String(fg._id), cleanStr(code), cleanStr(name), cleanKey(code), cleanKey(name)], info);
   });
 
   // Populate RM Stock
@@ -282,12 +288,15 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       description: rm.description || rm.descriptions || "",
       currentStock: Number(rm.currentStock || 0),
       unit: rm.unit || "PCS",
+      hasSecondaryUnit: Boolean(rm.hasSecondaryUnit && rm.secondaryUnit),
+      secondaryUnit: rm.secondaryUnit || "",
+      conversionFactor: Number(rm.conversionFactor) || 1,
       baseRate: Number(rm.rate || 0),
       itemType: "RM",
       category: catName,
       priority: 2
     };
-    setStockEntry([cleanStr(rm.code), cleanStr(rm.name), cleanKey(rm.code), cleanKey(rm.name)], info);
+    setStockEntry([String(rm._id), cleanStr(rm.code), cleanStr(rm.name), cleanKey(rm.code), cleanKey(rm.name)], info);
   });
 
   // Populate BO Stock
@@ -301,12 +310,15 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       description: bo.description || bo.descriptions || "",
       currentStock: Number(bo.currentStock || 0),
       unit: bo.unit || "PCS",
+      hasSecondaryUnit: Boolean(bo.hasSecondaryUnit && bo.secondaryUnit),
+      secondaryUnit: bo.secondaryUnit || "",
+      conversionFactor: Number(bo.conversionFactor) || 1,
       baseRate: Number(bo.rate || 0),
       itemType: "BO",
       category: catName,
       priority: 2
     };
-    setStockEntry([cleanStr(bo.code), cleanStr(bo.name), cleanKey(bo.code), cleanKey(bo.name)], info);
+    setStockEntry([String(bo._id), cleanStr(bo.code), cleanStr(bo.name), cleanKey(bo.code), cleanKey(bo.name)], info);
   });
 
   // Populate RM/BO Item Profiles
@@ -322,12 +334,37 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       description: item.description || item.descriptions || "",
       currentStock: Number(item.currentStock || item.minimumStock || 0),
       unit: item.unit || "PCS",
+      hasSecondaryUnit: Boolean(item.hasSecondaryUnit && item.secondaryUnit),
+      secondaryUnit: item.secondaryUnit || "",
+      conversionFactor: Number(item.conversionFactor) || 1,
       baseRate: Number(item.rate || 0),
       itemType: isRM ? "RM" : "BO",
       category: catName,
       priority: 2
     };
-    setStockEntry([cleanStr(item.code), cleanStr(item.name), cleanKey(item.code), cleanKey(item.name)], info);
+    setStockEntry([String(item._id), cleanStr(item.code), cleanStr(item.name), cleanKey(item.code), cleanKey(item.name)], info);
+  });
+
+  // Populate Consumables Stock
+  consumables.forEach(con => {
+    const catName = con.categoryId?.name || (con.categoryId && categoryMap.get(String(con.categoryId))) || con.category || "Consumable";
+    registerCategory(con.name, con.code, catName);
+    const info = {
+      materialId: con._id,
+      name: con.name,
+      code: con.code,
+      description: con.description || con.descriptions || "",
+      currentStock: Number(con.currentStock || con.quantity || 0),
+      unit: con.unit || "PCS",
+      hasSecondaryUnit: Boolean(con.hasSecondaryUnit && con.secondaryUnit),
+      secondaryUnit: con.secondaryUnit || "",
+      conversionFactor: Number(con.conversionFactor) || 1,
+      baseRate: Number(con.rate || 0),
+      itemType: "Consumable",
+      category: catName,
+      priority: 2
+    };
+    setStockEntry([cleanStr(con.code), cleanStr(con.name), cleanKey(con.code), cleanKey(con.name)], info);
   });
 
   // Populate Store Inventory (HIGHEST PRIORITY FOR LIVE PHYSICAL STOCK)
@@ -346,6 +383,10 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     const catName = invCat || existing?.category || (resolvedType === "RM" ? "Raw Material" : "Bought Out");
     if (invCat) registerCategory(name, code, invCat);
 
+    const hasSec = Boolean(inv.hasSecondaryUnit && inv.secondaryUnit) || Boolean(existing?.hasSecondaryUnit && existing?.secondaryUnit);
+    const secUnit = (inv.hasSecondaryUnit && inv.secondaryUnit) ? inv.secondaryUnit : (existing?.secondaryUnit || "");
+    const convFact = Number((inv.hasSecondaryUnit && inv.conversionFactor) ? inv.conversionFactor : (existing?.conversionFactor || 1)) || 1;
+
     const info = {
       materialId: inv.materialId || inv._id,
       name,
@@ -353,6 +394,9 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       description: inv.description || existing?.description || "",
       currentStock: qty,
       unit: inv.unit || existing?.unit || "PCS",
+      hasSecondaryUnit: hasSec,
+      secondaryUnit: secUnit,
+      conversionFactor: convFact,
       baseRate: Number(inv.unitPrice || existing?.baseRate || 0),
       itemType: resolvedType,
       category: catName,
@@ -539,6 +583,17 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     const currentLiveStock = Number(stockInfo.currentStock || 0);
     const netShortage = Math.max(0, reqQty - currentLiveStock - inTransitInfo.totalInTransit);
 
+    const hasSecondaryUnit = Boolean(stockInfo.hasSecondaryUnit && stockInfo.secondaryUnit);
+    const secondaryUnit = hasSecondaryUnit ? (stockInfo.secondaryUnit || "") : "";
+    const conversionFactor = hasSecondaryUnit ? (Number(stockInfo.conversionFactor) || 1) : 1;
+
+    const roundQty = (val) => (val != null && !isNaN(val)) ? Math.round(Number(val) * 1000) / 1000 : null;
+
+    const secondaryRequiredQuantity = hasSecondaryUnit ? roundQty(reqQty * conversionFactor) : null;
+    const secondaryCurrentPhysicalStock = hasSecondaryUnit ? roundQty(currentLiveStock * conversionFactor) : null;
+    const secondaryNetShortage = hasSecondaryUnit ? roundQty(netShortage * conversionFactor) : null;
+    const secondaryTotalInTransitPO = hasSecondaryUnit ? roundQty(inTransitInfo.totalInTransit * conversionFactor) : null;
+
     // Resolve true master category (prefer specific assigned category over generic "Raw Material" / "Bought Out")
     const assignedCategory =
       (stockInfo.category && stockInfo.category !== "Raw Material" && stockInfo.category !== "Bought Out" && stockInfo.category !== "RM/BO" ? stockInfo.category : "") ||
@@ -552,18 +607,25 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
 
     return {
       materialId: stockInfo.materialId || undefined,
-      materialKey: cKey || nKey || cleanKey(name),
+      materialKey: cKey || nKey || cleanKey(name) || (stockInfo.materialId ? String(stockInfo.materialId) : "") || `mat_${Math.random().toString(36).substring(2, 9)}`,
       materialName: name,
       materialCode: code || stockInfo.code || "",
       description: rawDescription || stockInfo.description || "",
       itemType: classification.itemType,
       category: assignedCategory,
       unit: unit || stockInfo.unit || "PCS",
+      hasSecondaryUnit,
+      secondaryUnit,
+      conversionFactor,
       requiredQuantity: reqQty,
+      secondaryRequiredQuantity,
       currentPhysicalStock: currentLiveStock,
+      secondaryCurrentPhysicalStock,
       totalInTransitPO: inTransitInfo.totalInTransit,
+      secondaryTotalInTransitPO,
       openPOs: inTransitInfo.poList,
       netShortage,
+      secondaryNetShortage,
       bestVendor,
       allVendors: vendorQuotes,
       estimatedRate: bestVendor?.rate || stockInfo.baseRate || 0,
@@ -655,6 +717,10 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       }
       const fgEntry = fgTargetMap.get(fgK);
       fgEntry.grossRequired += fgQty;
+      if (fgEntry.hasSecondaryUnit) {
+        fgEntry.secondaryGrossRequired = Math.round(fgEntry.grossRequired * fgEntry.conversionFactor * 1000) / 1000;
+        fgEntry.secondaryNetShortage = Math.round(fgEntry.netShortage * fgEntry.conversionFactor * 1000) / 1000;
+      }
       fgEntry.mrpSources.push({
         mrpId: plan._id,
         mrpNumber: plan.mrpNumber,
@@ -720,6 +786,10 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         entry.grossRequired += nQty;
         entry.netShortage = Math.max(0, entry.grossRequired - entry.currentPhysicalStock - entry.totalInTransitPO);
         entry.estimatedValue = entry.netShortage * (entry.bestVendor?.rate || entry.estimatedRate || 0);
+        if (entry.hasSecondaryUnit) {
+          entry.secondaryGrossRequired = Math.round(entry.grossRequired * entry.conversionFactor * 1000) / 1000;
+          entry.secondaryNetShortage = Math.round(entry.netShortage * entry.conversionFactor * 1000) / 1000;
+        }
         entry.mrpSources.push({
           mrpId: plan._id,
           mrpNumber: plan.mrpNumber,
@@ -731,9 +801,16 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
           requiredQty: nQty
         });
 
+        const qtyPerFG = Number(nMat.quantityPerFG) || 1;
+        const secondaryQuantityPerFG = processed.hasSecondaryUnit
+          ? Math.round(qtyPerFG * processed.conversionFactor * 1000) / 1000
+          : null;
+
         return {
           ...nMat.toObject?.() || nMat,
-          ...processed
+          ...processed,
+          quantityPerFG: qtyPerFG,
+          secondaryQuantityPerFG
         };
       });
 
@@ -838,12 +915,177 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     };
   };
 
+  // Fetch active purchase item mappings for this company
+  const PurchaseItemMapping = req.getModel("PurchaseItemMapping", purchaseItemMappingSchema);
+  const activeMappings = await PurchaseItemMapping.find({ company: companyId }).lean();
+
+  const mappingBySourceId = new Map();
+  const mappingBySourceKey = new Map();
+  activeMappings.forEach(m => {
+    if (m.sourceItemId) mappingBySourceId.set(m.sourceItemId.toString(), m);
+    if (m.sourceItemName) mappingBySourceKey.set(cleanStr(m.sourceItemName), m);
+    if (m.sourceItemCode) mappingBySourceKey.set(cleanStr(m.sourceItemCode), m);
+  });
+
+  const attachBucketInfo = (item) => {
+    const sId = item.materialId ? item.materialId.toString() : null;
+    const mapping = (sId && mappingBySourceId.get(sId)) || 
+                    mappingBySourceKey.get(cleanStr(item.materialName)) || 
+                    mappingBySourceKey.get(cleanStr(item.materialCode));
+    if (mapping) {
+      let pStatus = item.materialPlanningStatus;
+      if (!pStatus || pStatus === 'Not Planned' || pStatus === 'Pending') {
+        pStatus = 'In Purchase Bucket';
+      }
+      return {
+        ...item,
+        materialPlanningStatus: pStatus,
+        purchaseBucket: {
+          mappingId: mapping._id,
+          targetPurchaseItemId: mapping.targetPurchaseItemId,
+          targetPurchaseItemType: mapping.targetPurchaseItemType,
+          targetPurchaseItemName: mapping.targetPurchaseItemName,
+          targetPurchaseItemCode: mapping.targetPurchaseItemCode,
+          targetPurchaseItemDescription: mapping.targetPurchaseItemDescription || "",
+          primaryUnit: mapping.primaryUnit,
+          secondaryUnit: mapping.secondaryUnit,
+          hasSecondaryUnit: Boolean(mapping.hasSecondaryUnit),
+          conversionFactor: Number(mapping.conversionFactor) || 1
+        }
+      };
+    }
+    return item;
+  };
+
   // Format Classified Arrays
-  const rmList = Array.from(rmMap.values()).map(enrichClassifiedItem);
-  const boList = Array.from(boMap.values()).map(enrichClassifiedItem);
+  const rmList = Array.from(rmMap.values()).map(enrichClassifiedItem).map(attachBucketInfo);
+  const boList = Array.from(boMap.values()).map(enrichClassifiedItem).map(attachBucketInfo);
   const componentList = Array.from(componentMap.values()).map(enrichClassifiedItem);
   const subAssemblyList = Array.from(subAssemblyMap.values()).map(enrichClassifiedItem);
   const assemblyList = Array.from(assemblyMap.values()).map(enrichClassifiedItem);
+
+  // Build Consolidated Purchase Buckets for RM and BO
+  const buildConsolidatedBuckets = (itemList, bucketType) => {
+    const bucketMap = new Map();
+
+    itemList.forEach(item => {
+      if (!item.purchaseBucket) return;
+      const b = item.purchaseBucket;
+      const bucketId = b.targetPurchaseItemId ? b.targetPurchaseItemId.toString() : b.targetPurchaseItemName;
+
+      if (!bucketMap.has(bucketId)) {
+        const pName = cleanStr(b.targetPurchaseItemName);
+        const pCode = cleanStr(b.targetPurchaseItemCode);
+
+        const stockInfo = 
+          (b.targetPurchaseItemId && stockMap.get(String(b.targetPurchaseItemId))) ||
+          stockMap.get(pCode) || 
+          stockMap.get(pName) || 
+          stockMap.get(cleanKey(pCode)) || 
+          stockMap.get(cleanKey(pName)) || { currentStock: 0, baseRate: 0, category: bucketType === "RM" ? "Raw Material" : "Bought Out" };
+
+        const targetName = b.targetPurchaseItemName || stockInfo.name || "Commercial Purchase Item";
+        const targetCode = b.targetPurchaseItemCode || stockInfo.code || "";
+        const targetDesc = b.targetPurchaseItemDescription || stockInfo.description || "";
+        const targetCategory = stockInfo.category || (bucketType === "RM" ? "Raw Material" : "Bought Out");
+
+        const inTransitInfo = 
+          (b.targetPurchaseItemId && inTransitMap.get(String(b.targetPurchaseItemId))) ||
+          inTransitMap.get(pCode) || 
+          inTransitMap.get(pName) || 
+          inTransitMap.get(cleanKey(pCode)) || 
+          inTransitMap.get(cleanKey(pName)) || { totalInTransit: 0, poList: [] };
+
+        const vendorQuotes = 
+          (b.targetPurchaseItemId && priceListMap.get(String(b.targetPurchaseItemId))) ||
+          priceListMap.get(pCode) || 
+          priceListMap.get(pName) || 
+          priceListMap.get(cleanKey(pCode)) || 
+          priceListMap.get(cleanKey(pName)) || [];
+
+        const sortedQuotes = [...vendorQuotes].sort((a, b) => {
+          if (a.isPreferred && !b.isPreferred) return -1;
+          if (!a.isPreferred && b.isPreferred) return 1;
+          return a.rate - b.rate;
+        });
+        const bestVendor = sortedQuotes[0] || null;
+
+        const currentPhysicalStock = Number(stockInfo.currentStock || 0);
+        const totalInTransitPO = Number(inTransitInfo.totalInTransit || 0);
+
+        bucketMap.set(bucketId, {
+          bucketKey: `bucket_${bucketId}`,
+          bucketId,
+          targetPurchaseItemId: b.targetPurchaseItemId,
+          materialId: b.targetPurchaseItemId,
+          targetPurchaseItemName: targetName,
+          materialName: targetName,
+          targetPurchaseItemCode: targetCode,
+          materialCode: targetCode,
+          targetPurchaseItemDescription: targetDesc,
+          description: targetDesc,
+          itemType: bucketType,
+          targetPurchaseItemCategory: targetCategory,
+          category: targetCategory,
+          unit: b.primaryUnit,
+          hasSecondaryUnit: Boolean(b.hasSecondaryUnit),
+          secondaryUnit: b.secondaryUnit || "",
+          conversionFactor: Number(b.conversionFactor) || 1,
+          currentPhysicalStock,
+          totalInTransitPO,
+          inTransitPOs: inTransitInfo.poList || [],
+          grossRequired: 0,
+          netShortage: 0,
+          bestVendor,
+          estimatedRate: bestVendor?.rate || stockInfo.baseRate || 0,
+          estimatedValue: 0,
+          mappedItems: [],
+          sourceCutSizes: []
+        });
+      }
+
+      const entry = bucketMap.get(bucketId);
+      entry.grossRequired += Number(item.grossRequired || 0);
+      const cutSizeData = {
+        sourceItemId: item.materialId,
+        sourceItemName: item.materialName,
+        sourceItemCode: item.materialCode,
+        sourceItemDescription: item.description,
+        sourceItemCategory: item.category,
+        materialId: item.materialId,
+        materialKey: item.materialKey,
+        materialName: item.materialName,
+        materialCode: item.materialCode,
+        description: item.description,
+        grossRequired: item.grossRequired,
+        netShortage: item.netShortage,
+        currentPhysicalStock: item.currentPhysicalStock,
+        currentStock: item.currentPhysicalStock,
+        totalInTransitPO: item.totalInTransitPO || 0,
+        unit: item.unit,
+        hasSecondaryUnit: Boolean(item.hasSecondaryUnit),
+        secondaryUnit: item.secondaryUnit || "",
+        mrpSources: item.mrpSources || []
+      };
+      entry.mappedItems.push(cutSizeData);
+      entry.sourceCutSizes.push(cutSizeData);
+    });
+
+    return Array.from(bucketMap.values()).map(b => {
+      b.grossRequired = Math.round(b.grossRequired * 1000) / 1000;
+      b.netShortage = Math.max(0, Math.round((b.grossRequired - b.currentPhysicalStock - b.totalInTransitPO) * 1000) / 1000);
+      if (b.hasSecondaryUnit && b.conversionFactor > 0) {
+        b.secondaryGrossRequired = Math.round(b.grossRequired * b.conversionFactor * 1000) / 1000;
+        b.secondaryNetShortage = Math.round(b.netShortage * b.conversionFactor * 1000) / 1000;
+      }
+      b.estimatedValue = Math.round(b.netShortage * (b.estimatedRate || 0) * 100) / 100;
+      b.materialPlanningStatus = b.netShortage === 0 ? "Stock Covered" : (b.totalInTransitPO >= b.grossRequired ? "PO In-Transit" : (b.totalInTransitPO > 0 ? "Partially In-Transit" : "Not Planned"));
+      return b;
+    });
+  };
+
+  const rmBuckets = buildConsolidatedBuckets(rmList, "RM");
+  const boBuckets = buildConsolidatedBuckets(boList, "BO");
 
   const allConsolidatedShortages = [...rmList, ...boList, ...componentList, ...subAssemblyList]
     .filter(i => i.netShortage > 0);
@@ -862,6 +1104,10 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       componentList,
       subAssemblyList,
       assemblyList
+    },
+    purchaseBuckets: {
+      rmBuckets,
+      boBuckets
     }
   }, "Fetched MRP Procurement Workbench with accurate Live Stock and Classifications"));
 });
@@ -1193,6 +1439,340 @@ export const updateMRPItemStatus = asyncHandler(async (req, res) => {
   await plan.save();
 
   return res.status(200).json(new ApiResponse(200, plan, "Successfully updated BOM Item Status"));
+});
+
+/**
+ * 12. GET PURCHASE BUCKET MAPPINGS
+ */
+export const getPurchaseBucketMappings = asyncHandler(async (req, res) => {
+  const companyId = getCompanyId(req);
+  const PurchaseItemMapping = req.getModel("PurchaseItemMapping", purchaseItemMappingSchema);
+  const mappings = await PurchaseItemMapping.find({ company: companyId }).sort({ updatedAt: -1 }).lean();
+  return res.status(200).json(new ApiResponse(200, mappings, "Fetched Purchase Bucket Mappings"));
+});
+
+/**
+ * 13. GET ELIGIBLE PURCHASE ITEMS (WITH STRICT MATCHING UNITS)
+ */
+export const getEligiblePurchaseItems = asyncHandler(async (req, res) => {
+  const companyId = getCompanyId(req);
+  const { primaryUnit, hasSecondaryUnit, secondaryUnit, itemType, search } = req.query;
+
+  const isBO = (itemType || "").toLowerCase().includes("bo") || (itemType || "").toLowerCase().includes("bought");
+  const Model = isBO
+    ? req.getModel("BoughtOut", boughtOutSchema)
+    : req.getModel("RawMaterial", rawMaterialSchema);
+
+  const query = {
+    company: companyId,
+    status: { $ne: "Deactivated" }
+  };
+
+  const validUnits = [];
+  if (primaryUnit && primaryUnit.trim() && primaryUnit.trim() !== "null" && primaryUnit.trim() !== "undefined") {
+    validUnits.push(primaryUnit.trim());
+  }
+  if (secondaryUnit && secondaryUnit.trim() && secondaryUnit.trim() !== "null" && secondaryUnit.trim() !== "undefined") {
+    validUnits.push(secondaryUnit.trim());
+  }
+
+  const conditions = [];
+
+  // Match if ANY one unit matches: target's unit in validUnits OR target's secondaryUnit in validUnits
+  if (validUnits.length > 0) {
+    const unitRegexes = validUnits.map(u => new RegExp("^" + u.trim() + "$", "i"));
+    conditions.push({
+      $or: [
+        { unit: { $in: unitRegexes } },
+        { secondaryUnit: { $in: unitRegexes } }
+      ]
+    });
+  }
+
+  if (search && search.trim()) {
+    const s = search.trim();
+    conditions.push({
+      $or: [
+        { name: { $regex: s, $options: "i" } },
+        { code: { $regex: s, $options: "i" } },
+        { descriptions: { $regex: s, $options: "i" } },
+        { description: { $regex: s, $options: "i" } },
+        { specification: { $regex: s, $options: "i" } }
+      ]
+    });
+  }
+
+  if (conditions.length > 0) {
+    query.$and = conditions;
+  }
+
+  const items = await Model.find(query).limit(100).lean();
+
+  // Fetch Inventory for current stock of these items
+  const Inventory = req.getModel("Inventory", inventorySchema);
+  const itemIds = items.map(i => i._id);
+  const stocks = await Inventory.find({ company: companyId, item: { $in: itemIds } }).lean();
+  const stockMap = new Map();
+  stocks.forEach(st => {
+    if (st.item) {
+      stockMap.set(st.item.toString(), (stockMap.get(st.item.toString()) || 0) + (Number(st.quantity) || 0));
+    }
+  });
+
+  const formatted = items.map(it => ({
+    _id: it._id,
+    name: it.name,
+    code: it.code || "",
+    description: it.descriptions || it.description || "",
+    unit: it.unit || "PCS",
+    hasSecondaryUnit: Boolean(it.hasSecondaryUnit),
+    secondaryUnit: it.secondaryUnit || "",
+    conversionFactor: Number(it.conversionFactor) || 1,
+    currentStock: stockMap.get(it._id.toString()) || 0,
+    itemType: isBO ? "BO" : "RM"
+  }));
+
+  return res.status(200).json(new ApiResponse(200, formatted, "Fetched eligible purchase items with matching units"));
+});
+
+/**
+ * 14. MAP ITEM TO PURCHASE BUCKET (WITH STRICT UNIT VALIDATION)
+ */
+export const mapItemToPurchaseBucket = asyncHandler(async (req, res) => {
+  const companyId = getCompanyId(req);
+  const {
+    sourceItemId,
+    sourceItemType,
+    sourceItemName,
+    sourceItemCode,
+    sourceItemDescription,
+    targetPurchaseItemId,
+    targetPurchaseItemType,
+    targetPurchaseItemName,
+    targetPurchaseItemCode,
+    targetPurchaseItemDescription,
+    primaryUnit,
+    hasSecondaryUnit,
+    secondaryUnit,
+    conversionFactor,
+    isDefault = true,
+    mrpPlanId = null
+  } = req.body;
+
+  if (!sourceItemId || !targetPurchaseItemId) {
+    throw new ApiError(400, "Both Source BOM Item and Target Purchase Item are required.");
+  }
+
+  if (sourceItemId.toString() === targetPurchaseItemId.toString()) {
+    throw new ApiError(400, "Source item cannot be mapped to itself as a purchase bucket.");
+  }
+
+  // 1. Strict Unit Equality Validation
+  const isSourceBO = (sourceItemType || "").toLowerCase().includes("bo");
+  const SourceModel = isSourceBO ? req.getModel("BoughtOut", boughtOutSchema) : req.getModel("RawMaterial", rawMaterialSchema);
+  const sourceDoc = await SourceModel.findOne({ _id: sourceItemId, company: companyId }).lean();
+
+  const isTargetBO = (targetPurchaseItemType || "").toLowerCase().includes("bo");
+  const TargetModel = isTargetBO ? req.getModel("BoughtOut", boughtOutSchema) : req.getModel("RawMaterial", rawMaterialSchema);
+  const targetDoc = await TargetModel.findOne({ _id: targetPurchaseItemId, company: companyId }).lean();
+
+  if (!targetDoc) {
+    throw new ApiError(404, "Target Purchase Item not found in master records.");
+  }
+
+  // 1. Unit Validation: Match if ANY one unit matches between Source and Target
+  const sourceUnits = [
+    sourceDoc?.unit || primaryUnit,
+    sourceDoc?.hasSecondaryUnit ? sourceDoc?.secondaryUnit : (hasSecondaryUnit ? secondaryUnit : null)
+  ].filter(Boolean).map(u => String(u).trim().toLowerCase());
+
+  const targetUnits = [
+    targetDoc.unit,
+    targetDoc.hasSecondaryUnit ? targetDoc.secondaryUnit : null
+  ].filter(Boolean).map(u => String(u).trim().toLowerCase());
+
+  const hasAnyMatchingUnit = sourceUnits.some(su => targetUnits.includes(su));
+  if (!hasAnyMatchingUnit) {
+    throw new ApiError(
+      400,
+      `No matching unit between Source ('${sourceUnits.join(", ")}') and Target Purchase Item ('${targetUnits.join(", ")}'). At least one unit must match to allow purchase bucket conversion.`
+    );
+  }
+
+  const PurchaseItemMapping = req.getModel("PurchaseItemMapping", purchaseItemMappingSchema);
+  const userId = req.user?._id;
+  const userName = req.user?.name || "System";
+
+  const updatedMapping = await PurchaseItemMapping.findOneAndUpdate(
+    {
+      company: companyId,
+      sourceItemId: sourceItemId,
+      mrpPlanId: mrpPlanId || null
+    },
+    {
+      company: companyId,
+      sourceItemId,
+      sourceItemType: isSourceBO ? "BO" : "RM",
+      sourceItemName: sourceItemName || sourceDoc?.name || "Material",
+      sourceItemCode: sourceItemCode || sourceDoc?.code || "",
+      sourceItemDescription: sourceItemDescription || sourceDoc?.descriptions || sourceDoc?.description || "",
+      targetPurchaseItemId,
+      targetPurchaseItemType: isTargetBO ? "BO" : "RM",
+      targetPurchaseItemName: targetPurchaseItemName || targetDoc.name,
+      targetPurchaseItemCode: targetPurchaseItemCode || targetDoc.code || "",
+      targetPurchaseItemDescription: targetPurchaseItemDescription || targetDoc.descriptions || targetDoc.description || "",
+      primaryUnit: targetDoc.unit,
+      hasSecondaryUnit: tHasSec,
+      secondaryUnit: tHasSec ? targetDoc.secondaryUnit : "",
+      conversionFactor: tHasSec ? (Number(targetDoc.conversionFactor) || 1) : 1,
+      isDefault: Boolean(isDefault),
+      mrpPlanId: mrpPlanId || null,
+      createdBy: userId,
+      createdByName: userName
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  return res.status(200).json(new ApiResponse(200, updatedMapping, `Successfully mapped '${sourceItemName || "Item"}' to Purchase Bucket '${targetPurchaseItemName || targetDoc.name}'`));
+});
+
+/**
+ * 15. UNMAP ITEM FROM PURCHASE BUCKET
+ */
+export const unmapItemFromPurchaseBucket = asyncHandler(async (req, res) => {
+  const companyId = getCompanyId(req);
+  const { id } = req.params;
+
+  const PurchaseItemMapping = req.getModel("PurchaseItemMapping", purchaseItemMappingSchema);
+  const query = {
+    company: companyId,
+    $or: [
+      { _id: mongoose.Types.ObjectId.isValid(id) ? id : null },
+      { sourceItemId: mongoose.Types.ObjectId.isValid(id) ? id : null }
+    ].filter(Boolean)
+  };
+
+  const deleted = await PurchaseItemMapping.findOneAndDelete(query);
+  if (!deleted) {
+    throw new ApiError(404, "Purchase bucket mapping not found.");
+  }
+
+  return res.status(200).json(new ApiResponse(200, deleted, "Successfully removed purchase bucket mapping."));
+});
+
+/**
+ * 16. BULK MAP ITEMS TO PURCHASE BUCKET
+ */
+export const bulkMapItemsToPurchaseBucket = asyncHandler(async (req, res) => {
+  const companyId = getCompanyId(req);
+  const {
+    sourceItems = [],
+    targetPurchaseItemId,
+    targetPurchaseItemType,
+    targetPurchaseItemName,
+    targetPurchaseItemCode,
+    targetPurchaseItemDescription,
+    isDefault = true,
+    mrpPlanId = null
+  } = req.body;
+
+  if (!Array.isArray(sourceItems) || sourceItems.length === 0) {
+    throw new ApiError(400, "Please provide at least one source item to map.");
+  }
+
+  if (!targetPurchaseItemId) {
+    throw new ApiError(400, "Target Purchase Item is required.");
+  }
+
+  const isTargetBO = (targetPurchaseItemType || "").toLowerCase().includes("bo");
+  const TargetModel = isTargetBO ? req.getModel("BoughtOut", boughtOutSchema) : req.getModel("RawMaterial", rawMaterialSchema);
+  const targetDoc = await TargetModel.findOne({ _id: targetPurchaseItemId, company: companyId }).lean();
+
+  if (!targetDoc) {
+    throw new ApiError(404, "Target Purchase Item not found in master records.");
+  }
+
+  const tPriUnit = (targetDoc.unit || "").trim().toLowerCase();
+  const tHasSec = Boolean(targetDoc.hasSecondaryUnit && targetDoc.secondaryUnit);
+  const tSecUnit = (targetDoc.secondaryUnit || "").trim().toLowerCase();
+
+  const PurchaseItemMapping = req.getModel("PurchaseItemMapping", purchaseItemMappingSchema);
+  const userId = req.user?._id;
+  const userName = req.user?.name || "System";
+
+  const mappedResults = [];
+  const errors = [];
+
+  for (const sItem of sourceItems) {
+    const sId = sItem.sourceItemId || sItem.materialId || sItem._id;
+    if (!sId) continue;
+
+    if (sId.toString() === targetPurchaseItemId.toString()) {
+      errors.push({ itemId: sId, name: sItem.sourceItemName || sItem.materialName, reason: "Cannot map item to itself" });
+      continue;
+    }
+
+    const sUnits = [
+      sItem.unit || sItem.primaryUnit,
+      sItem.hasSecondaryUnit ? sItem.secondaryUnit : null
+    ].filter(Boolean).map(u => String(u).trim().toLowerCase());
+
+    const targetUnits = [
+      targetDoc.unit,
+      targetDoc.hasSecondaryUnit ? targetDoc.secondaryUnit : null
+    ].filter(Boolean).map(u => String(u).trim().toLowerCase());
+
+    const hasAnyMatchingUnit = sUnits.some(su => targetUnits.includes(su));
+    if (!hasAnyMatchingUnit) {
+      errors.push({
+        itemId: sId,
+        name: sItem.sourceItemName || sItem.materialName,
+        reason: `No matching unit between Source ('${sUnits.join(", ")}') and Target ('${targetUnits.join(", ")}')`
+      });
+      continue;
+    }
+
+    const isSourceBO = (sItem.sourceItemType || sItem.itemType || "").toLowerCase().includes("bo");
+
+    const updated = await PurchaseItemMapping.findOneAndUpdate(
+      {
+        company: companyId,
+        sourceItemId: sId,
+        mrpPlanId: mrpPlanId || null
+      },
+      {
+        company: companyId,
+        sourceItemId: sId,
+        sourceItemType: isSourceBO ? "BO" : "RM",
+        sourceItemName: sItem.sourceItemName || sItem.materialName || "Material",
+        sourceItemCode: sItem.sourceItemCode || sItem.materialCode || "",
+        sourceItemDescription: sItem.sourceItemDescription || sItem.description || "",
+        targetPurchaseItemId,
+        targetPurchaseItemType: isTargetBO ? "BO" : "RM",
+        targetPurchaseItemName: targetPurchaseItemName || targetDoc.name,
+        targetPurchaseItemCode: targetPurchaseItemCode || targetDoc.code || "",
+        targetPurchaseItemDescription: targetPurchaseItemDescription || targetDoc.descriptions || targetDoc.description || "",
+        primaryUnit: targetDoc.unit,
+        hasSecondaryUnit: tHasSec,
+        secondaryUnit: tHasSec ? targetDoc.secondaryUnit : "",
+        conversionFactor: tHasSec ? (Number(targetDoc.conversionFactor) || 1) : 1,
+        isDefault: Boolean(isDefault),
+        mrpPlanId: mrpPlanId || null,
+        createdBy: userId,
+        createdByName: userName
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    mappedResults.push(updated);
+  }
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      { mappedCount: mappedResults.length, mappedResults, errors },
+      `Successfully mapped ${mappedResults.length} item(s) to Purchase Bucket '${targetPurchaseItemName || targetDoc.name}'.${errors.length > 0 ? ` (${errors.length} skipped due to unit mismatches)` : ""}`
+    )
+  );
 });
 
 

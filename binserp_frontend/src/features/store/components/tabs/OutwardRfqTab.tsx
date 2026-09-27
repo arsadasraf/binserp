@@ -42,6 +42,11 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
             description: string;
             quantity: number | string;
             unit: string;
+            hasSecondaryUnit?: boolean;
+            secondaryUnit?: string;
+            conversionFactor?: number;
+            secondaryQuantity?: number | string;
+            rateUnit?: 'primary' | 'secondary';
             targetPrice?: string | number;
         }>;
     }>({
@@ -49,7 +54,7 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
         dueDate: '',
         vendorIds: [],
         remarks: '',
-        items: [{ itemType: 'rm', materialId: '', materialName: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+        items: [{ itemType: 'rm', materialId: '', materialName: '', description: '', quantity: 1, unit: 'PCS', hasSecondaryUnit: false, secondaryUnit: '', conversionFactor: 1, secondaryQuantity: 0, rateUnit: 'primary', targetPrice: '' }]
     });
 
     // 3 distinct inventory lists
@@ -158,7 +163,7 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
             dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
             vendorIds: [],
             remarks: '',
-            items: [{ materialId: '', materialName: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+            items: [{ itemType: 'rm', materialId: '', materialName: '', description: '', quantity: 1, unit: 'PCS', hasSecondaryUnit: false, secondaryUnit: '', conversionFactor: 1, secondaryQuantity: 0, rateUnit: 'primary', targetPrice: '' }]
         });
         setIsCreateModalOpen(true);
     };
@@ -182,9 +187,14 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
                     description: it.description || '',
                     quantity: it.quantity || 1,
                     unit: it.unit || 'PCS',
+                    hasSecondaryUnit: Boolean(it.hasSecondaryUnit),
+                    secondaryUnit: it.secondaryUnit || '',
+                    conversionFactor: Number(it.conversionFactor) || 1,
+                    secondaryQuantity: it.secondaryQuantity || 0,
+                    rateUnit: it.rateUnit || 'primary',
                     targetPrice: it.targetPrice || ''
                 }))
-                : [{ materialId: '', materialName: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+                : [{ itemType: 'rm', materialId: '', materialName: '', description: '', quantity: 1, unit: 'PCS', hasSecondaryUnit: false, secondaryUnit: '', conversionFactor: 1, secondaryQuantity: 0, rateUnit: 'primary', targetPrice: '' }]
         });
         setIsCreateModalOpen(true);
     };
@@ -222,7 +232,7 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
     const handleAddItem = () => {
         setNewRfq(prev => ({
             ...prev,
-            items: [...prev.items, { itemType: 'rm', materialId: '', materialName: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+            items: [...prev.items, { itemType: 'rm', materialId: '', materialName: '', description: '', quantity: 1, unit: 'PCS', hasSecondaryUnit: false, secondaryUnit: '', conversionFactor: 1, secondaryQuantity: 0, rateUnit: 'primary', targetPrice: '' }]
         }));
     };
 
@@ -235,17 +245,21 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
 
     const handleItemChange = (index: number, field: string, value: any) => {
         const updatedItems = [...newRfq.items];
+        const curItem = { ...updatedItems[index] };
+
         if (field === 'itemType') {
-            updatedItems[index] = {
-                ...updatedItems[index],
-                itemType: value,
-                materialId: '',
-                materialName: '',
-                description: '',
-                unit: 'PCS'
-            };
+            curItem.itemType = value;
+            curItem.materialId = '';
+            curItem.materialName = '';
+            curItem.description = '';
+            curItem.unit = 'PCS';
+            curItem.hasSecondaryUnit = false;
+            curItem.secondaryUnit = '';
+            curItem.conversionFactor = 1;
+            curItem.secondaryQuantity = 0;
+            curItem.rateUnit = 'primary';
         } else if (field === 'materialId') {
-            const entryType = updatedItems[index].itemType || 'rm';
+            const entryType = curItem.itemType || 'rm';
             let sourceList: any[] = rawMaterials;
             if (entryType === 'bo') sourceList = boughtOuts;
             else if (entryType === 'consumable') sourceList = consumables;
@@ -254,17 +268,38 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
             const autoName = selectedMat?.name || selectedMat?.materialName || selectedMat?.itemName || '';
             const autoDesc = selectedMat?.descriptions || selectedMat?.description || selectedMat?.details || autoName;
             const autoUnit = selectedMat?.unit || selectedMat?.uom || selectedMat?.categoryId?.unit || selectedMat?.category?.unit || 'PCS';
+            const hasSec = Boolean(selectedMat?.hasSecondaryUnit);
+            const secUnit = selectedMat?.secondaryUnit || '';
+            const conv = Number(selectedMat?.conversionFactor) || 1;
+            const qty = Number(curItem.quantity) || 1;
+            const secQty = hasSec && conv > 0 ? Number((qty / conv).toFixed(4)) : 0;
 
-            updatedItems[index] = {
-                ...updatedItems[index],
-                materialId: value,
-                materialName: autoName,
-                description: autoDesc,
-                unit: autoUnit
-            };
+            curItem.materialId = value;
+            curItem.materialName = autoName;
+            curItem.description = autoDesc;
+            curItem.unit = autoUnit;
+            curItem.hasSecondaryUnit = hasSec;
+            curItem.secondaryUnit = secUnit;
+            curItem.conversionFactor = conv;
+            curItem.secondaryQuantity = secQty;
+            curItem.rateUnit = 'primary';
+        } else if (field === 'quantity') {
+            const num = parseFloat(value) || 0;
+            curItem.quantity = value;
+            if (curItem.hasSecondaryUnit && Number(curItem.conversionFactor) > 0) {
+                curItem.secondaryQuantity = Number((num / Number(curItem.conversionFactor)).toFixed(4));
+            }
+        } else if (field === 'secondaryQuantity') {
+            const num = parseFloat(value) || 0;
+            curItem.secondaryQuantity = value;
+            if (curItem.hasSecondaryUnit && Number(curItem.conversionFactor) > 0) {
+                curItem.quantity = Number((num * Number(curItem.conversionFactor)).toFixed(4));
+            }
         } else {
-            updatedItems[index] = { ...updatedItems[index], [field]: value };
+            (curItem as any)[field] = value;
         }
+
+        updatedItems[index] = curItem;
         setNewRfq(prev => ({ ...prev, items: updatedItems }));
     };
 
@@ -741,58 +776,107 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
                                                     </div>
                                                 </div>
 
-                                                <div className="grid grid-cols-12 gap-2.5 items-center">
-                                                    <div className="col-span-6">
-                                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                                            {currentType === 'rm' ? 'Raw Material' : currentType === 'bo' ? 'Bought Out Item' : 'Consumable Item'}
-                                                        </label>
-                                                        <SearchableSelect
-                                                            options={itemOptions}
-                                                            value={item.materialId}
-                                                            onChange={(val: any) => handleItemChange(idx, 'materialId', val)}
-                                                            placeholder={`Select ${currentType.toUpperCase()}...`}
-                                                        />
-                                                    </div>
+                                                 <div className="grid grid-cols-12 gap-2.5 items-center">
+                                                     <div className="col-span-12 sm:col-span-5">
+                                                         <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                                             {currentType === 'rm' ? 'Raw Material' : currentType === 'bo' ? 'Bought Out Item' : 'Consumable Item'}
+                                                         </label>
+                                                         <SearchableSelect
+                                                             options={itemOptions}
+                                                             value={item.materialId}
+                                                             onChange={(val: any) => handleItemChange(idx, 'materialId', val)}
+                                                             placeholder={`Select ${currentType.toUpperCase()}...`}
+                                                         />
+                                                     </div>
 
-                                                    <div className="col-span-3">
-                                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                                            Required Qty
-                                                        </label>
-                                                        <input
-                                                            type="number"
-                                                            min="1"
-                                                            value={item.quantity}
-                                                            onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
-                                                            placeholder="Qty"
-                                                            className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-white"
-                                                        />
-                                                    </div>
+                                                     <div className="col-span-6 sm:col-span-4">
+                                                         <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                                             Required Qty & Unit
+                                                         </label>
+                                                         <div className="space-y-1">
+                                                             <div className="flex items-center gap-1">
+                                                                 <input
+                                                                     type="number"
+                                                                     min="0.001"
+                                                                     step="any"
+                                                                     value={item.quantity}
+                                                                     onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
+                                                                     placeholder="Qty"
+                                                                     className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white"
+                                                                 />
+                                                                 <div className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 text-center shrink-0 min-w-[50px]">
+                                                                     {item.unit || 'PCS'}
+                                                                 </div>
+                                                             </div>
+                                                             {item.hasSecondaryUnit && (
+                                                                 <div className="flex items-center gap-1">
+                                                                     <input
+                                                                         type="number"
+                                                                         min="0.001"
+                                                                         step="any"
+                                                                         value={item.secondaryQuantity || ''}
+                                                                         onChange={(e) => handleItemChange(idx, 'secondaryQuantity', e.target.value)}
+                                                                         placeholder="Sec Qty"
+                                                                         className="w-full px-2.5 py-1 bg-cyan-50/50 dark:bg-cyan-950/30 border border-cyan-300 dark:border-cyan-800 rounded-xl text-[11px] font-semibold text-cyan-700 dark:text-cyan-300"
+                                                                     />
+                                                                     <div className="px-2 py-1 bg-cyan-100/60 dark:bg-cyan-900/60 rounded-xl text-[10px] font-bold text-cyan-700 dark:text-cyan-300 text-center shrink-0 min-w-[50px]">
+                                                                         {item.secondaryUnit}
+                                                                     </div>
+                                                                 </div>
+                                                             )}
+                                                         </div>
+                                                     </div>
 
-                                                    <div className="col-span-3">
-                                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                                            Unit
-                                                        </label>
-                                                        <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 text-center">
-                                                            {item.unit || 'PCS'}
-                                                        </div>
-                                                    </div>
-                                                </div>
+                                                     <div className="col-span-6 sm:col-span-3">
+                                                         <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                                             Target Price (Optional)
+                                                         </label>
+                                                         <div className="flex items-center gap-1">
+                                                             <input
+                                                                 type="number"
+                                                                 step="any"
+                                                                 value={item.targetPrice || ''}
+                                                                 onChange={(e) => handleItemChange(idx, 'targetPrice', e.target.value)}
+                                                                 placeholder="Target ₹"
+                                                                 className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white"
+                                                             />
+                                                             {item.hasSecondaryUnit ? (
+                                                                 <button
+                                                                     type="button"
+                                                                     onClick={() => handleItemChange(idx, 'rateUnit', item.rateUnit === 'secondary' ? 'primary' : 'secondary')}
+                                                                     className={`px-1.5 py-1.5 rounded-xl text-[10px] font-extrabold uppercase shrink-0 transition-colors border cursor-pointer ${
+                                                                         item.rateUnit === 'secondary'
+                                                                             ? 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950 dark:text-amber-200'
+                                                                             : 'bg-cyan-100 text-cyan-900 border-cyan-300 dark:bg-cyan-950 dark:text-cyan-200'
+                                                                     }`}
+                                                                     title="Click to toggle rate per Primary or Secondary Unit"
+                                                                 >
+                                                                     /{item.rateUnit === 'secondary' ? item.secondaryUnit : (item.unit || 'PCS')}
+                                                                 </button>
+                                                             ) : (
+                                                                 <span className="text-[10px] font-bold text-slate-400 px-1 shrink-0">
+                                                                     /{item.unit || 'PCS'}
+                                                                 </span>
+                                                             )}
+                                                         </div>
+                                                     </div>
+                                                 </div>
 
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                                        Item Description / Specifications (Auto-filled)
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={item.description || ''}
-                                                        onChange={(e) => handleItemChange(idx, 'description', e.target.value)}
-                                                        placeholder="Item description or technical specs..."
-                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 outline-none focus:ring-1 focus:ring-cyan-500"
-                                                    />
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
+                                                 <div>
+                                                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                                         Item Description / Specifications (Auto-filled)
+                                                     </label>
+                                                     <input
+                                                         type="text"
+                                                         value={item.description || ''}
+                                                         onChange={(e) => handleItemChange(idx, 'description', e.target.value)}
+                                                         placeholder="Item description or technical specs..."
+                                                         className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 outline-none focus:ring-1 focus:ring-cyan-500"
+                                                     />
+                                                 </div>
+                                             </div>
+                                         );
+                                     })}
                                 </div>
 
                                 {/* Bottom Add Material Bar */}
@@ -1034,15 +1118,31 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
                                     <table className="w-full text-xs text-left">
                                         <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600">
                                             <tr>
-                                                <th className="p-3">Material Name</th>
+                                                <th className="p-3">Material Name & Specifications</th>
                                                 <th className="p-3 text-center">Required Qty</th>
+                                                <th className="p-3 text-right">Target Rate</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
                                             {(selectedRfq.items || []).map((item: any, idx: number) => (
                                                 <tr key={idx}>
-                                                    <td className="p-3 font-bold">{item.materialName || 'Item'}</td>
-                                                    <td className="p-3 text-center font-bold text-cyan-600">{item.quantity} {item.unit || 'PCS'}</td>
+                                                    <td className="p-3">
+                                                        <div className="font-bold text-slate-800 dark:text-slate-200">{item.materialName || 'Item'}</div>
+                                                        {item.description && <div className="text-[11px] text-slate-500 italic mt-0.5">{item.description}</div>}
+                                                    </td>
+                                                    <td className="p-3 text-center">
+                                                        <div className="font-bold text-cyan-600">{item.quantity} {item.unit || 'PCS'}</div>
+                                                        {item.hasSecondaryUnit && item.secondaryQuantity ? (
+                                                            <div className="text-[10px] text-slate-500">({item.secondaryQuantity} {item.secondaryUnit})</div>
+                                                        ) : null}
+                                                    </td>
+                                                    <td className="p-3 text-right font-mono font-bold text-slate-700 dark:text-slate-300">
+                                                        {item.targetPrice ? (
+                                                            <span>₹{Number(item.targetPrice).toLocaleString()} <span className="text-[10px] text-slate-400">/{item.rateUnit === 'secondary' && item.secondaryUnit ? item.secondaryUnit : (item.unit || 'PCS')}</span></span>
+                                                        ) : (
+                                                            <span className="text-slate-400 font-normal italic">Open Bid</span>
+                                                        )}
+                                                    </td>
                                                 </tr>
                                             ))}
                                         </tbody>

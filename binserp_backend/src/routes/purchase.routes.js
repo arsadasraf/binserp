@@ -40,7 +40,12 @@ import {
   updateMRPItemStatus,
   moveMRPToProduction,
   getMRP360WipTracker,
-  getAllMRPWipOverview
+  getAllMRPWipOverview,
+  getPurchaseBucketMappings,
+  getEligiblePurchaseItems,
+  mapItemToPurchaseBucket,
+  bulkMapItemsToPurchaseBucket,
+  unmapItemFromPurchaseBucket
 } from "../controllers/purchase/index.js";
 
 const router = Router();
@@ -58,6 +63,22 @@ router.route("/po/active-by-vendor/:vendorId")
 // MRP Procurement & WIP Intelligence Routes
 router.route("/mrp/procurement-workbench")
   .get(getMRPProcurementWorkbench);
+
+// Purchase Bucket Mapping Routes
+router.route("/mrp/purchase-bucket-mappings")
+  .get(getPurchaseBucketMappings);
+
+router.route("/mrp/eligible-purchase-items")
+  .get(getEligiblePurchaseItems);
+
+router.route("/mrp/map-to-purchase-bucket")
+  .post(mapItemToPurchaseBucket);
+
+router.route("/mrp/bulk-map-to-purchase-bucket")
+  .post(bulkMapItemsToPurchaseBucket);
+
+router.route("/mrp/unmap-purchase-bucket/:id")
+  .delete(unmapItemFromPurchaseBucket);
 
 router.route("/mrp/bulk-generate-po")
   .post(bulkGeneratePOFromMRP);

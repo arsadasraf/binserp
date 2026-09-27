@@ -6,4 +6,5 @@ export { purchaseOrderSchema } from './purchaseOrder.model.js';
 export { salesOrderMRPSchema } from './salesOrderMRP.model.js';
 export { mrpPlanSchema } from './mrpPlan.model.js';
 export { debitNoteSchema } from './debitNote.model.js';
+export { purchaseItemMappingSchema } from './purchaseItemMapping.model.js';
 

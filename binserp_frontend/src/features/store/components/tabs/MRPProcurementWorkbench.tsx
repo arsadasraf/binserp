@@ -4,10 +4,11 @@ import {
   Layers, Filter, Search, ArrowRight, ArrowLeft, Building2, Truck, 
   Plus, CheckSquare, Square, ChevronDown, ChevronRight, ChevronLeft,
   TrendingDown, FileText, Sparkles, Send, Boxes, GitBranch,
-  Factory, Package, Check, Eye, Clock, Calendar, Download, Printer, Tag, X
+  Factory, Package, Check, Eye, Clock, Calendar, Download, Printer, Tag, X, RotateCcw
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiPatch } from '@/src/lib/api';
 import { generateNestedBOMPDF } from '@/src/utils/generateNestedBOMPDF';
+import ConvertToPurchaseBucketModal from '@/src/features/store/components/modals/ConvertToPurchaseBucketModal';
 import Swal from 'sweetalert2';
 
 interface MRPProcurementWorkbenchProps {
@@ -24,6 +25,14 @@ const STATUS_OPTIONS = [
   'Material Received',
   'Issued for Production',
   'Completed'
+];
+
+const PLANNING_STATUS_OPTIONS = [
+  { id: 'not_planned', label: 'Not Planned (Pending Purchase)', icon: AlertTriangle, color: 'text-rose-500' },
+  { id: 'in_purchase_bucket', label: 'In Purchase Bucket (Converted)', icon: Boxes, color: 'text-indigo-600' },
+  { id: 'in_procurement', label: 'In Procurement / PO Sent', icon: Truck, color: 'text-blue-500' },
+  { id: 'stock_covered', label: 'Stock Covered', icon: CheckCircle2, color: 'text-emerald-500' },
+  { id: 'completed', label: 'Completed', icon: Check, color: 'text-slate-400' },
 ];
 
 export default function MRPProcurementWorkbench({
@@ -43,11 +52,59 @@ export default function MRPProcurementWorkbench({
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [selectedVendorFilter, setSelectedVendorFilter] = useState<string>('all');
   const [selectedCustomerFilter, setSelectedCustomerFilter] = useState<string>('all');
-  const [selectedPlanningStatusFilter, setSelectedPlanningStatusFilter] = useState<'all' | 'not_planned' | 'in_procurement' | 'stock_covered' | 'completed'>('all');
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Filter Tab 1: Planning Status Multi-Select State
+  const [selectedPlanningStatuses, setSelectedPlanningStatuses] = useState<string[]>([]);
+  const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
+  const statusDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Filter Tab 2: Plan Date Filter State (Created / Plan Date)
+  const [planDateFilter, setPlanDateFilter] = useState<'all' | 'today' | 'yesterday' | '7days' | 'thisMonth' | 'custom'>('all');
+  const [planStartDate, setPlanStartDate] = useState<string>('');
+  const [planEndDate, setPlanEndDate] = useState<string>('');
+  const [isPlanDateDropdownOpen, setIsPlanDateDropdownOpen] = useState(false);
+  const planDateDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Filter Tab 3: Target / Due Date Filter State (Target / Delivery Date)
+  const [targetDateFilter, setTargetDateFilter] = useState<'all' | 'today' | 'yesterday' | '7days' | 'next7days' | 'thisMonth' | 'custom'>('all');
+  const [targetStartDate, setTargetStartDate] = useState<string>('');
+  const [targetEndDate, setTargetEndDate] = useState<string>('');
+  const [isTargetDateDropdownOpen, setIsTargetDateDropdownOpen] = useState(false);
+  const targetDateDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(target)) {
+        setIsStatusDropdownOpen(false);
+      }
+      if (planDateDropdownRef.current && !planDateDropdownRef.current.contains(target)) {
+        setIsPlanDateDropdownOpen(false);
+      }
+      if (targetDateDropdownRef.current && !targetDateDropdownRef.current.contains(target)) {
+        setIsTargetDateDropdownOpen(false);
+      }
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(target)) {
+        setIsCustomerDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [submittingPO, setSubmittingPO] = useState(false);
   const [submittingPPC, setSubmittingPPC] = useState(false);
+
+  // Purchase Bucket State (Mapping BOM cut sizes to standard commercial purchasable items)
+  const [procurementSubView, setProcurementSubView] = useState<'cut_sizes' | 'purchase_buckets'>('cut_sizes');
+  const [bucketModalItem, setBucketModalItem] = useState<any | null>(null);
+  const [bucketModalItems, setBucketModalItems] = useState<any[] | null>(null);
+  const [expandedBucketIds, setExpandedBucketIds] = useState<Set<string>>(new Set());
 
   // Tab scrolling ref & handler for Type Switcher Tabs
   const typeTabsRef = useRef<HTMLDivElement>(null);
@@ -57,10 +114,6 @@ export default function MRPProcurementWorkbench({
       typeTabsRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
     }
   };
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | '7days' | 'thisMonth' | 'custom'>('all');
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
-  const [dateType, setDateType] = useState<'created' | 'target'>('created');
   const [companyInfo, setCompanyInfo] = useState<any>(null);
 
   const fetchWorkbenchData = async (planId?: string) => {
@@ -136,59 +189,117 @@ export default function MRPProcurementWorkbench({
     return Array.from(custSet).filter(Boolean).sort();
   }, [mrpTreeList]);
 
-  // Unified Date Filter Matcher
-  const matchesDateFilter = (rawDate: any) => {
-    if (dateFilter === 'all') return true;
+  // Unified Date preset matching helper
+  const matchDatePreset = (
+    rawDate: any,
+    preset: string = 'all',
+    customStart?: string,
+    customEnd?: string
+  ) => {
+    if (!preset || preset === 'all') return true;
     if (!rawDate) return false;
     const d = new Date(rawDate);
     if (isNaN(d.getTime())) return false;
+
     const today = new Date();
-    const isSameDay = (d1: Date, d2: Date) => 
+    const isSameDay = (d1: Date, d2: Date) =>
       d1.getFullYear() === d2.getFullYear() &&
       d1.getMonth() === d2.getMonth() &&
       d1.getDate() === d2.getDate();
 
-    if (dateFilter === 'today') {
+    if (preset === 'today') {
       return isSameDay(d, today);
-    } else if (dateFilter === 'yesterday') {
+    } else if (preset === 'yesterday') {
       const yesterday = new Date();
       yesterday.setDate(today.getDate() - 1);
       return isSameDay(d, yesterday);
-    } else if (dateFilter === '7days') {
+    } else if (preset === '7days') {
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(today.getDate() - 7);
       sevenDaysAgo.setHours(0, 0, 0, 0);
       return d >= sevenDaysAgo && d <= today;
-    } else if (dateFilter === 'thisMonth') {
+    } else if (preset === 'next7days') {
+      const nextSevenDays = new Date();
+      nextSevenDays.setDate(today.getDate() + 7);
+      nextSevenDays.setHours(23, 59, 59, 999);
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      return d >= startOfToday && d <= nextSevenDays;
+    } else if (preset === 'thisMonth') {
       return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
-    } else if (dateFilter === 'custom') {
-      if (startDate && endDate) {
-        const s = new Date(startDate);
+    } else if (preset === 'custom') {
+      if (customStart && customEnd) {
+        const s = new Date(customStart);
         s.setHours(0, 0, 0, 0);
-        const e = new Date(endDate);
+        const e = new Date(customEnd);
         e.setHours(23, 59, 59, 999);
         return d >= s && d <= e;
-      } else if (startDate) {
-        const s = new Date(startDate);
+      } else if (customStart) {
+        const s = new Date(customStart);
         return isSameDay(d, s) || d >= s;
-      } else if (endDate) {
-        const e = new Date(endDate);
+      } else if (customEnd) {
+        const e = new Date(customEnd);
         return isSameDay(d, e) || d <= e;
       }
     }
     return true;
   };
 
+  // Helper function to format preset button label
+  const formatPresetLabel = (preset: string, start?: string, end?: string) => {
+    if (preset === 'custom') {
+      if (start && end) return `${start} → ${end}`;
+      if (start) return `From ${start}`;
+      if (end) return `Until ${end}`;
+      return 'Custom';
+    }
+    switch (preset) {
+      case 'today': return 'Today';
+      case 'yesterday': return 'Yesterday';
+      case '7days': return 'Last 7 Days';
+      case 'next7days': return 'Next 7 Days';
+      case 'thisMonth': return 'This Month';
+      case 'all':
+      default:
+        return 'All';
+    }
+  };
+
+  // Live Status Counts across active MRP Plans
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      not_planned: 0,
+      in_procurement: 0,
+      stock_covered: 0,
+      completed: 0
+    };
+    (mrpTreeList || []).forEach((plan: any) => {
+      const status = plan.planPlanningStatus || 
+        (plan.planTotalShortages === 0 ? 'Stock Covered' : (plan.planTotalInTransit >= plan.planTotalShortages ? 'PO In-Transit' : 'Not Planned'));
+      if (status === 'Not Planned' || status === 'Partially Planned') counts.not_planned++;
+      if (status === 'PO In-Transit' || status === 'Partially Planned' || status === 'In Procurement') counts.in_procurement++;
+      if (status === 'Stock Covered') counts.stock_covered++;
+      if (status === 'Completed' || plan.status === 'Completed') counts.completed++;
+    });
+    return counts;
+  }, [mrpTreeList]);
+
   // Filtered MRP list for the initial selection view (Plans)
   const filteredMrpList = useMemo(() => {
     return (mrpTreeList || []).filter((plan: any) => {
-      // 1. Date Resolution (Plan Date vs Target Date)
-      const rawDate = dateType === 'target' 
-        ? (plan.targetDate || plan.deliveryDate || plan.createdAt) 
-        : (plan.planDate || plan.createdAt || plan.date || plan.targetDate);
-      if (!matchesDateFilter(rawDate)) return false;
+      // 1. Plan Date Filter (Created / Plan Date)
+      const rawPlanDate = plan.createdAt || plan.planDate || plan.date;
+      if (!matchDatePreset(rawPlanDate, planDateFilter, planStartDate, planEndDate)) {
+        return false;
+      }
 
-      // 2. Search Term
+      // 2. Target Date Filter (Due / Delivery / Target Date)
+      const rawTargetDate = plan.targetDate || plan.deliveryDate;
+      if (!matchDatePreset(rawTargetDate, targetDateFilter, targetStartDate, targetEndDate)) {
+        return false;
+      }
+
+      // 3. Search Term
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
         const matchesSearch =
@@ -202,7 +313,7 @@ export default function MRPProcurementWorkbench({
         if (!matchesSearch) return false;
       }
 
-      // 3. Customer Filter
+      // 4. Customer Filter
       if (selectedCustomerFilter !== 'all') {
         const planCust = (plan.customerName || '').toLowerCase();
         const targetCust = selectedCustomerFilter.toLowerCase();
@@ -211,28 +322,34 @@ export default function MRPProcurementWorkbench({
         if (!planCust.includes(targetCust) && !hasMatchingCPO) return false;
       }
 
-      // 4. Material Planning Status Filter
-      if (selectedPlanningStatusFilter !== 'all') {
+      // 5. Material Planning Status Filter (Multi-select)
+      if (selectedPlanningStatuses.length > 0) {
         const status = plan.planPlanningStatus || 
           (plan.planTotalShortages === 0 ? 'Stock Covered' : (plan.planTotalInTransit >= plan.planTotalShortages ? 'PO In-Transit' : 'Not Planned'));
         
-        if (selectedPlanningStatusFilter === 'not_planned') {
-          if (status !== 'Not Planned' && status !== 'Partially Planned') return false;
-        } else if (selectedPlanningStatusFilter === 'in_procurement') {
-          if (status !== 'PO In-Transit' && status !== 'Partially Planned') return false;
-        } else if (selectedPlanningStatusFilter === 'stock_covered') {
-          if (status !== 'Stock Covered') return false;
-        }
+        const matchesAny = selectedPlanningStatuses.some(st => {
+          if (st === 'not_planned') return status === 'Not Planned' || status === 'Partially Planned';
+          if (st === 'in_procurement') return status === 'PO In-Transit' || status === 'Partially Planned' || status === 'In Procurement';
+          if (st === 'stock_covered') return status === 'Stock Covered';
+          if (st === 'completed') return status === 'Completed' || plan.status === 'Completed';
+          return false;
+        });
+        if (!matchesAny) return false;
       }
 
-      // 5. Shortages Only Toggle
+      // 6. Shortages Only Toggle
       if (onlyShortages && plan.planTotalShortages <= 0) {
         return false;
       }
 
       return true;
     });
-  }, [mrpTreeList, searchTerm, dateFilter, startDate, endDate, dateType, selectedCustomerFilter, selectedPlanningStatusFilter, onlyShortages]);
+  }, [
+    mrpTreeList, searchTerm,
+    planDateFilter, planStartDate, planEndDate,
+    targetDateFilter, targetStartDate, targetEndDate,
+    selectedCustomerFilter, selectedPlanningStatuses, onlyShortages
+  ]);
 
   // Active items for classification view inside selected MRP
   const currentTypeList = useMemo(() => {
@@ -312,14 +429,19 @@ export default function MRPProcurementWorkbench({
       }
 
       // 5. Date Filter (Plan Date vs Target Date)
-      if (dateFilter !== 'all') {
-        const rawDate = dateType === 'target'
-          ? (item.earliestTargetDate || item.mrpSources?.[0]?.targetDate)
-          : (item.latestPlanDate || item.mrpSources?.[0]?.planDate || item.mrpSources?.[0]?.createdAt);
-        if (!matchesDateFilter(rawDate)) return false;
+      // 5. Plan Date Filter
+      if (planDateFilter !== 'all' || planStartDate || planEndDate) {
+        const rawPlanDate = item.latestPlanDate || item.mrpSources?.[0]?.planDate || item.mrpSources?.[0]?.createdAt;
+        if (!matchDatePreset(rawPlanDate, planDateFilter, planStartDate, planEndDate)) return false;
       }
 
-      // 6. Customer Filter
+      // 6. Target Date Filter
+      if (targetDateFilter !== 'all' || targetStartDate || targetEndDate) {
+        const rawTargetDate = item.earliestTargetDate || item.mrpSources?.[0]?.targetDate;
+        if (!matchDatePreset(rawTargetDate, targetDateFilter, targetStartDate, targetEndDate)) return false;
+      }
+
+      // 7. Customer Filter
       if (selectedCustomerFilter !== 'all') {
         const targetCust = selectedCustomerFilter.toLowerCase();
         const matchesCust =
@@ -328,18 +450,18 @@ export default function MRPProcurementWorkbench({
         if (!matchesCust) return false;
       }
 
-      // 7. Material Planning Status Filter
-      if (selectedPlanningStatusFilter !== 'all') {
+      // 8. Material Planning Status Filter (Multi-select)
+      if (selectedPlanningStatuses.length > 0) {
         const pStatus = item.materialPlanningStatus || (item.netShortage === 0 ? 'Stock Covered' : 'Not Planned');
-        if (selectedPlanningStatusFilter === 'not_planned') {
-          if (pStatus !== 'Not Planned' && pStatus !== 'Pending') return false;
-        } else if (selectedPlanningStatusFilter === 'in_procurement') {
-          if (!['PO Sent', 'Raised RFQ', 'PO In-Transit', 'Partially In-Transit'].includes(pStatus)) return false;
-        } else if (selectedPlanningStatusFilter === 'stock_covered') {
-          if (pStatus !== 'Stock Covered' && item.netShortage > 0) return false;
-        } else if (selectedPlanningStatusFilter === 'completed') {
-          if (pStatus !== 'Completed') return false;
-        }
+        const matchesAny = selectedPlanningStatuses.some(st => {
+          if (st === 'not_planned') return pStatus === 'Not Planned' || pStatus === 'Pending';
+          if (st === 'in_purchase_bucket') return Boolean(item.purchaseBucket) || pStatus === 'In Purchase Bucket' || pStatus.includes('Converted');
+          if (st === 'in_procurement') return ['PO Sent', 'Raised RFQ', 'PO In-Transit', 'Partially In-Transit'].includes(pStatus);
+          if (st === 'stock_covered') return pStatus === 'Stock Covered' || item.netShortage === 0;
+          if (st === 'completed') return pStatus === 'Completed';
+          return false;
+        });
+        if (!matchesAny) return false;
       }
 
       return true;
@@ -350,33 +472,50 @@ export default function MRPProcurementWorkbench({
     onlyShortages,
     selectedCategoryFilter,
     selectedVendorFilter,
-    dateFilter,
-    startDate,
-    endDate,
-    dateType,
+    planDateFilter,
+    planStartDate,
+    planEndDate,
+    targetDateFilter,
+    targetStartDate,
+    targetEndDate,
     selectedCustomerFilter,
-    selectedPlanningStatusFilter
+    selectedPlanningStatuses
   ]);
 
-  const isAnyFilterActive = 
-    searchTerm !== '' || 
-    dateFilter !== 'all' || 
-    selectedCustomerFilter !== 'all' || 
-    selectedPlanningStatusFilter !== 'all' || 
-    onlyShortages || 
-    selectedCategoryFilter !== 'all' || 
-    selectedVendorFilter !== 'all';
+  const isAnyFilterActive = useMemo(() => {
+    return (
+      selectedPlanningStatuses.length > 0 ||
+      planDateFilter !== 'all' ||
+      Boolean(planStartDate || planEndDate) ||
+      targetDateFilter !== 'all' ||
+      Boolean(targetStartDate || targetEndDate) ||
+      selectedCustomerFilter !== 'all' ||
+      selectedCategoryFilter !== 'all' ||
+      selectedVendorFilter !== 'all' ||
+      onlyShortages ||
+      Boolean(searchTerm)
+    );
+  }, [
+    selectedPlanningStatuses,
+    planDateFilter, planStartDate, planEndDate,
+    targetDateFilter, targetStartDate, targetEndDate,
+    selectedCustomerFilter, selectedCategoryFilter, selectedVendorFilter,
+    onlyShortages, searchTerm
+  ]);
 
   const handleResetAllFilters = () => {
-    setSearchTerm('');
-    setDateFilter('all');
-    setStartDate('');
-    setEndDate('');
+    setSelectedPlanningStatuses([]);
+    setPlanDateFilter('all');
+    setPlanStartDate('');
+    setPlanEndDate('');
+    setTargetDateFilter('all');
+    setTargetStartDate('');
+    setTargetEndDate('');
     setSelectedCustomerFilter('all');
-    setSelectedPlanningStatusFilter('all');
-    setOnlyShortages(false);
     setSelectedCategoryFilter('all');
     setSelectedVendorFilter('all');
+    setOnlyShortages(false);
+    setSearchTerm('');
     setSelectedKeys(new Set());
   };
 
@@ -388,11 +527,60 @@ export default function MRPProcurementWorkbench({
     setSelectedKeys(next);
   };
 
+  // Whether active view is showing purchase buckets (only for RM and BO)
+  const isBucketSubView = (activeTypeTab === 'rm' || activeTypeTab === 'bo') && procurementSubView === 'purchase_buckets';
+
+  // Derived purchase buckets from API data for RM or BO
+  const currentBuckets = useMemo(() => {
+    if (activeTypeTab === 'rm') {
+      return data?.purchaseBuckets?.rmBuckets || [];
+    }
+    if (activeTypeTab === 'bo') {
+      return data?.purchaseBuckets?.boBuckets || [];
+    }
+    return [];
+  }, [data?.purchaseBuckets, activeTypeTab]);
+
+  // Filtered purchase buckets according to search, vendor, and shortages
+  const filteredBuckets = useMemo(() => {
+    return currentBuckets.filter((bucket: any) => {
+      if (searchTerm) {
+        const s = searchTerm.toLowerCase();
+        const match =
+          (bucket.targetPurchaseItemName && bucket.targetPurchaseItemName.toLowerCase().includes(s)) ||
+          (bucket.targetPurchaseItemDescription && bucket.targetPurchaseItemDescription.toLowerCase().includes(s)) ||
+          (bucket.targetPurchaseItemCategory && bucket.targetPurchaseItemCategory.toLowerCase().includes(s)) ||
+          (bucket.sourceCutSizes && bucket.sourceCutSizes.some((cs: any) => cs.sourceItemName?.toLowerCase().includes(s)));
+        if (!match) return false;
+      }
+      if (selectedVendorFilter && selectedVendorFilter !== 'all') {
+        if (selectedVendorFilter === 'preferred_only') {
+          if (!bucket.bestVendor?.isPreferred) return false;
+        } else {
+          if (String(bucket.bestVendor?.vendorId) !== selectedVendorFilter) return false;
+        }
+      }
+      if (onlyShortages && bucket.netShortage <= 0) {
+        return false;
+      }
+      return true;
+    });
+  }, [currentBuckets, searchTerm, selectedVendorFilter, onlyShortages]);
+
   const toggleSelectAll = () => {
+    if (isBucketSubView) {
+      if (selectedKeys.size === filteredBuckets.length && filteredBuckets.length > 0) {
+        setSelectedKeys(new Set());
+      } else {
+        setSelectedKeys(new Set(filteredBuckets.map((b: any, bIdx: number) => b.bucketKey || `bucket_${b.targetPurchaseItemId || bIdx}`)));
+      }
+      return;
+    }
+
     if (selectedKeys.size === filteredConsolidatedList.length && filteredConsolidatedList.length > 0) {
       setSelectedKeys(new Set());
     } else {
-      setSelectedKeys(new Set(filteredConsolidatedList.map((i: any) => i.materialKey)));
+      setSelectedKeys(new Set(filteredConsolidatedList.map((i: any, idx: number) => i.materialKey || i.materialId || i._id || `mat_row_${idx}`)));
     }
   };
 
@@ -403,9 +591,133 @@ export default function MRPProcurementWorkbench({
     setExpandedNodes(next);
   };
 
+  // Reusable Dual-Unit Display Helper Function
+  const renderDualUnitQty = (
+    qty: number,
+    primaryUnit: string = 'PCS',
+    item?: any,
+    options?: {
+      align?: 'center' | 'left' | 'right';
+      isShortage?: boolean;
+      isInTransit?: boolean;
+      isPerFG?: boolean;
+      fontClass?: string;
+    }
+  ) => {
+    const isDual = Boolean(item?.hasSecondaryUnit && item?.secondaryUnit && Number(item?.conversionFactor) > 0);
+    const convFactor = Number(item?.conversionFactor) || 1;
+    const secondaryQty = isDual
+      ? parseFloat((qty * convFactor).toFixed(3))
+      : null;
+
+    const alignClass = 
+      options?.align === 'left' ? 'items-start text-left' :
+      options?.align === 'right' ? 'items-end text-right' :
+      'items-center text-center';
+
+    if (options?.isShortage) {
+      if (qty <= 0) {
+        return (
+          <div className="flex flex-col items-center">
+            <span className="text-emerald-600 font-bold text-[11px]">Covered</span>
+          </div>
+        );
+      }
+      return (
+        <div className="flex flex-col items-center">
+          <span className="font-black text-rose-600 bg-rose-50 dark:bg-rose-950/80 px-2 py-0.5 rounded text-[11px] whitespace-nowrap">
+            {qty.toLocaleString('en-IN')} {primaryUnit}
+          </span>
+          {isDual && secondaryQty !== null && (
+            <span className="text-[10px] font-semibold text-rose-500/90 dark:text-rose-400 mt-0.5 whitespace-nowrap">
+              ({secondaryQty.toLocaleString('en-IN')} {item.secondaryUnit})
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    if (options?.isInTransit) {
+      if (qty <= 0) {
+        return <span className="text-slate-300">-</span>;
+      }
+      return (
+        <div className="flex flex-col items-center">
+          <span className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-950/80 px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap">
+            {qty.toLocaleString('en-IN')} {primaryUnit}
+          </span>
+          {isDual && secondaryQty !== null && (
+            <span className="text-[9px] font-semibold text-blue-500/90 dark:text-blue-400 mt-0.5 whitespace-nowrap">
+              ({secondaryQty.toLocaleString('en-IN')} {item.secondaryUnit})
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    const defaultFont = options?.fontClass || 'font-bold text-slate-800 dark:text-slate-200';
+
+    return (
+      <div className={`flex flex-col ${alignClass}`}>
+        <span className={`${defaultFont} whitespace-nowrap`}>
+          {qty.toLocaleString('en-IN')} {primaryUnit}
+        </span>
+        {isDual && secondaryQty !== null && (
+          <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 mt-0.5 whitespace-nowrap">
+            ({secondaryQty.toLocaleString('en-IN')} {item.secondaryUnit})
+          </span>
+        )}
+      </div>
+    );
+  };
+
   const selectedItems = useMemo(() => {
-    return filteredConsolidatedList.filter((item: any) => selectedKeys.has(item.materialKey));
-  }, [filteredConsolidatedList, selectedKeys]);
+    if (isBucketSubView) {
+      return filteredBuckets
+        .filter((b: any, bIdx: number) => {
+          const bKey = b.bucketKey || `bucket_${b.targetPurchaseItemId || bIdx}`;
+          return selectedKeys.has(bKey);
+        })
+        .map((b: any, bIdx: number) => {
+          const bKey = b.bucketKey || `bucket_${b.targetPurchaseItemId || bIdx}`;
+          const cutSizes = b.sourceCutSizes || b.mappedItems || [];
+          const cutSizeNames = cutSizes.map((cs: any) => `${cs.sourceItemName} (${cs.grossRequired} ${b.unit})`).join(', ') || '';
+          const bName = b.targetPurchaseItemName || b.materialName || 'Commercial Purchase Item';
+          const bDesc = b.targetPurchaseItemDescription || b.description || '';
+          const bCat = b.targetPurchaseItemCategory || b.category || '';
+          return {
+            materialId: b.targetPurchaseItemId || b.materialId,
+            materialKey: bKey,
+            materialName: bName,
+            materialCode: b.targetPurchaseItemCode || b.materialCode || '',
+            description: bDesc,
+            category: bCat,
+            itemType: activeTypeTab,
+            unit: b.unit,
+            hasSecondaryUnit: Boolean(b.hasSecondaryUnit && b.secondaryUnit),
+            secondaryUnit: b.secondaryUnit || '',
+            conversionFactor: Number(b.conversionFactor) || 1,
+            grossRequired: b.grossRequired,
+            secondaryGrossRequired: b.secondaryGrossRequired,
+            currentPhysicalStock: b.currentPhysicalStock,
+            secondaryCurrentPhysicalStock: b.secondaryCurrentPhysicalStock,
+            totalInTransitPO: b.totalInTransitPO,
+            secondaryTotalInTransitPO: b.secondaryTotalInTransitPO,
+            netShortage: b.netShortage,
+            secondaryNetShortage: b.secondaryNetShortage,
+            bestVendor: b.bestVendor,
+            isBucket: true,
+            sourceCutSizes: cutSizes,
+            mrpSources: b.mrpSources,
+            customPoDescription: `Purchase Bucket: ${bName}. Consolidated for ${cutSizes.length} cut size(s): ${cutSizeNames}`
+          };
+        });
+    }
+    return filteredConsolidatedList.filter((item: any, idx: number) => {
+      const rowKey = item.materialKey || item.materialId || item._id || `mat_row_${idx}`;
+      return selectedKeys.has(rowKey);
+    });
+  }, [isBucketSubView, filteredBuckets, filteredConsolidatedList, selectedKeys, activeTypeTab]);
 
   // PDF Export for Multi-Level Nested BOM Tree
   const handleExportBOMPDF = () => {
@@ -430,7 +742,7 @@ export default function MRPProcurementWorkbench({
 
     if (onOpenPoModal) {
       const poItems = selectedItems.map((it: any) => {
-        const qty = Number(it.netShortage || it.requiredQuantity) || 1;
+        const qty = Number(it.netShortage || it.requiredQuantity || it.grossRequired) || 1;
         const rate = Number(it.bestVendor?.rate || it.estimatedRate || 0);
         const lineSub = qty * rate; // pure amount without tax
 
@@ -443,6 +755,10 @@ export default function MRPProcurementWorkbench({
           resolvedItemType = 'consumable';
         }
 
+        const isDual = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+        const convFactor = Number(it.conversionFactor) || 1;
+        const secQty = isDual ? (Number(it.secondaryNetShortage || it.secondaryGrossRequired) || parseFloat((qty * convFactor).toFixed(3))) : undefined;
+
         return {
           material: it.materialId || '',
           materialName: it.materialName,
@@ -451,9 +767,13 @@ export default function MRPProcurementWorkbench({
           category: it.category || '',
           quantity: qty,
           unit: it.unit || (resolvedItemType === 'rm' ? 'KG' : 'PCS'),
+          hasSecondaryUnit: isDual,
+          secondaryUnit: it.secondaryUnit || '',
+          conversionFactor: convFactor,
+          secondaryQuantity: secQty,
           rate: rate,
           amount: lineSub,
-          description: it.description || `MRP Requirement for ${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || 'MRP'}`
+          description: it.customPoDescription || it.description || `MRP Requirement for ${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || 'MRP'}`
         };
       });
 
@@ -525,6 +845,10 @@ export default function MRPProcurementWorkbench({
           itemType: it.itemType,
           orderQuantity: it.netShortage || it.requiredQuantity,
           unit: it.unit,
+          hasSecondaryUnit: Boolean(it.hasSecondaryUnit && it.secondaryUnit),
+          secondaryUnit: it.secondaryUnit || '',
+          conversionFactor: Number(it.conversionFactor) || 1,
+          secondaryQuantity: it.hasSecondaryUnit ? (Number(it.secondaryNetShortage) || parseFloat(((it.netShortage || it.requiredQuantity) * (Number(it.conversionFactor) || 1)).toFixed(3))) : undefined,
           rate: it.bestVendor?.rate || it.estimatedRate || 0,
           vendorId: it.bestVendor?.vendorId,
           sourceMRPs: it.mrpSources?.map((s: any) => s.mrpNumber) || [it.parentMRP || selectedPlan?.mrpNumber]
@@ -566,11 +890,15 @@ export default function MRPProcurementWorkbench({
         materialCode: it.materialCode,
         category: it.category,
         itemType: (it.itemType || 'rm').toLowerCase(),
-        requiredQuantity: it.netShortage || it.requiredQuantity,
+        requiredQuantity: it.netShortage || it.requiredQuantity || it.grossRequired,
         currentStock: it.currentPhysicalStock,
-        shortage: it.netShortage || it.requiredQuantity,
+        shortage: it.netShortage || it.requiredQuantity || it.grossRequired,
         unit: it.unit,
-        description: it.description || `Consolidated MRP Shortage (${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || ''})`
+        hasSecondaryUnit: Boolean(it.hasSecondaryUnit && it.secondaryUnit),
+        secondaryUnit: it.secondaryUnit || '',
+        conversionFactor: Number(it.conversionFactor) || 1,
+        secondaryQuantity: it.hasSecondaryUnit ? (Number(it.secondaryNetShortage || it.secondaryGrossRequired) || parseFloat(((it.netShortage || it.requiredQuantity || it.grossRequired) * (Number(it.conversionFactor) || 1)).toFixed(3))) : undefined,
+        description: it.customPoDescription || it.description || `Consolidated MRP Shortage (${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || ''})`
       }));
       onOpenRfqModal(rfqItems);
     }
@@ -868,24 +1196,87 @@ export default function MRPProcurementWorkbench({
         </button>
       </div>
 
+      {/* Sub-view Switcher for RM / BO: [📋 Cut Sizes / BOM Items] vs [📦 Purchase Buckets] */}
+      {(activeTypeTab === 'rm' || activeTypeTab === 'bo') && (
+        <div className="flex items-center justify-between flex-wrap gap-2 px-1">
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700/60 shadow-2xs">
+            <button
+              type="button"
+              onClick={() => {
+                setProcurementSubView('cut_sizes');
+                setSelectedKeys(new Set());
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                procurementSubView === 'cut_sizes'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <span>📋 BOM Cut Sizes</span>
+              <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+                procurementSubView === 'cut_sizes' ? 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200' : 'bg-slate-200/60 dark:bg-slate-700/60 text-slate-500'
+              }`}>
+                {currentTypeList.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setProcurementSubView('purchase_buckets');
+                setSelectedKeys(new Set());
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                procurementSubView === 'purchase_buckets'
+                  ? 'bg-cyan-600 text-white shadow-xs'
+                  : 'text-slate-500 hover:text-cyan-600 dark:hover:text-cyan-400'
+              }`}
+              title="View consolidated commercial purchasable items"
+            >
+              <Boxes size={13} />
+              <span>📦 Consolidated Purchase Buckets</span>
+              <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+                procurementSubView === 'purchase_buckets' ? 'bg-white/20 text-white' : 'bg-slate-200/60 dark:bg-slate-700/60 text-slate-500'
+              }`}>
+                {currentBuckets.length}
+              </span>
+            </button>
+          </div>
+
+          {procurementSubView === 'purchase_buckets' && (
+            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+              <Sparkles size={13} className="text-amber-500" />
+              <span>Multiple BOM cut sizes mapped into standard purchasable item buckets for single RFQ / PO release</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Action Toolbar for Selected Items */}
       <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
         <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-start">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-              {selectedKeys.size} item(s) selected in {activeTypeTab.toUpperCase()}
+              {selectedKeys.size} {isBucketSubView ? 'bucket(s)' : 'item(s)'} selected in {activeTypeTab.toUpperCase()}
             </span>
             <span className="text-xs font-semibold text-slate-400">
-              ({filteredConsolidatedList.length} of {currentTypeList.length} items)
+              ({isBucketSubView ? `${filteredBuckets.length} of ${currentBuckets.length} buckets` : `${filteredConsolidatedList.length} of ${currentTypeList.length} items`})
             </span>
           </div>
           <button
             type="button"
             onClick={() => {
-              const unplannedKeys = filteredConsolidatedList
-                .filter((i: any) => i.netShortage > 0 && (!i.materialPlanningStatus || i.materialPlanningStatus === 'Not Planned' || i.materialPlanningStatus === 'Pending'))
-                .map((i: any) => i.materialKey);
-              setSelectedKeys(new Set(unplannedKeys));
+              if (isBucketSubView) {
+                const unplannedKeys = filteredBuckets
+                  .filter((b: any) => b.netShortage > 0)
+                  .map((b: any, bIdx: number) => b.bucketKey || `bucket_${b.targetPurchaseItemId || bIdx}`);
+                setSelectedKeys(new Set(unplannedKeys));
+              } else {
+                const unplannedKeys = filteredConsolidatedList
+                  .filter((i: any) => i.netShortage > 0 && (!i.materialPlanningStatus || i.materialPlanningStatus === 'Not Planned' || i.materialPlanningStatus === 'Pending'))
+                  .map((i: any, idx: number) => i.materialKey || i.materialId || i._id || `mat_row_${idx}`);
+                setSelectedKeys(new Set(unplannedKeys));
+              }
             }}
             className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg font-bold text-xs transition-all flex items-center gap-1 cursor-pointer shrink-0"
             title="Select all items with shortages where PO has not yet been raised"
@@ -897,25 +1288,27 @@ export default function MRPProcurementWorkbench({
 
         <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scroll-smooth touch-pan-x flex-nowrap sm:flex-wrap justify-start sm:justify-end no-scrollbar">
           
-          {/* Manual Status Bulk Dropdown */}
-          <div className="flex items-center shrink-0">
-            <select
-              disabled={selectedKeys.size === 0}
-              onChange={(e) => {
-                if (e.target.value) {
-                  handleUpdateItemStatus(e.target.value);
-                  e.target.value = '';
-                }
-              }}
-              defaultValue=""
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs disabled:opacity-30 transition-all cursor-pointer outline-none border border-slate-200 dark:border-slate-700 shrink-0"
-            >
-              <option value="" disabled>🏷️ Set Status ({selectedKeys.size})</option>
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
-          </div>
+          {/* Manual Status Bulk Dropdown (Only for cut sizes / BOM items) */}
+          {!isBucketSubView && (
+            <div className="flex items-center shrink-0">
+              <select
+                disabled={selectedKeys.size === 0}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleUpdateItemStatus(e.target.value);
+                    e.target.value = '';
+                  }
+                }}
+                defaultValue=""
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs disabled:opacity-30 transition-all cursor-pointer outline-none border border-slate-200 dark:border-slate-700 shrink-0"
+              >
+                <option value="" disabled>🏷️ Set Status ({selectedKeys.size})</option>
+                {STATUS_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Common Purchasing Actions: RFQ & PO */}
           <button
@@ -926,6 +1319,25 @@ export default function MRPProcurementWorkbench({
             <FileText size={12} />
             <span>Create RFQ ({selectedKeys.size})</span>
           </button>
+
+          {/* Action: Send to Purchase Bucket (Only for RM & BO in Cut Sizes view) */}
+          {(activeTypeTab === 'rm' || activeTypeTab === 'bo') && !isBucketSubView && (
+            <button
+              onClick={() => {
+                if (selectedItems.length === 0) {
+                  Swal.fire('No Items Selected', `Please select ${activeTypeTab.toUpperCase()} items to send to a Purchase Bucket.`, 'info');
+                  return;
+                }
+                setBucketModalItems(selectedItems);
+              }}
+              disabled={selectedKeys.size === 0}
+              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
+              title={`Send ${selectedKeys.size} selected cut size(s) into a consolidated commercial purchase bucket`}
+            >
+              <Boxes size={13} />
+              <span>📦 Send to Purchase Bucket ({selectedKeys.size})</span>
+            </button>
+          )}
 
           <button
             onClick={handleOpenManualPO}
@@ -966,241 +1378,561 @@ export default function MRPProcurementWorkbench({
         </div>
       </div>
 
-      {/* Table with Selection Checkboxes & Inline Status Selector */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-        {/* Mobile horizontal scroll hint */}
-        <div className="sm:hidden px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-500 flex items-center justify-between">
-          <span>📋 Material Shortages</span>
-          <span className="text-emerald-600 font-semibold">← Swipe horizontally →</span>
-        </div>
-        <div className="overflow-x-auto scroll-smooth touch-pan-x">
-          <table className="w-full min-w-[960px] text-xs text-left">
-            <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
-              <tr>
-                <th className="p-3 w-8 text-center">
-                  <button onClick={toggleSelectAll} className="text-slate-400 hover:text-emerald-600">
-                    {selectedKeys.size === filteredConsolidatedList.length && filteredConsolidatedList.length > 0 ? (
-                      <CheckSquare size={14} className="text-emerald-600" />
-                    ) : (
-                      <Square size={14} />
-                    )}
-                  </button>
-                </th>
-                <th className="p-3">Material Name & Description</th>
-                <th className="p-3">Category</th>
-                <th className="p-3 text-center">Gross Required</th>
-                <th className="p-3 text-center">Live Stock</th>
-                <th className="p-3 text-center">In-Transit PO</th>
-                <th className="p-3 text-center">True Net Shortage</th>
-                <th className="p-3">Preferred Supplier</th>
-                <th className="p-3 text-center">Planning Remark</th>
-                <th className="p-3 text-center">BOM Item Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredConsolidatedList.length === 0 ? (
+      {/* Tables: Render Consolidated Purchase Buckets OR Cut Sizes BOM Items */}
+      {isBucketSubView ? (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+          <div className="sm:hidden px-3 py-1.5 bg-cyan-50 dark:bg-cyan-950/80 border-b border-cyan-200 dark:border-cyan-800 text-[10px] font-bold text-cyan-800 dark:text-cyan-300 flex items-center justify-between">
+            <span>📦 Consolidated Purchase Buckets</span>
+            <span className="text-cyan-600 font-semibold">← Swipe horizontally →</span>
+          </div>
+          <div className="overflow-x-auto scroll-smooth touch-pan-x">
+            <table className="w-full min-w-[960px] text-xs text-left">
+              <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                 <tr>
-                  <td colSpan={10} className="p-8 text-center text-slate-400">
-                    No {activeTypeTab.toUpperCase()} items found matching the selected filters.
-                  </td>
+                  <th className="p-3 w-8 text-center">
+                    <button onClick={toggleSelectAll} className="text-slate-400 hover:text-cyan-600">
+                      {selectedKeys.size === filteredBuckets.length && filteredBuckets.length > 0 ? (
+                        <CheckSquare size={14} className="text-cyan-600" />
+                      ) : (
+                        <Square size={14} />
+                      )}
+                    </button>
+                  </th>
+                  <th className="p-3 w-8 text-center"></th>
+                  <th className="p-3">Commercial Purchase Item (Bucket)</th>
+                  <th className="p-3">Category</th>
+                  <th className="p-3 text-center">Consolidated Gross</th>
+                  <th className="p-3 text-center">Bucket Live Stock</th>
+                  <th className="p-3 text-center">In-Transit PO</th>
+                  <th className="p-3 text-center">Net Shortage (To Buy)</th>
+                  <th className="p-3">Preferred Supplier</th>
+                  <th className="p-3 text-center">Cut Sizes Dumped</th>
                 </tr>
-              ) : (
-                filteredConsolidatedList.map((item: any) => {
-                  const isSelected = selectedKeys.has(item.materialKey);
-                  const currentStatus = item.status || 'Pending';
-
-                  return (
-                    <tr key={item.materialKey} className={`hover:bg-slate-50 dark:hover:bg-slate-800/60 ${isSelected ? "bg-emerald-50/50 dark:bg-emerald-950/20" : ""}`}>
-                      <td className="p-3 text-center">
-                        <button onClick={() => toggleSelect(item.materialKey)} className="text-slate-400 hover:text-emerald-600">
-                          {isSelected ? <CheckSquare size={14} className="text-emerald-600" /> : <Square size={14} />}
-                        </button>
-                      </td>
-
-                      <td className="p-3">
-                        <div className="font-bold text-slate-900 dark:text-white">{item.materialName}</div>
-                        {item.description && <span className="block text-[11px] text-slate-500 italic mt-0.5">{item.description}</span>}
-                        
-                        {/* Target Required Date & Sources */}
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                          {item.earliestTargetDate && (
-                            <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800/60 inline-flex items-center gap-1">
-                              <Calendar size={10} />
-                              Due: {new Date(item.earliestTargetDate).toLocaleDateString('en-IN')}
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredBuckets.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="p-8 text-center text-slate-400">
+                      No purchase buckets created yet. Switch to "BOM Cut Sizes" tab and click "+ Convert to Purchase {activeTypeTab === 'rm' ? 'RM' : 'BO'}" on any cut size to create a purchase bucket.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredBuckets.map((bucket: any, bIdx: number) => {
+                    const bKey = bucket.bucketKey || `bucket_${bucket.targetPurchaseItemId || bIdx}`;
+                    const isSelected = selectedKeys.has(bKey);
+                    const isExpanded = expandedBucketIds.has(bKey);
+                    return (
+                      <React.Fragment key={`${bKey}_${bIdx}`}>
+                        <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/60 ${isSelected ? "bg-cyan-50/50 dark:bg-cyan-950/20" : ""}`}>
+                          <td className="p-3 text-center">
+                            <button onClick={() => toggleSelect(bKey)} className="text-slate-400 hover:text-cyan-600">
+                              {isSelected ? <CheckSquare size={14} className="text-cyan-600" /> : <Square size={14} />}
+                            </button>
+                          </td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = new Set(expandedBucketIds);
+                                if (next.has(bucket.bucketKey)) next.delete(bucket.bucketKey);
+                                else next.add(bucket.bucketKey);
+                                setExpandedBucketIds(next);
+                              }}
+                              className="text-slate-400 hover:text-cyan-600 transition-transform cursor-pointer"
+                              title={isExpanded ? "Collapse contained cut sizes" : "Expand contained cut sizes"}
+                            >
+                              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            </button>
+                          </td>
+                          <td className="p-3">
+                            <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                              <Boxes size={14} className="text-cyan-600 shrink-0" />
+                              <span>{bucket.targetPurchaseItemName || bucket.materialName || 'Commercial Purchase Item'}</span>
+                            </div>
+                            {(bucket.targetPurchaseItemDescription || bucket.description) && (
+                              <span className="block text-[11px] text-slate-500 italic mt-0.5 ml-5">
+                                {bucket.targetPurchaseItemDescription || bucket.description}
+                              </span>
+                            )}
+                            <div className="text-[10px] text-slate-400 mt-1 ml-5 flex items-center gap-2">
+                              <span>Units: <strong className="font-mono text-slate-600 dark:text-slate-300">{bucket.unit}</strong></span>
+                              {bucket.hasSecondaryUnit && bucket.secondaryUnit && (
+                                <span>| Sec: <strong className="font-mono text-slate-600 dark:text-slate-300">{bucket.secondaryUnit} (Factor: {bucket.conversionFactor})</strong></span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-cyan-50 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-200/80 dark:border-cyan-800/50">
+                              {bucket.targetPurchaseItemCategory || (activeTypeTab === 'rm' ? 'Raw Material' : 'Bought Out')}
                             </span>
-                          )}
-                          {Array.isArray(item.mrpSources) && item.mrpSources.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-1">
-                              <span className="text-[10px] text-slate-400 font-medium">Demanded in:</span>
-                              {item.mrpSources.map((src: any, sIdx: number) => {
-                                const mrpNum = src.mrpNumber || src;
-                                const matchedPlan = mrpTreeList.find((p: any) => p.mrpNumber === mrpNum);
-                                return (
+                          </td>
+                          <td className="p-3 text-center">
+                            {renderDualUnitQty(
+                              Number(bucket.grossRequired) || 0,
+                              bucket.unit,
+                              bucket
+                            )}
+                          </td>
+                          <td className="p-3 text-center">
+                            {renderDualUnitQty(
+                              Number(bucket.currentPhysicalStock) || 0,
+                              bucket.unit,
+                              bucket,
+                              { fontClass: 'font-semibold text-slate-600 dark:text-slate-400' }
+                            )}
+                          </td>
+                          <td className="p-3 text-center">
+                            {renderDualUnitQty(
+                              Number(bucket.totalInTransitPO) || 0,
+                              bucket.unit,
+                              bucket,
+                              { isInTransit: true }
+                            )}
+                          </td>
+                          <td className="p-3 text-center">
+                            {renderDualUnitQty(
+                              Number(bucket.netShortage) || 0,
+                              bucket.unit,
+                              bucket,
+                              { isShortage: true }
+                            )}
+                          </td>
+                          <td className="p-3">
+                            {bucket.bestVendor ? (
+                              <div className="text-[11px]">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-bold text-slate-800 dark:text-slate-200">{bucket.bestVendor.vendorName}</span>
+                                  {bucket.bestVendor.isPreferred && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
+                                      ⭐ Preferred
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-slate-400 block text-[10px] font-mono">₹{Number(bucket.bestVendor.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })} / {bucket.unit}</span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic text-[10px]">No vendor quote</span>
+                            )}
+                          </td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = new Set(expandedBucketIds);
+                                if (next.has(bucket.bucketKey)) next.delete(bucket.bucketKey);
+                                else next.add(bucket.bucketKey);
+                                setExpandedBucketIds(next);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              <Layers size={11} />
+                              <span>{(bucket.sourceCutSizes || bucket.mappedItems || []).length} Cut Size(s)</span>
+                            </button>
+                          </td>
+                        </tr>
+
+                        {/* Expanded Drawer: List Contained Cut Sizes with Breakdowns */}
+                        {isExpanded && (
+                          <tr className="bg-slate-50/70 dark:bg-slate-800/40">
+                            <td colSpan={10} className="p-3 pl-12 pr-6 border-b border-slate-200 dark:border-slate-700">
+                              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-3 shadow-2xs space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                    <span>Cut Sizes Dumped into</span>
+                                    <strong className="text-cyan-600 dark:text-cyan-400">"{bucket.targetPurchaseItemName || bucket.materialName || 'Commercial Purchase Item'}"</strong>:
+                                  </span>
+                                  <span className="text-[11px] text-slate-400">
+                                    Total Contained: {(bucket.sourceCutSizes || bucket.mappedItems || []).length} items
+                                  </span>
+                                </div>
+
+                                <table className="w-full text-xs text-left">
+                                  <thead className="text-[10px] uppercase text-slate-400 font-semibold border-b border-slate-100 dark:border-slate-800">
+                                    <tr>
+                                      <th className="py-1.5 px-2">BOM Cut Size Name & Description</th>
+                                      <th className="py-1.5 px-2 text-center">Gross Required</th>
+                                      <th className="py-1.5 px-2 text-center">Live Stock</th>
+                                      <th className="py-1.5 px-2 text-center">Shortage</th>
+                                      <th className="py-1.5 px-2 text-center">Demanded In</th>
+                                      <th className="py-1.5 px-2 text-right">Mapping Action</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                                    {((bucket.sourceCutSizes || bucket.mappedItems || []) as any[]).map((cs: any, csIdx: number) => {
+                                      const matchedSource = currentTypeList.find((i: any) => String(i.materialId) === String(cs.sourceItemId));
+                                      return (
+                                        <tr key={csIdx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                          <td className="py-2 px-2">
+                                            <div className="font-semibold text-slate-800 dark:text-slate-200">{cs.sourceItemName}</div>
+                                            {cs.sourceItemDescription && (
+                                              <div className="text-[10px] text-slate-400 italic">{cs.sourceItemDescription}</div>
+                                            )}
+                                          </td>
+                                          <td className="py-2 px-2 text-center font-bold text-slate-700 dark:text-slate-300">
+                                            {cs.grossRequired} {bucket.unit}
+                                            {bucket.hasSecondaryUnit && bucket.secondaryUnit && (
+                                              <div className="text-[10px] font-normal text-slate-400">
+                                                ({parseFloat((cs.grossRequired * (Number(bucket.conversionFactor) || 1)).toFixed(2))} {bucket.secondaryUnit})
+                                              </div>
+                                            )}
+                                          </td>
+                                          <td className="py-2 px-2 text-center text-slate-500">
+                                            {cs.currentPhysicalStock || 0} {bucket.unit}
+                                          </td>
+                                          <td className="py-2 px-2 text-center font-bold text-rose-600 dark:text-rose-400">
+                                            {cs.netShortage || 0} {bucket.unit}
+                                          </td>
+                                          <td className="py-2 px-2 text-center">
+                                            <div className="flex flex-wrap items-center justify-center gap-1">
+                                              {(cs.mrpSources || []).map((mrp: any, mIdx: number) => (
+                                                <span key={mIdx} className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                                                  {mrp.mrpNumber || mrp}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </td>
+                                          <td className="py-2 px-2 text-right">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                if (matchedSource) {
+                                                  setBucketModalItem(matchedSource);
+                                                } else {
+                                                  setBucketModalItem({
+                                                    materialId: cs.sourceItemId,
+                                                    materialName: cs.sourceItemName,
+                                                    description: cs.sourceItemDescription,
+                                                    category: cs.sourceItemCategory,
+                                                    unit: bucket.unit,
+                                                    hasSecondaryUnit: bucket.hasSecondaryUnit,
+                                                    secondaryUnit: bucket.secondaryUnit,
+                                                    conversionFactor: bucket.conversionFactor,
+                                                    grossRequired: cs.grossRequired,
+                                                    netShortage: cs.netShortage,
+                                                    purchaseBucket: {
+                                                      targetPurchaseItemId: bucket.targetPurchaseItemId,
+                                                      targetPurchaseItemName: bucket.targetPurchaseItemName,
+                                                      targetPurchaseItemDescription: bucket.targetPurchaseItemDescription,
+                                                      targetPurchaseItemCategory: bucket.targetPurchaseItemCategory
+                                                    }
+                                                  });
+                                                }
+                                              }}
+                                              className="text-xs text-cyan-600 hover:text-cyan-700 font-bold hover:underline cursor-pointer"
+                                            >
+                                              Re-map / Unmap
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+          {/* Mobile horizontal scroll hint */}
+          <div className="sm:hidden px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-500 flex items-center justify-between">
+            <span>📋 Material Shortages</span>
+            <span className="text-emerald-600 font-semibold">← Swipe horizontally →</span>
+          </div>
+          <div className="overflow-x-auto scroll-smooth touch-pan-x">
+            <table className="w-full min-w-[960px] text-xs text-left">
+              <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
+                <tr>
+                  <th className="p-3 w-8 text-center">
+                    <button onClick={toggleSelectAll} className="text-slate-400 hover:text-emerald-600">
+                      {selectedKeys.size === filteredConsolidatedList.length && filteredConsolidatedList.length > 0 ? (
+                        <CheckSquare size={14} className="text-emerald-600" />
+                      ) : (
+                        <Square size={14} />
+                      )}
+                    </button>
+                  </th>
+                  <th className="p-3">Material Name & Description</th>
+                  <th className="p-3">Category</th>
+                  <th className="p-3 text-center">Gross Required</th>
+                  <th className="p-3 text-center">Live Stock</th>
+                  <th className="p-3 text-center">In-Transit PO</th>
+                  <th className="p-3 text-center">True Net Shortage</th>
+                  <th className="p-3">Preferred Supplier</th>
+                  <th className="p-3 text-center">Planning Remark</th>
+                  <th className="p-3 text-center">BOM Item Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredConsolidatedList.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="p-8 text-center text-slate-400">
+                      No {activeTypeTab.toUpperCase()} items found matching the selected filters.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredConsolidatedList.map((item: any, idx: number) => {
+                    const rowKey = item.materialKey || item.materialId || item._id || `mat_row_${idx}`;
+                    const isSelected = selectedKeys.has(rowKey);
+                    const currentStatus = item.status || 'Pending';
+
+                    return (
+                      <tr key={`${rowKey}_${idx}`} className={`hover:bg-slate-50 dark:hover:bg-slate-800/60 ${isSelected ? "bg-emerald-50/50 dark:bg-emerald-950/20" : ""}`}>
+                        <td className="p-3 text-center">
+                          <button onClick={() => toggleSelect(rowKey)} className="text-slate-400 hover:text-emerald-600">
+                            {isSelected ? <CheckSquare size={14} className="text-emerald-600" /> : <Square size={14} />}
+                          </button>
+                        </td>
+
+                        <td className="p-3">
+                          <div className="font-bold text-slate-900 dark:text-white">{item.materialName}</div>
+                          {item.description && <span className="block text-[11px] text-slate-500 italic mt-0.5">{item.description}</span>}
+                          
+                          {/* Purchase Bucket Conversion Indicator & Action for RM and BO */}
+                          {(activeTypeTab === 'rm' || activeTypeTab === 'bo') && (
+                            <div className="mt-1.5 flex items-center gap-1.5">
+                              {item.purchaseBucket ? (
+                                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[10px]">
+                                  <Boxes size={10} className="text-indigo-500 shrink-0" />
+                                  <span>Bucket: <strong className="font-semibold">{item.purchaseBucket.targetPurchaseItemName || item.purchaseBucket.name || 'Commercial Purchase Item'}</strong></span>
                                   <button
-                                    key={sIdx}
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      if (matchedPlan) handleSelectPlan(matchedPlan);
+                                      setBucketModalItem(item);
                                     }}
-                                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition-colors ${
-                                      matchedPlan 
-                                        ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 cursor-pointer' 
-                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
-                                    }`}
-                                    title={matchedPlan ? `Click to inspect ${mrpNum} Nested BOM` : mrpNum}
+                                    className="ml-1 text-[9px] underline font-bold hover:text-indigo-900 dark:hover:text-indigo-200 cursor-pointer"
+                                    title="Change or unmap purchase bucket"
                                   >
-                                    {mrpNum} {src.requiredQty || src.quantity ? `(${src.requiredQty || src.quantity} ${item.unit})` : ''}
+                                    Change
                                   </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-
-                      <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                          activeTypeTab === 'rm'
-                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border-blue-200/80 dark:border-blue-800/50'
-                            : activeTypeTab === 'bo'
-                            ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200/80 dark:border-indigo-800/50'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                        }`}>
-                          {item.category || (activeTypeTab === 'rm' ? 'Raw Material' : activeTypeTab === 'bo' ? 'Bought Out' : 'Component')}
-                        </span>
-                      </td>
-
-                      <td className="p-3 text-center font-bold text-slate-800 dark:text-slate-200">
-                        {item.grossRequired || item.requiredQuantity} {item.unit}
-                      </td>
-
-                      <td className="p-3 text-center font-semibold text-slate-600 dark:text-slate-400">
-                        {item.currentPhysicalStock} {item.unit}
-                      </td>
-
-                      <td className="p-3 text-center">
-                        {item.totalInTransitPO > 0 ? (
-                          <span className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded text-[10px]">
-                            {item.totalInTransitPO} {item.unit}
-                          </span>
-                        ) : (
-                          <span className="text-slate-300">-</span>
-                        )}
-                      </td>
-
-                      <td className="p-3 text-center">
-                        {item.netShortage > 0 ? (
-                          <span className="font-black text-rose-600 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded text-[11px]">
-                            {item.netShortage} {item.unit}
-                          </span>
-                        ) : (
-                          <span className="text-emerald-600 font-bold text-[11px]">Covered</span>
-                        )}
-                      </td>
-
-                      <td className="p-3">
-                        {item.bestVendor ? (
-                          <div className="text-[11px]">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-bold text-slate-800 dark:text-slate-200">{item.bestVendor.vendorName}</span>
-                              {item.bestVendor.isPreferred && (
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
-                                  ⭐ Preferred
-                                </span>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setBucketModalItem(item);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 hover:bg-cyan-50 dark:bg-slate-800 dark:hover:bg-cyan-950/50 border border-slate-200 hover:border-cyan-300 dark:border-slate-700 dark:hover:border-cyan-700 text-slate-600 hover:text-cyan-700 dark:text-slate-400 dark:hover:text-cyan-300 text-[10px] font-medium transition-colors cursor-pointer"
+                                  title={`Convert ${item.materialName} to standard purchasable item bucket`}
+                                >
+                                  <ArrowRight size={10} />
+                                  <span>+ Convert to Purchase {activeTypeTab === 'rm' ? 'RM' : 'BO'}</span>
+                                </button>
                               )}
                             </div>
-                            <span className="text-slate-400 block text-[10px] font-mono">₹{Number(item.bestVendor.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })} / {item.unit}</span>
+                          )}
+
+                          {/* Target Required Date & Sources */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            {item.earliestTargetDate && (
+                              <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800/60 inline-flex items-center gap-1">
+                                <Calendar size={10} />
+                                Due: {new Date(item.earliestTargetDate).toLocaleDateString('en-IN')}
+                              </span>
+                            )}
+                            {Array.isArray(item.mrpSources) && item.mrpSources.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1">
+                                <span className="text-[10px] text-slate-400 font-medium">Demanded in:</span>
+                                {item.mrpSources.map((src: any, sIdx: number) => {
+                                  const mrpNum = src.mrpNumber || src;
+                                  const matchedPlan = mrpTreeList.find((p: any) => p.mrpNumber === mrpNum);
+                                  return (
+                                    <button
+                                      key={sIdx}
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (matchedPlan) handleSelectPlan(matchedPlan);
+                                      }}
+                                      className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition-colors ${
+                                        matchedPlan 
+                                          ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 cursor-pointer' 
+                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                                      }`}
+                                      title={matchedPlan ? `Click to inspect ${mrpNum} Nested BOM` : mrpNum}
+                                    >
+                                      {mrpNum} {src.requiredQty || src.quantity ? `(${src.requiredQty || src.quantity} ${item.unit}${item.hasSecondaryUnit && item.secondaryUnit ? ` / ${parseFloat(((src.requiredQty || src.quantity) * (Number(item.conversionFactor) || 1)).toFixed(2))} ${item.secondaryUnit}` : ''})` : ''}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
-                        ) : (
-                          <span className="text-slate-400 italic text-[10px]">No vendor quote</span>
-                        )}
-                      </td>
+                        </td>
 
-                      {/* Material Planning Status (Remark) */}
-                      <td className="p-3 text-center">
-                        {(() => {
-                          const pStatus = item.materialPlanningStatus || (item.netShortage === 0 ? 'Stock Covered' : 'Not Planned');
-                          if (pStatus === 'Completed') {
-                            return (
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300 whitespace-nowrap">
-                                ✓ Completed
-                              </span>
-                            );
-                          }
-                          if (pStatus === 'PO Sent') {
-                            return (
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 whitespace-nowrap">
-                                📦 PO Sent
-                              </span>
-                            );
-                          }
-                          if (pStatus === 'Raised RFQ') {
-                            return (
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 whitespace-nowrap">
-                                📑 RFQ Raised
-                              </span>
-                            );
-                          }
-                          if (pStatus === 'PO In-Transit') {
-                            return (
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-300 whitespace-nowrap">
-                                🚚 PO In-Transit
-                              </span>
-                            );
-                          }
-                          if (pStatus === 'Partially In-Transit') {
-                            return (
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 whitespace-nowrap">
-                                ⏳ Partial In-Transit
-                              </span>
-                            );
-                          }
-                          if (pStatus === 'Stock Covered' || item.netShortage === 0) {
-                            return (
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 whitespace-nowrap">
-                                ✅ Stock Covered
-                              </span>
-                            );
-                          }
-                          return (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 inline-flex items-center gap-1 whitespace-nowrap">
-                              <AlertTriangle size={10} /> ⚠️ Not Planned
-                            </span>
-                          );
-                        })()}
-                      </td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                            activeTypeTab === 'rm'
+                              ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border-blue-200/80 dark:border-blue-800/50'
+                              : activeTypeTab === 'bo'
+                              ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200/80 dark:border-indigo-800/50'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                          }`}>
+                            {item.category || (activeTypeTab === 'rm' ? 'Raw Material' : activeTypeTab === 'bo' ? 'Bought Out' : 'Component')}
+                          </span>
+                        </td>
 
-                      {/* Interactive Manual Status Selector (Last Column) */}
-                      <td className="p-3 text-center">
-                        <div className="inline-block relative">
-                          <select
-                            value={currentStatus}
-                            onChange={(e) => handleUpdateItemStatus(e.target.value, item)}
-                            className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border outline-none cursor-pointer appearance-none pr-5 text-center transition-all ${getStatusBadgeClass(currentStatus)}`}
-                          >
-                            {STATUS_OPTIONS.map((opt) => (
-                              <option key={opt} value={opt} className="text-slate-800 bg-white dark:bg-slate-900 dark:text-slate-200">
-                                {opt}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                        <td className="p-3 text-center">
+                          {renderDualUnitQty(
+                            Number(item.grossRequired || item.requiredQuantity) || 0,
+                            item.unit,
+                            item
+                          )}
+                        </td>
+
+                        <td className="p-3 text-center">
+                          {renderDualUnitQty(
+                            Number(item.currentPhysicalStock) || 0,
+                            item.unit,
+                            item,
+                            { fontClass: 'font-semibold text-slate-600 dark:text-slate-400' }
+                          )}
+                        </td>
+
+                        <td className="p-3 text-center">
+                          {renderDualUnitQty(
+                            Number(item.totalInTransitPO) || 0,
+                            item.unit,
+                            item,
+                            { isInTransit: true }
+                          )}
+                        </td>
+
+                        <td className="p-3 text-center">
+                          {renderDualUnitQty(
+                            Number(item.netShortage) || 0,
+                            item.unit,
+                            item,
+                            { isShortage: true }
+                          )}
+                        </td>
+
+                        <td className="p-3">
+                          {item.bestVendor ? (
+                            <div className="text-[11px]">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-slate-800 dark:text-slate-200">{item.bestVendor.vendorName}</span>
+                                {item.bestVendor.isPreferred && (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
+                                    ⭐ Preferred
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-slate-400 block text-[10px] font-mono">₹{Number(item.bestVendor.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })} / {item.unit}</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 italic text-[10px]">No vendor quote</span>
+                          )}
+                        </td>
+
+                        {/* Material Planning Status (Remark) */}
+                        <td className="p-3 text-center">
+                          {(() => {
+                            if (item.purchaseBucket) {
+                              return (
+                                <div className="inline-flex flex-col items-center">
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-300 inline-flex items-center gap-1 whitespace-nowrap">
+                                    <Boxes size={10} className="text-indigo-600" /> Converted
+                                  </span>
+                                  <span className="text-[10px] font-semibold text-indigo-700 dark:text-indigo-400 mt-0.5 max-w-[140px] truncate" title={`Converted to: ${item.purchaseBucket.targetPurchaseItemName}`}>
+                                    → {item.purchaseBucket.targetPurchaseItemName}
+                                  </span>
+                                </div>
+                              );
+                            }
+
+                            const pStatus = item.materialPlanningStatus || (item.netShortage === 0 ? 'Stock Covered' : 'Not Planned');
+                            if (pStatus === 'Completed') {
+                              return (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300 whitespace-nowrap">
+                                  ✓ Completed
+                                </span>
+                              );
+                            }
+                            if (pStatus === 'PO Sent') {
+                              return (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 whitespace-nowrap">
+                                  📦 PO Sent
+                                </span>
+                              );
+                            }
+                            if (pStatus === 'Raised RFQ') {
+                              return (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 whitespace-nowrap">
+                                  📑 RFQ Raised
+                                </span>
+                              );
+                            }
+                            if (pStatus === 'PO In-Transit') {
+                              return (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-300 whitespace-nowrap">
+                                  🚚 PO In-Transit
+                                </span>
+                              );
+                            }
+                            if (pStatus === 'Partially In-Transit') {
+                              return (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 whitespace-nowrap">
+                                  ⏳ Partial In-Transit
+                                </span>
+                              );
+                            }
+                            if (pStatus === 'Stock Covered' || item.netShortage === 0) {
+                              return (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 whitespace-nowrap">
+                                  ✅ Stock Covered
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 inline-flex items-center gap-1 whitespace-nowrap">
+                                <AlertTriangle size={10} /> ⚠️ Not Planned
+                              </span>
+                            );
+                          })()}
+                        </td>
+
+                        {/* Interactive Manual Status Selector (Last Column) */}
+                        <td className="p-3 text-center">
+                          <div className="inline-block relative">
+                            <select
+                              value={currentStatus}
+                              onChange={(e) => handleUpdateItemStatus(e.target.value, item)}
+                              className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border outline-none cursor-pointer appearance-none pr-5 text-center transition-all ${getStatusBadgeClass(currentStatus)}`}
+                            >
+                              {STATUS_OPTIONS.map((opt) => (
+                                <option key={opt} value={opt} className="text-slate-800 bg-white dark:bg-slate-900 dark:text-slate-200">
+                                  {opt}
+                                </option>
+                              ))}
+                            </select>
+                            <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-200">
+    <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-y-auto space-y-4 pb-28 sm:pb-20 pr-1 sm:pr-2 scroll-smooth">
       
       {/* ========================================================================= */}
       {/* VIEW 1: INITIAL MRP NUMBERS LIST (Click on an MRP number to view BOM)     */}
@@ -1214,318 +1946,519 @@ export default function MRPProcurementWorkbench({
           {/* ========================================================================= */}
           {/* UNIFIED FILTER BAR (Applies to both Plans View and Items Wise View)       */}
           {/* ========================================================================= */}
-          <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+          {/* Controls Toolbar: Search, View Switcher, 3 Dropdown Filter Tabs, Customer, Toggles, Reset, Refresh in Single Line */}
+          <div className="relative z-30 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap xl:flex-nowrap items-center justify-between gap-2">
             
-            {/* Row 1: Title, View Mode Switcher, Search, Refresh */}
-            <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
-              <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap min-w-0">
-                <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2 shrink-0">
-                  <ShoppingCart className="text-emerald-600 w-5 h-5" />
-                  <span>Procurement Workbench</span>
-                </h2>
-
-                {/* View Mode Toggle: Plans vs Items Wise (Desktop/Tablet) */}
-                <div className="hidden sm:flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold shrink-0">
+            {/* Left Group: Search & View Mode Switcher */}
+            <div className="flex items-center gap-2 shrink-0 min-w-0 flex-1 max-w-sm sm:max-w-md">
+              {/* Search Box */}
+              <div className="relative flex-1 min-w-[130px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                <input
+                  type="text"
+                  placeholder={workbenchViewMode === 'plans' ? "Search MRP #, Customer, FG..." : "Search Material, Vendor, Category..."}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white"
+                />
+                {searchTerm && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setWorkbenchViewMode('plans');
-                      setSelectedKeys(new Set());
-                    }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
-                      workbenchViewMode === 'plans'
-                        ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                    title="View MRP Demand Plans"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer p-0.5"
                   >
-                    <Layers size={14} />
-                    <span>Plans ({filteredMrpList.length}/{mrpTreeList.length})</span>
+                    <X size={12} />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWorkbenchViewMode('items');
-                      setSelectedKeys(new Set());
-                    }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
-                      workbenchViewMode === 'items'
-                        ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                    title="Consolidated Shortages across All Active MRP Plans"
-                  >
-                    <Package size={14} />
-                    <span>Items Wise ({totalWorkbenchMaterialsCount})</span>
-                  </button>
-                </div>
+                )}
               </div>
 
-              {/* Search & Refresh */}
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <div className="relative flex-1 sm:w-64">
-                  <Search className="absolute left-3 top-2.5 text-slate-400 w-3.5 h-3.5" />
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder={workbenchViewMode === 'plans' ? "Search MRP #, Customer, FG..." : "Search Material, Category, Vendor..."}
-                    className="w-full pl-8 pr-7 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none"
-                  />
-                  {searchTerm && (
-                    <button onClick={() => setSearchTerm('')} className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer">
-                      <X size={12} />
-                    </button>
-                  )}
-                </div>
-
+              {/* View Mode Toggle: Plans vs Items */}
+              <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl text-xs font-semibold shrink-0">
                 <button
-                  onClick={() => fetchWorkbenchData()}
-                  className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl cursor-pointer shrink-0"
-                  title="Refresh"
+                  type="button"
+                  onClick={() => {
+                    setWorkbenchViewMode('plans');
+                    setSelectedKeys(new Set());
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    workbenchViewMode === 'plans'
+                      ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="View MRP Demand Plans"
                 >
-                  <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+                  <Layers size={13} />
+                  <span>Plans ({filteredMrpList.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWorkbenchViewMode('items');
+                    setSelectedKeys(new Set());
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    workbenchViewMode === 'items'
+                      ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Consolidated Shortages across Active MRP Plans"
+                >
+                  <Package size={13} />
+                  <span>Items ({filteredConsolidatedList.length})</span>
                 </button>
               </div>
             </div>
 
-            {/* Mobile View Mode Toggle (Full Width Grid on phones) */}
-            <div className="sm:hidden grid grid-cols-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold gap-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setWorkbenchViewMode('plans');
-                  setSelectedKeys(new Set());
-                }}
-                className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  workbenchViewMode === 'plans'
-                    ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                    : 'text-slate-500'
-                }`}
-              >
-                <Layers size={14} />
-                <span>Plans ({filteredMrpList.length}/{mrpTreeList.length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setWorkbenchViewMode('items');
-                  setSelectedKeys(new Set());
-                }}
-                className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  workbenchViewMode === 'items'
-                    ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                    : 'text-slate-500'
-                }`}
-              >
-                <Package size={14} />
-                <span>Items Wise ({totalWorkbenchMaterialsCount})</span>
-              </button>
-            </div>
-
-            {/* Row 2: Unified Date, Customer, Category, Supplier, Planning Status, and Quick Pills */}
-            <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5">
+            {/* Center / Right Group: The Dropdown Filter Tabs + Actions */}
+            <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
               
-              {/* Left/Center Filters: Date Dropdown, Customer, (Category & Supplier when items-wise), Planning Status */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1.5 lg:pb-0 max-w-full scroll-smooth touch-pan-x no-scrollbar flex-nowrap lg:flex-wrap">
-                
-                {/* Date Filter Dropdown with Plan / Target Mode */}
-                <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs shrink-0">
-                  <Calendar size={13} className="text-slate-400 shrink-0" />
-                  
-                  {/* Mode Selector: Plan Date vs Target Date */}
-                  <div className="flex bg-slate-200/70 dark:bg-slate-700/60 p-0.5 rounded-lg text-[10px] font-bold shrink-0 mr-1">
-                    <button
-                      type="button"
-                      onClick={() => setDateType('created')}
-                      className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
-                        dateType === 'created' ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                      title="Filter by Plan Creation Date"
-                    >
-                      Plan
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDateType('target')}
-                      className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
-                        dateType === 'target' ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                      title="Filter by Requirement Delivery / Target Date"
-                    >
-                      Target
-                    </button>
+              {/* TAB 1: Material Planning Status Multi-Select Dropdown */}
+              <div className="relative shrink-0" ref={statusDropdownRef}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsStatusDropdownOpen(prev => !prev);
+                    setIsPlanDateDropdownOpen(false);
+                    setIsTargetDateDropdownOpen(false);
+                    setIsCustomerDropdownOpen(false);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    selectedPlanningStatuses.length > 0
+                      ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 shadow-2xs'
+                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                  <span className="truncate max-w-[130px]">
+                    {selectedPlanningStatuses.length === 0
+                      ? 'Planning Status'
+                      : selectedPlanningStatuses.length === 1
+                      ? (PLANNING_STATUS_OPTIONS.find(o => o.id === selectedPlanningStatuses[0])?.label?.split(' ')[0] || '1 Selected')
+                      : `Status (${selectedPlanningStatuses.length})`}
+                  </span>
+                  <ChevronDown size={12} className={`text-slate-400 shrink-0 transition-transform ${isStatusDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isStatusDropdownOpen && (
+                  <div onClick={(e) => e.stopPropagation()} className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 p-2.5 space-y-2">
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5 px-1">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Planning Status</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPlanningStatuses(PLANNING_STATUS_OPTIONS.map(o => o.id))}
+                          className="text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline font-bold cursor-pointer"
+                        >
+                          Select All
+                        </button>
+                        <span className="text-slate-300 dark:text-slate-600">•</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPlanningStatuses([])}
+                          className="text-[11px] text-slate-500 hover:underline font-bold cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      {PLANNING_STATUS_OPTIONS.map((opt) => {
+                        const isSelected = selectedPlanningStatuses.includes(opt.id);
+                        const count = statusCounts[opt.id] || 0;
+                        const Icon = opt.icon;
+                        return (
+                          <div
+                            key={opt.id}
+                            onClick={() => {
+                              setSelectedPlanningStatuses(prev => 
+                                prev.includes(opt.id) ? prev.filter(s => s !== opt.id) : [...prev, opt.id]
+                              );
+                            }}
+                            className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/80 cursor-pointer transition-colors"
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${
+                                isSelected 
+                                  ? 'bg-emerald-600 border-emerald-600 text-white' 
+                                  : 'border-slate-300 dark:border-slate-600'
+                              }`}>
+                                {isSelected && <Check size={11} className="stroke-[3]" />}
+                              </div>
+                              <span className={`text-xs flex items-center gap-1.5 ${isSelected ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-700 dark:text-slate-300'}`}>
+                                <Icon size={12} className={opt.color} />
+                                {opt.label}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                              {count}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
+                )}
+              </div>
 
-                  {/* Date Range Dropdown */}
-                  <select
-                    value={dateFilter}
-                    onChange={(e) => setDateFilter(e.target.value as any)}
-                    className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs"
-                  >
-                    <option value="all">All Dates</option>
-                    <option value="today">Today</option>
-                    <option value="yesterday">Yesterday</option>
-                    <option value="7days">Last 7 Days</option>
-                    <option value="thisMonth">This Month</option>
-                    <option value="custom">Custom Range</option>
-                  </select>
-                </div>
+              {/* TAB 2: Plan Date Dropdown */}
+              <div className="relative shrink-0" ref={planDateDropdownRef}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsPlanDateDropdownOpen(prev => !prev);
+                    setIsStatusDropdownOpen(false);
+                    setIsTargetDateDropdownOpen(false);
+                    setIsCustomerDropdownOpen(false);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    planDateFilter !== 'all' || planStartDate || planEndDate
+                      ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 shadow-2xs'
+                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <Calendar size={13} className="text-blue-500 shrink-0" />
+                  <span className="truncate max-w-[130px]">
+                    Plan: {formatPresetLabel(planDateFilter, planStartDate, planEndDate)}
+                  </span>
+                  <ChevronDown size={12} className={`text-slate-400 shrink-0 transition-transform ${isPlanDateDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
 
-                {/* Custom Date Pickers (only shown if Custom Range is selected) */}
-                {dateFilter === 'custom' && (
-                  <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs shrink-0">
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="bg-transparent text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
-                    />
-                    <span className="text-[11px] text-slate-400">to</span>
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="bg-transparent text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
-                    />
-                    {(startDate || endDate) && (
-                      <button 
-                        onClick={() => { setStartDate(''); setEndDate(''); }}
-                        className="p-0.5 text-slate-400 hover:text-slate-600 text-xs cursor-pointer ml-0.5"
-                        title="Clear Dates"
-                      >
-                        <X size={12} />
-                      </button>
+                {isPlanDateDropdownOpen && (
+                  <div onClick={(e) => e.stopPropagation()} className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 p-3 space-y-2.5">
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Plan Date (Created)</span>
+                      {(planDateFilter !== 'all' || planStartDate || planEndDate) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPlanDateFilter('all');
+                            setPlanStartDate('');
+                            setPlanEndDate('');
+                          }}
+                          className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-bold cursor-pointer"
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1">
+                      {[
+                        { id: 'all', label: 'All Dates' },
+                        { id: 'today', label: 'Today' },
+                        { id: 'yesterday', label: 'Yesterday' },
+                        { id: '7days', label: 'Last 7 Days' },
+                        { id: 'thisMonth', label: 'This Month' },
+                        { id: 'custom', label: 'Custom Range' },
+                      ].map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setPlanDateFilter(p.id as any);
+                            if (p.id !== 'custom') {
+                              setPlanStartDate('');
+                              setPlanEndDate('');
+                              setIsPlanDateDropdownOpen(false);
+                            }
+                          }}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-all cursor-pointer ${
+                            planDateFilter === p.id
+                              ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {planDateFilter === 'custom' && (
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">From Date</span>
+                          <input
+                            type="date"
+                            value={planStartDate}
+                            onChange={(e) => setPlanStartDate(e.target.value)}
+                            className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
+                          />
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">To Date</span>
+                          <input
+                            type="date"
+                            value={planEndDate}
+                            onChange={(e) => setPlanEndDate(e.target.value)}
+                            className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsPlanDateDropdownOpen(false)}
+                          className="w-full py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors mt-1"
+                        >
+                          Apply Custom
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
+              </div>
 
-                {/* Customer Dropdown */}
-                <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs shrink-0">
-                  <Building2 size={13} className="text-slate-400 shrink-0" />
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">Customer:</span>
+              {/* TAB 3: Target / Due Date Dropdown */}
+              <div className="relative shrink-0" ref={targetDateDropdownRef}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsTargetDateDropdownOpen(prev => !prev);
+                    setIsStatusDropdownOpen(false);
+                    setIsPlanDateDropdownOpen(false);
+                    setIsCustomerDropdownOpen(false);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    targetDateFilter !== 'all' || targetStartDate || targetEndDate
+                      ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 shadow-2xs'
+                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <Calendar size={13} className="text-amber-500 shrink-0" />
+                  <span className="truncate max-w-[130px]">
+                    Due: {formatPresetLabel(targetDateFilter, targetStartDate, targetEndDate)}
+                  </span>
+                  <ChevronDown size={12} className={`text-slate-400 shrink-0 transition-transform ${isTargetDateDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isTargetDateDropdownOpen && (
+                  <div onClick={(e) => e.stopPropagation()} className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 p-3 space-y-2.5">
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Target / Due Date</span>
+                      {(targetDateFilter !== 'all' || targetStartDate || targetEndDate) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTargetDateFilter('all');
+                            setTargetStartDate('');
+                            setTargetEndDate('');
+                          }}
+                          className="text-[11px] text-amber-600 dark:text-amber-400 hover:underline font-bold cursor-pointer"
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1">
+                      {[
+                        { id: 'all', label: 'All Dates' },
+                        { id: 'today', label: 'Today' },
+                        { id: 'yesterday', label: 'Yesterday' },
+                        { id: '7days', label: 'Last 7 Days' },
+                        { id: 'next7days', label: 'Next 7 Days' },
+                        { id: 'thisMonth', label: 'This Month' },
+                        { id: 'custom', label: 'Custom Range' },
+                      ].map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setTargetDateFilter(p.id as any);
+                            if (p.id !== 'custom') {
+                              setTargetStartDate('');
+                              setTargetEndDate('');
+                              setIsTargetDateDropdownOpen(false);
+                            }
+                          }}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-all cursor-pointer ${
+                            targetDateFilter === p.id
+                              ? 'bg-amber-600 text-white font-bold shadow-2xs'
+                              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {targetDateFilter === 'custom' && (
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">From Date</span>
+                          <input
+                            type="date"
+                            value={targetStartDate}
+                            onChange={(e) => setTargetStartDate(e.target.value)}
+                            className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
+                          />
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">To Date</span>
+                          <input
+                            type="date"
+                            value={targetEndDate}
+                            onChange={(e) => setTargetEndDate(e.target.value)}
+                            className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsTargetDateDropdownOpen(false)}
+                          className="w-full py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors mt-1"
+                        >
+                          Apply Custom
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Customer Dropdown */}
+              <div className="relative shrink-0" ref={customerDropdownRef}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsCustomerDropdownOpen(prev => !prev);
+                    setIsStatusDropdownOpen(false);
+                    setIsPlanDateDropdownOpen(false);
+                    setIsTargetDateDropdownOpen(false);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    selectedCustomerFilter !== 'all'
+                      ? 'bg-purple-50 dark:bg-purple-950/60 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 shadow-2xs'
+                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <Building2 size={13} className="text-purple-500 shrink-0" />
+                  <span className="truncate max-w-[120px]">
+                    {selectedCustomerFilter === 'all' ? 'Customer' : selectedCustomerFilter}
+                  </span>
+                  <ChevronDown size={12} className={`text-slate-400 shrink-0 transition-transform ${isCustomerDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isCustomerDropdownOpen && (
+                  <div onClick={(e) => e.stopPropagation()} className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 p-2.5 space-y-1.5 max-h-72 overflow-y-auto">
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5 px-1">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Customer</span>
+                      {selectedCustomerFilter !== 'all' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedCustomerFilter('all');
+                            setIsCustomerDropdownOpen(false);
+                          }}
+                          className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline font-bold cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-0.5">
+                      <div
+                        onClick={() => {
+                          setSelectedCustomerFilter('all');
+                          setIsCustomerDropdownOpen(false);
+                        }}
+                        className={`px-2 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                          selectedCustomerFilter === 'all' ? 'bg-purple-600 text-white font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                        }`}
+                      >
+                        All Customers
+                      </div>
+                      {availableCustomers.map((cust) => (
+                        <div
+                          key={cust}
+                          onClick={() => {
+                            setSelectedCustomerFilter(cust);
+                            setIsCustomerDropdownOpen(false);
+                          }}
+                          className={`px-2 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors truncate ${
+                            selectedCustomerFilter === cust ? 'bg-purple-600 text-white font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          {cust}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Items View Contextual: Category & Supplier */}
+              {workbenchViewMode === 'items' && (
+                <>
                   <select
-                    value={selectedCustomerFilter}
-                    onChange={(e) => setSelectedCustomerFilter(e.target.value)}
-                    className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs max-w-[130px] truncate"
+                    value={selectedCategoryFilter}
+                    onChange={(e) => {
+                      setSelectedCategoryFilter(e.target.value);
+                      setSelectedKeys(new Set());
+                    }}
+                    className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 outline-none cursor-pointer max-w-[130px] truncate"
                   >
-                    <option value="all">All Customers</option>
-                    {availableCustomers.map((cust) => (
-                      <option key={cust} value={cust}>{cust}</option>
+                    <option value="all">All Categories</option>
+                    {availableCategories.map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
-                </div>
 
-                {/* Category Filter (Item Wise) */}
-                {workbenchViewMode === 'items' && (
-                  <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs shrink-0">
-                    <Tag size={13} className="text-slate-400 shrink-0" />
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">Category:</span>
-                    <select
-                      value={selectedCategoryFilter}
-                      onChange={(e) => {
-                        setSelectedCategoryFilter(e.target.value);
-                        setSelectedKeys(new Set());
-                      }}
-                      className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs max-w-[140px] truncate"
-                    >
-                      <option value="all">All Categories ({currentTypeList.length})</option>
-                      {availableCategories.map((cat) => {
-                        const count = currentTypeList.filter((it: any) => it.category === cat).length;
-                        return (
-                          <option key={cat} value={cat}>
-                            {cat} ({count})
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
-                )}
-
-                {/* Supplier / Vendor Filter (Item Wise) */}
-                {workbenchViewMode === 'items' && (
-                  <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs shrink-0">
-                    <Building2 size={13} className="text-slate-400 shrink-0" />
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">Supplier:</span>
-                    <select
-                      value={selectedVendorFilter}
-                      onChange={(e) => {
-                        setSelectedVendorFilter(e.target.value);
-                        setSelectedKeys(new Set());
-                      }}
-                      className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs max-w-[150px] truncate"
-                    >
-                      <option value="all">All Suppliers ({currentTypeList.length})</option>
-                      <option value="preferred_only">⭐ Preferred Only ({currentTypeList.filter((it: any) => it.bestVendor?.isPreferred).length})</option>
-                      {availableVendors.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.isPreferred ? "⭐ " : ""}{v.name} ({v.count})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Planning Status Dropdown */}
-                <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs shrink-0">
-                  <CheckCircle2 size={13} className="text-slate-400 shrink-0" />
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">Planning:</span>
                   <select
-                    value={selectedPlanningStatusFilter}
-                    onChange={(e) => setSelectedPlanningStatusFilter(e.target.value as any)}
-                    className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs"
+                    value={selectedVendorFilter}
+                    onChange={(e) => {
+                      setSelectedVendorFilter(e.target.value);
+                      setSelectedKeys(new Set());
+                    }}
+                    className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 outline-none cursor-pointer max-w-[130px] truncate"
                   >
-                    <option value="all">All Statuses</option>
-                    <option value="not_planned">⚠️ Not Planned (Pending Purchase)</option>
-                    <option value="in_procurement">📦 In Procurement / PO Sent</option>
-                    <option value="stock_covered">✅ Stock Covered</option>
-                    <option value="completed">✓ Completed</option>
+                    <option value="all">All Suppliers</option>
+                    <option value="preferred_only">⭐ Preferred</option>
+                    {availableVendors.map((v) => (
+                      <option key={v.id} value={v.id}>{v.isPreferred ? "⭐ " : ""}{v.name}</option>
+                    ))}
                   </select>
-                </div>
-              </div>
+                </>
+              )}
 
-              {/* Right: Quick Action Pills & Reset */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 shrink-0 touch-pan-x no-scrollbar flex-nowrap">
-                
-                {/* Quick Toggle: ⚠️ Not Planned Only */}
+              {/* Quick Toggle: Shortages Only */}
+              <button
+                type="button"
+                onClick={() => setOnlyShortages(prev => !prev)}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border shrink-0 flex items-center gap-1 ${
+                  onlyShortages
+                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-700 shadow-2xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200/70'
+                }`}
+                title="Show only items with shortages"
+              >
+                <span>{onlyShortages ? '✓ Shortages' : 'Shortages'}</span>
+              </button>
+
+              {/* Reset All Filters Button */}
+              {isAnyFilterActive && (
                 <button
                   type="button"
-                  onClick={() => setSelectedPlanningStatusFilter(prev => prev === 'not_planned' ? 'all' : 'not_planned')}
-                  className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border shrink-0 flex items-center gap-1 ${
-                    selectedPlanningStatusFilter === 'not_planned'
-                      ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border-rose-300 dark:border-rose-700 shadow-2xs font-extrabold'
-                      : 'bg-slate-50 hover:bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700'
-                  }`}
-                  title="Show only demands where material has NOT been planned/ordered yet"
+                  onClick={handleResetAllFilters}
+                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-xl cursor-pointer border border-slate-200 dark:border-slate-700 shrink-0 flex items-center gap-1"
+                  title="Reset All Filters"
                 >
-                  <AlertTriangle size={11} className={selectedPlanningStatusFilter === 'not_planned' ? "text-rose-600" : "text-amber-500"} />
-                  <span>Not Planned Only</span>
+                  <RotateCcw size={11} />
+                  <span>Reset</span>
                 </button>
+              )}
 
-                {/* Quick Toggle: Shortages Only */}
-                <button
-                  type="button"
-                  onClick={() => setOnlyShortages(prev => !prev)}
-                  className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border shrink-0 flex items-center gap-1 ${
-                    onlyShortages
-                      ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-700 shadow-2xs font-bold'
-                      : 'bg-slate-50 hover:bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  <span>{onlyShortages ? '✓ Shortages Only' : 'Shortages Only'}</span>
-                </button>
-
-                {/* Reset Filters button */}
-                {isAnyFilterActive && (
-                  <button
-                    onClick={handleResetAllFilters}
-                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-xl cursor-pointer border border-slate-200 dark:border-slate-700 shrink-0"
-                    title="Reset All Filters"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
+              {/* Refresh Button */}
+              <button
+                type="button"
+                onClick={() => fetchWorkbenchData()}
+                className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors bg-white dark:bg-slate-900 cursor-pointer shrink-0"
+                title="Refresh Workbench Data"
+              >
+                <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+              </button>
             </div>
           </div>
 
@@ -1555,7 +2488,7 @@ export default function MRPProcurementWorkbench({
                   </div>
                   <div className="overflow-x-auto scroll-smooth touch-pan-x">
                     <table className="w-full min-w-[880px] text-xs text-left">
-                      <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
+                      <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                         <tr>
                           <th className="p-3.5">MRP Number</th>
                           <th className="p-3.5">Customer & PO Ref</th>
@@ -1568,13 +2501,14 @@ export default function MRPProcurementWorkbench({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {filteredMrpList.map((plan: any) => {
+                        {filteredMrpList.map((plan: any, pIdx: number) => {
+                          const planKey = plan._id ? String(plan._id) : (plan.mrpNumber || `plan_${pIdx}`);
                           const fgCount = (plan.fgItems || []).length;
                           const firstFG = (plan.fgItems || [])[0];
 
                           return (
                             <tr 
-                              key={plan._id}
+                              key={planKey}
                               onClick={() => handleSelectPlan(plan)}
                               className="hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 cursor-pointer transition-colors"
                             >
@@ -1858,9 +2792,19 @@ export default function MRPProcurementWorkbench({
                       <div className="flex items-center gap-3 text-xs">
                         <span className="font-bold text-slate-600 dark:text-slate-300">
                           Order Target: <strong>{fg.quantity} {fg.unit}</strong>
+                          {fg.hasSecondaryUnit && fg.secondaryUnit && (
+                            <span className="text-[10px] text-slate-400 font-medium ml-1">
+                              ({parseFloat((fg.quantity * (Number(fg.conversionFactor) || 1)).toFixed(2))} {fg.secondaryUnit})
+                            </span>
+                          )}
                         </span>
                         <span className="font-bold text-teal-600">
                           GRN Received: <strong>{fg.receivedQuantity} {fg.unit}</strong>
+                          {fg.hasSecondaryUnit && fg.secondaryUnit && (
+                            <span className="text-[10px] text-teal-500/80 font-medium ml-1">
+                              ({parseFloat((fg.receivedQuantity * (Number(fg.conversionFactor) || 1)).toFixed(2))} {fg.secondaryUnit})
+                            </span>
+                          )}
                         </span>
                         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       </div>
@@ -1868,9 +2812,9 @@ export default function MRPProcurementWorkbench({
 
                     {/* Level 2, 3, 4: Nested Child Materials Table (Clean View) */}
                     {isExpanded && (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs text-left">
-                          <thead className="bg-slate-50/50 dark:bg-slate-800/40 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
+                      <div className="overflow-x-auto scroll-smooth touch-pan-x">
+                        <table className="w-full min-w-[780px] text-xs text-left">
+                          <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                             <tr>
                               <th className="p-3">Nested Component / Material</th>
                               <th className="p-3">Classification Type</th>
@@ -1910,35 +2854,47 @@ export default function MRPProcurementWorkbench({
                                     </span>
                                   </td>
 
-                                  <td className="p-3 text-center font-mono text-slate-600 dark:text-slate-400">
-                                    {nMat.quantityPerFG || 1} {nMat.unit}
-                                  </td>
-
-                                  <td className="p-3 text-center font-bold text-slate-800 dark:text-slate-200">
-                                    {nMat.totalRequired || nMat.requiredQuantity} {nMat.unit}
-                                  </td>
-
-                                  <td className="p-3 text-center font-semibold text-slate-600 dark:text-slate-400">
-                                    {nMat.currentPhysicalStock} {nMat.unit}
-                                  </td>
-
                                   <td className="p-3 text-center">
-                                    {nMat.totalInTransitPO > 0 ? (
-                                      <span className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded text-[10px]">
-                                        {nMat.totalInTransitPO} {nMat.unit}
-                                      </span>
-                                    ) : (
-                                      <span className="text-slate-300">-</span>
+                                    {renderDualUnitQty(
+                                      Number(nMat.quantityPerFG) || 1,
+                                      nMat.unit,
+                                      nMat,
+                                      { isPerFG: true, fontClass: 'font-mono text-slate-600 dark:text-slate-400' }
                                     )}
                                   </td>
 
                                   <td className="p-3 text-center">
-                                    {nMat.netShortage > 0 ? (
-                                      <span className="font-black text-red-600 text-xs">
-                                        {nMat.netShortage} {nMat.unit}
-                                      </span>
-                                    ) : (
-                                      <span className="text-emerald-600 font-bold text-[11px]">Covered</span>
+                                    {renderDualUnitQty(
+                                      Number(nMat.totalRequired || nMat.requiredQuantity) || 0,
+                                      nMat.unit,
+                                      nMat
+                                    )}
+                                  </td>
+
+                                  <td className="p-3 text-center">
+                                    {renderDualUnitQty(
+                                      Number(nMat.currentPhysicalStock) || 0,
+                                      nMat.unit,
+                                      nMat,
+                                      { fontClass: 'font-semibold text-slate-600 dark:text-slate-400' }
+                                    )}
+                                  </td>
+
+                                  <td className="p-3 text-center">
+                                    {renderDualUnitQty(
+                                      Number(nMat.totalInTransitPO) || 0,
+                                      nMat.unit,
+                                      nMat,
+                                      { isInTransit: true }
+                                    )}
+                                  </td>
+
+                                  <td className="p-3 text-center">
+                                    {renderDualUnitQty(
+                                      Number(nMat.netShortage) || 0,
+                                      nMat.unit,
+                                      nMat,
+                                      { isShortage: true }
                                     )}
                                   </td>
 
@@ -1972,6 +2928,23 @@ export default function MRPProcurementWorkbench({
         </div>
       )}
 
+      {/* Modal: Convert Cut Size to Purchasable Item Bucket */}
+      {(bucketModalItem || (bucketModalItems && bucketModalItems.length > 0)) && (
+        <ConvertToPurchaseBucketModal
+          isOpen={Boolean(bucketModalItem || (bucketModalItems && bucketModalItems.length > 0))}
+          onClose={() => {
+            setBucketModalItem(null);
+            setBucketModalItems(null);
+          }}
+          item={bucketModalItem}
+          items={bucketModalItems || undefined}
+          token={token}
+          onSuccess={() => {
+            fetchWorkbenchData(selectedPlan?._id);
+            setSelectedKeys(new Set());
+          }}
+        />
+      )}
     </div>
   );
 }

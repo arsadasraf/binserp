@@ -26,8 +26,15 @@ export interface POLineItemEntry {
     pieceCount: number; // Informational count/pieces (e.g. 10 Pcs when buying 500 KG)
     quantity: number;
     unit: string;
+    hasSecondaryUnit?: boolean;
+    secondaryUnit?: string;
+    conversionFactor?: number;
+    secondaryQuantity?: number;
+    rateUnit?: 'primary' | 'secondary';
+    primaryRate?: number;
+    secondaryRate?: number;
     rate: number;
-    amount: number; // Actual amount WITHOUT tax: quantity * rate
+    amount: number; // Actual amount WITHOUT tax
     category: string;
 }
 
@@ -245,7 +252,14 @@ export default function POModal({
                         const savedDesc = item.description || item.itemDescription || item.remarks || item.specifications || '';
                         const savedHsn = item.hsnCode || item.hsn || item.material?.hsnCode || '';
                         const savedUnit = item.unit || item.uom || item.material?.unit || (detectedCategory === 'rm' ? 'KG' : 'PCS');
-                        const savedCat = item.category || (typeof item.material?.category === 'object' ? item.material?.category?.name : item.material?.category) || '';
+                        const savedCat = item.category || (typeof item.material === 'object' ? item.material?.category : '') || detectedCategory;
+                        const isDual = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
+                        const secUnit = isDual ? item.secondaryUnit : '';
+                        const convFactor = Number(item.conversionFactor) || 1;
+                        const secQty = isDual ? (Number(item.secondaryQuantity) || (qty * convFactor)) : undefined;
+                        const rateUnit = (item.rateUnit === 'secondary' && isDual) ? 'secondary' : 'primary';
+                        const primaryRate = Number(item.primaryRate || (rateUnit === 'primary' ? rate : (qty > 0 && secQty ? (secQty * rate) / qty : (convFactor > 0 ? rate / convFactor : rate))));
+                        const secondaryRate = Number(item.secondaryRate || (rateUnit === 'secondary' ? rate : (qty > 0 && secQty ? (qty * rate) / secQty : (convFactor > 0 ? rate * convFactor : rate))));
 
                         return {
                             itemType: detectedCategory,
@@ -257,6 +271,13 @@ export default function POModal({
                             pieceCount: Number(item.pieceCount || item.count || 0),
                             quantity: qty,
                             unit: savedUnit,
+                            hasSecondaryUnit: isDual,
+                            secondaryUnit: secUnit,
+                            conversionFactor: convFactor,
+                            secondaryQuantity: secQty,
+                            rateUnit: rateUnit,
+                            primaryRate: primaryRate,
+                            secondaryRate: secondaryRate,
                             rate: rate,
                             amount: lineSub,
                             category: savedCat,
@@ -496,11 +517,23 @@ export default function POModal({
         const autoHsn = foundItem?.hsnCode || foundItem?.hsn || foundItem?.sacCode || currentEntry.hsnCode || '';
         const autoName = foundItem?.name || foundItem?.componentName || selectedId || currentEntry.materialName || '';
 
+        const hasSec = Boolean(foundItem?.hasSecondaryUnit && foundItem?.secondaryUnit);
+        const secUnit = hasSec ? foundItem?.secondaryUnit : '';
+        const convFactor = Number(foundItem?.conversionFactor) || 1;
+
         setMaterialEntries(prev => {
             const updated = [...prev];
             const qty = updated[index].quantity || 0;
             const rate = autoRate || updated[index].rate || 0;
-            const sub = qty * rate; // Actual amount without tax
+            const secQty = hasSec ? (updated[index].secondaryQuantity || (qty * convFactor)) : undefined;
+            const rateUnit = (updated[index].rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
+
+            let lineSub = 0;
+            if (rateUnit === 'secondary' && hasSec) {
+                lineSub = (secQty || (qty * convFactor)) * rate;
+            } else {
+                lineSub = qty * rate;
+            }
 
             updated[index] = {
                 ...updated[index],
@@ -509,8 +542,15 @@ export default function POModal({
                 description: autoDesc,
                 hsnCode: autoHsn,
                 unit: autoUnit,
+                hasSecondaryUnit: hasSec,
+                secondaryUnit: secUnit,
+                conversionFactor: convFactor,
+                secondaryQuantity: secQty,
+                rateUnit: rateUnit,
+                primaryRate: rateUnit === 'primary' ? rate : (qty > 0 && secQty ? (secQty * rate) / qty : (convFactor > 0 ? rate / convFactor : rate)),
+                secondaryRate: rateUnit === 'secondary' ? rate : (qty > 0 && secQty ? (qty * rate) / secQty : (convFactor > 0 ? rate * convFactor : rate)),
                 rate: rate,
-                amount: sub,
+                amount: lineSub,
                 category: autoCat,
             };
             return updated;
@@ -520,13 +560,63 @@ export default function POModal({
     const updateEntry = (index: number, field: keyof POLineItemEntry, value: any) => {
         setMaterialEntries(prev => {
             const updated = [...prev];
-            updated[index] = { ...updated[index], [field]: value };
+            const current = { ...updated[index], [field]: value };
 
-            if (field === 'quantity' || field === 'rate') {
-                const qty = field === 'quantity' ? Number(value) : (updated[index].quantity || 0);
-                const rate = field === 'rate' ? Number(value) : (updated[index].rate || 0);
-                updated[index].amount = qty * rate; // Actual amount without tax
+            const hasSec = Boolean(current.hasSecondaryUnit && current.secondaryUnit);
+            const convFactor = Number(current.conversionFactor) || 1;
+
+            if (field === 'quantity') {
+                const qtyVal = Number(value) || 0;
+                if (hasSec && convFactor > 0 && (!current.secondaryQuantity || current.secondaryQuantity === 0)) {
+                    current.secondaryQuantity = parseFloat((qtyVal * convFactor).toFixed(3));
+                }
+            } else if (field === 'secondaryQuantity') {
+                const secVal = Number(value) || 0;
+                if (hasSec && convFactor > 0 && (!current.quantity || current.quantity === 0)) {
+                    current.quantity = parseFloat((secVal / convFactor).toFixed(3));
+                }
             }
+
+            const qty = Number(current.quantity || 0);
+            const secQty = Number(current.secondaryQuantity || 0);
+            const rate = Number(current.rate || 0);
+            const rateUnit = (current.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
+
+            let primaryRate = Number(current.primaryRate || 0);
+            let secondaryRate = Number(current.secondaryRate || 0);
+            let lineAmount = 0;
+
+            if (rateUnit === 'secondary' && hasSec) {
+                secondaryRate = rate;
+                if (qty > 0 && secQty > 0) {
+                    primaryRate = parseFloat(((secQty * rate) / qty).toFixed(3));
+                } else if (convFactor > 0) {
+                    primaryRate = parseFloat((rate / convFactor).toFixed(3));
+                } else {
+                    primaryRate = rate;
+                }
+                const activeQty = secQty > 0 ? secQty : (qty * convFactor);
+                lineAmount = activeQty * rate;
+            } else {
+                primaryRate = rate;
+                if (hasSec) {
+                    if (qty > 0 && secQty > 0) {
+                        secondaryRate = parseFloat(((qty * rate) / secQty).toFixed(3));
+                    } else if (convFactor > 0) {
+                        secondaryRate = parseFloat((rate * convFactor).toFixed(3));
+                    } else {
+                        secondaryRate = rate;
+                    }
+                }
+                lineAmount = qty * rate;
+            }
+
+            current.rateUnit = rateUnit;
+            current.primaryRate = primaryRate;
+            current.secondaryRate = secondaryRate;
+            current.amount = lineAmount;
+
+            updated[index] = current;
             return updated;
         });
     };
@@ -848,6 +938,13 @@ export default function POModal({
                 pieceCount: Number(item.pieceCount) || 0,
                 quantity: Number(item.quantity),
                 unit: item.unit ? item.unit.trim() : (poCategory === 'rm' ? 'KG' : 'PCS'),
+                hasSecondaryUnit: Boolean(item.hasSecondaryUnit && item.secondaryUnit),
+                secondaryUnit: item.secondaryUnit || '',
+                conversionFactor: Number(item.conversionFactor) || 1,
+                secondaryQuantity: item.hasSecondaryUnit ? Number(item.secondaryQuantity || 0) : undefined,
+                rateUnit: (item.rateUnit === 'secondary' && item.hasSecondaryUnit) ? 'secondary' : 'primary',
+                primaryRate: Number(item.primaryRate) || (item.rateUnit === 'secondary' ? Number(item.primaryRate) : Number(item.rate)),
+                secondaryRate: Number(item.secondaryRate) || (item.rateUnit === 'secondary' ? Number(item.rate) : Number(item.secondaryRate)),
                 rate: Number(item.rate) || 0,
                 taxRate: Number(taxRate),
                 amount: Number(item.amount) || ((Number(item.quantity) || 0) * (Number(item.rate) || 0)), // Pure amount without tax
@@ -1394,22 +1491,42 @@ export default function POModal({
                                                     />
                                                 </td>
 
-                                                {/* Dedicated Wider Quantity Column */}
+                                                {/* Dedicated Wider Quantity Column (Primary & Secondary) */}
                                                 <td className="py-2.5 px-3">
-                                                    <input
-                                                        type="number"
-                                                        min="0.0001"
-                                                        step="any"
-                                                        required
-                                                        value={entry.quantity || ''}
-                                                        onChange={(e) => updateEntry(index, 'quantity', parseFloat(e.target.value) || 0)}
-                                                        placeholder="0.00"
-                                                        className={`w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border rounded-xl text-xs font-bold text-slate-900 dark:text-white text-center font-mono ${
-                                                            rowErrors.quantity 
-                                                                ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 ring-1 ring-rose-400' 
-                                                                : 'border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-cyan-500'
-                                                        }`}
-                                                    />
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center gap-1">
+                                                            <input
+                                                                type="number"
+                                                                min="0.0001"
+                                                                step="any"
+                                                                required
+                                                                value={entry.quantity || ''}
+                                                                onChange={(e) => updateEntry(index, 'quantity', parseFloat(e.target.value) || 0)}
+                                                                placeholder="0.00"
+                                                                className={`w-full px-2 py-1.5 bg-white dark:bg-slate-800 border rounded-xl text-xs font-bold text-slate-900 dark:text-white text-center font-mono ${
+                                                                    rowErrors.quantity 
+                                                                        ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 ring-1 ring-rose-400' 
+                                                                        : 'border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-cyan-500'
+                                                                }`}
+                                                            />
+                                                            <span className="text-[10px] font-bold text-slate-400 font-mono shrink-0">{entry.unit}</span>
+                                                        </div>
+
+                                                        {entry.hasSecondaryUnit && entry.secondaryUnit && (
+                                                            <div className="flex items-center gap-1 text-[10px]">
+                                                                <input
+                                                                    type="number"
+                                                                    step="any"
+                                                                    value={entry.secondaryQuantity || ''}
+                                                                    onChange={(e) => updateEntry(index, 'secondaryQuantity', parseFloat(e.target.value) || 0)}
+                                                                    placeholder="Sec Qty"
+                                                                    className="w-full px-1.5 py-0.5 bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/60 rounded-lg text-indigo-900 dark:text-indigo-200 text-center font-mono font-semibold"
+                                                                    title={`Secondary Quantity in ${entry.secondaryUnit}`}
+                                                                />
+                                                                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0">{entry.secondaryUnit}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                     {rowErrors.quantity && (
                                                         <p className="text-[10px] font-bold text-rose-600 text-center mt-0.5">Qty &gt; 0 req.</p>
                                                     )}
@@ -1429,19 +1546,52 @@ export default function POModal({
                                                                 : 'border-slate-200 dark:border-slate-700'
                                                         }`}
                                                     />
+                                                    {entry.hasSecondaryUnit && entry.secondaryUnit && (
+                                                        <div className="text-[9px] text-indigo-500 dark:text-indigo-400 text-center mt-0.5 font-semibold">
+                                                            Sec: {entry.secondaryUnit}
+                                                        </div>
+                                                    )}
                                                 </td>
 
-                                                {/* Rate */}
+                                                {/* Rate & Rate Unit Selector */}
                                                 <td className="py-2.5 px-3">
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        step="any"
-                                                        value={entry.rate || ''}
-                                                        onChange={(e) => updateEntry(index, 'rate', parseFloat(e.target.value) || 0)}
-                                                        placeholder="0.00"
-                                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white text-right font-mono focus:ring-2 focus:ring-cyan-500"
-                                                    />
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center gap-1">
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                step="any"
+                                                                value={entry.rate || ''}
+                                                                onChange={(e) => updateEntry(index, 'rate', parseFloat(e.target.value) || 0)}
+                                                                placeholder="0.00"
+                                                                className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white text-right font-mono focus:ring-2 focus:ring-cyan-500"
+                                                            />
+                                                            {entry.hasSecondaryUnit && entry.secondaryUnit ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => updateEntry(index, 'rateUnit', entry.rateUnit === 'secondary' ? 'primary' : 'secondary')}
+                                                                    className={`px-1.5 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer shrink-0 ${
+                                                                        entry.rateUnit === 'secondary'
+                                                                            ? 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-700'
+                                                                            : 'bg-cyan-100 text-cyan-800 border-cyan-300 dark:bg-cyan-950 dark:text-cyan-300 dark:border-cyan-700'
+                                                                    }`}
+                                                                    title="Click to toggle rate between Primary and Secondary unit"
+                                                                >
+                                                                    / {entry.rateUnit === 'secondary' ? entry.secondaryUnit : entry.unit} ⇄
+                                                                </button>
+                                                            ) : (
+                                                                <span className="text-[10px] font-bold text-slate-400 shrink-0">/ {entry.unit}</span>
+                                                            )}
+                                                        </div>
+
+                                                        {entry.hasSecondaryUnit && entry.secondaryUnit && entry.rate > 0 && (
+                                                            <div className="text-[10px] text-slate-400 font-mono text-right italic">
+                                                                {entry.rateUnit === 'secondary' 
+                                                                    ? `≈ ₹${Number(entry.primaryRate || 0).toFixed(2)} / ${entry.unit}` 
+                                                                    : `≈ ₹${Number(entry.secondaryRate || 0).toFixed(2)} / ${entry.secondaryUnit}`}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </td>
 
                                                 {/* Line Amount (Pure Actual Amount WITHOUT Tax) */}
@@ -1594,6 +1744,17 @@ export default function POModal({
                                                         rowErrors.quantity ? 'border-rose-500 ring-1 ring-rose-400' : 'border-slate-200'
                                                     }`}
                                                 />
+                                                {entry.hasSecondaryUnit && entry.secondaryUnit && (
+                                                    <input
+                                                        type="number"
+                                                        step="any"
+                                                        value={entry.secondaryQuantity || ''}
+                                                        onChange={(e) => updateEntry(index, 'secondaryQuantity', parseFloat(e.target.value) || 0)}
+                                                        placeholder="Sec"
+                                                        className="w-full mt-1 px-1 py-0.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded text-[10px] font-mono text-center font-bold text-indigo-900 dark:text-indigo-200"
+                                                        title={`Secondary Quantity in ${entry.secondaryUnit}`}
+                                                    />
+                                                )}
                                             </div>
                                             <div>
                                                 <label className="block text-[10px] font-bold text-slate-500 mb-1">Unit *</label>
@@ -1603,9 +1764,25 @@ export default function POModal({
                                                     onChange={(e) => updateEntry(index, 'unit', e.target.value)}
                                                     className="w-full px-1 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-center"
                                                 />
+                                                {entry.hasSecondaryUnit && entry.secondaryUnit && (
+                                                    <div className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 text-center mt-1 truncate">
+                                                        {entry.secondaryUnit}
+                                                    </div>
+                                                )}
                                             </div>
                                             <div>
-                                                <label className="block text-[10px] font-bold text-slate-500 mb-1">Rate (₹)</label>
+                                                <label className="block text-[10px] font-bold text-slate-500 mb-1 flex items-center justify-between">
+                                                    <span>Rate</span>
+                                                    {entry.hasSecondaryUnit && entry.secondaryUnit && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => updateEntry(index, 'rateUnit', entry.rateUnit === 'secondary' ? 'primary' : 'secondary')}
+                                                            className="text-[9px] font-bold text-indigo-600 underline"
+                                                        >
+                                                            /{entry.rateUnit === 'secondary' ? entry.secondaryUnit : entry.unit}
+                                                        </button>
+                                                    )}
+                                                </label>
                                                 <input
                                                     type="number"
                                                     min="0"
@@ -1614,6 +1791,13 @@ export default function POModal({
                                                     onChange={(e) => updateEntry(index, 'rate', parseFloat(e.target.value) || 0)}
                                                     className="w-full px-1.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-right font-mono"
                                                 />
+                                                {entry.hasSecondaryUnit && entry.secondaryUnit && entry.rate > 0 && (
+                                                    <div className="text-[9px] text-slate-400 font-mono text-right italic mt-0.5">
+                                                        {entry.rateUnit === 'secondary' 
+                                                            ? `≈ ₹${Number(entry.primaryRate || 0).toFixed(1)}/${entry.unit}` 
+                                                            : `≈ ₹${Number(entry.secondaryRate || 0).toFixed(1)}/${entry.secondaryUnit}`}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
 

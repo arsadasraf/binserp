@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback } from 'react';
 import { Category, Location } from "@/src/features/store/types/store.types";
-import { X, Plus, Trash2, Box, Layers, ShoppingBag, Paperclip, FileText, Upload, AlertTriangle } from 'lucide-react';
+import { X, Plus, Trash2, Box, Layers, ShoppingBag, Paperclip, FileText, Upload, AlertTriangle, ChevronDown } from 'lucide-react';
 import SearchableSelect, { SearchableOption } from '../SearchableSelect';
 
 interface FGItemFormProps {
@@ -106,9 +106,16 @@ export default function FGItemForm({
         const newBOM = [...(formData.bom || [])];
         const sourceQty = Number(newBOM[sourceIdx]?.quantity) || 0;
         const targetQty = Number(newBOM[targetIdx]?.quantity) || 0;
+        const combinedQty = Number((targetQty + sourceQty).toFixed(4));
+        const targetFactor = Number(newBOM[targetIdx]?.conversionFactor) || 1;
+        const hasSec = Boolean(newBOM[targetIdx]?.hasSecondaryUnit && newBOM[targetIdx]?.secondaryUnit && targetFactor > 0);
         newBOM[targetIdx] = {
             ...newBOM[targetIdx],
-            quantity: Number((targetQty + sourceQty).toFixed(4))
+            quantity: combinedQty,
+            secondaryQuantity: hasSec ? Number((combinedQty * targetFactor).toFixed(4)) : undefined,
+            inputQuantity: newBOM[targetIdx]?.selectedUnit === newBOM[targetIdx]?.secondaryUnit && hasSec
+                ? Number((combinedQty * targetFactor).toFixed(4))
+                : combinedQty
         };
         // Remove source duplicate row
         const filtered = newBOM.filter((_: any, i: number) => i !== sourceIdx);
@@ -118,7 +125,21 @@ export default function FGItemForm({
     const addBOMItem = () => {
         setFormData((prev: any) => ({
             ...prev,
-            bom: [...(prev.bom || []), { itemType: 'RawMaterial', item: '', itemName: '', quantity: 1, unit: 'Nos' }]
+            bom: [
+                ...(prev.bom || []),
+                {
+                    itemType: 'RawMaterial',
+                    item: '',
+                    itemName: '',
+                    quantity: 1,
+                    unit: 'Nos',
+                    hasSecondaryUnit: false,
+                    secondaryUnit: '',
+                    conversionFactor: 1,
+                    selectedUnit: 'Nos',
+                    inputQuantity: 1
+                }
+            ]
         }));
     };
 
@@ -132,8 +153,106 @@ export default function FGItemForm({
             itemDescription: '',
             itemClassification: '',
             itemRevision: '',
-            unit: 'Nos'
+            unit: 'Nos',
+            hasSecondaryUnit: false,
+            secondaryUnit: '',
+            conversionFactor: 1,
+            secondaryQuantity: undefined,
+            selectedUnit: 'Nos',
+            inputQuantity: 1,
+            quantity: 1
         };
+        setFormData((prev: any) => ({ ...prev, bom: newBOM }));
+    };
+
+    const handleBOMQuantityChange = (idx: number, rawVal: string) => {
+        const newBOM = [...(formData.bom || [])];
+        const target = { ...newBOM[idx] };
+
+        const rawId = typeof target.item === 'object' && target.item !== null ? (target.item?._id || target.item?.id) : target.item;
+        let matchedMaster: any = null;
+        const t = target.itemType || 'RawMaterial';
+        if (t === 'RawMaterial' || t === 'Material') {
+            matchedMaster = effectiveRM.find((m: any) => (m._id || m.id) === rawId);
+        } else if (t === 'BoughtOut') {
+            matchedMaster = effectiveBO.find((b: any) => (b._id || b.id) === rawId);
+        } else if (t === 'FGItem') {
+            matchedMaster = fgItems.find((f: any) => (f._id || f.id) === rawId);
+        }
+
+        const hasSec = Boolean(target.hasSecondaryUnit || matchedMaster?.hasSecondaryUnit || (typeof target.item === 'object' && target.item?.hasSecondaryUnit));
+        const secUnit = target.secondaryUnit || matchedMaster?.secondaryUnit || (typeof target.item === 'object' ? target.item?.secondaryUnit : '') || '';
+        const factor = Number(target.conversionFactor || matchedMaster?.conversionFactor || (typeof target.item === 'object' ? target.item?.conversionFactor : 1)) || 1;
+        const priUnit = target.unit || matchedMaster?.unit || (typeof target.item === 'object' ? target.item?.unit : 'Nos') || 'Nos';
+        const isDual = Boolean(hasSec && secUnit && factor > 0);
+
+        target.hasSecondaryUnit = isDual;
+        target.secondaryUnit = secUnit;
+        target.conversionFactor = factor;
+        target.unit = priUnit;
+
+        if (rawVal === '') {
+            target.inputQuantity = '';
+            target.quantity = '';
+            target.secondaryQuantity = '';
+        } else {
+            const numVal = parseFloat(rawVal);
+            target.inputQuantity = rawVal;
+            
+            if (isDual && target.selectedUnit === secUnit) {
+                target.secondaryQuantity = isNaN(numVal) ? 0 : numVal;
+                target.quantity = (isNaN(numVal) || factor <= 0) ? 0 : Number((numVal / factor).toFixed(4));
+            } else {
+                target.quantity = isNaN(numVal) ? 0 : numVal;
+                target.secondaryQuantity = (isNaN(numVal) || !isDual) ? undefined : Number((numVal * factor).toFixed(4));
+            }
+        }
+
+        newBOM[idx] = target;
+        setFormData((prev: any) => ({ ...prev, bom: newBOM }));
+    };
+
+    const handleBOMUnitSwitch = (idx: number, newUnit: string) => {
+        const newBOM = [...(formData.bom || [])];
+        const target = { ...newBOM[idx] };
+
+        const rawId = typeof target.item === 'object' && target.item !== null ? (target.item?._id || target.item?.id) : target.item;
+        let matchedMaster: any = null;
+        const t = target.itemType || 'RawMaterial';
+        if (t === 'RawMaterial' || t === 'Material') {
+            matchedMaster = effectiveRM.find((m: any) => (m._id || m.id) === rawId);
+        } else if (t === 'BoughtOut') {
+            matchedMaster = effectiveBO.find((b: any) => (b._id || b.id) === rawId);
+        } else if (t === 'FGItem') {
+            matchedMaster = fgItems.find((f: any) => (f._id || f.id) === rawId);
+        }
+
+        const hasSec = Boolean(target.hasSecondaryUnit || matchedMaster?.hasSecondaryUnit || (typeof target.item === 'object' && target.item?.hasSecondaryUnit));
+        const secUnit = target.secondaryUnit || matchedMaster?.secondaryUnit || (typeof target.item === 'object' ? target.item?.secondaryUnit : '') || '';
+        const factor = Number(target.conversionFactor || matchedMaster?.conversionFactor || (typeof target.item === 'object' ? target.item?.conversionFactor : 1)) || 1;
+        const priUnit = target.unit || matchedMaster?.unit || (typeof target.item === 'object' ? target.item?.unit : 'Nos') || 'Nos';
+        const isDual = Boolean(hasSec && secUnit && factor > 0);
+
+        target.hasSecondaryUnit = isDual;
+        target.secondaryUnit = secUnit;
+        target.conversionFactor = factor;
+        target.unit = priUnit;
+        target.selectedUnit = newUnit;
+
+        const currentPriQty = Number(target.quantity) || 0;
+        const currentSecQty = target.secondaryQuantity !== undefined && target.secondaryQuantity !== ''
+            ? Number(target.secondaryQuantity)
+            : Number((currentPriQty * factor).toFixed(4));
+
+        if (newUnit === secUnit && isDual) {
+            target.inputQuantity = currentSecQty;
+            target.secondaryQuantity = currentSecQty;
+        } else {
+            target.inputQuantity = currentPriQty;
+            target.quantity = currentPriQty;
+        }
+
+        newBOM[idx] = target;
         setFormData((prev: any) => ({ ...prev, bom: newBOM }));
     };
 
@@ -148,6 +267,9 @@ export default function FGItemForm({
             let foundDesc = '';
             let foundClassification = '';
             let foundRevision = '';
+            let hasSec = false;
+            let secUnit = '';
+            let factor = 1;
             
             if (type === 'RawMaterial' || type === 'Material') {
                 const mat = effectiveRM.find((m: any) => (m._id || m.id) === value);
@@ -155,6 +277,9 @@ export default function FGItemForm({
                     foundName = mat.name || mat.materialName || '';
                     foundDesc = mat.descriptions || mat.description || '';
                     foundUnit = mat.unit || 'Nos';
+                    hasSec = Boolean(mat.hasSecondaryUnit && mat.secondaryUnit && Number(mat.conversionFactor) > 0);
+                    secUnit = mat.secondaryUnit || '';
+                    factor = Number(mat.conversionFactor) || 1;
                 }
             } else if (type === 'BoughtOut') {
                 const bo = effectiveBO.find((b: any) => (b._id || b.id) === value);
@@ -162,6 +287,9 @@ export default function FGItemForm({
                     foundName = bo.name || bo.materialName || '';
                     foundDesc = bo.descriptions || bo.description || '';
                     foundUnit = bo.unit || 'Nos';
+                    hasSec = Boolean(bo.hasSecondaryUnit && bo.secondaryUnit && Number(bo.conversionFactor) > 0);
+                    secUnit = bo.secondaryUnit || '';
+                    factor = Number(bo.conversionFactor) || 1;
                 }
             } else if (type === 'FGItem') {
                 const fg = fgItems.find((f: any) => (f._id || f.id) === value);
@@ -171,6 +299,9 @@ export default function FGItemForm({
                     foundUnit = fg.unit || 'Nos';
                     foundClassification = fg.type || 'Component';
                     foundRevision = fg.revisionNumber || '';
+                    hasSec = Boolean(fg.hasSecondaryUnit && fg.secondaryUnit && Number(fg.conversionFactor) > 0);
+                    secUnit = fg.secondaryUnit || '';
+                    factor = Number(fg.conversionFactor) || 1;
                 }
             }
             newBOM[idx].itemName = foundName;
@@ -179,6 +310,14 @@ export default function FGItemForm({
             newBOM[idx].fgType = foundClassification;
             newBOM[idx].itemRevision = foundRevision;
             newBOM[idx].unit = foundUnit;
+            newBOM[idx].hasSecondaryUnit = hasSec;
+            newBOM[idx].secondaryUnit = secUnit;
+            newBOM[idx].conversionFactor = factor;
+            newBOM[idx].selectedUnit = foundUnit;
+            const currentQty = Number(newBOM[idx].quantity) || 1;
+            newBOM[idx].quantity = currentQty;
+            newBOM[idx].inputQuantity = currentQty;
+            newBOM[idx].secondaryQuantity = hasSec ? Number((currentQty * factor).toFixed(4)) : undefined;
         }
 
         setFormData((prev: any) => ({ ...prev, bom: newBOM }));
@@ -742,6 +881,44 @@ export default function FGItemForm({
                             const selectedClassification = getSelectedItemClassification(item);
                             const selectedRevision = getSelectedItemRevision(item);
 
+                            // Resolve master item metadata for dual unit tracking
+                            let matchedMaster: any = null;
+                            if (rawItemId) {
+                                if (currentType === 'RawMaterial' || currentType === 'Material') {
+                                    matchedMaster = effectiveRM.find((m: any) => (m._id || m.id) === rawItemId);
+                                } else if (currentType === 'BoughtOut') {
+                                    matchedMaster = effectiveBO.find((b: any) => (b._id || b.id) === rawItemId);
+                                } else if (currentType === 'FGItem') {
+                                    matchedMaster = fgItems.find((f: any) => (f._id || f.id) === rawItemId);
+                                }
+                            }
+
+                            const hasSecUnit = Boolean(
+                                item.hasSecondaryUnit || 
+                                matchedMaster?.hasSecondaryUnit || 
+                                (typeof item.item === 'object' && item.item?.hasSecondaryUnit)
+                            );
+                            const priUnitStr = item.unit || matchedMaster?.unit || (typeof item.item === 'object' ? item.item?.unit : 'Nos') || 'Nos';
+                            const secUnitStr = item.secondaryUnit || matchedMaster?.secondaryUnit || (typeof item.item === 'object' ? item.item?.secondaryUnit : '') || '';
+                            const convFactorNum = Number(item.conversionFactor || matchedMaster?.conversionFactor || (typeof item.item === 'object' ? item.item?.conversionFactor : 1)) || 1;
+                            const isDualItem = Boolean(hasSecUnit && secUnitStr && convFactorNum > 0);
+
+                            const currentSelectedUnit = item.selectedUnit || priUnitStr;
+                            const isSelectedSec = isDualItem && currentSelectedUnit === secUnitStr;
+
+                            // Display value for quantity input
+                            const displayQtyValue = item.inputQuantity !== undefined && item.inputQuantity !== null && item.inputQuantity !== ''
+                                ? item.inputQuantity
+                                : (isSelectedSec
+                                    ? (item.secondaryQuantity !== undefined && item.secondaryQuantity !== null ? item.secondaryQuantity : Number(((item.quantity || 0) * convFactorNum).toFixed(4)))
+                                    : (item.quantity !== undefined && item.quantity !== null ? item.quantity : ''));
+
+                            // Quantities for live conversion preview
+                            const priQtyNum = Number(item.quantity) || 0;
+                            const secQtyNum = item.secondaryQuantity !== undefined && item.secondaryQuantity !== null && item.secondaryQuantity !== ''
+                                ? Number(item.secondaryQuantity)
+                                : Number((priQtyNum * convFactorNum).toFixed(4));
+
                             return (
                                 <div
                                     key={idx}
@@ -835,9 +1012,9 @@ export default function FGItemForm({
                                         </div>
                                     )}
 
-                                    {/* Inputs: Material Searchable Select + Qty + Unit */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
-                                        <div className="sm:col-span-8">
+                                    {/* Inputs: Material Searchable Select + Qty + Unit (Dual-Unit Aware) */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-start sm:items-center">
+                                        <div className={isDualItem ? "sm:col-span-7" : "sm:col-span-8"}>
                                             <SearchableSelect
                                                 options={optionsForThisType}
                                                 value={typeof item.item === 'object' && item.item !== null ? (item.item?._id || item.item?.id) : (item.item || '')}
@@ -847,23 +1024,56 @@ export default function FGItemForm({
                                             />
                                         </div>
 
-                                        <div className="sm:col-span-4 flex items-center gap-2">
-                                            <div className="flex-1">
-                                                <input
-                                                    type="number"
-                                                    min="0.001"
-                                                    step="any"
-                                                    placeholder="Qty"
-                                                    value={item.quantity || ''}
-                                                    onChange={e => updateBOMItem(idx, 'quantity', parseFloat(e.target.value))}
-                                                    className="w-full px-2.5 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-bold text-gray-900 dark:text-white"
-                                                    required
-                                                />
+                                        <div className={isDualItem ? "sm:col-span-5 flex flex-col gap-1" : "sm:col-span-4 flex items-center gap-2"}>
+                                            <div className="flex items-center gap-1.5">
+                                                <div className="flex-1 min-w-0">
+                                                    <input
+                                                        type="number"
+                                                        min="0.0001"
+                                                        step="any"
+                                                        placeholder={isDualItem ? (isSelectedSec ? `Qty (${secUnitStr})` : `Qty (${priUnitStr})`) : 'Qty'}
+                                                        value={displayQtyValue}
+                                                        onChange={e => handleBOMQuantityChange(idx, e.target.value)}
+                                                        className="w-full px-2.5 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-bold text-gray-900 dark:text-white"
+                                                        required
+                                                    />
+                                                </div>
+
+                                                {isDualItem ? (
+                                                    <div className="w-28 shrink-0 relative">
+                                                        <select
+                                                            value={currentSelectedUnit}
+                                                            onChange={e => handleBOMUnitSwitch(idx, e.target.value)}
+                                                            className="w-full h-[38px] pl-2 pr-6 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-700/80 rounded-lg text-xs font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer appearance-none truncate"
+                                                            title="Choose primary or secondary unit to input quantity"
+                                                        >
+                                                            <option value={priUnitStr}>{priUnitStr} (Pri)</option>
+                                                            <option value={secUnitStr}>{secUnitStr} (Sec)</option>
+                                                        </select>
+                                                        <ChevronDown className="w-3.5 h-3.5 text-indigo-500 pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" />
+                                                    </div>
+                                                ) : (
+                                                    <div className="w-16 shrink-0 px-2 py-2 bg-gray-200/70 dark:bg-slate-700/60 rounded-lg text-xs font-bold text-gray-700 dark:text-slate-300 text-center truncate">
+                                                        {priUnitStr}
+                                                    </div>
+                                                )}
                                             </div>
 
-                                            <div className="w-16 shrink-0 px-2 py-2 bg-gray-200/70 dark:bg-slate-700/60 rounded-lg text-xs font-bold text-gray-700 dark:text-slate-300 text-center truncate">
-                                                {item.unit || 'Nos'}
-                                            </div>
+                                            {/* Live Dual-Unit Conversion Indicator */}
+                                            {isDualItem && (
+                                                <div className="flex items-center justify-between text-[11px] font-medium px-1 text-slate-500 dark:text-slate-400">
+                                                    <span className="font-semibold text-indigo-600 dark:text-indigo-400 truncate">
+                                                        {isSelectedSec ? (
+                                                            <>↳ = <span className="font-bold">{priQtyNum}</span> {priUnitStr}</>
+                                                        ) : (
+                                                            <>↳ = <span className="font-bold">{secQtyNum}</span> {secUnitStr}</>
+                                                        )}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono shrink-0 ml-1">
+                                                        (1 {priUnitStr} = {convFactorNum} {secUnitStr})
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 

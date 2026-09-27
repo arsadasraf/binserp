@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Layers, Plus, Search, Calendar, User, Eye, Trash2, Package, 
   CheckCircle2, Clock, Filter, ArrowRight, ArrowLeft, X, Building2, Printer, 
   LayoutGrid, List, Edit2, ShieldCheck, Download, ShoppingCart, 
   Sparkles, RefreshCw, FileText, AlertCircle, Send, CheckSquare, Square,
-  Check, Boxes, ChevronRight, Factory, Play
+  Check, Boxes, ChevronRight, Factory, Play, ChevronDown, Target, RotateCcw
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import Swal from 'sweetalert2';
@@ -31,13 +31,161 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   const [mrpPlans, setMrpPlans] = useState<any[]>([]);
   const [selectedDemandPlan, setSelectedDemandPlan] = useState<any | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string>('All');
   
-  // Date & Day Filters
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | '7days' | 'thisMonth' | 'custom'>('all');
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
-  const [dateType, setDateType] = useState<'created' | 'target'>('created');
+  // 3-Tab Filter System: Status (Multi-select), Plan Date, Committed Date
+  const MRP_STATUS_OPTIONS = ['Planned', 'In Production', 'Partially Completed', 'Completed'] as const;
+
+  // Tab 1: Status Filter State (Multi-Select)
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
+  const statusDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Tab 2: Plan Date Filter State (Created Date / Plan Date)
+  const [planDateFilter, setPlanDateFilter] = useState<'all' | 'today' | 'yesterday' | '7days' | 'thisMonth' | 'custom'>('all');
+  const [planStartDate, setPlanStartDate] = useState<string>('');
+  const [planEndDate, setPlanEndDate] = useState<string>('');
+  const [isPlanDateDropdownOpen, setIsPlanDateDropdownOpen] = useState(false);
+  const planDateDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Tab 3: Committed Date Filter State (Committed / Target Delivery Date)
+  const [commitDateFilter, setCommitDateFilter] = useState<'all' | 'today' | 'yesterday' | '7days' | 'next7days' | 'thisMonth' | 'custom'>('all');
+  const [commitStartDate, setCommitStartDate] = useState<string>('');
+  const [commitEndDate, setCommitEndDate] = useState<string>('');
+  const [isCommitDateDropdownOpen, setIsCommitDateDropdownOpen] = useState(false);
+  const commitDateDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target as Node)) {
+        setIsStatusDropdownOpen(false);
+      }
+      if (planDateDropdownRef.current && !planDateDropdownRef.current.contains(event.target as Node)) {
+        setIsPlanDateDropdownOpen(false);
+      }
+      if (commitDateDropdownRef.current && !commitDateDropdownRef.current.contains(event.target as Node)) {
+        setIsCommitDateDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Helper function to match date presets and custom ranges
+  const matchDatePreset = (
+    rawDate: any,
+    preset: string,
+    customStart: string,
+    customEnd: string
+  ) => {
+    if (preset === 'all') return true;
+    if (!rawDate) return false;
+    const d = new Date(rawDate);
+    if (isNaN(d.getTime())) return false;
+
+    const today = new Date();
+    const isSameDay = (d1: Date, d2: Date) =>
+      d1.getFullYear() === d2.getFullYear() &&
+      d1.getMonth() === d2.getMonth() &&
+      d1.getDate() === d2.getDate();
+
+    if (preset === 'today') {
+      return isSameDay(d, today);
+    } else if (preset === 'yesterday') {
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+      return isSameDay(d, yesterday);
+    } else if (preset === '7days') {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(today.getDate() - 7);
+      sevenDaysAgo.setHours(0, 0, 0, 0);
+      return d >= sevenDaysAgo && d <= today;
+    } else if (preset === 'next7days') {
+      const nextSevenDays = new Date();
+      nextSevenDays.setDate(today.getDate() + 7);
+      nextSevenDays.setHours(23, 59, 59, 999);
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      return d >= startOfToday && d <= nextSevenDays;
+    } else if (preset === 'thisMonth') {
+      return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+    } else if (preset === 'custom') {
+      if (customStart && customEnd) {
+        const s = new Date(customStart);
+        s.setHours(0, 0, 0, 0);
+        const e = new Date(customEnd);
+        e.setHours(23, 59, 59, 999);
+        return d >= s && d <= e;
+      } else if (customStart) {
+        const s = new Date(customStart);
+        return isSameDay(d, s) || d >= s;
+      } else if (customEnd) {
+        const e = new Date(customEnd);
+        return isSameDay(d, e) || d <= e;
+      }
+    }
+    return true;
+  };
+
+  // Helper function to format preset button label
+  const formatPresetLabel = (preset: string, start?: string, end?: string) => {
+    if (preset === 'custom') {
+      if (start && end) return `${start} → ${end}`;
+      if (start) return `From ${start}`;
+      if (end) return `Until ${end}`;
+      return 'Custom';
+    }
+    switch (preset) {
+      case 'today': return 'Today';
+      case 'yesterday': return 'Yesterday';
+      case '7days': return 'Last 7 Days';
+      case 'next7days': return 'Next 7 Days';
+      case 'thisMonth': return 'This Month';
+      case 'all':
+      default:
+        return 'All';
+    }
+  };
+
+  // Count active plans per status
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      Planned: 0,
+      'In Production': 0,
+      'Partially Completed': 0,
+      Completed: 0
+    };
+    (Array.isArray(mrpPlans) ? mrpPlans : []).forEach((p) => {
+      if (p.status && counts[p.status] !== undefined) {
+        counts[p.status]++;
+      }
+    });
+    return counts;
+  }, [mrpPlans]);
+
+  // Check if any filter is active
+  const isAnyFilterActive = useMemo(() => {
+    return (
+      selectedStatuses.length > 0 ||
+      planDateFilter !== 'all' ||
+      Boolean(planStartDate || planEndDate) ||
+      commitDateFilter !== 'all' ||
+      Boolean(commitStartDate || commitEndDate) ||
+      Boolean(searchTerm)
+    );
+  }, [selectedStatuses, planDateFilter, planStartDate, planEndDate, commitDateFilter, commitStartDate, commitEndDate, searchTerm]);
+
+  // Reset all filters in 1 click
+  const handleResetAllFilters = () => {
+    setSelectedStatuses([]);
+    setPlanDateFilter('all');
+    setPlanStartDate('');
+    setPlanEndDate('');
+    setCommitDateFilter('all');
+    setCommitStartDate('');
+    setCommitEndDate('');
+    setSearchTerm('');
+  };
 
   // Modal States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -143,71 +291,47 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
   // Filtered MRP Plans for Master List (Step 1)
   const filteredMrpPlans = useMemo(() => {
-    const today = new Date();
-    const isSameDay = (d1: Date, d2: Date) => 
-      d1.getFullYear() === d2.getFullYear() &&
-      d1.getMonth() === d2.getMonth() &&
-      d1.getDate() === d2.getDate();
-
     return (Array.isArray(mrpPlans) ? mrpPlans : []).filter((plan: any) => {
-      // Date Resolution
-      const rawDate = dateType === 'target' 
-        ? (plan.targetDate || plan.deliveryDate || plan.createdAt) 
-        : (plan.createdAt || plan.planDate || plan.date || plan.targetDate);
-      const planDate = new Date(rawDate || Date.now());
-
-      let matchesDate = true;
-      if (dateFilter === 'today') {
-        matchesDate = isSameDay(planDate, today);
-      } else if (dateFilter === 'yesterday') {
-        const yesterday = new Date();
-        yesterday.setDate(today.getDate() - 1);
-        matchesDate = isSameDay(planDate, yesterday);
-      } else if (dateFilter === '7days') {
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(today.getDate() - 7);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
-        matchesDate = planDate >= sevenDaysAgo && planDate <= today;
-      } else if (dateFilter === 'thisMonth') {
-        matchesDate = planDate.getMonth() === today.getMonth() && planDate.getFullYear() === today.getFullYear();
-      } else if (dateFilter === 'custom') {
-        if (startDate && endDate) {
-          const s = new Date(startDate);
-          s.setHours(0, 0, 0, 0);
-          const e = new Date(endDate);
-          e.setHours(23, 59, 59, 999);
-          matchesDate = planDate >= s && planDate <= e;
-        } else if (startDate) {
-          const s = new Date(startDate);
-          matchesDate = isSameDay(planDate, s) || planDate >= s;
-        } else if (endDate) {
-          const e = new Date(endDate);
-          matchesDate = isSameDay(planDate, e) || planDate <= e;
-        }
+      // 1. Status Multi-select Filter
+      if (selectedStatuses.length > 0 && !selectedStatuses.includes(plan.status)) {
+        return false;
       }
 
-      if (!matchesDate) return false;
+      // 2. Plan Date Filter (Created / Plan Date)
+      const rawPlanDate = plan.createdAt || plan.planDate || plan.date;
+      if (!matchDatePreset(rawPlanDate, planDateFilter, planStartDate, planEndDate)) {
+        return false;
+      }
 
-      // Search Filter
-      const s = searchTerm.toLowerCase();
-      const matchesSearch = !searchTerm ||
-        plan.mrpNumber.toLowerCase().includes(s) ||
-        (plan.customerName && plan.customerName.toLowerCase().includes(s)) ||
-        (plan.customerPoNumber && plan.customerPoNumber.toLowerCase().includes(s)) ||
-        (plan.fgItems || []).some((f: any) => (f.fgItemName && f.fgItemName.toLowerCase().includes(s)) || (f.fgItemCode && f.fgItemCode.toLowerCase().includes(s)));
+      // 3. Committed Date Filter (Target / Delivery / Committed Date)
+      const rawCommitDate = plan.targetDate || plan.committedDate || plan.deliveryDate;
+      if (!matchDatePreset(rawCommitDate, commitDateFilter, commitStartDate, commitEndDate)) {
+        return false;
+      }
 
-      if (!matchesSearch) return false;
+      // 4. Search Filter
+      if (searchTerm) {
+        const s = searchTerm.toLowerCase();
+        const matchesSearch =
+          (plan.mrpNumber && plan.mrpNumber.toLowerCase().includes(s)) ||
+          (plan.customerName && plan.customerName.toLowerCase().includes(s)) ||
+          (plan.customerPoNumber && plan.customerPoNumber.toLowerCase().includes(s)) ||
+          (plan.fgItems || []).some((f: any) => 
+            (f.fgItemName && f.fgItemName.toLowerCase().includes(s)) || 
+            (f.fgItemCode && f.fgItemCode.toLowerCase().includes(s)) ||
+            (f.description && f.description.toLowerCase().includes(s))
+          );
+        if (!matchesSearch) return false;
+      }
 
-      // Status Filter
-      const matchesStatus = filterStatus === 'All' || plan.status === filterStatus;
-      return matchesStatus;
+      return true;
     });
-  }, [mrpPlans, searchTerm, filterStatus, dateFilter, startDate, endDate, dateType]);
+  }, [mrpPlans, searchTerm, selectedStatuses, planDateFilter, planStartDate, planEndDate, commitDateFilter, commitStartDate, commitEndDate]);
 
-  // Compute unique FG items count across all MRP plans
+  // Compute unique FG items count across filtered MRP plans (dynamically responds to active filters)
   const uniqueFgItemsCount = useMemo(() => {
     const keys = new Set<string>();
-    (Array.isArray(mrpPlans) ? mrpPlans : []).forEach((plan: any) => {
+    (Array.isArray(filteredMrpPlans) ? filteredMrpPlans : []).forEach((plan: any) => {
       (plan.fgItems || []).forEach((it: any) => {
         const fgId = it.fgItem && typeof it.fgItem === 'object' ? it.fgItem._id : it.fgItem;
         const name = (it.fgItemName || it.name || '').trim().toLowerCase();
@@ -216,7 +340,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
       });
     });
     return keys.size;
-  }, [mrpPlans]);
+  }, [filteredMrpPlans]);
 
   // Submit PO directly
   const handlePOSubmit = async (formData: any) => {
@@ -327,7 +451,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   };
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-200">
+    <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-y-auto space-y-4 pb-28 sm:pb-20 pr-1 sm:pr-2 scroll-smooth">
       
       {/* 1. TOP-LEVEL VIEW SWITCHER: PLANS | WORKBENCH | 360 WIP */}
       <div className="bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
@@ -387,178 +511,427 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
           {!selectedDemandPlan && (
             <div className="space-y-4">
               
-              {/* Controls Toolbar: Search & Action Buttons */}
-              <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+              {/* Controls Toolbar: Search, View Mode, Status Dropdown, Plan Date, Committed Date in Single Line */}
+              <div className="relative z-30 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap xl:flex-nowrap items-center justify-between gap-2">
                 
-                {/* Search Box */}
-                <div className="relative flex-1">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-                  <input
-                    type="text"
-                    placeholder="Search MRP #, Customer, PO Ref, Finished Goods..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
-                  />
-                </div>
-
-                {/* View Mode Toggle: Plans vs Items */}
-                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('plans')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      viewMode === 'plans'
-                        ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                    title="View MRP Demand Plans"
-                  >
-                    <Layers size={14} />
-                    <span>Plans ({mrpPlans.length})</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('items')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      viewMode === 'items'
-                        ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                    title="View Finished Goods Demand Item Wise"
-                  >
-                    <Package size={14} />
-                    <span>Items ({uniqueFgItemsCount})</span>
-                  </button>
-                </div>
-
-                {/* Status Filter Pills & Create Button */}
-                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end">
-                  <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold overflow-x-auto no-scrollbar gap-0.5">
-                    {['All', 'Planned', 'In Production', 'Partially Completed', 'Completed'].map(status => (
+                {/* Left Group: Search & View Mode Switcher */}
+                <div className="flex items-center gap-2 shrink-0 min-w-0 flex-1 max-w-sm sm:max-w-md">
+                  {/* Search Box */}
+                  <div className="relative flex-1 min-w-[130px]">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                    <input
+                      type="text"
+                      placeholder="Search MRP #, Customer, FG..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white"
+                    />
+                    {searchTerm && (
                       <button
-                        key={status}
-                        onClick={() => setFilterStatus(status)}
-                        className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${
-                          filterStatus === status 
-                            ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-xs font-bold' 
-                            : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                        }`}
+                        type="button"
+                        onClick={() => setSearchTerm('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer p-0.5"
                       >
-                        {status}
+                        <X size={12} />
                       </button>
-                    ))}
+                    )}
                   </div>
 
+                  {/* View Mode Toggle: Plans vs Items */}
+                  <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl text-xs font-semibold shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('plans')}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        viewMode === 'plans'
+                          ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                      title="View MRP Demand Plans"
+                    >
+                      <Layers size={13} />
+                      <span>Plans ({filteredMrpPlans.length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('items')}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        viewMode === 'items'
+                          ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                      title="View Finished Goods Demand Item Wise"
+                    >
+                      <Package size={13} />
+                      <span>Items ({uniqueFgItemsCount})</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Center / Right Group: The 3 Filter Tabs + Actions */}
+                <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
+                  
+                  {/* TAB 1: Status Multi-Select Dropdown */}
+                  <div className="relative shrink-0" ref={statusDropdownRef}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsStatusDropdownOpen(prev => !prev);
+                        setIsPlanDateDropdownOpen(false);
+                        setIsCommitDateDropdownOpen(false);
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        selectedStatuses.length > 0
+                          ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                          : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70'
+                      }`}
+                    >
+                      <Clock size={13} className="text-indigo-500 shrink-0" />
+                      <span className="truncate max-w-[120px]">
+                        {selectedStatuses.length === 0
+                          ? 'All Statuses'
+                          : selectedStatuses.length === 1
+                          ? selectedStatuses[0]
+                          : `Status (${selectedStatuses.length})`}
+                      </span>
+                      <ChevronDown size={12} className={`text-slate-400 shrink-0 transition-transform ${isStatusDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isStatusDropdownOpen && (
+                      <div onClick={(e) => e.stopPropagation()} className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-60 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 p-2.5 space-y-2">
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5 px-1">
+                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Plan Status</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedStatuses([...MRP_STATUS_OPTIONS])}
+                              className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold cursor-pointer"
+                            >
+                              Select All
+                            </button>
+                            <span className="text-slate-300 dark:text-slate-600">•</span>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedStatuses([])}
+                              className="text-[11px] text-slate-500 hover:underline font-bold cursor-pointer"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          {MRP_STATUS_OPTIONS.map((st) => {
+                            const isSelected = selectedStatuses.includes(st);
+                            const count = statusCounts[st] || 0;
+                            return (
+                              <div
+                                key={st}
+                                onClick={() => {
+                                  setSelectedStatuses(prev => 
+                                    prev.includes(st) ? prev.filter(s => s !== st) : [...prev, st]
+                                  );
+                                }}
+                                className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/80 cursor-pointer transition-colors"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${
+                                    isSelected 
+                                      ? 'bg-indigo-600 border-indigo-600 text-white' 
+                                      : 'border-slate-300 dark:border-slate-600'
+                                  }`}>
+                                    {isSelected && <Check size={11} className="stroke-[3]" />}
+                                  </div>
+                                  <span className={`text-xs ${isSelected ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-700 dark:text-slate-300'}`}>
+                                    {st}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                                  {count}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* TAB 2: Plan Date Dropdown */}
+                  <div className="relative shrink-0" ref={planDateDropdownRef}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsPlanDateDropdownOpen(prev => !prev);
+                        setIsStatusDropdownOpen(false);
+                        setIsCommitDateDropdownOpen(false);
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        planDateFilter !== 'all' || planStartDate || planEndDate
+                          ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 shadow-2xs'
+                          : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70'
+                      }`}
+                    >
+                      <Calendar size={13} className="text-blue-500 shrink-0" />
+                      <span className="truncate max-w-[130px]">
+                        Plan: {formatPresetLabel(planDateFilter, planStartDate, planEndDate)}
+                      </span>
+                      <ChevronDown size={12} className={`text-slate-400 shrink-0 transition-transform ${isPlanDateDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isPlanDateDropdownOpen && (
+                      <div onClick={(e) => e.stopPropagation()} className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 p-3 space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Plan Date (Created)</span>
+                          {(planDateFilter !== 'all' || planStartDate || planEndDate) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPlanDateFilter('all');
+                                setPlanStartDate('');
+                                setPlanEndDate('');
+                              }}
+                              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-bold cursor-pointer"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Presets Grid */}
+                        <div className="grid grid-cols-2 gap-1">
+                          {[
+                            { id: 'all', label: 'All Dates' },
+                            { id: 'today', label: 'Today' },
+                            { id: 'yesterday', label: 'Yesterday' },
+                            { id: '7days', label: 'Last 7 Days' },
+                            { id: 'thisMonth', label: 'This Month' },
+                            { id: 'custom', label: 'Custom Range' },
+                          ].map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => {
+                                setPlanDateFilter(p.id as any);
+                                if (p.id !== 'custom') {
+                                  setPlanStartDate('');
+                                  setPlanEndDate('');
+                                  setIsPlanDateDropdownOpen(false);
+                                }
+                              }}
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-all cursor-pointer ${
+                                planDateFilter === p.id
+                                  ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Custom Date Inputs if Custom Selected */}
+                        {planDateFilter === 'custom' && (
+                          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-bold block mb-0.5">From Date</span>
+                              <input
+                                type="date"
+                                value={planStartDate}
+                                onChange={(e) => setPlanStartDate(e.target.value)}
+                                className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-bold block mb-0.5">To Date</span>
+                              <input
+                                type="date"
+                                value={planEndDate}
+                                onChange={(e) => setPlanEndDate(e.target.value)}
+                                className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setIsPlanDateDropdownOpen(false)}
+                              className="w-full py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors mt-1"
+                            >
+                              Apply Custom
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* TAB 3: Committed Date Dropdown */}
+                  <div className="relative shrink-0" ref={commitDateDropdownRef}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsCommitDateDropdownOpen(prev => !prev);
+                        setIsStatusDropdownOpen(false);
+                        setIsPlanDateDropdownOpen(false);
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        commitDateFilter !== 'all' || commitStartDate || commitEndDate
+                          ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 shadow-2xs'
+                          : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70'
+                      }`}
+                    >
+                      <Target size={13} className="text-emerald-500 shrink-0" />
+                      <span className="truncate max-w-[130px]">
+                        Commit: {formatPresetLabel(commitDateFilter, commitStartDate, commitEndDate)}
+                      </span>
+                      <ChevronDown size={12} className={`text-slate-400 shrink-0 transition-transform ${isCommitDateDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isCommitDateDropdownOpen && (
+                      <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 p-3 space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Committed / Target Due</span>
+                          {(commitDateFilter !== 'all' || commitStartDate || commitEndDate) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCommitDateFilter('all');
+                                setCommitStartDate('');
+                                setCommitEndDate('');
+                              }}
+                              className="text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline font-bold cursor-pointer"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Presets Grid */}
+                        <div className="grid grid-cols-2 gap-1">
+                          {[
+                            { id: 'all', label: 'All Dates' },
+                            { id: 'today', label: 'Today' },
+                            { id: 'next7days', label: 'Next 7 Days' },
+                            { id: '7days', label: 'Last 7 Days' },
+                            { id: 'thisMonth', label: 'This Month' },
+                            { id: 'custom', label: 'Custom Range' },
+                          ].map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => {
+                                setCommitDateFilter(p.id as any);
+                                if (p.id !== 'custom') {
+                                  setCommitStartDate('');
+                                  setCommitEndDate('');
+                                  setIsCommitDateDropdownOpen(false);
+                                }
+                              }}
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-all cursor-pointer ${
+                                commitDateFilter === p.id
+                                  ? 'bg-emerald-600 text-white font-bold shadow-2xs'
+                                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Custom Date Inputs if Custom Selected */}
+                        {commitDateFilter === 'custom' && (
+                          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-bold block mb-0.5">From Date</span>
+                              <input
+                                type="date"
+                                value={commitStartDate}
+                                onChange={(e) => setCommitStartDate(e.target.value)}
+                                className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-bold block mb-0.5">To Date</span>
+                              <input
+                                type="date"
+                                value={commitEndDate}
+                                onChange={(e) => setCommitEndDate(e.target.value)}
+                                className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setIsCommitDateDropdownOpen(false)}
+                              className="w-full py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors mt-1"
+                            >
+                              Apply Custom
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Reset All Filters Button */}
+                  {isAnyFilterActive && (
+                    <button
+                      type="button"
+                      onClick={handleResetAllFilters}
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-xl cursor-pointer border border-slate-200 dark:border-slate-700 shrink-0 flex items-center gap-1"
+                      title="Reset All Filters"
+                    >
+                      <RotateCcw size={11} />
+                      <span>Reset</span>
+                    </button>
+                  )}
+
+                  {/* Refresh Button */}
                   <button
                     onClick={fetchData}
-                    className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors bg-white dark:bg-slate-900 cursor-pointer"
-                    title="Refresh"
+                    className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors bg-white dark:bg-slate-900 cursor-pointer shrink-0"
+                    title="Refresh Data"
                   >
-                    <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+                    <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
                   </button>
 
+                  {/* Create MRP Plan Button */}
                   <button
                     onClick={() => {
                       setEditingPlan(null);
                       setIsCreateModalOpen(true);
                     }}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
                   >
-                    <Plus size={14} /> Create MRP Plan
+                    <Plus size={14} />
+                    <span>Create Plan</span>
                   </button>
                 </div>
               </div>
 
+
               {/* View Mode: Items vs Plans */}
               {viewMode === 'items' ? (
                 <MRPItemWiseView
-                  mrpPlans={mrpPlans}
+                  mrpPlans={filteredMrpPlans}
                   fgItems={inHouseItems}
                   onViewPlanDetails={(plan) => {
                     setSelectedPlanForDetails(plan);
                     setIsDetailsModalOpen(true);
                   }}
                   searchTerm={searchTerm}
-                  filterStatus={filterStatus}
+                  selectedStatuses={selectedStatuses}
+                  planDateFilter={planDateFilter}
+                  planStartDate={planStartDate}
+                  planEndDate={planEndDate}
+                  commitDateFilter={commitDateFilter}
+                  commitStartDate={commitStartDate}
+                  commitEndDate={commitEndDate}
+                  onResetFilters={handleResetAllFilters}
                 />
               ) : (
                 <>
-                  {/* Date & Day Filter Bar */}
-                  <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2.5">
-                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar w-full lg:w-auto flex-wrap sm:flex-nowrap">
-                  
-                  {/* Date Type Selector */}
-                  <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[11px] font-bold shrink-0 mr-1">
-                    <button
-                      onClick={() => setDateType('created')}
-                      className={`px-2 py-0.8 rounded-md transition-all cursor-pointer ${
-                        dateType === 'created' ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-2xs font-bold' : 'text-slate-500'
-                      }`}
-                    >
-                      Plan Date
-                    </button>
-                    <button
-                      onClick={() => setDateType('target')}
-                      className={`px-2 py-0.8 rounded-md transition-all cursor-pointer ${
-                        dateType === 'target' ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-2xs font-bold' : 'text-slate-500'
-                      }`}
-                    >
-                      Committed Date
-                    </button>
-                  </div>
-
-                  {[
-                    { id: 'all', label: 'All Dates' },
-                    { id: 'today', label: 'Today' },
-                    { id: 'yesterday', label: 'Yesterday' },
-                    { id: '7days', label: 'Last 7 Days' },
-                    { id: 'thisMonth', label: 'This Month' },
-                    { id: 'custom', label: 'Custom Range' },
-                  ].map((df) => (
-                    <button
-                      key={df.id}
-                      onClick={() => setDateFilter(df.id as any)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                        dateFilter === df.id
-                          ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-bold'
-                          : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                      }`}
-                    >
-                      {df.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Custom Date Range Inputs */}
-                {dateFilter === 'custom' && (
-                  <div className="flex items-center gap-1.5 w-full lg:w-auto flex-wrap sm:flex-nowrap">
-                    <span className="text-[11px] text-slate-400 font-semibold">From:</span>
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
-                    />
-                    <span className="text-[11px] text-slate-400 font-semibold">To:</span>
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
-                    />
-                    {(startDate || endDate) && (
-                      <button 
-                        onClick={() => { setStartDate(''); setEndDate(''); }}
-                        className="p-1 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
-                        title="Clear Dates"
-                      >
-                        <X size={12} />
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
 
               {/* Master MRP Plans Table */}
               {loading ? (
@@ -571,11 +944,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                   <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No MRP Plans Found</h3>
                   <p className="text-xs text-slate-500 mt-1 mb-4">No demand plans match the selected filters.</p>
                   <button
-                    onClick={() => {
-                      setDateFilter('all');
-                      setFilterStatus('All');
-                      setSearchTerm('');
-                    }}
+                    onClick={handleResetAllFilters}
                     className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
                   >
                     Clear Filters
@@ -583,9 +952,14 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                 </div>
               ) : (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs text-left">
-                      <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
+                  {/* Mobile horizontal scroll hint */}
+                  <div className="sm:hidden px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-500 flex items-center justify-between">
+                    <span>📑 MRP Demand Plans</span>
+                    <span className="text-indigo-600 font-semibold">← Swipe horizontally →</span>
+                  </div>
+                  <div className="overflow-x-auto scroll-smooth touch-pan-x">
+                    <table className="w-full min-w-[920px] text-xs text-left">
+                      <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                         <tr>
                           <th className="p-3.5">MRP Number</th>
                           <th className="p-3.5">Customer & Order Ref</th>
@@ -957,9 +1331,14 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
               {/* FG Items Table */}
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs text-left">
-                    <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
+                {/* Mobile horizontal scroll hint */}
+                <div className="sm:hidden px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-500 flex items-center justify-between">
+                  <span>📦 Finished Goods (FG) Items</span>
+                  <span className="text-indigo-600 font-semibold">← Swipe horizontally →</span>
+                </div>
+                <div className="overflow-x-auto scroll-smooth touch-pan-x">
+                  <table className="w-full min-w-[880px] text-xs text-left">
+                    <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                       <tr>
                         <th className="p-3.5">Finished Good (FG) Item & Description</th>
                         <th className="p-3.5 text-center">BOM Number</th>

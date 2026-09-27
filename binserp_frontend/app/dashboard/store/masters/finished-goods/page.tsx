@@ -62,8 +62,57 @@ export default function FinishedGoodsPage() {
 
   const handleEdit = (item: any) => {
     setEditingItem(item);
+
+    // Enrich existing BOM items with dual-unit metadata from matched master records
+    const enrichedBOM = Array.isArray(item.bom) ? item.bom.map((b: any) => {
+      const rawId = typeof b.item === 'object' && b.item !== null ? (b.item._id || b.item.id) : b.item;
+      const bType = b.itemType || 'RawMaterial';
+
+      let matchedMaster: any = null;
+      if (bType === 'RawMaterial' || bType === 'Material') {
+        matchedMaster = (rawMaterials as any[]).find((m: any) => (m._id || m.id)?.toString() === rawId?.toString());
+      } else if (bType === 'BoughtOut') {
+        matchedMaster = (boughtOuts as any[]).find((m: any) => (m._id || m.id)?.toString() === rawId?.toString());
+      } else if (bType === 'FGItem') {
+        matchedMaster = (finishedGoods as any[]).find((m: any) => (m._id || m.id)?.toString() === rawId?.toString());
+      }
+
+      const hasSec = Boolean(
+        b.hasSecondaryUnit ||
+        matchedMaster?.hasSecondaryUnit ||
+        (typeof b.item === 'object' && b.item?.hasSecondaryUnit)
+      );
+      const secUnit = b.secondaryUnit || matchedMaster?.secondaryUnit || (typeof b.item === 'object' ? b.item?.secondaryUnit : '') || '';
+      const convFactor = Number(b.conversionFactor || matchedMaster?.conversionFactor || (typeof b.item === 'object' ? b.item?.conversionFactor : 1)) || 1;
+      const priUnit = b.unit || matchedMaster?.unit || (typeof b.item === 'object' ? b.item?.unit : 'Nos') || 'Nos';
+      const priQty = Number(b.quantity) || 1;
+      const secQty = b.secondaryQuantity !== undefined && b.secondaryQuantity !== null && b.secondaryQuantity !== ''
+        ? Number(b.secondaryQuantity)
+        : (hasSec && secUnit && convFactor > 0 ? Number((priQty * convFactor).toFixed(4)) : undefined);
+      const selUnit = b.selectedUnit || priUnit;
+      const inQty = b.inputQuantity !== undefined && b.inputQuantity !== null && b.inputQuantity !== ''
+        ? Number(b.inputQuantity)
+        : (selUnit === secUnit && hasSec && secQty !== undefined ? secQty : priQty);
+
+      return {
+        ...b,
+        item: rawId,
+        itemName: b.itemName || matchedMaster?.name || (typeof b.item === 'object' ? b.item?.name : '') || '',
+        itemDescription: b.itemDescription || matchedMaster?.descriptions || matchedMaster?.description || (typeof b.item === 'object' ? (b.item?.descriptions || b.item?.description) : '') || '',
+        unit: priUnit,
+        hasSecondaryUnit: hasSec && Boolean(secUnit) && convFactor > 0,
+        secondaryUnit: secUnit,
+        conversionFactor: convFactor,
+        quantity: priQty,
+        secondaryQuantity: secQty,
+        selectedUnit: selUnit,
+        inputQuantity: inQty
+      };
+    }) : [];
+
     setFormData({
       ...item,
+      bom: enrichedBOM,
       category: typeof item.category === 'object' ? (item.category?._id || item.category?.name) : (item.category || item.categoryId?._id || item.categoryId || ''),
       categoryId: typeof item.categoryId === 'object' ? item.categoryId?._id : (item.categoryId || (typeof item.category === 'object' ? item.category?._id : item.category) || ''),
       hsnCode: item.hsnCode || '',
@@ -195,7 +244,13 @@ export default function FinishedGoodsPage() {
             quantity: Number(bItem.quantity) || 1,
             unit: bItem.unit || 'Nos',
             fgType: bItem.fgType || bItem.itemClassification || undefined,
-            itemClassification: bItem.itemClassification || bItem.fgType || undefined
+            itemClassification: bItem.itemClassification || bItem.fgType || undefined,
+            hasSecondaryUnit: Boolean(bItem.hasSecondaryUnit),
+            secondaryUnit: bItem.secondaryUnit || '',
+            conversionFactor: bItem.conversionFactor !== undefined ? Number(bItem.conversionFactor) : 1,
+            secondaryQuantity: bItem.secondaryQuantity !== undefined && bItem.secondaryQuantity !== null && bItem.secondaryQuantity !== '' ? Number(bItem.secondaryQuantity) : undefined,
+            selectedUnit: bItem.selectedUnit || bItem.unit || 'Nos',
+            inputQuantity: bItem.inputQuantity !== undefined && bItem.inputQuantity !== null && bItem.inputQuantity !== '' ? Number(bItem.inputQuantity) : (Number(bItem.quantity) || 1)
           };
         }).filter((b: any) => b.item && b.itemName);
         submitData.append('bom', JSON.stringify(cleanedBOM));

@@ -85,6 +85,45 @@ export const createPO = asyncHandler(async (req, res) => {
       const validCompId = isValidObjectId(item.component) ? item.component : undefined;
       const matName = item.materialName || (!validMatId && item.material ? String(item.material) : 'Item');
 
+      const hasSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
+      const secUnit = hasSec ? String(item.secondaryUnit).trim() : '';
+      const convFactor = Number(item.conversionFactor) || 1;
+      const secQty = hasSec ? Number(item.secondaryQuantity || 0) : undefined;
+      const rateUnit = (item.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
+      const enteredRate = Number(item.rate || 0);
+
+      let primaryRate = Number(item.primaryRate || 0);
+      let secondaryRate = Number(item.secondaryRate || 0);
+      let computedAmount = Number(item.amount);
+
+      if (rateUnit === 'secondary' && hasSec && (secQty > 0 || convFactor > 0)) {
+        secondaryRate = enteredRate;
+        if (qty > 0 && secQty > 0) {
+          primaryRate = Math.round(((secQty * enteredRate) / qty) * 1000) / 1000;
+        } else if (convFactor > 0) {
+          primaryRate = Math.round((enteredRate / convFactor) * 1000) / 1000;
+        } else {
+          primaryRate = enteredRate;
+        }
+        if (isNaN(computedAmount) || computedAmount === 0) {
+          computedAmount = (secQty || (qty * convFactor)) * enteredRate;
+        }
+      } else {
+        primaryRate = enteredRate;
+        if (hasSec) {
+          if (qty > 0 && secQty > 0) {
+            secondaryRate = Math.round(((qty * enteredRate) / secQty) * 1000) / 1000;
+          } else if (convFactor > 0) {
+            secondaryRate = Math.round((enteredRate * convFactor) * 1000) / 1000;
+          } else {
+            secondaryRate = enteredRate;
+          }
+        }
+        if (isNaN(computedAmount) || computedAmount === 0) {
+          computedAmount = qty * enteredRate;
+        }
+      }
+
       return {
         ...item,
         material: validMatId,
@@ -96,8 +135,15 @@ export const createPO = asyncHandler(async (req, res) => {
         pieceCount: Number(item.pieceCount || item.count || 0),
         quantity: qty,
         unit: item.unit ? item.unit.trim() : 'KG',
-        rate: Number(item.rate || 0),
-        amount: Number(item.amount || (qty * Number(item.rate || 0))),
+        hasSecondaryUnit: hasSec,
+        secondaryUnit: secUnit,
+        conversionFactor: convFactor,
+        secondaryQuantity: secQty,
+        rateUnit,
+        primaryRate,
+        secondaryRate,
+        rate: enteredRate,
+        amount: computedAmount,
         receivedQuantity: recQty,
         pendingQuantity: pendQty,
         itemStatus: iStatus,
@@ -617,6 +663,45 @@ export const updatePO = asyncHandler(async (req, res) => {
       const validCompId = isValidObjectId(item.component) ? item.component : undefined;
       const matName = item.materialName || (!validMatId && item.material ? String(item.material) : 'Item');
 
+      const hasSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
+      const secUnit = hasSec ? String(item.secondaryUnit).trim() : '';
+      const convFactor = Number(item.conversionFactor) || 1;
+      const secQty = hasSec ? Number(item.secondaryQuantity || 0) : undefined;
+      const rateUnit = (item.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
+      const enteredRate = Number(item.rate || 0);
+
+      let primaryRate = Number(item.primaryRate || 0);
+      let secondaryRate = Number(item.secondaryRate || 0);
+      let computedAmount = Number(item.amount);
+
+      if (rateUnit === 'secondary' && hasSec && (secQty > 0 || convFactor > 0)) {
+        secondaryRate = enteredRate;
+        if (qty > 0 && secQty > 0) {
+          primaryRate = Math.round(((secQty * enteredRate) / qty) * 1000) / 1000;
+        } else if (convFactor > 0) {
+          primaryRate = Math.round((enteredRate / convFactor) * 1000) / 1000;
+        } else {
+          primaryRate = enteredRate;
+        }
+        if (isNaN(computedAmount) || computedAmount === 0) {
+          computedAmount = (secQty || (qty * convFactor)) * enteredRate;
+        }
+      } else {
+        primaryRate = enteredRate;
+        if (hasSec) {
+          if (qty > 0 && secQty > 0) {
+            secondaryRate = Math.round(((qty * enteredRate) / secQty) * 1000) / 1000;
+          } else if (convFactor > 0) {
+            secondaryRate = Math.round((enteredRate * convFactor) * 1000) / 1000;
+          } else {
+            secondaryRate = enteredRate;
+          }
+        }
+        if (isNaN(computedAmount) || computedAmount === 0) {
+          computedAmount = qty * enteredRate;
+        }
+      }
+
       return {
         ...item,
         material: validMatId,
@@ -627,8 +712,15 @@ export const updatePO = asyncHandler(async (req, res) => {
         hsnCode: item.hsnCode || item.hsn || '',
         quantity: qty,
         unit: item.unit ? item.unit.trim() : 'KG',
-        rate: Number(item.rate || 0),
-        amount: Number(item.amount || (qty * Number(item.rate || 0))),
+        hasSecondaryUnit: hasSec,
+        secondaryUnit: secUnit,
+        conversionFactor: convFactor,
+        secondaryQuantity: secQty,
+        rateUnit,
+        primaryRate,
+        secondaryRate,
+        rate: enteredRate,
+        amount: computedAmount,
         receivedQuantity: recQty,
         pendingQuantity: pendQty,
         itemStatus: iStatus,
