@@ -106,7 +106,10 @@ export default function MRPOutwardRfqModal({
             secondaryQuantity: secQty,
             rateUnit: (item.rateUnit === 'secondary' && secUnit) ? 'secondary' : 'primary',
             itemType: (item.itemType || 'rm').toLowerCase().includes('bo') || (item.category || '').toLowerCase().includes('bought') ? 'bo' : 'rm',
-            targetPrice: item.targetPrice || ''
+            targetPrice: item.targetPrice || '',
+            isBucket: Boolean(item.isBucket),
+            sourceCutSizes: item.sourceCutSizes || [],
+            mrpSources: item.mrpSources || []
           };
         }));
       } else {
@@ -258,16 +261,19 @@ export default function MRPOutwardRfqModal({
       await apiPost('/api/purchase/rfq', payload, token);
 
       // Update MRP Requirement item status to "RFQ Raised"
+      // Pass sourceCutSizes so bucket items update their underlying BOM cut sizes too
       try {
         const updateItems = items.map(it => ({
-          planId: it.planId,
+          planId: (it as any).planId,
           mrpNumber: it.sourceMRP,
           materialId: it.materialId,
           materialName: it.materialName,
           materialCode: it.materialCode,
-          status: 'RFQ Raised'
+          sourceCutSizes: (it as any).sourceCutSizes || [],
+          status: 'RFQ Raised',
+          rfqNumber: rfqNumber
         }));
-        await apiPut('/api/purchase/mrp/update-item-status', { items: updateItems, status: 'RFQ Raised' }, token);
+        await apiPut('/api/purchase/mrp/update-item-status', { items: updateItems, status: 'RFQ Raised', rfqNumber: rfqNumber }, token);
       } catch (statusErr) {
         console.warn('Could not update MRP requirement item status:', statusErr);
       }

@@ -19,7 +19,10 @@ import {
     CheckSquare,
     Square,
     Filter,
-    ListFilter
+    ListFilter,
+    Target,
+    RefreshCw,
+    Calculator
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import Swal from 'sweetalert2';
@@ -40,6 +43,9 @@ interface FGRow {
     description: string;
     quantity: number;
     unit: string;
+    sellingPrice?: number;
+    totalPrice?: number;
+    priceSource?: string;
     poDeliveryDate?: string;
     targetDate: string;
     bomId?: string;
@@ -55,6 +61,14 @@ interface FGRow {
         quantity: number;
     }>;
     sourceCustomerPOs?: string[];
+}
+
+interface BOMCostSummary {
+    totalRmCost: number;
+    totalBoCost: number;
+    totalBOMCost: number;
+    rmCount: number;
+    boCount: number;
 }
 
 export default function MRPModal({ isOpen, onClose, onSuccess, token, initialData, preselectedPoIds }: MRPModalProps) {
@@ -84,6 +98,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
     const [poDate, setPoDate] = useState('');
     const [targetDate, setTargetDate] = useState('');
     const [remarks, setRemarks] = useState('');
+    const [targetExpense, setTargetExpense] = useState('');
+    const [bomCostSummary, setBomCostSummary] = useState<BOMCostSummary | null>(null);
+    const [calculatingBOM, setCalculatingBOM] = useState<boolean>(false);
 
     // Dropdown / Combobox Search & Open States
     const [customerSearch, setCustomerSearch] = useState('');
@@ -176,13 +193,22 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 itemCommittedDate = itemPoDate || resolvedCommittedDate;
             }
 
+            const unitSellingPrice = Number(
+                item.rate || (item.quantity > 0 ? Number(item.amount || 0) / Number(item.quantity) : 0) || fgObj?.sellingPrice || 0
+            );
+            const lineQty = qty > 0 ? qty : Number(item.quantity) || 1;
+            const lineTotalPrice = Math.round(lineQty * unitSellingPrice * 100) / 100;
+
             return {
                 fgItem: fgObj?._id || (typeof item.fgItem === 'object' ? item.fgItem?._id : item.fgItem) || '',
                 fgItemName: fgObj?.name || pName || 'Finished Good',
                 fgItemCode: fgObj?.code || pCode || '',
                 description: item.description || fgObj?.description || fgObj?.descriptions || '',
-                quantity: qty > 0 ? qty : Number(item.quantity) || 1,
+                quantity: lineQty,
                 unit: item.unit || fgObj?.unit || 'PCS',
+                sellingPrice: unitSellingPrice,
+                totalPrice: lineTotalPrice,
+                priceSource: item.rate ? 'Customer PO' : (fgObj?.sellingPrice ? 'Master Catalog' : 'Unset'),
                 poDeliveryDate: itemPoDate,
                 targetDate: itemCommittedDate,
                 isFromOA,
@@ -238,6 +264,11 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                             existing.bomId = row.bomId;
                             existing.bomNumber = row.bomNumber;
                         }
+                        if (!existing.sellingPrice && row.sellingPrice) {
+                            existing.sellingPrice = row.sellingPrice;
+                            existing.priceSource = row.priceSource;
+                        }
+                        existing.totalPrice = Math.round(existing.quantity * (existing.sellingPrice || 0) * 100) / 100;
 
                         // Keep earliest targetDate & poDeliveryDate
                         if (row.targetDate) {
@@ -315,6 +346,20 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 setRemarks(initialData.remarks || '');
                 setPoDate(initialData.poDate ? new Date(initialData.poDate).toISOString().split('T')[0] : '');
                 setTargetDate(initialData.targetDate ? new Date(initialData.targetDate).toISOString().split('T')[0] : '');
+                setTargetExpense(initialData.targetExpense ? String(initialData.targetExpense) : '');
+                if (initialData.rmRequirements?.length > 0 || initialData.boRequirements?.length > 0) {
+                    const rmReqs = Array.isArray(initialData.rmRequirements) ? initialData.rmRequirements : [];
+                    const boReqs = Array.isArray(initialData.boRequirements) ? initialData.boRequirements : [];
+                    const totalRm = rmReqs.reduce((sum: number, r: any) => sum + (Number(r.grossCost) || 0), 0);
+                    const totalBo = boReqs.reduce((sum: number, b: any) => sum + (Number(b.grossCost) || 0), 0);
+                    setBomCostSummary({
+                        totalRmCost: Math.round(totalRm * 100) / 100,
+                        totalBoCost: Math.round(totalBo * 100) / 100,
+                        totalBOMCost: Math.round((totalRm + totalBo) * 100) / 100,
+                        rmCount: rmReqs.length,
+                        boCount: boReqs.length
+                    });
+                }
                 if (Array.isArray(initialData.fgItems) && initialData.fgItems.length > 0) {
                     setFgRows(initialData.fgItems.map((f: any) => ({
                         fgItem: f.fgItem?._id || f.fgItem || '',
@@ -323,6 +368,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                         description: f.description || '',
                         quantity: Number(f.quantity) || 1,
                         unit: f.unit || 'PCS',
+                        sellingPrice: Number(f.sellingPrice) || 0,
+                        totalPrice: Number(f.totalPrice) || Math.round((Number(f.quantity) || 1) * (Number(f.sellingPrice) || 0) * 100) / 100,
+                        priceSource: f.priceSource || '',
                         poDeliveryDate: f.poDeliveryDate ? new Date(f.poDeliveryDate).toISOString().split('T')[0] : '',
                         targetDate: f.targetDate ? new Date(f.targetDate).toISOString().split('T')[0] : '',
                         customerPo: f.customerPo || undefined,
@@ -380,6 +428,49 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             loadDropdownMasters();
         }
     }, [isOpen, initialData, preselectedPoIds]);
+
+    // Live BOM Budget Calculation on FG rows change
+    useEffect(() => {
+        if (!isOpen) {
+            setBomCostSummary(null);
+            return;
+        }
+
+        const validFGs = fgRows.filter(
+            (r) => (r.fgItem || r.fgItemName || r.fgItemCode) && Number(r.quantity) > 0
+        );
+
+        if (validFGs.length === 0) {
+            setBomCostSummary(null);
+            return;
+        }
+
+        setCalculatingBOM(true);
+        const timer = setTimeout(async () => {
+            try {
+                const payload = {
+                    fgItems: validFGs.map((r) => ({
+                        fgItem: r.fgItem || undefined,
+                        fgItemName: r.fgItemName || '',
+                        fgItemCode: r.fgItemCode || '',
+                        quantity: Number(r.quantity) || 1,
+                        bomId: r.bomId || undefined
+                    }))
+                };
+                const res = await apiPost('/api/purchase/mrp/preview-bom-budget', payload, token);
+                const data = res?.data || res;
+                if (data && data.totalBOMCost !== undefined) {
+                    setBomCostSummary(data);
+                }
+            } catch (err) {
+                console.warn('Failed to calculate BOM budget preview:', err);
+            } finally {
+                setCalculatingBOM(false);
+            }
+        }, 350);
+
+        return () => clearTimeout(timer);
+    }, [fgRows, isOpen, token]);
 
     const loadDropdownMasters = async () => {
         setLoading(true);
@@ -687,6 +778,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         const bomNum = matchedBom?.bomNumber || (hasEmbeddedBom ? `BOM-${selected.code || selected.name}` : undefined);
         const bomId = matchedBom?._id || (hasEmbeddedBom ? selected._id : undefined);
 
+        const sellingPrice = Number(selected.sellingPrice || 0);
+        const qty = Number(fgRows[index]?.quantity) || 1;
+
         const updated = [...fgRows];
         updated[index] = {
             ...updated[index],
@@ -695,6 +789,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             fgItemCode: selected.code || '',
             description: selected.description || selected.descriptions || updated[index].description || '',
             unit: selected.unit || 'PCS',
+            sellingPrice: sellingPrice,
+            totalPrice: Math.round(qty * sellingPrice * 100) / 100,
+            priceSource: sellingPrice > 0 ? 'Master Catalog' : 'Unset',
             bomId: bomId,
             bomNumber: bomNum
         };
@@ -713,6 +810,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 description: '',
                 quantity: 1,
                 unit: 'PCS',
+                sellingPrice: 0,
+                totalPrice: 0,
                 poDeliveryDate: poDate || '',
                 targetDate: targetDate || ''
             }
@@ -729,6 +828,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                     description: '',
                     quantity: 1,
                     unit: 'PCS',
+                    sellingPrice: 0,
+                    totalPrice: 0,
                     poDeliveryDate: poDate || '',
                     targetDate: targetDate || ''
                 }
@@ -740,12 +841,33 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
     const handleRowChange = (index: number, field: keyof FGRow, val: any) => {
         const updated = [...fgRows];
-        updated[index] = {
-            ...updated[index],
-            [field]: val
-        };
+        const row = { ...updated[index], [field]: val };
+        if (field === 'quantity' || field === 'sellingPrice') {
+            const q = field === 'quantity' ? Number(val) || 0 : Number(row.quantity) || 0;
+            const p = field === 'sellingPrice' ? Number(val) || 0 : Number(row.sellingPrice) || 0;
+            row.totalPrice = Math.round(q * p * 100) / 100;
+            if (field === 'sellingPrice') {
+                row.priceSource = 'Manual Override';
+            }
+        }
+        updated[index] = row;
         setFgRows(updated);
     };
+
+    const totalProjectedIncome = useMemo(() => {
+        return Math.round(
+            fgRows.reduce((sum, r) => {
+                const rowTotal = r.totalPrice !== undefined ? Number(r.totalPrice) : (Number(r.quantity || 0) * Number(r.sellingPrice || 0));
+                return sum + (Number(rowTotal) || 0);
+            }, 0) * 100
+        ) / 100;
+    }, [fgRows]);
+
+    const numTargetExpense = Number(targetExpense) || 0;
+    const projectedGrossProfit = Math.round((totalProjectedIncome - numTargetExpense) * 100) / 100;
+    const projectedMarginPct = totalProjectedIncome > 0 && numTargetExpense > 0
+        ? Math.round(((totalProjectedIncome - numTargetExpense) / totalProjectedIncome) * 1000) / 10
+        : 0;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -768,6 +890,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 isConsolidated,
                 targetDate,
                 remarks,
+                targetExpense: targetExpense ? Number(targetExpense) : undefined,
                 fgItems: validItems
             };
 
@@ -1432,8 +1555,10 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                         <th className="px-3 py-3 w-10 text-center">#</th>
                                         <th className="px-3 py-3 min-w-[220px]">Finished Goods (FG) Item</th>
                                         <th className="px-3 py-3 min-w-[150px]">Description</th>
-                                        <th className="px-3 py-3 w-24 text-center">Qty</th>
-                                        <th className="px-3 py-3 w-16 text-center">Unit</th>
+                                        <th className="px-3 py-3 w-20 text-center">Qty</th>
+                                        <th className="px-3 py-3 w-14 text-center">Unit</th>
+                                        <th className="px-3 py-3 w-28 text-right">Selling Rate</th>
+                                        <th className="px-3 py-3 w-28 text-right">Total Income</th>
                                         <th className="px-3 py-3 min-w-[125px]">PO Date</th>
                                         <th className="px-3 py-3 min-w-[135px]">Committed Date</th>
                                         <th className="px-3 py-3 w-10 text-right"></th>
@@ -1595,6 +1720,32 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                 {row.unit || 'PCS'}
                                             </td>
 
+                                            {/* Selling Rate */}
+                                            <td className="px-3 py-3 text-right">
+                                                <div className="relative">
+                                                    <span className="absolute left-2.5 top-2 text-[10px] text-slate-400 font-bold">₹</span>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        placeholder="0.00"
+                                                        value={row.sellingPrice !== undefined && row.sellingPrice !== 0 ? row.sellingPrice : ''}
+                                                        onChange={(e) => handleRowChange(idx, 'sellingPrice', parseFloat(e.target.value) || 0)}
+                                                        className="w-full pl-6 pr-2 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-right font-semibold text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                                    />
+                                                </div>
+                                                {row.priceSource && (
+                                                    <span className="text-[9px] text-slate-400 font-medium block mt-0.5 truncate text-right">
+                                                        {row.priceSource}
+                                                    </span>
+                                                )}
+                                            </td>
+
+                                            {/* Total Price */}
+                                            <td className="px-3 py-3 text-right font-bold text-slate-900 dark:text-white font-mono text-xs">
+                                                ₹{((row.totalPrice !== undefined ? row.totalPrice : (Number(row.quantity || 0) * Number(row.sellingPrice || 0))) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+
                                             {/* Row PO Date */}
                                             <td className="px-3 py-3">
                                                 <input
@@ -1639,6 +1790,189 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                     ))}
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+
+                    {/* Financial Intelligence & Target Budget Block */}
+                    <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50/70 via-slate-50 to-emerald-50/70 dark:from-slate-900 dark:via-slate-900 dark:to-slate-900 border border-indigo-100 dark:border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-md shadow-indigo-600/20">
+                                    ₹
+                                </div>
+                                <div>
+                                    <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                        MRP Financial Planning & Target Budget
+                                    </h4>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                        Projected revenue from Customer PO line items or master catalog, with expense guardrails.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {totalProjectedIncome > 0 && numTargetExpense > 0 && (
+                                <div className={`px-2.5 py-1 rounded-xl text-xs font-bold border ${
+                                    projectedGrossProfit >= 0
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                                        : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800'
+                                }`}>
+                                    Target Margin: {projectedMarginPct}% (₹{projectedGrossProfit.toLocaleString('en-IN')})
+                                </div>
+                            )}
+                        </div>
+
+                        {/* BOM RM & BO Cost Breakdown */}
+                        <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700/80 space-y-2">
+                            <div className="flex items-center justify-between flex-wrap gap-1.5">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                        <Boxes size={14} className="text-indigo-600 dark:text-indigo-400" />
+                                        BOM Material Cost (Purchase Price List)
+                                    </span>
+                                    {calculatingBOM && (
+                                        <span className="text-[10px] text-indigo-500 animate-pulse font-semibold flex items-center gap-1">
+                                            <RefreshCw size={11} className="animate-spin" /> Calculating...
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] text-slate-400 font-medium">Combined BOM Material Cost:</span>
+                                    <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white font-mono">
+                                        ₹{(bomCostSummary?.totalBOMCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* The Two Metric Cards: ONLY RM Cost & BO Cost */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                                {/* Raw Material (RM) Cost */}
+                                <div className="p-2.5 bg-slate-50/80 dark:bg-slate-900/60 rounded-xl border border-slate-200/80 dark:border-slate-700/60 flex items-center justify-between">
+                                    <div className="min-w-0">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider truncate">
+                                            Raw Material (RM) Cost
+                                        </span>
+                                        <div className="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono mt-0.5">
+                                            ₹{(bomCostSummary?.totalRmCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                            {bomCostSummary?.rmCount || 0} RM items
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Bought Out (BO) Cost */}
+                                <div className="p-2.5 bg-slate-50/80 dark:bg-slate-900/60 rounded-xl border border-slate-200/80 dark:border-slate-700/60 flex items-center justify-between">
+                                    <div className="min-w-0">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider truncate">
+                                            Bought Out (BO) Cost
+                                        </span>
+                                        <div className="text-sm sm:text-base font-black text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
+                                            ₹{(bomCostSummary?.totalBoCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </div>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                            {bomCostSummary?.boCount || 0} BO items
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+                            {/* Total Projected Revenue */}
+                            <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
+                                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">Total Projected Revenue (Income)</span>
+                                <div className="mt-1 flex items-baseline gap-1">
+                                    <span className="text-lg font-black text-slate-900 dark:text-white font-mono">
+                                        ₹{totalProjectedIncome.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-medium">({fgRows.length} items)</span>
+                                </div>
+                            </div>
+
+                            {/* Target Expense (Budget Ceiling) */}
+                            <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col justify-between sm:col-span-1 lg:col-span-2">
+                                <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                                    <span className="text-[11px] text-slate-700 dark:text-slate-300 font-bold flex items-center gap-1">
+                                        <Target size={13} className="text-indigo-600 dark:text-indigo-400" />
+                                        Target Procurement Expense (Budget Ceiling)
+                                    </span>
+                                    <div className="flex items-center gap-1 flex-wrap">
+                                        <span className="text-[10px] text-slate-400 mr-0.5 font-bold">Set Price:</span>
+                                        {bomCostSummary && bomCostSummary.totalBOMCost > 0 && (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTargetExpense(String(bomCostSummary.totalBOMCost))}
+                                                    className="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 cursor-pointer transition-colors shadow-2xs"
+                                                    title="Set exact calculated BOM material cost"
+                                                >
+                                                    Apply BOM Cost (₹{Math.round(bomCostSummary.totalBOMCost).toLocaleString('en-IN')})
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTargetExpense(String(Math.round(bomCostSummary.totalBOMCost * 1.05)))}
+                                                    className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 hover:text-indigo-600 cursor-pointer transition-colors"
+                                                    title="Add 5% buffer for price fluctuation"
+                                                >
+                                                    +5% Buffer
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTargetExpense(String(Math.round(bomCostSummary.totalBOMCost * 1.10)))}
+                                                    className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 hover:text-indigo-600 cursor-pointer transition-colors"
+                                                    title="Add 10% buffer for contingency"
+                                                >
+                                                    +10% Buffer
+                                                </button>
+                                            </>
+                                        )}
+                                        {totalProjectedIncome > 0 && (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTargetExpense(String(Math.round(totalProjectedIncome * 0.7)))}
+                                                    className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 hover:text-indigo-600 cursor-pointer"
+                                                    title="Target 30% margin"
+                                                >
+                                                    70% Rev
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTargetExpense(String(Math.round(totalProjectedIncome * 0.8)))}
+                                                    className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 hover:text-indigo-600 cursor-pointer"
+                                                    title="Target 20% margin"
+                                                >
+                                                    80% Rev
+                                                </button>
+                                            </>
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => setTargetExpense('')}
+                                            className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-slate-100 dark:bg-slate-700 text-slate-500 hover:bg-slate-200 cursor-pointer"
+                                        >
+                                            Clear
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="relative">
+                                    <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-bold">₹</span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        placeholder="Set maximum procurement budget ceiling (e.g. 500000)..."
+                                        value={targetExpense}
+                                        onChange={(e) => setTargetExpense(e.target.value)}
+                                        className="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                    />
+                                </div>
+                            </div>
                         </div>
                     </div>
 

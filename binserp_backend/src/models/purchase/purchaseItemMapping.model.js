@@ -88,6 +88,12 @@ export const purchaseItemMappingSchema = new mongoose.Schema(
       ref: "MRPPlan",
       default: null,
     },
+    // Explicitly detached / unmapped for a specific MRP plan
+    isDetached: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
 
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

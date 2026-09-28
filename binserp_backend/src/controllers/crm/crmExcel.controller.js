@@ -55,42 +55,46 @@ export const downloadExcelTemplate = asyncHandler(async (req, res) => {
 
         res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         res.setHeader("Content-Disposition", "attachment; filename=CRM_Customers_Import_Template.xlsx");
-        await workbook.xlsx.write(res);
-        return res.end();
+        const buffer = await workbook.xlsx.writeBuffer();
+        return res.status(200).send(buffer);
     }
 
     // Default: Leads Template
     const sheet = workbook.addWorksheet("Leads Import Template");
     sheet.columns = [
-        { header: "Contact Person / Lead Name *", key: "name", width: 30 },
-        { header: "Company Name", key: "companyName", width: 30 },
+        { header: "Customer Name *", key: "name", width: 28 },
+        { header: "Contact Number *", key: "phone", width: 18 },
         { header: "Email Address", key: "email", width: 25 },
-        { header: "Phone Number", key: "phone", width: 18 },
+        { header: "Company Name", key: "companyName", width: 28 },
+        { header: "Address", key: "address", width: 30 },
         { header: "City", key: "city", width: 18 },
+        { header: "Pincode", key: "pincode", width: 14 },
         { header: "State", key: "state", width: 18 },
-        { header: "Lead Source (e.g. IndiaMART, Web, Referral)", key: "source", width: 25 },
-        { header: "Warmth (Hot / Warm / Cold)", key: "warmth", width: 20 },
+        { header: "Looking For (Requirements)", key: "requirements", width: 35 },
+        { header: "Our Product / Service (From Master)", key: "productInterest", width: 32 },
+        { header: "Source (Default: Direct)", key: "source", width: 22 },
+        { header: "Warmth (Warm / Hot / Cold)", key: "warmth", width: 20 },
         { header: "Stage (New / Contacted / Qualified)", key: "status", width: 22 },
-        { header: "Estimated Value (INR)", key: "estimatedValue", width: 22 },
-        { header: "Product / Requirement Interest", key: "requirements", width: 35 },
-        { header: "Tags (comma separated)", key: "tags", width: 25 },
-        { header: "Notes", key: "notes", width: 30 }
+        { header: "Budget Amount (INR)", key: "estimatedValue", width: 20 },
+        { header: "Details with Budget / Notes", key: "budgetDetails", width: 30 }
     ];
 
     sheet.addRow({
-        name: "Vikram Malhotra",
-        companyName: "Zenith Automotive Systems",
-        email: "vikram@zenithauto.in",
-        phone: "+919811223344",
+        name: "Rajesh Kumar",
+        phone: "+919876543210",
+        email: "rajesh@precisionauto.com",
+        companyName: "Precision Auto Components",
+        address: "Plot 45, Sector 7, IMT Manesar",
         city: "Gurugram",
+        pincode: "122051",
         state: "Haryana",
-        source: "IndiaMART",
-        warmth: "Hot",
+        requirements: "Requirement for 5000 units of custom hydraulic valves monthly.",
+        productInterest: "Industrial Automation Valve",
+        source: "Direct",
+        warmth: "Warm",
         status: "New",
         estimatedValue: 250000,
-        requirements: "Requirement for 5000 units of custom steel shafts monthly.",
-        tags: "Automotive, High Value, Fast Track",
-        notes: "Requested quote by end of week."
+        budgetDetails: "Payment terms 30 days credit. Delivery required within 4 weeks."
     });
 
     sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -98,8 +102,8 @@ export const downloadExcelTemplate = asyncHandler(async (req, res) => {
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", "attachment; filename=CRM_Leads_Import_Template.xlsx");
-    await workbook.xlsx.write(res);
-    return res.end();
+    const buffer = await workbook.xlsx.writeBuffer();
+    return res.status(200).send(buffer);
 });
 
 // 2. Bulk Import Leads from Excel
@@ -118,47 +122,106 @@ export const importLeadsFromExcel = asyncHandler(async (req, res) => {
     let skipped = 0;
     let inserted = 0;
 
+    // Header index resolution
+    const headerMap = {};
+
     worksheet.eachRow((row, rowNumber) => {
-        if (rowNumber === 1) return; // Skip Header
+        if (rowNumber === 1) {
+            // Build flexible column mappings based on headers
+            row.eachCell((cell, colNumber) => {
+                const headerText = cell.text?.toLowerCase().trim() || "";
+                if (headerText.includes("customer") || headerText.includes("lead name") || headerText.includes("contact person")) {
+                    headerMap.name = colNumber;
+                } else if (headerText.includes("phone") || headerText.includes("contact number") || headerText.includes("mobile")) {
+                    headerMap.phone = colNumber;
+                } else if (headerText.includes("email")) {
+                    headerMap.email = colNumber;
+                } else if (headerText.includes("company")) {
+                    headerMap.companyName = colNumber;
+                } else if (headerText.includes("address") || headerText.includes("street")) {
+                    headerMap.address = colNumber;
+                } else if (headerText.includes("city")) {
+                    headerMap.city = colNumber;
+                } else if (headerText.includes("pincode") || headerText.includes("zip")) {
+                    headerMap.pincode = colNumber;
+                } else if (headerText.includes("state")) {
+                    headerMap.state = colNumber;
+                } else if (headerText.includes("looking for") || headerText.includes("requirement")) {
+                    headerMap.requirements = colNumber;
+                } else if (headerText.includes("product") || headerText.includes("service")) {
+                    headerMap.productInterest = colNumber;
+                } else if (headerText.includes("source")) {
+                    headerMap.source = colNumber;
+                } else if (headerText.includes("warmth")) {
+                    headerMap.warmth = colNumber;
+                } else if (headerText.includes("stage") || headerText.includes("status")) {
+                    headerMap.status = colNumber;
+                } else if (headerText.includes("budget") || headerText.includes("estimated value") || headerText.includes("deal value")) {
+                    headerMap.estimatedValue = colNumber;
+                } else if (headerText.includes("detail") || headerText.includes("notes") || headerText.includes("remark")) {
+                    headerMap.budgetDetails = colNumber;
+                }
+            });
+            return;
+        }
 
-        const name = row.getCell(1).text?.trim();
-        const companyName = row.getCell(2).text?.trim();
-        const email = row.getCell(3).text?.trim()?.toLowerCase();
-        const phone = row.getCell(4).text?.trim();
-        const city = row.getCell(5).text?.trim();
-        const state = row.getCell(6).text?.trim();
-        const source = row.getCell(7).text?.trim() || "Excel Import";
-        const warmth = row.getCell(8).text?.trim() || "Warm";
-        const status = row.getCell(9).text?.trim() || "New";
-        const estimatedValue = parseFloat(row.getCell(10).text?.replace(/[^0-9.]/g, "")) || 0;
-        const requirements = row.getCell(11).text?.trim();
-        const tagsRaw = row.getCell(12).text?.trim();
-        const notes = row.getCell(13).text?.trim();
+        const getVal = (key, fallbackCol) => {
+            const col = headerMap[key] || fallbackCol;
+            return row.getCell(col).text?.trim();
+        };
 
-        if (!name && !companyName) {
+        const name = getVal("name", 1);
+        const phone = getVal("phone", 2);
+        const email = getVal("email", 3)?.toLowerCase();
+        const companyName = getVal("companyName", 4);
+        const address = getVal("address", 5);
+        const city = getVal("city", 6);
+        const pincode = getVal("pincode", 7);
+        const state = getVal("state", 8);
+        const requirements = getVal("requirements", 9);
+        const productInterestRaw = getVal("productInterest", 10);
+        const source = getVal("source", 11) || "Direct";
+        const warmthRaw = getVal("warmth", 12) || "Warm";
+        const status = getVal("status", 13) || "New";
+        const estimatedValue = parseFloat(getVal("estimatedValue", 14)?.replace(/[^0-9.]/g, "")) || 0;
+        const budgetDetails = getVal("budgetDetails", 15);
+
+        if (!name && !companyName && !phone) {
             skipped++;
             return;
         }
 
-        const tags = tagsRaw ? tagsRaw.split(",").map(t => t.trim()).filter(Boolean) : [];
+        const productInterest = productInterestRaw
+            ? productInterestRaw.split(",").map(p => p.trim()).filter(Boolean)
+            : [];
+
+        // Normalize warmth
+        let warmth = "Warm";
+        const lowerWarmth = warmthRaw.toLowerCase();
+        if (lowerWarmth.includes("hot")) warmth = "Hot";
+        else if (lowerWarmth.includes("cold")) warmth = "Cold";
+        else if (lowerWarmth.includes("warm")) warmth = "Warm";
 
         rows.push({
             rowNumber,
             data: {
                 company: req.company._id,
-                name: name || companyName,
+                name: name || companyName || `Lead ${phone || rowNumber}`,
                 companyName: companyName || name,
                 email: email || undefined,
                 phone: phone || undefined,
+                address,
                 city,
+                pincode,
                 state,
-                source,
-                warmth: ["Hot", "Warm", "Cold"].includes(warmth) ? warmth : "Warm",
+                requirements,
+                productInterest,
+                source: source || "Direct",
+                warmth,
                 status: status || "New",
                 estimatedValue,
-                requirements,
-                tags,
-                notes,
+                budgetDetails,
+                notes: budgetDetails,
                 createdBy: req.user._id
             }
         });
@@ -306,35 +369,43 @@ export const exportLeadsToExcel = asyncHandler(async (req, res) => {
     const sheet = workbook.addWorksheet("CRM Leads");
 
     sheet.columns = [
-        { header: "Lead Name", key: "name", width: 25 },
+        { header: "Customer Name", key: "name", width: 25 },
+        { header: "Contact Number", key: "phone", width: 18 },
+        { header: "Email Address", key: "email", width: 25 },
         { header: "Company", key: "companyName", width: 28 },
-        { header: "Phone", key: "phone", width: 18 },
-        { header: "Email", key: "email", width: 25 },
+        { header: "Address", key: "address", width: 28 },
         { header: "City", key: "city", width: 16 },
+        { header: "Pincode", key: "pincode", width: 14 },
         { header: "State", key: "state", width: 16 },
+        { header: "Looking For (Requirements)", key: "requirements", width: 35 },
+        { header: "Our Product / Service", key: "productInterest", width: 28 },
         { header: "Source", key: "source", width: 18 },
         { header: "Warmth", key: "warmth", width: 14 },
         { header: "Stage", key: "status", width: 18 },
-        { header: "Estimated Value", key: "estimatedValue", width: 18 },
+        { header: "Budget Amount (INR)", key: "estimatedValue", width: 20 },
+        { header: "Details with Budget", key: "budgetDetails", width: 28 },
         { header: "Assigned To", key: "assignedTo", width: 20 },
-        { header: "Requirements", key: "requirements", width: 35 },
         { header: "Created Date", key: "createdAt", width: 18 }
     ];
 
     leads.forEach(l => {
         sheet.addRow({
             name: l.name,
-            companyName: l.companyName || "-",
             phone: l.phone || "-",
             email: l.email || "-",
+            companyName: l.companyName || "-",
+            address: l.address || "-",
             city: l.city || "-",
+            pincode: l.pincode || "-",
             state: l.state || "-",
-            source: l.source || "-",
-            warmth: l.warmth || "-",
-            status: l.status || "-",
-            estimatedValue: l.estimatedValue || 0,
-            assignedTo: l.assignedTo?.name || "Unassigned",
             requirements: l.requirements || "-",
+            productInterest: Array.isArray(l.productInterest) ? l.productInterest.join(", ") : (l.productInterest || "-"),
+            source: l.source || "Direct",
+            warmth: l.warmth || "Warm",
+            status: l.status || "New",
+            estimatedValue: l.estimatedValue || 0,
+            budgetDetails: l.budgetDetails || l.notes || "-",
+            assignedTo: l.assignedTo?.name || "Unassigned",
             createdAt: l.createdAt ? new Date(l.createdAt).toLocaleDateString("en-GB") : "-"
         });
     });
@@ -344,8 +415,8 @@ export const exportLeadsToExcel = asyncHandler(async (req, res) => {
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename=CRM_Leads_Export_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    await workbook.xlsx.write(res);
-    return res.end();
+    const buffer = await workbook.xlsx.writeBuffer();
+    return res.status(200).send(buffer);
 });
 
 // 5. Export Customers to Excel
@@ -397,6 +468,6 @@ export const exportCustomersToExcel = asyncHandler(async (req, res) => {
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename=CRM_Customers_Export_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    await workbook.xlsx.write(res);
-    return res.end();
+    const buffer = await workbook.xlsx.writeBuffer();
+    return res.status(200).send(buffer);
 });

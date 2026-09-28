@@ -32,6 +32,8 @@ import {
   deleteMRPPlan,
   updateMRPPlan,
   updateMRPPlanStatus,
+  updateMRPTargetExpense,
+  previewMRPBOMBudget,
   updateMRPRequirementItemStatus,
   getMRPProcurementWorkbench,
   bulkGeneratePOFromMRP,
@@ -45,6 +47,7 @@ import {
   getEligiblePurchaseItems,
   mapItemToPurchaseBucket,
   bulkMapItemsToPurchaseBucket,
+  detachItemFromPurchaseBucket,
   unmapItemFromPurchaseBucket
 } from "../controllers/purchase/index.js";
 
@@ -77,6 +80,9 @@ router.route("/mrp/map-to-purchase-bucket")
 router.route("/mrp/bulk-map-to-purchase-bucket")
   .post(bulkMapItemsToPurchaseBucket);
 
+router.route("/mrp/detach-purchase-bucket")
+  .post(detachItemFromPurchaseBucket);
+
 router.route("/mrp/unmap-purchase-bucket/:id")
   .delete(unmapItemFromPurchaseBucket);
 
@@ -106,6 +112,9 @@ router.route("/mrp/wip-360/:id")
 router.route("/mrp/plan")
   .post(createMRPPlan);
 
+router.route("/mrp/preview-bom-budget")
+  .post(previewMRPBOMBudget);
+
 router.route("/mrp/plans")
   .get(getAllMRPPlans);
 
@@ -116,6 +125,9 @@ router.route("/mrp/plan/:id")
   .get(getMRPPlanById)
   .put(updateMRPPlan)
   .delete(deleteMRPPlan);
+
+router.route("/mrp/plan/:id/target-expense")
+  .put(updateMRPTargetExpense);
 
 router.route("/mrp/plan/:id/status")
   .put(updateMRPPlanStatus);

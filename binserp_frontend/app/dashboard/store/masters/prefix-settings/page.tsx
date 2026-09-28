@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import { API_BASE_URL } from '@/src/utils/config';
-import { Hash, Tag, ShoppingCart, FileText, CheckCircle2, Save, IndianRupee, Globe, RefreshCw, Clock, Lock, ShieldCheck, AlertCircle, Package, Truck, Layers, Wrench, ShieldAlert, PackageCheck, UserCheck, Users, ExternalLink, X, Plus } from 'lucide-react';
+import { Hash, Tag, ShoppingCart, FileText, CheckCircle2, Save, IndianRupee, Globe, RefreshCw, Clock, Lock, ShieldCheck, AlertCircle, Package, Truck, Layers, Wrench, ShieldAlert, PackageCheck, UserCheck, Users, ExternalLink, X, Plus, Boxes, CalendarClock } from 'lucide-react';
 import Link from 'next/link';
 import { useGetUsersQuery } from '@/src/store/services/userService';
 import { DEFAULT_EXCHANGE_RATES_TO_INR, setGlobalExchangeRates, CURRENCY_OPTIONS, getCurrencySymbol } from '@/src/utils/currencyHelper';
@@ -18,7 +18,8 @@ export const DEFAULT_TIME_LOCK_HOURS: Record<string, number> = {
   purchasePo: 24,
   jobWorkChallan: 24,
   rfqQuotation: 24,
-  mrbDisposition: 24
+  mrbDisposition: 24,
+  mrpPlan: 24
 };
 
 export const TIME_LOCK_CONFIGS = [
@@ -77,6 +78,13 @@ export const TIME_LOCK_CONFIGS = [
     subtitle: 'QA/QC Material Rejection Board',
     icon: ShieldAlert,
     description: 'Window for adjusting quality disposition decisions before non-conformance closure.'
+  },
+  {
+    key: 'mrpPlan',
+    title: 'MRP Demand Plan',
+    subtitle: 'Demand Planning & Material Explosion',
+    icon: Boxes,
+    description: 'Window within which created MRP Demand Plans can be edited or deleted before permanent planning lock.'
   }
 ];
 

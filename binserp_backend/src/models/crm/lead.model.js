@@ -61,6 +61,7 @@ export const leadSchema = new mongoose.Schema(
         requirements: { type: String },
         estimatedValue: { type: Number, default: 0 },
         currency: { type: String, default: "INR" },
+        budgetDetails: { type: String, trim: true },
         expectedClosingDate: { type: Date },
 
         // Win / Loss Tracking

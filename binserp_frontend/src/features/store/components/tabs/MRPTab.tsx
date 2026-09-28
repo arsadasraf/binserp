@@ -4,7 +4,8 @@ import {
   CheckCircle2, Clock, Filter, ArrowRight, ArrowLeft, X, Building2, Printer, 
   LayoutGrid, List, Edit2, ShieldCheck, Download, ShoppingCart, 
   Sparkles, RefreshCw, FileText, AlertCircle, Send, CheckSquare, Square,
-  Check, Boxes, ChevronRight, Factory, Play, ChevronDown, Target, RotateCcw
+  Check, Boxes, ChevronRight, Factory, Play, ChevronDown, ChevronUp, Target, RotateCcw, Lock,
+  IndianRupee, AlertTriangle, TrendingUp, TrendingDown
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import Swal from 'sweetalert2';
@@ -28,6 +29,16 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   const [loading, setLoading] = useState(true);
   const [mainView, setMainView] = useState<'plans' | 'workbench'>('plans');
   const [viewMode, setViewMode] = useState<'plans' | 'items'>('plans');
+  const [showPlansDashboard, setShowPlansDashboard] = useState<boolean>(false);
+  const [showItemsDashboard, setShowItemsDashboard] = useState<boolean>(false);
+  const isCurrentDashboardShown = viewMode === 'plans' ? showPlansDashboard : showItemsDashboard;
+  const toggleDashboard = () => {
+    if (viewMode === 'plans') {
+      setShowPlansDashboard(prev => !prev);
+    } else {
+      setShowItemsDashboard(prev => !prev);
+    }
+  };
   const [mrpPlans, setMrpPlans] = useState<any[]>([]);
   const [selectedDemandPlan, setSelectedDemandPlan] = useState<any | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -200,7 +211,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   const { getPolicyHours } = useTimeLockPolicy(propToken);
 
   const getPlanLockStatus = (plan: any) => {
-    return calculateMRPLockStatus(plan, currentTime, getPolicyHours('rfqQuotation'));
+    return calculateMRPLockStatus(plan, currentTime, getPolicyHours('mrpPlan'));
   };
 
   const [selectedPlanForDetails, setSelectedPlanForDetails] = useState<any | null>(null);
@@ -342,22 +353,154 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
     return keys.size;
   }, [filteredMrpPlans]);
 
+  // Aggregate financial metrics across filtered MRP plans
+  const financialKPIs = useMemo(() => {
+    let totalRevenue = 0;
+    let totalEstimatedCost = 0;
+    let totalCommittedExpense = 0;
+    let totalTargetBudget = 0;
+    let overBudgetCount = 0;
+
+    (Array.isArray(filteredMrpPlans) ? filteredMrpPlans : []).forEach((plan: any) => {
+      totalRevenue += Number(plan.totalIncome || 0);
+      totalEstimatedCost += Number(plan.totalEstimatedExpense || 0);
+      totalCommittedExpense += Number(plan.committedExpense || 0);
+      totalTargetBudget += Number(plan.targetExpense || 0);
+      if (plan.budgetStatus === 'Over Budget') {
+        overBudgetCount++;
+      }
+    });
+
+    return {
+      totalRevenue,
+      totalEstimatedCost,
+      totalCommittedExpense,
+      totalTargetBudget,
+      overBudgetCount
+    };
+  }, [filteredMrpPlans]);
+
+  // Fast Budget Ceiling Update handler for an MRP plan
+  const handleUpdateTargetExpense = async (plan: any) => {
+    const currentTarget = plan.targetExpense || 0;
+    const rmCost = (plan.rmRequirements || []).reduce((sum: number, r: any) => sum + (Number(r.grossCost) || 0), 0);
+    const boCost = (plan.boRequirements || []).reduce((sum: number, b: any) => sum + (Number(b.grossCost) || 0), 0);
+    const totalBOMCost = Math.round((rmCost + boCost) * 100) / 100;
+
+    const { value: newBudgetStr } = await Swal.fire({
+      title: 'Target Procurement Expense (Budget Ceiling)',
+      html: `
+        <div class="text-left text-xs text-slate-600 dark:text-slate-300 space-y-1.5 mb-2 bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+          <div>Plan: <strong class="text-indigo-600 dark:text-indigo-400 font-mono">${plan.mrpNumber}</strong></div>
+          <div class="grid grid-cols-2 gap-2 my-1.5 p-2 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+            <div>
+              <span class="text-[10px] uppercase font-bold text-slate-400">Raw Material (RM):</span><br/>
+              <strong class="text-slate-800 dark:text-slate-100 font-mono">₹${rmCost.toLocaleString('en-IN')}</strong>
+            </div>
+            <div>
+              <span class="text-[10px] uppercase font-bold text-slate-400">Bought Out (BO):</span><br/>
+              <strong class="text-indigo-600 dark:text-indigo-400 font-mono">₹${boCost.toLocaleString('en-IN')}</strong>
+            </div>
+          </div>
+          <div>Combined BOM Cost: <strong class="text-slate-900 dark:text-white font-mono">₹${totalBOMCost.toLocaleString('en-IN')}</strong></div>
+          <div>Projected Income: <strong class="text-emerald-600 font-mono">₹${(plan.totalIncome || 0).toLocaleString('en-IN')}</strong></div>
+          <div>Committed POs: <strong class="text-indigo-600 font-mono">₹${(plan.committedExpense || 0).toLocaleString('en-IN')}</strong></div>
+        </div>
+        <div class="flex items-center gap-1.5 justify-start mb-2 flex-wrap">
+          <span class="text-[11px] font-bold text-slate-500">Quick Set:</span>
+          ${totalBOMCost > 0 ? `
+            <button type="button" id="swal-set-bom" class="px-2 py-0.5 text-[10px] font-bold rounded bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 cursor-pointer">BOM Cost (₹${Math.round(totalBOMCost).toLocaleString('en-IN')})</button>
+            <button type="button" id="swal-set-bom-5" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer">+5% Buffer</button>
+          ` : ''}
+          ${(plan.totalIncome || 0) > 0 ? `
+            <button type="button" id="swal-set-70" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer">70% Rev</button>
+          ` : ''}
+        </div>
+        <p class="text-xs text-slate-500 mb-1 text-left">Set max allowable procurement expenses for this plan:</p>
+      `,
+      input: 'number',
+      inputValue: currentTarget > 0 ? currentTarget : '',
+      inputPlaceholder: 'Enter budget ceiling amount in ₹',
+      showCancelButton: true,
+      confirmButtonText: 'Save Budget',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#4f46e5',
+      didOpen: () => {
+        const input = Swal.getInput();
+        const setBomBtn = document.getElementById('swal-set-bom');
+        const setBom5Btn = document.getElementById('swal-set-bom-5');
+        const set70Btn = document.getElementById('swal-set-70');
+        if (setBomBtn && input) setBomBtn.onclick = () => { input.value = String(totalBOMCost); };
+        if (setBom5Btn && input) setBom5Btn.onclick = () => { input.value = String(Math.round(totalBOMCost * 1.05)); };
+        if (set70Btn && input) set70Btn.onclick = () => { input.value = String(Math.round((plan.totalIncome || 0) * 0.7)); };
+      },
+      inputValidator: (val) => {
+        if (!val || Number(val) < 0) {
+          return 'Please enter a valid non-negative number';
+        }
+        return null;
+      }
+    });
+
+    if (newBudgetStr !== undefined) {
+      const targetExpense = parseFloat(newBudgetStr);
+      try {
+        const res = await apiPut(`/api/purchase/mrp/plan/${plan._id}/target-expense`, { targetExpense }, token);
+        if (res.plan) {
+          setSelectedDemandPlan(res.plan);
+        }
+        fetchData();
+        Swal.fire({
+          icon: 'success',
+          title: 'Budget Ceiling Saved',
+          text: `Target budget set to ₹${targetExpense.toLocaleString('en-IN')}`,
+          timer: 2000,
+          showConfirmButton: false
+        });
+      } catch (err: any) {
+        Swal.fire('Error', err.message || 'Failed to update target budget', 'error');
+      }
+    }
+  };
+
   // Submit PO directly
   const handlePOSubmit = async (formData: any) => {
     try {
       await apiPost('/api/purchase/po', formData, token);
 
-      // If generated from an MRP plan, update the plan items status to "PO Raised"
+      // If generated from MRP (single plan or consolidated cross-plan buckets), update requirement status to "PO Raised" and record poNumber
       const mrpPlanId = poInitialData?.mrpPlanId || selectedDemandPlan?._id;
-      if (mrpPlanId && formData.items && formData.items.length > 0) {
+      const initialItems = poInitialData?.items || [];
+      const createdPoNumber = formData.poNumber || "";
+
+      if (formData.items && formData.items.length > 0) {
         try {
-          await apiPut(`/api/purchase/mrp/plan/${mrpPlanId}/item-status`, {
-            items: formData.items.map((it: any) => ({
+          const updatePayloadItems = formData.items.map((it: any, idx: number) => {
+            const matchInit = initialItems.find((ii: any) => ii.materialName === it.materialName || ii.material === it.material) || initialItems[idx];
+            return {
+              planId: mrpPlanId || matchInit?.planId || matchInit?.mrpSources?.[0]?.mrpId,
+              mrpNumber: poInitialData?.mrpNumber || selectedDemandPlan?.mrpNumber || matchInit?.mrpNumber || matchInit?.mrpSources?.[0]?.mrpNumber,
               materialName: it.materialName,
-              status: "PO Raised"
-            })),
-            status: "PO Raised"
-          }, token);
+              materialCode: it.materialCode || matchInit?.materialCode,
+              sourceCutSizes: matchInit?.sourceCutSizes || it.sourceCutSizes || [],
+              status: "PO Raised",
+              poNumber: createdPoNumber
+            };
+          });
+
+          if (mrpPlanId) {
+            await apiPut(`/api/purchase/mrp/plan/${mrpPlanId}/item-status`, {
+              items: updatePayloadItems,
+              status: "PO Raised",
+              poNumber: createdPoNumber
+            }, token);
+          } else {
+            await apiPut('/api/purchase/mrp/update-item-status', {
+              items: updatePayloadItems,
+              status: "PO Raised",
+              poNumber: createdPoNumber
+            }, token);
+          }
         } catch (e) {
           console.warn("Could not sync item status to MRP Plan:", e);
         }
@@ -386,10 +529,13 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
     const lockStatus = getPlanLockStatus(plan);
 
     if (lockStatus.is24hExpired) {
+      const hrs = getPolicyHours('mrpPlan');
       Swal.fire({
         icon: 'error',
-        title: 'Deletion Locked (24h Expired)',
-        text: `MRP Plan ${plan.mrpNumber} was created more than 24 hours ago and can no longer be deleted.`,
+        title: hrs <= 0 ? 'Deletion Locked (Immediate Policy)' : 'Deletion Locked (Window Expired)',
+        text: hrs <= 0
+          ? `MRP Plan ${plan.mrpNumber} cannot be deleted because it is locked immediately upon creation by company policy.`
+          : `MRP Plan ${plan.mrpNumber} was created more than ${hrs} hour(s) ago and can no longer be deleted.`,
       });
       return;
     }
@@ -451,10 +597,10 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   };
 
   return (
-    <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-y-auto space-y-4 pb-28 sm:pb-20 pr-1 sm:pr-2 scroll-smooth">
+    <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-hidden space-y-2.5 sm:space-y-3">
       
-      {/* 1. TOP-LEVEL VIEW SWITCHER: PLANS | WORKBENCH | 360 WIP */}
-      <div className="bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+      {/* 1. TOP-LEVEL VIEW SWITCHER: PLANS | WORKBENCH (PINNED HEADER) */}
+      <div className="shrink-0 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 overflow-x-auto scroll-smooth touch-pan-x py-0.5 no-scrollbar">
           <button
             onClick={() => setMainView('plans')}
@@ -487,32 +633,133 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
       {/* VIEW 2: PROCUREMENT WORKBENCH */}
       {mainView === 'workbench' && (
-        <MRPProcurementWorkbench
-          token={token}
-          onOpenRfqModal={(items) => {
-            setRfqModalItems(items);
-            setIsRfqModalOpen(true);
-          }}
-          onOpenPoModal={(poData) => {
-            setPoInitialData(poData);
-            setIsPoModalOpen(true);
-          }}
-          onRefreshPlans={fetchData}
-        />
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <MRPProcurementWorkbench
+            token={token}
+            onOpenRfqModal={(items) => {
+              setRfqModalItems(items);
+              setIsRfqModalOpen(true);
+            }}
+            onOpenPoModal={(poData) => {
+              setPoInitialData(poData);
+              setIsPoModalOpen(true);
+            }}
+            onRefreshPlans={fetchData}
+          />
+        </div>
       )}
 
       {/* VIEW 1: MRP DEMAND PLANS */}
       {mainView === 'plans' && (
-        <div className="space-y-4">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden space-y-2.5 sm:space-y-3">
           
           {/* ========================================================================= */}
           {/* STEP 1: MASTER LIST OF MRP DEMAND PLANS (Click an MRP to view FG items)   */}
           {/* ========================================================================= */}
           {!selectedDemandPlan && (
-            <div className="space-y-4">
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden space-y-2.5 sm:space-y-3">
               
-              {/* Controls Toolbar: Search, View Mode, Status Dropdown, Plan Date, Committed Date in Single Line */}
-              <div className="relative z-30 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap xl:flex-nowrap items-center justify-between gap-2">
+              {/* Executive Financial & Budget Strip (Dashboard for Plans - Hidden by Default) */}
+              {viewMode === 'plans' && showPlansDashboard && (
+                <div className="shrink-0 space-y-1.5 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                        Executive Financial & Budget Overview
+                      </span>
+                      {filteredMrpPlans.length !== mrpPlans.length && (
+                        <span className="px-1.5 py-0.2 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 rounded text-[9px] font-bold border border-indigo-200 dark:border-indigo-800">
+                          Filtered ({filteredMrpPlans.length} of {mrpPlans.length})
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowPlansDashboard(false)}
+                      className="px-2 py-0.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1 cursor-pointer border border-slate-200 dark:border-slate-700"
+                      title="Hide Executive Dashboard"
+                    >
+                      <ChevronUp size={13} />
+                      <span>Hide</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2">
+                    <div className="bg-white dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                        <TrendingUp size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider truncate">Projected Revenue</span>
+                        <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white font-mono truncate block">
+                          ₹{financialKPIs.totalRevenue.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                        <ShoppingCart size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider truncate">Estimated Materials</span>
+                        <span className="text-xs sm:text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono truncate block">
+                          ₹{financialKPIs.totalEstimatedCost.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                        <FileText size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider truncate">Committed POs</span>
+                        <span className="text-xs sm:text-sm font-black text-blue-600 dark:text-blue-400 font-mono truncate block">
+                          ₹{financialKPIs.totalCommittedExpense.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                        <Target size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider truncate">Target Budget</span>
+                        <span className="text-xs sm:text-sm font-black text-purple-600 dark:text-purple-400 font-mono truncate block">
+                          {financialKPIs.totalTargetBudget > 0 ? `₹${financialKPIs.totalTargetBudget.toLocaleString('en-IN')}` : 'Unset'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className={`col-span-2 sm:col-span-4 lg:col-span-1 p-2.5 rounded-2xl border shadow-2xs flex items-center gap-2.5 ${
+                      financialKPIs.overBudgetCount > 0 
+                        ? 'bg-rose-50/80 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-300' 
+                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}>
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                        financialKPIs.overBudgetCount > 0 
+                          ? 'bg-rose-100 dark:bg-rose-900/60 text-rose-600' 
+                          : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600'
+                      }`}>
+                        {financialKPIs.overBudgetCount > 0 ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider truncate">Budget Health</span>
+                        <span className="text-xs font-black truncate block">
+                          {financialKPIs.overBudgetCount > 0 
+                            ? `🚨 ${financialKPIs.overBudgetCount} Over Budget` 
+                            : '✅ All In Budget'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Controls Toolbar: Search, View Mode, Status Dropdown, Plan Date, Committed Date (PINNED FILTER BAR) */}
+              <div className="shrink-0 relative z-30 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap xl:flex-nowrap items-center justify-between gap-2">
                 
                 {/* Left Group: Search & View Mode Switcher */}
                 <div className="flex items-center gap-2 shrink-0 min-w-0 flex-1 max-w-sm sm:max-w-md">
@@ -887,6 +1134,22 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                     </button>
                   )}
 
+                  {/* Dashboard Toggle: Plans & Items */}
+                  <button
+                    type="button"
+                    onClick={toggleDashboard}
+                    className={`px-2.5 py-1.5 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border shrink-0 ${
+                      isCurrentDashboardShown
+                        ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300 shadow-2xs'
+                        : 'bg-white hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                    }`}
+                    title={isCurrentDashboardShown ? "Hide Executive KPI Dashboard" : "Show Executive KPI Dashboard"}
+                    aria-label="Toggle Dashboard"
+                  >
+                    <LayoutGrid size={13} className={isCurrentDashboardShown ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500"} />
+                    <span className="hidden sm:inline">{isCurrentDashboardShown ? "Hide Dashboard" : "Dashboard"}</span>
+                  </button>
+
                   {/* Refresh Button */}
                   <button
                     onClick={fetchData}
@@ -913,53 +1176,51 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
               {/* View Mode: Items vs Plans */}
               {viewMode === 'items' ? (
-                <MRPItemWiseView
-                  mrpPlans={filteredMrpPlans}
-                  fgItems={inHouseItems}
-                  onViewPlanDetails={(plan) => {
-                    setSelectedPlanForDetails(plan);
-                    setIsDetailsModalOpen(true);
-                  }}
-                  searchTerm={searchTerm}
-                  selectedStatuses={selectedStatuses}
-                  planDateFilter={planDateFilter}
-                  planStartDate={planStartDate}
-                  planEndDate={planEndDate}
-                  commitDateFilter={commitDateFilter}
-                  commitStartDate={commitStartDate}
-                  commitEndDate={commitEndDate}
-                  onResetFilters={handleResetAllFilters}
-                />
-              ) : (
-                <>
-
-              {/* Master MRP Plans Table */}
-              {loading ? (
-                <div className="flex justify-center p-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-                  <RefreshCw className="animate-spin text-indigo-600 w-8 h-8" />
-                </div>
-              ) : filteredMrpPlans.length === 0 ? (
-                <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-                  <Package className="mx-auto h-12 w-12 text-slate-300 mb-3" />
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No MRP Plans Found</h3>
-                  <p className="text-xs text-slate-500 mt-1 mb-4">No demand plans match the selected filters.</p>
-                  <button
-                    onClick={handleResetAllFilters}
-                    className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
-                  >
-                    Clear Filters
-                  </button>
+                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                  <MRPItemWiseView
+                    mrpPlans={filteredMrpPlans}
+                    fgItems={inHouseItems}
+                    onViewPlanDetails={(plan) => {
+                      setSelectedPlanForDetails(plan);
+                      setIsDetailsModalOpen(true);
+                    }}
+                    searchTerm={searchTerm}
+                    selectedStatuses={selectedStatuses}
+                    planDateFilter={planDateFilter}
+                    planStartDate={planStartDate}
+                    planEndDate={planEndDate}
+                    commitDateFilter={commitDateFilter}
+                    commitStartDate={commitStartDate}
+                    commitEndDate={commitEndDate}
+                    onResetFilters={handleResetAllFilters}
+                    showDashboard={showItemsDashboard}
+                    onToggleDashboard={() => setShowItemsDashboard(prev => !prev)}
+                  />
                 </div>
               ) : (
-                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-                  {/* Mobile horizontal scroll hint */}
-                  <div className="sm:hidden px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-500 flex items-center justify-between">
-                    <span>📑 MRP Demand Plans</span>
-                    <span className="text-indigo-600 font-semibold">← Swipe horizontally →</span>
-                  </div>
-                  <div className="overflow-x-auto scroll-smooth touch-pan-x">
-                    <table className="w-full min-w-[920px] text-xs text-left">
-                      <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
+                <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+                  {loading ? (
+                    <div className="flex-1 flex justify-center items-center p-16">
+                      <RefreshCw className="animate-spin text-indigo-600 w-8 h-8" />
+                    </div>
+                  ) : filteredMrpPlans.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+                      <Package className="mx-auto h-12 w-12 text-slate-300 mb-3" />
+                      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No MRP Plans Found</h3>
+                      <p className="text-xs text-slate-500 mt-1 mb-4">No demand plans match the selected filters.</p>
+                      <button
+                        onClick={handleResetAllFilters}
+                        className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+                      >
+                        Clear Filters
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Desktop Table View (ONLY TABLE SCROLLS) */}
+                      <div className="hidden md:block flex-1 min-h-0 overflow-auto scroll-smooth">
+                        <table className="w-full min-w-[920px] text-xs text-left">
+                          <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                         <tr>
                           <th className="p-3.5">MRP Number</th>
                           <th className="p-3.5">Customer & Order Ref</th>
@@ -967,6 +1228,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                           <th className="p-3.5 text-center">Committed Date</th>
                           <th className="p-3.5 text-center">24h Window / Lock Status</th>
                           <th className="p-3.5">Finished Goods (FG) Demand</th>
+                          <th className="p-3.5 text-center min-w-[160px]">Financials & Budget</th>
                           <th className="p-3.5 text-center">Total Order vs GRN Received</th>
                           <th className="p-3.5 text-center">Plan Status</th>
                           <th className="p-3.5 text-right">Actions</th>
@@ -1062,15 +1324,23 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                 )}
                               </td>
 
-                              {/* 24h Countdown Window / Lock Status */}
+                              {/* Time-Lock Countdown Window / Lock Status */}
                               <td className="p-3.5 text-center min-w-[170px]">
                                 {lockStatus.hasTransactions ? (
                                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-blue-50 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200" title="Locked: Downstream transactions created against this MRP">
                                     <ShieldCheck size={11} className="text-blue-600" /> Locked (Txns Active)
                                   </span>
-                                ) : lockStatus.is24hExpired ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200" title="Locked: 24-hour edit/delete window has expired">
-                                    <Clock size={11} /> 24h Expired
+                                ) : lockStatus.isImmediatelyLocked ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200" title="Locked immediately upon creation by company policy">
+                                    <Lock size={11} /> Locked
+                                  </span>
+                                ) : lockStatus.isExpired ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200" title={`Locked: ${getPolicyHours('mrpPlan')}h edit/delete window has expired`}>
+                                    <Clock size={11} /> Policy Expired ({getPolicyHours('mrpPlan')}h)
+                                  </span>
+                                ) : lockStatus.isUnlimited ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-mono font-extrabold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 shadow-2xs" title="Unlimited edit/delete window by company policy">
+                                    <CheckCircle2 size={11} className="text-emerald-600" /> Unlimited
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-mono font-extrabold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 shadow-2xs">
@@ -1088,6 +1358,51 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                 <span className="text-[10px] text-slate-400 block font-mono">
                                   {fgCount} FG Item{fgCount > 1 ? 's' : ''} planned
                                 </span>
+                              </td>
+
+                              {/* Financials & Budget */}
+                              <td className="p-3.5 text-center">
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between text-[11px] font-mono">
+                                    <span className="text-slate-400 text-[10px]">Revenue:</span>
+                                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                      ₹{(plan.totalIncome || 0).toLocaleString('en-IN')}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-[11px] font-mono">
+                                    <span className="text-slate-400 text-[10px]">Committed:</span>
+                                    <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                                      ₹{(plan.committedExpense || 0).toLocaleString('en-IN')}
+                                    </span>
+                                  </div>
+                                  {plan.targetExpense > 0 ? (
+                                    <div className="flex items-center justify-between text-[10px] font-mono">
+                                      <span className="text-slate-400">Budget:</span>
+                                      <span className="text-slate-600 dark:text-slate-300 font-semibold">
+                                        ₹{plan.targetExpense.toLocaleString('en-IN')}
+                                      </span>
+                                    </div>
+                                  ) : null}
+                                  <div className="pt-0.5">
+                                    {plan.budgetStatus === 'Over Budget' ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-black bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300">
+                                        <AlertTriangle size={10} /> Over Budget
+                                      </span>
+                                    ) : plan.budgetStatus === 'Near Limit' ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-black bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
+                                        <Clock size={10} /> Near Limit
+                                      </span>
+                                    ) : plan.budgetStatus === 'Within Budget' ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300">
+                                        <CheckCircle2 size={10} /> Within Budget
+                                      </span>
+                                    ) : (
+                                      <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                        Budget Unset
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
                               </td>
 
                               {/* Target vs Received Progress */}
@@ -1133,12 +1448,15 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                   <button
                                     onClick={() => {
                                       if (!lockStatus.canEdit) {
+                                        const hrs = getPolicyHours('mrpPlan');
                                         Swal.fire({
                                           icon: 'info',
                                           title: 'Editing Locked',
                                           text: lockStatus.hasTransactions
                                             ? `Cannot edit MRP Plan ${plan.mrpNumber}: Downstream transactions have already been initiated.`
-                                            : `Cannot edit MRP Plan ${plan.mrpNumber}: The 24-hour edit window has expired.`
+                                            : hrs <= 0
+                                            ? `Cannot edit MRP Plan ${plan.mrpNumber}: It is locked immediately upon creation by company policy.`
+                                            : `Cannot edit MRP Plan ${plan.mrpNumber}: The ${hrs}-hour edit window has expired.`
                                         });
                                         return;
                                       }
@@ -1174,9 +1492,201 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                       </tbody>
                     </table>
                   </div>
-                </div>
+
+                  {/* Dedicated Native Mobile Cards View */}
+                  <div className="md:hidden flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5 divide-y divide-slate-100 dark:divide-slate-800/80">
+                    {filteredMrpPlans.map((plan) => {
+                      const fgItems = plan.fgItems || [];
+                      const fgCount = fgItems.length;
+                      const firstFG = fgItems[0];
+                      const totalTarget = fgItems.reduce((s: number, f: any) => s + (Number(f.quantity) || 0), 0);
+                      const totalReceived = fgItems.reduce((s: number, f: any) => s + (Number(f.receivedQuantity) || 0), 0);
+                      const progressPct = totalTarget > 0 ? Math.min(100, Math.round((totalReceived / totalTarget) * 100)) : 0;
+                      const formattedDate = plan.createdAt ? new Date(plan.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : "-";
+                      const lockStatus = getPlanLockStatus(plan);
+
+                      return (
+                        <div
+                          key={plan._id}
+                          onClick={() => setSelectedDemandPlan(plan)}
+                          className="bg-white dark:bg-slate-900/90 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-3.5 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-700 active:scale-[0.99] transition-all cursor-pointer space-y-3"
+                        >
+                          {/* Top Row: MRP Number, Badges & Status */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-mono text-xs font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/70 px-2.5 py-1 rounded-xl border border-indigo-200 dark:border-indigo-800">
+                                {plan.mrpNumber}
+                              </span>
+                              {plan.isConsolidated && (
+                                <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200">
+                                  Consolidated ({plan.customerPOs?.length || 2})
+                                </span>
+                              )}
+                            </div>
+                            <span className={`px-2 py-0.5 rounded-full text-[10.5px] font-extrabold border ${
+                              plan.status === 'Completed'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300'
+                                : plan.status === 'In Production'
+                                ? 'bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950 dark:text-purple-300'
+                                : 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300'
+                            }`}>
+                              {plan.status || 'Planned'}
+                            </span>
+                          </div>
+
+                          {/* Customer and Order Ref */}
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-bold truncate">
+                              <Building2 size={13} className="text-slate-400 shrink-0" />
+                              <span className="truncate">{plan.customerName || "Internal Demand"}</span>
+                            </div>
+                            {plan.customerPoNumber && (
+                              <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 shrink-0 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">
+                                PO: {plan.customerPoNumber}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Primary FG Item and Technical Description (Strict rule compliance: AGENTS.md) */}
+                          <div className="bg-slate-50/80 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <div className="font-bold text-xs text-slate-900 dark:text-white">
+                                {firstFG?.fgItemName || "Finished Good"}
+                                {fgCount > 1 && <span className="text-indigo-600 dark:text-indigo-400 font-semibold ml-1">+{fgCount - 1} more</span>}
+                              </div>
+                              <span className="text-[10px] font-mono font-bold text-slate-500">
+                                {totalReceived} / {totalTarget} {firstFG?.unit || 'PCS'}
+                              </span>
+                            </div>
+                            {firstFG?.description && (
+                              <div className="text-[11px] text-slate-500 italic line-clamp-1">
+                                {firstFG.description}
+                              </div>
+                            )}
+                            {/* Progress bar */}
+                            <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1.5">
+                              <div 
+                                className={`h-full rounded-full transition-all ${
+                                  progressPct >= 100 ? 'bg-emerald-500' : 'bg-indigo-600'
+                                }`} 
+                                style={{ width: `${progressPct}%` }} 
+                              />
+                            </div>
+                          </div>
+
+                          {/* Financial & Budget Mobile Strip */}
+                          <div className="bg-slate-50/80 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 text-xs space-y-1">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-slate-500 font-medium">Revenue (Income):</span>
+                              <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                ₹{(plan.totalIncome || 0).toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-slate-500 font-medium">Committed PO Spend:</span>
+                              <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                ₹{(plan.committedExpense || 0).toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                            {plan.targetExpense > 0 && (
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-slate-500 font-medium">Target Budget:</span>
+                                <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
+                                  ₹{plan.targetExpense.toLocaleString('en-IN')}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between pt-1 border-t border-slate-200/50 dark:border-slate-700">
+                              <span className="text-[10px] text-slate-400 font-medium">Budget Status:</span>
+                              {plan.budgetStatus === 'Over Budget' ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9.5px] font-black bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 inline-flex items-center gap-1">
+                                  <AlertTriangle size={9} /> Over Budget
+                                </span>
+                              ) : plan.budgetStatus === 'Near Limit' ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9.5px] font-black bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 inline-flex items-center gap-1">
+                                  <Clock size={9} /> Near Limit
+                                </span>
+                              ) : plan.budgetStatus === 'Within Budget' ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 inline-flex items-center gap-1">
+                                  <CheckCircle2 size={9} /> Within Budget
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 font-medium">Unset</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Dates & Action Buttons */}
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-[11px]">
+                            <div className="flex items-center gap-2 text-slate-500">
+                              <span>Plan: {formattedDate}</span>
+                              {plan.targetDate && (
+                                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                                  Due: {new Date(plan.targetDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!lockStatus.canEdit) {
+                                    const hrs = getPolicyHours('mrpPlan');
+                                    Swal.fire({
+                                      icon: 'info',
+                                      title: 'Editing Locked',
+                                      text: lockStatus.hasTransactions
+                                        ? `Cannot edit MRP Plan ${plan.mrpNumber}: Downstream transactions have already been initiated.`
+                                        : hrs <= 0
+                                        ? `Cannot edit MRP Plan ${plan.mrpNumber}: It is locked immediately upon creation by company policy.`
+                                        : `Cannot edit MRP Plan ${plan.mrpNumber}: The ${hrs}-hour edit window has expired.`
+                                    });
+                                    return;
+                                  }
+                                  setEditingPlan(plan);
+                                  setIsCreateModalOpen(true);
+                                }}
+                                className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                                  lockStatus.canEdit
+                                    ? 'border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300'
+                                    : 'border-slate-200 text-slate-300 dark:border-slate-800 dark:text-slate-600 opacity-50'
+                                }`}
+                                title={lockStatus.canEdit ? "Edit MRP Plan" : "Edit locked"}
+                              >
+                                <Edit2 size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeletePlan(plan._id, e)}
+                                className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                                  lockStatus.canDelete
+                                    ? 'border-rose-200 text-rose-600 bg-rose-50/50 hover:bg-rose-50 dark:border-rose-900/60 dark:text-rose-400'
+                                    : 'border-slate-200 text-slate-300 dark:border-slate-800 dark:text-slate-600 opacity-50'
+                                }`}
+                                title={lockStatus.canDelete ? "Delete MRP Plan" : "Deletion locked"}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedDemandPlan(plan);
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-bold text-xs flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>Explore FG</span>
+                                <ChevronRight size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
               )}
-            </>
+            </div>
           )}
 
         </div>
@@ -1186,10 +1696,10 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
           {/* STEP 2: SELECTED MRP DEMAND PLAN — FINISHED GOODS (FG) ITEMS EXPLORER      */}
           {/* ========================================================================= */}
           {selectedDemandPlan && (
-            <div className="space-y-4">
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden space-y-2.5 sm:space-y-3">
               
-              {/* Header Bar with Back Button & Plan Info */}
-              <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              {/* Header Bar with Back Button & Plan Info (PINNED HEADER) */}
+              <div className="shrink-0 bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => setSelectedDemandPlan(null)}
@@ -1243,13 +1753,22 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                   {/* Countdown or Locked Status Badge in Details Header */}
                   {(() => {
                     const lockStatus = getPlanLockStatus(selectedDemandPlan);
+                    const hrs = getPolicyHours('mrpPlan');
                     return lockStatus.hasTransactions ? (
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10.5px] font-bold bg-blue-50 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200">
                         <ShieldCheck size={12} className="text-blue-600" /> Locked (Txns Active)
                       </span>
-                    ) : lockStatus.is24hExpired ? (
+                    ) : lockStatus.isImmediatelyLocked ? (
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10.5px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200">
-                        <Clock size={12} /> 24h Expired
+                        <Lock size={12} /> Locked (Immediate)
+                      </span>
+                    ) : lockStatus.isExpired ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10.5px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200">
+                        <Clock size={12} /> Policy Expired ({hrs}h)
+                      </span>
+                    ) : lockStatus.isUnlimited ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10.5px] font-mono font-extrabold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
+                        <CheckCircle2 size={12} className="text-emerald-600" /> Unlimited
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10.5px] font-mono font-extrabold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
@@ -1284,12 +1803,15 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                       <button
                         onClick={() => {
                           if (!lockStatus.canEdit) {
+                            const hrs = getPolicyHours('mrpPlan');
                             Swal.fire({
                               icon: 'info',
                               title: 'Editing Locked',
                               text: lockStatus.hasTransactions
                                 ? `Cannot edit MRP Plan ${selectedDemandPlan.mrpNumber}: Downstream transactions have already been initiated.`
-                                : `Cannot edit MRP Plan ${selectedDemandPlan.mrpNumber}: The 24-hour edit window has expired.`
+                                : hrs <= 0
+                                ? `Cannot edit MRP Plan ${selectedDemandPlan.mrpNumber}: It is locked immediately upon creation by company policy.`
+                                : `Cannot edit MRP Plan ${selectedDemandPlan.mrpNumber}: The ${hrs}-hour edit window has expired.`
                             });
                             return;
                           }
@@ -1329,20 +1851,186 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                 </div>
               </div>
 
-              {/* FG Items Table */}
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-                {/* Mobile horizontal scroll hint */}
-                <div className="sm:hidden px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-500 flex items-center justify-between">
-                  <span>📦 Finished Goods (FG) Items</span>
-                  <span className="text-indigo-600 font-semibold">← Swipe horizontally →</span>
-                </div>
-                <div className="overflow-x-auto scroll-smooth touch-pan-x">
+              {/* Financial Health & Target Budget Guard Dashboard Card */}
+              {(() => {
+                const totalIncome = Number(selectedDemandPlan.totalIncome || 0);
+                const totalGrossCost = Number(selectedDemandPlan.totalGrossMaterialCost || 0);
+                const totalEstExpense = Number(selectedDemandPlan.totalEstimatedExpense || 0);
+                const committedExpense = Number(selectedDemandPlan.committedExpense || 0);
+                const targetExpense = Number(selectedDemandPlan.targetExpense || 0);
+                const profit = Number(selectedDemandPlan.projectedGrossProfit || (totalIncome - totalEstExpense));
+                const marginPct = Number(selectedDemandPlan.projectedMarginPercentage || (totalIncome > 0 ? ((profit / totalIncome) * 100) : 0));
+                const budgetStatus = selectedDemandPlan.budgetStatus || (
+                  targetExpense > 0 
+                    ? (committedExpense > targetExpense ? 'Over Budget' : committedExpense >= targetExpense * 0.85 ? 'Near Limit' : 'Within Budget')
+                    : 'Unset'
+                );
+
+                const budgetUsagePct = targetExpense > 0 
+                  ? Math.min(100, Math.round((committedExpense / targetExpense) * 100))
+                  : 0;
+
+                const isOverBudget = targetExpense > 0 && committedExpense > targetExpense;
+                const overrunAmount = isOverBudget ? committedExpense - targetExpense : 0;
+
+                return (
+                  <div className="shrink-0 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3 sm:p-4 shadow-xs space-y-3">
+                    {/* Header Strip of the Financial Card */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                          <IndianRupee size={15} />
+                        </div>
+                        <div>
+                          <h4 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                            <span>Financial Intelligence & Budget Guard</span>
+                            <Sparkles size={13} className="text-amber-500" />
+                          </h4>
+                          <span className="text-[10px] text-slate-400 font-medium">Real-time revenue, material costs, and procurement spend tracking</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Budget Status Badge */}
+                        {budgetStatus === 'Over Budget' ? (
+                          <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-rose-50 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-300 flex items-center gap-1.5">
+                            <AlertTriangle size={13} />
+                            <span>🚨 Over Budget</span>
+                          </span>
+                        ) : budgetStatus === 'Near Limit' ? (
+                          <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-amber-50 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 flex items-center gap-1.5">
+                            <Clock size={13} />
+                            <span>⚠️ Near Limit (85-100%)</span>
+                          </span>
+                        ) : budgetStatus === 'Within Budget' ? (
+                          <span className="px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 flex items-center gap-1.5">
+                            <CheckCircle2 size={13} />
+                            <span>✅ Within Budget</span>
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                            Budget Unset
+                          </span>
+                        )}
+
+                        {/* Set / Edit Budget Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateTargetExpense(selectedDemandPlan)}
+                          className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-bold border border-indigo-200 dark:border-indigo-800 flex items-center gap-1.5 transition-colors cursor-pointer"
+                          title="Set or update the target expense budget ceiling for this plan"
+                        >
+                          <Target size={12} />
+                          <span>{targetExpense > 0 ? 'Edit Budget' : '+ Set Budget'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Over-Budget Alert Banner if purchases exceed target */}
+                    {isOverBudget && (
+                      <div className="bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 rounded-xl p-2.5 flex items-start gap-2.5">
+                        <AlertTriangle className="text-rose-600 shrink-0 mt-0.5" size={16} />
+                        <div className="text-xs text-rose-800 dark:text-rose-200">
+                          <strong className="font-black">Budget Overrun Alert:</strong> Committed Purchase Orders (<strong>₹{committedExpense.toLocaleString('en-IN')}</strong>) have exceeded the target budget ceiling (<strong>₹{targetExpense.toLocaleString('en-IN')}</strong>) by <strong className="underline">₹{overrunAmount.toLocaleString('en-IN')}</strong> ({Math.round((committedExpense / targetExpense) * 100)}% of budget utilized).
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 4 Financial KPI Blocks */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+                      {/* Metric 1: Total Revenue */}
+                      <div className="bg-slate-50/70 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Projected Revenue (Income)</span>
+                        <div className="text-base sm:text-lg font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+                          ₹{totalIncome.toLocaleString('en-IN')}
+                        </div>
+                        <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                          {selectedDemandPlan.customerPoNumber ? 'From Customer PO line rates' : 'From FG Selling Prices'}
+                        </span>
+                      </div>
+
+                      {/* Metric 2: Estimated Material Cost */}
+                      <div className="bg-slate-50/70 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Est. Material Shortage Cost</span>
+                        <div className="text-base sm:text-lg font-black font-mono text-slate-800 dark:text-slate-100 mt-0.5">
+                          ₹{totalEstExpense.toLocaleString('en-IN')}
+                        </div>
+                        <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                          Gross: ₹{totalGrossCost.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+
+                      {/* Metric 3: Committed PO Spend */}
+                      <div className="bg-slate-50/70 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Committed PO Spend</span>
+                        <div className={`text-base sm:text-lg font-black font-mono mt-0.5 ${
+                          isOverBudget ? 'text-rose-600' : 'text-indigo-600 dark:text-indigo-400'
+                        }`}>
+                          ₹{committedExpense.toLocaleString('en-IN')}
+                        </div>
+                        <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                          {targetExpense > 0 ? `${budgetUsagePct}% of Target Budget` : 'POs released against this MRP'}
+                        </span>
+                      </div>
+
+                      {/* Metric 4: Target Ceiling & Projected Margin */}
+                      <div className="bg-slate-50/70 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Target Budget</span>
+                          <span className="text-[10px] font-bold text-emerald-600">Margin: {marginPct.toFixed(1)}%</span>
+                        </div>
+                        <div className="text-base sm:text-lg font-black font-mono text-purple-600 dark:text-purple-400 mt-0.5">
+                          {targetExpense > 0 ? `₹${targetExpense.toLocaleString('en-IN')}` : 'Not Set'}
+                        </div>
+                        <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                          Est. Profit: ₹{profit.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Visual Budget Progress Bar */}
+                    {targetExpense > 0 && (
+                      <div className="space-y-1 pt-1">
+                        <div className="flex items-center justify-between text-[11px] font-bold">
+                          <span className="text-slate-600 dark:text-slate-300">
+                            Budget Utilization: <strong className="font-mono">₹{committedExpense.toLocaleString('en-IN')}</strong> / <span className="font-mono text-slate-400">₹{targetExpense.toLocaleString('en-IN')}</span>
+                          </span>
+                          <span className={`font-mono ${
+                            isOverBudget ? 'text-rose-600 font-black' : committedExpense >= targetExpense * 0.85 ? 'text-amber-600' : 'text-emerald-600'
+                          }`}>
+                            {budgetUsagePct}% {isOverBudget ? '(OVER LIMIT)' : ''}
+                          </span>
+                        </div>
+                        <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              isOverBudget 
+                                ? 'bg-rose-500' 
+                                : committedExpense >= targetExpense * 0.85 
+                                ? 'bg-amber-500' 
+                                : 'bg-gradient-to-r from-emerald-500 to-indigo-500'
+                            }`}
+                            style={{ width: `${Math.min(100, (committedExpense / targetExpense) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* FG Items Container (Isolated Scrollable Area) */}
+              <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+                {/* Desktop Table View */}
+                <div className="hidden md:block flex-1 min-h-0 overflow-auto scroll-smooth">
                   <table className="w-full min-w-[880px] text-xs text-left">
                     <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                       <tr>
                         <th className="p-3.5">Finished Good (FG) Item & Description</th>
                         <th className="p-3.5 text-center">BOM Number</th>
                         <th className="p-3.5 text-center">Target Quantity</th>
+                        <th className="p-3.5 text-right">Selling Rate</th>
+                        <th className="p-3.5 text-right">Total Revenue</th>
                         <th className="p-3.5 text-center">FG GRN Received</th>
                         <th className="p-3.5 text-center">Balance Remaining</th>
                         <th className="p-3.5 text-center">Completion Progress</th>
@@ -1363,7 +2051,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
                         return (
                           <tr key={fgIdx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
-                            {/* FG Name & Description */}
+                            {/* FG Name & Description (Strict rule compliance: AGENTS.md) */}
                             <td className="p-3.5">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <strong className="text-slate-900 dark:text-white block text-sm">{fg.fgItemName}</strong>
@@ -1397,6 +2085,33 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                             {/* Target Qty */}
                             <td className="p-3.5 text-center font-bold text-slate-800 dark:text-slate-200">
                               {fgQty} {fg.unit || 'PCS'}
+                            </td>
+
+                            {/* Selling Rate */}
+                            <td className="p-3.5 text-right font-mono font-bold text-slate-700 dark:text-slate-300">
+                              {fg.sellingPrice ? (
+                                <div>
+                                  <span>₹{Number(fg.sellingPrice).toLocaleString('en-IN')}</span>
+                                  {fg.priceSource && (
+                                    <span className="block text-[9px] text-slate-400 font-normal">
+                                      {fg.priceSource === 'customer_po' ? 'PO Line Rate' : 'FG Master'}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 font-normal">-</span>
+                              )}
+                            </td>
+
+                            {/* Total Revenue */}
+                            <td className="p-3.5 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
+                              {fg.totalPrice ? (
+                                `₹${Number(fg.totalPrice).toLocaleString('en-IN')}`
+                              ) : fg.sellingPrice ? (
+                                `₹${(Number(fg.sellingPrice) * fgQty).toLocaleString('en-IN')}`
+                              ) : (
+                                <span className="text-slate-400 font-normal">-</span>
+                              )}
                             </td>
 
                             {/* Received Qty */}
@@ -1463,6 +2178,112 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                       })}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Dedicated Native Mobile Cards View */}
+                <div className="md:hidden flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5 divide-y divide-slate-100 dark:divide-slate-800/80">
+                  {(selectedDemandPlan.fgItems || []).map((fg: any, fgIdx: number) => {
+                    const fgQty = Number(fg.quantity) || 1;
+                    const recQty = Number(fg.receivedQuantity) || 0;
+                    const balQty = Math.max(0, fgQty - recQty);
+                    const pct = Math.min(100, Math.round((recQty / fgQty) * 100));
+
+                    const allChildMats = [...(selectedDemandPlan.rmRequirements || []), ...(selectedDemandPlan.boRequirements || [])];
+                    const hasShortages = allChildMats.some((m: any) => m.shortage > 0);
+                    const isProcurementFulfilled = !hasShortages;
+
+                    return (
+                      <div
+                        key={fgIdx}
+                        className="bg-white dark:bg-slate-900/90 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-3.5 shadow-xs space-y-2.5"
+                      >
+                        {/* Header: FG Name, Description & BOM Number */}
+                        <div className="space-y-0.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <strong className="text-slate-900 dark:text-white text-sm font-bold block">
+                              {fg.fgItemName}
+                            </strong>
+                            <span className="font-mono text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg shrink-0">
+                              {fg.bomNumber || "BOM-Active"}
+                            </span>
+                          </div>
+                          {fg.description && (
+                            <span className="text-[11px] text-slate-500 italic block line-clamp-2">
+                              {fg.description}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Metrics Grid */}
+                        <div className="grid grid-cols-3 gap-2 text-center text-xs py-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
+                          <div>
+                            <div className="text-[9px] uppercase font-bold text-slate-400">Target</div>
+                            <div className="font-mono font-bold text-slate-800 dark:text-slate-200">{fgQty} {fg.unit || 'PCS'}</div>
+                          </div>
+                          <div>
+                            <div className="text-[9px] uppercase font-bold text-teal-600">Received</div>
+                            <div className="font-mono font-bold text-teal-600 dark:text-teal-400">{recQty} {fg.unit || 'PCS'}</div>
+                          </div>
+                          <div>
+                            <div className="text-[9px] uppercase font-bold text-amber-600">Balance</div>
+                            <div className="font-mono font-bold text-amber-600 dark:text-amber-400">{balQty} {fg.unit || 'PCS'}</div>
+                          </div>
+                        </div>
+
+                        {/* Financial Revenue Info */}
+                        {(fg.sellingPrice || fg.totalPrice) && (
+                          <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-emerald-50/60 dark:bg-emerald-950/40 rounded-xl border border-emerald-100 dark:border-emerald-900/60">
+                            <span className="text-slate-500 font-medium">Rate: <strong className="font-mono text-slate-800 dark:text-slate-200">₹{Number(fg.sellingPrice || 0).toLocaleString('en-IN')}</strong></span>
+                            <span className="text-emerald-700 dark:text-emerald-400 font-bold font-mono">
+                              Total: ₹{Number(fg.totalPrice || (Number(fg.sellingPrice || 0) * fgQty)).toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Progress Bar & Status */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[10px] font-bold">
+                            <span className="text-teal-600">{pct}% Completed</span>
+                            {isProcurementFulfilled ? (
+                              <span className="text-emerald-600 font-extrabold flex items-center gap-1">
+                                <CheckCircle2 size={11} /> Fulfilled
+                              </span>
+                            ) : (
+                              <span className="text-amber-600 font-extrabold flex items-center gap-1">
+                                <Clock size={11} /> Shortages Pending
+                              </span>
+                            )}
+                          </div>
+                          <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all ${
+                                pct >= 100 ? 'bg-emerald-500' : 'bg-gradient-to-r from-teal-500 to-indigo-500'
+                              }`} 
+                              style={{ width: `${pct}%` }} 
+                            />
+                          </div>
+                        </div>
+
+                        {/* Action: Move to Production */}
+                        {selectedDemandPlan.status !== 'In Production' && pct < 100 && (
+                          <div className="pt-1 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={(e) => handleMoveToProduction(selectedDemandPlan._id, e)}
+                              className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                isProcurementFulfilled 
+                                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs' 
+                                  : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                              }`}
+                            >
+                              <Play size={12} />
+                              <span>Move to Production</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

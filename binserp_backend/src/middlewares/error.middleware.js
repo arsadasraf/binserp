@@ -1,7 +1,14 @@
 import { ApiError } from "../utils/ApiError.js";
 
 export const globalErrorHandler = (err, req, res, next) => {
-  console.error("🔥 Global Error Handler:", err);
+  // Only log full stack trace for unhandled 5xx server crashes, log client errors cleanly
+  if (err instanceof ApiError && err.statusCode < 500) {
+    console.warn(`[Client ${err.statusCode}] ${err.message}`);
+  } else if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError") {
+    console.warn(`[Auth ${err.name}] ${err.message}`);
+  } else {
+    console.error("🔥 Global Error Handler:", err);
+  }
 
   // Handle custom ApiError
   if (err instanceof ApiError) {

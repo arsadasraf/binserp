@@ -7,6 +7,7 @@ import {
   deleteMRPPlan,
   updateMRPPlan,
   updateMRPPlanStatus,
+  updateMRPTargetExpense,
   updateMRPRequirementItemStatus,
   getMRPProcurementWorkbench,
   bulkGeneratePOFromMRP,
@@ -18,7 +19,8 @@ import {
   getAllMRPWipOverview,
   getAllSalesOrderMRPs,
   createIndentFromMRP,
-  createWorkOrderFromMRP
+  createWorkOrderFromMRP,
+  previewMRPBOMBudget
 } from "../controllers/mrp/index.js";
 
 const router = Router();
@@ -63,6 +65,9 @@ router.route("/work-order")
 router.route("/plan")
   .post(createMRPPlan);
 
+router.route("/preview-bom-budget")
+  .post(previewMRPBOMBudget);
+
 router.route("/plans")
   .get(getAllMRPPlans);
 
@@ -73,6 +78,9 @@ router.route("/plan/:id")
   .get(getMRPPlanById)
   .put(updateMRPPlan)
   .delete(deleteMRPPlan);
+
+router.route("/plan/:id/target-expense")
+  .put(updateMRPTargetExpense);
 
 router.route("/plan/:id/status")
   .put(updateMRPPlanStatus);

@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Search, Check, AlertCircle, Trash2, ArrowRight, ShieldCheck, Sparkles, Layers, ChevronDown, Boxes, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Search, Check, AlertCircle, Trash2, ArrowRight, ShieldCheck, Sparkles, Layers, ChevronDown, Boxes, RefreshCw, Unlink } from 'lucide-react';
 import { apiGet, apiPost, apiDelete } from '@/src/lib/api';
 import Swal from 'sweetalert2';
 
@@ -12,6 +12,8 @@ interface ConvertToPurchaseBucketModalProps {
   items?: any[];
   token: string;
   onSuccess: () => void;
+  mrpPlanId?: string;
+  mrpNumber?: string;
 }
 
 export default function ConvertToPurchaseBucketModal({
@@ -20,7 +22,9 @@ export default function ConvertToPurchaseBucketModal({
   item,
   items,
   token,
-  onSuccess
+  onSuccess,
+  mrpPlanId,
+  mrpNumber
 }: ConvertToPurchaseBucketModalProps) {
   // Normalize items array: either from `items` prop or single `item` prop
   const itemsList = useMemo(() => {
@@ -36,7 +40,8 @@ export default function ConvertToPurchaseBucketModal({
   const [eligibleItems, setEligibleItems] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTargetId, setSelectedTargetId] = useState<string>('');
-  const [isDefault, setIsDefault] = useState(true);
+  const [mappingScope, setMappingScope] = useState<'plan' | 'global'>(mrpPlanId ? 'plan' : 'global');
+  const [conversionFactorInput, setConversionFactorInput] = useState<string>('1');
   const [submitting, setSubmitting] = useState(false);
 
   const isBO = useMemo(() => {
@@ -48,6 +53,7 @@ export default function ConvertToPurchaseBucketModal({
   const sourceHasSecondaryUnit = Boolean(primaryItem?.hasSecondaryUnit && primaryItem?.secondaryUnit);
   const sourceSecondaryUnit = primaryItem?.secondaryUnit || '';
   const currentMapping = (!isBulk && primaryItem?.purchaseBucket) ? primaryItem.purchaseBucket : null;
+  const isDetachedForPlan = Boolean(primaryItem?.isDetachedForPlan);
 
   // Candidate units from the source item (either primary or secondary)
   const sourceUnits = useMemo(() => {
@@ -72,8 +78,16 @@ export default function ConvertToPurchaseBucketModal({
 
     if (currentMapping?.targetPurchaseItemId) {
       setSelectedTargetId(currentMapping.targetPurchaseItemId.toString());
+      setConversionFactorInput(String(currentMapping.conversionFactor || 1));
+      if (currentMapping.isPlanSpecific) {
+        setMappingScope('plan');
+      }
     } else {
       setSelectedTargetId('');
+      setConversionFactorInput('1');
+      if (mrpPlanId) {
+        setMappingScope('plan');
+      }
     }
 
     const fetchEligible = async () => {
@@ -104,7 +118,7 @@ export default function ConvertToPurchaseBucketModal({
     };
 
     fetchEligible();
-  }, [isOpen, itemsList, token, sourcePrimaryUnit, sourceHasSecondaryUnit, sourceSecondaryUnit, isBO, currentMapping]);
+  }, [isOpen, itemsList, token, sourcePrimaryUnit, sourceHasSecondaryUnit, sourceSecondaryUnit, isBO, currentMapping, mrpPlanId]);
 
   if (!isOpen || itemsList.length === 0) return null;
 
@@ -137,6 +151,21 @@ export default function ConvertToPurchaseBucketModal({
     return !itUnits.some((u: string) => targetUnits.includes(u));
   }) : false;
 
+  const parsedFactor = Math.max(0.000001, parseFloat(conversionFactorInput) || 1);
+  const rawGrossRequired = Number(primaryItem?.grossRequired || primaryItem?.requiredQuantity || 0);
+  const calculatedTargetDemand = Math.round(rawGrossRequired * parsedFactor * 1000) / 1000;
+
+  const handleSelectTarget = (targetItem: any) => {
+    setSelectedTargetId(targetItem._id);
+    if (!currentMapping || currentMapping.targetPurchaseItemId !== targetItem._id) {
+      if (targetItem.hasSecondaryUnit && Number(targetItem.conversionFactor) > 0) {
+        setConversionFactorInput(String(targetItem.conversionFactor));
+      } else {
+        setConversionFactorInput('1');
+      }
+    }
+  };
+
   const handleSaveMapping = async () => {
     if (!selectedTargetItem) {
       Swal.fire('Select Purchase Item', 'Please select a standard purchase item from the list to serve as the purchase bucket.', 'warning');
@@ -167,6 +196,8 @@ export default function ConvertToPurchaseBucketModal({
       const targetName = selectedTargetItem.name || selectedTargetItem.targetPurchaseItemName;
       const targetCode = selectedTargetItem.code || selectedTargetItem.targetPurchaseItemCode || '';
       const targetDesc = selectedTargetItem.description || selectedTargetItem.descriptions || selectedTargetItem.targetPurchaseItemDescription || '';
+      const effectivePlanId = mappingScope === 'plan' && mrpPlanId ? mrpPlanId : null;
+      const isDefault = mappingScope === 'global';
 
       if (isBulk) {
         // Bulk mapping API call
@@ -180,21 +211,22 @@ export default function ConvertToPurchaseBucketModal({
             unit: it.unit,
             hasSecondaryUnit: Boolean(it.hasSecondaryUnit && it.secondaryUnit),
             secondaryUnit: it.secondaryUnit || '',
-            conversionFactor: Number(it.conversionFactor) || 1
+            conversionFactor: parsedFactor
           })),
           targetPurchaseItemId: targetId,
           targetPurchaseItemType: isBO ? 'BO' : 'RM',
           targetPurchaseItemName: targetName,
           targetPurchaseItemCode: targetCode,
           targetPurchaseItemDescription: targetDesc,
-          isDefault
+          isDefault,
+          mrpPlanId: effectivePlanId
         };
 
         await apiPost('/api/purchase/mrp/bulk-map-to-purchase-bucket', payload, token);
         Swal.fire({
           icon: 'success',
           title: 'Purchase Bucket Mapped!',
-          text: `${itemsList.length} item(s) have been successfully mapped to Purchase Bucket "${targetName}".`,
+          text: `${itemsList.length} item(s) have been mapped to Purchase Bucket "${targetName}" (${effectivePlanId ? `MRP: ${mrpNumber || 'This Plan'}` : 'Global Default'}).`,
           timer: 2500,
           showConfirmButton: false
         });
@@ -216,8 +248,9 @@ export default function ConvertToPurchaseBucketModal({
           primaryUnit: sourcePrimaryUnit,
           hasSecondaryUnit: sourceHasSecondaryUnit,
           secondaryUnit: sourceSecondaryUnit,
-          conversionFactor: Number(selectedTargetItem.conversionFactor || primaryItem.conversionFactor || 1),
-          isDefault
+          conversionFactor: parsedFactor,
+          isDefault,
+          mrpPlanId: effectivePlanId
         };
 
         const res = await apiPost('/api/purchase/mrp/map-to-purchase-bucket', payload, token);
@@ -225,7 +258,7 @@ export default function ConvertToPurchaseBucketModal({
           Swal.fire({
             icon: 'success',
             title: 'Purchase Bucket Mapped!',
-            text: `"${primaryItem.materialName || 'Item'}" will now be purchased under "${targetName}".`,
+            text: `"${primaryItem.materialName || 'Item'}" will now be purchased under "${targetName}" (${effectivePlanId ? `MRP: ${mrpNumber || 'This Plan'}` : 'Global Default'}).`,
             timer: 2500,
             showConfirmButton: false
           });
@@ -242,9 +275,12 @@ export default function ConvertToPurchaseBucketModal({
   };
 
   const handleUnmap = async () => {
+    const isPlanOnly = mappingScope === 'plan' && mrpPlanId;
     const confirmResult = await Swal.fire({
-      title: 'Remove Purchase Bucket Mapping?',
-      text: `"${primaryItem.materialName || 'This item'}" will revert to being purchased directly as an individual item.`,
+      title: isPlanOnly ? 'Remove MRP-Specific Mapping?' : 'Remove Purchase Bucket Mapping?',
+      text: isPlanOnly
+        ? `Remove specific mapping for "${primaryItem.materialName || 'This item'}" in ${mrpNumber || 'this MRP'}? It will fall back to the global default bucket or direct procurement.`
+        : `"${primaryItem.materialName || 'This item'}" will revert to being purchased directly as an individual item across all plans.`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonText: 'Yes, Remove Mapping',
@@ -256,11 +292,14 @@ export default function ConvertToPurchaseBucketModal({
     setSubmitting(true);
     try {
       const mapId = currentMapping?.mappingId || primaryItem.materialId || primaryItem._id;
-      await apiDelete(`/api/purchase/mrp/unmap-purchase-bucket/${mapId}`, token);
+      const url = isPlanOnly 
+        ? `/api/purchase/mrp/unmap-purchase-bucket/${mapId}?mrpPlanId=${mrpPlanId}`
+        : `/api/purchase/mrp/unmap-purchase-bucket/${mapId}`;
+      await apiDelete(url, token);
       Swal.fire({
         icon: 'success',
         title: 'Mapping Removed',
-        text: 'Item reverted to direct procurement.',
+        text: 'Purchase bucket mapping removed.',
         timer: 2000,
         showConfirmButton: false
       });
@@ -269,6 +308,50 @@ export default function ConvertToPurchaseBucketModal({
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || "Failed to remove mapping.";
       Swal.fire('Error', msg, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDetachFromPlan = async () => {
+    if (!mrpPlanId) return;
+
+    const confirmResult = await Swal.fire({
+      title: 'Detach from Bucket for This MRP?',
+      html: `Do you want to detach <b>${primaryItem.materialName || 'this item'}</b> specifically for <b>${mrpNumber || 'this MRP plan'}</b>?<br/><br/><div class="text-xs text-left p-2.5 bg-amber-50 rounded-lg text-amber-900 border border-amber-200">In <b>${mrpNumber || 'this MRP'}</b>, this item will be purchased directly as its native blank/cut-size without merging into any purchase bucket. Other MRP plans will continue using their mapped commercial purchase bucket.</div>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Detach for this MRP',
+      confirmButtonColor: '#d97706',
+      cancelButtonText: 'Keep Bucket'
+    });
+
+    if (!confirmResult.isConfirmed) return;
+
+    setSubmitting(true);
+    try {
+      const payload = {
+        sourceItemId: primaryItem.materialId || primaryItem._id,
+        mrpPlanId,
+        sourceItemName: primaryItem.materialName || primaryItem.name,
+        sourceItemCode: primaryItem.materialCode || primaryItem.code || '',
+        sourceItemDescription: primaryItem.description || '',
+        sourceItemType: isBO ? 'BO' : 'RM'
+      };
+
+      await apiPost('/api/purchase/mrp/detach-purchase-bucket', payload, token);
+      Swal.fire({
+        icon: 'success',
+        title: 'Item Detached for this MRP!',
+        text: `"${primaryItem.materialName || 'Item'}" is now detached specifically for ${mrpNumber || 'this MRP plan'} and will be procured directly.`,
+        timer: 2500,
+        showConfirmButton: false
+      });
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || "Failed to detach item from purchase bucket.";
+      Swal.fire('Detach Error', msg, 'error');
     } finally {
       setSubmitting(false);
     }
@@ -291,9 +374,14 @@ export default function ConvertToPurchaseBucketModal({
                 {isBulk 
                   ? `Send ${itemsList.length} Items to Purchase ${isBO ? 'Bought-Out' : 'Raw Material'} Bucket`
                   : `Convert to Purchase ${isBO ? 'Bought-Out' : 'Raw Material'} Bucket`}
+                {mrpNumber && (
+                  <span className="text-xs px-2 py-0.5 rounded-full font-mono font-semibold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                    {mrpNumber}
+                  </span>
+                )}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Consolidate cut sizes or custom blanks into a standard commercial purchase item for unified RFQ & PO release.
+                Consolidate cut sizes or custom blanks into a standard commercial purchase item for unified RFQ & PO release. Mappings can be MRP-specific or global.
               </p>
             </div>
           </div>
@@ -310,9 +398,19 @@ export default function ConvertToPurchaseBucketModal({
         <div className="p-4 sm:p-6 overflow-y-auto flex-1">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
             
-            {/* LEFT COLUMN: Source BOM Cut-Sizes & Combined Demand Overview */}
+            {/* LEFT COLUMN: Source BOM Cut-Sizes & Scope / Conversion Config */}
             <div className="lg:col-span-5 flex flex-col gap-4">
               
+              {/* Detached Notice if active */}
+              {isDetachedForPlan && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/50 rounded-xl border border-amber-300 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5 shadow-2xs">
+                  <Unlink className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Currently Detached for {mrpNumber || 'this MRP'}:</span> This item is procured directly as an individual item in this plan. Selecting a target bucket below will re-bind it to a bucket.
+                  </div>
+                </div>
+              )}
+
               {/* Unit Mismatch Warning (if any in bulk) */}
               {unitMismatches.length > 0 && (
                 <div className="p-3 bg-rose-50 dark:bg-rose-950/50 rounded-xl border border-rose-200 dark:border-rose-900/60 text-xs text-rose-800 dark:text-rose-200 flex items-start gap-2.5">
@@ -435,29 +533,137 @@ export default function ConvertToPurchaseBucketModal({
                 </div>
               )}
 
+              {/* Scope Selector: MRP Specific vs. Global Default */}
+              {mrpPlanId ? (
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                      Conversion Scope
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-medium">Choose application level</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setMappingScope('plan')}
+                      className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                        mappingScope === 'plan'
+                          ? 'bg-indigo-50/90 border-indigo-500 text-indigo-900 dark:bg-indigo-950/80 dark:border-indigo-500 dark:text-indigo-200 font-bold shadow-xs'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span>⚡</span>
+                        <span className="truncate">{mrpNumber || 'This MRP Plan'}</span>
+                      </div>
+                      <div className="text-[10px] font-normal text-slate-500 dark:text-slate-400 mt-1 leading-tight">
+                        Applies only to this MRP plan. Detachable anytime.
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setMappingScope('global')}
+                      className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                        mappingScope === 'global'
+                          ? 'bg-indigo-50/90 border-indigo-500 text-indigo-900 dark:bg-indigo-950/80 dark:border-indigo-500 dark:text-indigo-200 font-bold shadow-xs'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span>🌐</span>
+                        <span>Global Default</span>
+                      </div>
+                      <div className="text-[10px] font-normal text-slate-500 dark:text-slate-400 mt-1 leading-tight">
+                        Default for all current & future MRP plans.
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-xs text-slate-600 dark:text-slate-400 flex items-center gap-2">
+                  <span>🌐</span>
+                  <span><strong>Global Default Mapping:</strong> This will apply across all MRP procurement plans.</span>
+                </div>
+              )}
+
+              {/* Conversion Factor & Live Preview (When target is selected) */}
+              {selectedTargetItem && (
+                <div className="p-3.5 bg-gradient-to-br from-indigo-50/70 via-purple-50/40 to-slate-50/80 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-slate-900/60 rounded-xl border border-indigo-200/90 dark:border-indigo-800/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <span>📐 Conversion Ratio (Multiplier)</span>
+                    </label>
+                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
+                      1 {sourcePrimaryUnit} = {conversionFactorInput || '1'} {selectedTargetItem.unit || sourcePrimaryUnit}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.000001"
+                        value={conversionFactorInput}
+                        onChange={e => setConversionFactorInput(e.target.value)}
+                        placeholder="1.0"
+                        className="w-full px-3 py-1.5 text-xs font-mono font-bold bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0">
+                      {selectedTargetItem.unit || sourcePrimaryUnit} per {sourcePrimaryUnit}
+                    </div>
+                  </div>
+
+                  {/* Preset quick buttons */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] text-slate-400">Quick:</span>
+                    {[1, 0.5, 0.25, 0.2, 0.1].map(q => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => setConversionFactorInput(String(q))}
+                        className={`px-1.5 py-0.5 text-[10px] font-mono rounded border transition-colors cursor-pointer ${
+                          conversionFactorInput === String(q)
+                            ? 'bg-indigo-600 text-white border-indigo-600 font-bold'
+                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-indigo-50'
+                        }`}
+                      >
+                        {q}x
+                      </button>
+                    ))}
+                    {selectedTargetItem.hasSecondaryUnit && Number(selectedTargetItem.conversionFactor) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setConversionFactorInput(String(selectedTargetItem.conversionFactor))}
+                        className="px-1.5 py-0.5 text-[10px] font-mono rounded border bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800 hover:bg-purple-100 cursor-pointer"
+                        title="Master Secondary Conversion Ratio"
+                      >
+                        Master Ratio ({selectedTargetItem.conversionFactor}x)
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Live Conversion Math Calculation Preview */}
+                  <div className="p-2 bg-white/90 dark:bg-slate-900/90 rounded-lg border border-indigo-100 dark:border-indigo-900/60 text-xs flex items-center justify-between shadow-2xs">
+                    <span className="text-slate-600 dark:text-slate-400 text-[11px]">Converted Bucket Demand:</span>
+                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs sm:text-sm">
+                      {rawGrossRequired} {sourcePrimaryUnit} × {conversionFactorInput || '1'} = {calculatedTargetDemand} {selectedTargetItem.unit || sourcePrimaryUnit}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Unit Compatibility Guidance Card */}
               <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl border border-amber-200/90 dark:border-amber-900/60 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
                 <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                 <div className="space-y-1">
                   <div className="font-bold">Flexible Unit Matching Active:</div>
                   <div className="text-[11px] leading-relaxed text-amber-800 dark:text-amber-300">
-                    Commercial purchasable items that share <strong>at least one unit</strong> (Primary: <strong className="font-mono">{sourcePrimaryUnit}</strong>{sourceHasSecondaryUnit ? <> or Secondary: <strong className="font-mono">{sourceSecondaryUnit}</strong></> : ''}) are eligible. This allows procuring raw material sheets/pipes and consuming in cut-size quantities without unit errors.
+                    Commercial purchasable items that share <strong>at least one unit</strong> (Primary: <strong className="font-mono">{sourcePrimaryUnit}</strong>{sourceHasSecondaryUnit ? <> or Secondary: <strong className="font-mono">{sourceSecondaryUnit}</strong></> : ''}) are eligible.
                   </div>
                 </div>
-              </div>
-
-              {/* Default Mapping Checkbox */}
-              <div className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
-                <input
-                  type="checkbox"
-                  id="isDefaultMappingCheckbox"
-                  checked={isDefault}
-                  onChange={e => setIsDefault(e.target.checked)}
-                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
-                />
-                <label htmlFor="isDefaultMappingCheckbox" className="text-xs text-slate-700 dark:text-slate-300 cursor-pointer select-none">
-                  Save as default purchase bucket mapping for future MRP plans
-                </label>
               </div>
 
             </div>
@@ -558,7 +764,7 @@ export default function ConvertToPurchaseBucketModal({
                     return (
                       <div
                         key={elItem._id}
-                        onClick={() => setSelectedTargetId(elItem._id)}
+                        onClick={() => handleSelectTarget(elItem)}
                         className={`p-3 transition-colors cursor-pointer flex items-center justify-between gap-3 ${
                           isSelected 
                             ? 'bg-indigo-50/90 dark:bg-indigo-950/70 border-l-4 border-indigo-600' 
@@ -599,7 +805,7 @@ export default function ConvertToPurchaseBucketModal({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setSelectedTargetId(elItem._id);
+                                handleSelectTarget(elItem);
                               }}
                               className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-indigo-50 hover:border-indigo-300 dark:hover:bg-indigo-950/60 dark:hover:border-indigo-800 hover:text-indigo-600 transition-colors cursor-pointer"
                             >
@@ -619,14 +825,27 @@ export default function ConvertToPurchaseBucketModal({
         </div>
 
         {/* Footer */}
-        <div className="p-4 sm:p-5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/50">
-          <div>
+        <div className="p-4 sm:p-5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/50 flex-wrap">
+          <div className="flex items-center gap-2">
+            {!isBulk && mrpPlanId && (currentMapping || primaryItem?.materialPlanningStatus === 'In Purchase Bucket') && !isDetachedForPlan && (
+              <button
+                type="button"
+                onClick={handleDetachFromPlan}
+                disabled={submitting}
+                className="px-3.5 py-2 text-xs font-bold text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/60 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40"
+                title={`Detach from purchase bucket specifically for ${mrpNumber || 'this MRP plan'}`}
+              >
+                <Unlink className="w-3.5 h-3.5" />
+                <span>Detach (This MRP Only)</span>
+              </button>
+            )}
+
             {!isBulk && currentMapping && (
               <button
                 type="button"
                 onClick={handleUnmap}
                 disabled={submitting}
-                className="px-3.5 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 border border-rose-200 dark:border-rose-900/60"
+                className="px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 border border-rose-200 dark:border-rose-900/60"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Remove Bucket</span>

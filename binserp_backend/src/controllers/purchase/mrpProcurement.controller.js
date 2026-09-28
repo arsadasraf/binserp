@@ -63,7 +63,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
   // Fetch Open Purchase Orders (to calculate In-Transit Stock)
   const openPOs = await PurchaseOrder.find({
     company: companyId,
-    status: { $in: ["Approved", "Sent to Vendor", "Partially Received", "Ordered"] }
+    status: { $in: ["Draft", "Released", "Approved", "Sent to Vendor", "Partially Received", "Ordered"] }
   }).populate("vendor", "name code email phone");
 
   // Build In-Transit PO Quantities Map
@@ -71,33 +71,75 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
   openPOs.forEach(po => {
     (po.items || []).forEach(item => {
       const pendingQty = Number(item.pendingQuantity ?? (item.quantity - (item.receivedQuantity || 0))) || 0;
-      if (pendingQty > 0) {
+      if (pendingQty > 0 || po.status === "Draft" || po.status === "Released") {
         const nameK = cleanStr(item.materialName || item.itemName);
         const codeK = cleanStr(item.materialCode || item.itemCode);
+        const matIdK = item.material ? String(item.material) : null;
 
         const poInfo = {
           poId: po._id,
           poNumber: po.poNumber,
+          mrpPlanId: po.mrpPlanId ? String(po.mrpPlanId) : null,
+          mrpNumber: po.mrpNumber || null,
           vendorName: po.vendorName || po.vendor?.name || "Vendor",
           orderedQty: item.quantity,
           receivedQty: item.receivedQuantity || 0,
-          pendingQty: pendingQty,
+          pendingQty: pendingQty > 0 ? pendingQty : item.quantity,
           unit: item.unit || "PCS",
           rate: item.rate || 0,
           expectedDate: item.expectedDeliveryDate || po.expectedDeliveryDate
         };
 
-        [nameK, codeK, cleanKey(nameK), cleanKey(codeK)].filter(Boolean).forEach(k => {
+        [nameK, codeK, cleanKey(nameK), cleanKey(codeK), matIdK].filter(Boolean).forEach(k => {
           if (!inTransitMap.has(k)) {
             inTransitMap.set(k, { totalInTransit: 0, poList: [] });
           }
           const entry = inTransitMap.get(k);
-          entry.totalInTransit += pendingQty;
-          entry.poList.push(poInfo);
+          if (pendingQty > 0) entry.totalInTransit += pendingQty;
+          if (!entry.poList.some(p => p.poNumber === po.poNumber)) {
+            entry.poList.push(poInfo);
+          }
         });
       }
     });
   });
+
+  // Helper to extract in-transit information strictly scoped to a specific plan (or general unassigned store stock)
+  const getInTransitForPlan = (keys, pId, pMrpNo) => {
+    let totalInTransit = 0;
+    const poList = [];
+    const pIdStr = pId ? String(pId) : null;
+    const isPlanScoped = Boolean(pIdStr || pMrpNo);
+
+    keys.filter(Boolean).forEach(k => {
+      const entry = inTransitMap.get(k);
+      if (entry && Array.isArray(entry.poList)) {
+        entry.poList.forEach(po => {
+          const isThisPlan = (pIdStr && po.mrpPlanId && String(po.mrpPlanId) === pIdStr) ||
+                             (pMrpNo && po.mrpNumber && po.mrpNumber === pMrpNo);
+
+          // If querying for a specific plan, ONLY include POs raised specifically for this plan!
+          // Unassigned / foreign POs from other MRPs must NEVER reduce shortage or appear in this plan.
+          if (isPlanScoped) {
+            if (isThisPlan) {
+              if (!poList.some(p => p.poNumber === po.poNumber)) {
+                poList.push(po);
+                totalInTransit += po.pendingQty;
+              }
+            }
+          } else {
+            // Top-level company-wide summary view
+            if (!poList.some(p => p.poNumber === po.poNumber)) {
+              poList.push(po);
+              totalInTransit += po.pendingQty;
+            }
+          }
+        });
+      }
+    });
+
+    return { totalInTransit, poList };
+  };
 
   // Fetch ALL live stock masters and inventory records in parallel
   const [
@@ -539,7 +581,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
   };
 
   // Helper to process material item with LIVE stock lookup
-  const processMaterialInfo = (name, code, reqQty, unit, rawItemType, rawCategory, parentMRP, level, planRmKeys, planBoKeys, existingStatus, rawDescription) => {
+  const processMaterialInfo = (name, code, reqQty, unit, rawItemType, rawCategory, parentMRP, level, planRmKeys, planBoKeys, existingStatus, rawDescription, poNumber = "", rfqNumber = "", planId = null) => {
     const nKey = cleanStr(name);
     const cKey = cleanStr(code);
 
@@ -554,15 +596,8 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         baseRate: 0
       };
 
-    // In-Transit POs
-    const inTransitInfo = 
-      inTransitMap.get(cKey) || 
-      inTransitMap.get(nKey) || 
-      inTransitMap.get(cleanKey(cKey)) || 
-      inTransitMap.get(cleanKey(nKey)) || {
-        totalInTransit: 0,
-        poList: []
-      };
+    // In-Transit POs: strictly scoped to this plan + general inventory replenishment
+    const inTransitInfo = getInTransitForPlan([cKey, nKey, cleanKey(cKey), cleanKey(nKey)], planId, parentMRP);
 
     // Best Vendor Quote
     const vendorQuotes = 
@@ -631,7 +666,9 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       estimatedRate: bestVendor?.rate || stockInfo.baseRate || 0,
       estimatedValue: netShortage * (bestVendor?.rate || stockInfo.baseRate || 0),
       parentMRP: parentMRP || "",
-      status: existingStatus || "Pending"
+      status: existingStatus || "Pending",
+      poNumber: poNumber || "",
+      rfqNumber: rfqNumber || ""
     };
   };
 
@@ -641,6 +678,165 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
   const componentMap = new Map();
   const subAssemblyMap = new Map();
   const assemblyMap = new Map();
+  // Build map of committed PO amounts per MRP Plan
+  const poCommittedByPlan = new Map();
+  (openPOs || []).forEach(po => {
+    const amt = Number(po.grandTotal != null ? po.grandTotal : (po.totalAmount != null ? po.totalAmount : 0)) || 0;
+    if (po.mrpPlanId) {
+      const idStr = String(po.mrpPlanId);
+      poCommittedByPlan.set(idStr, (poCommittedByPlan.get(idStr) || 0) + amt);
+    }
+    if (po.mrpNumber) {
+      poCommittedByPlan.set(po.mrpNumber, (poCommittedByPlan.get(po.mrpNumber) || 0) + amt);
+    }
+  });
+
+  // Fetch active purchase item mappings for this company
+  const PurchaseItemMapping = req.getModel("PurchaseItemMapping", purchaseItemMappingSchema);
+  const activeMappings = await PurchaseItemMapping.find({ company: companyId }).lean();
+
+  const planSpecificMappingById = new Map();
+  const planSpecificMappingByKey = new Map();
+  const globalDefaultMappingById = new Map();
+  const globalDefaultMappingByKey = new Map();
+
+  activeMappings.forEach(m => {
+    const sId = m.sourceItemId ? m.sourceItemId.toString() : null;
+    const planId = m.mrpPlanId ? m.mrpPlanId.toString() : null;
+    const sName = cleanStr(m.sourceItemName);
+    const sCode = cleanStr(m.sourceItemCode);
+
+    if (planId) {
+      if (sId) planSpecificMappingById.set(`${sId}_${planId}`, m);
+      if (sName) planSpecificMappingByKey.set(`${sName}_${planId}`, m);
+      if (sCode) planSpecificMappingByKey.set(`${sCode}_${planId}`, m);
+    } else {
+      if (sId) globalDefaultMappingById.set(sId, m);
+      if (sName) globalDefaultMappingByKey.set(sName, m);
+      if (sCode) globalDefaultMappingByKey.set(sCode, m);
+    }
+  });
+
+  const resolveItemMapping = (item, explicitPlanId = null) => {
+    const sId = (item.materialId || item._id) ? (item.materialId || item._id).toString() : null;
+    const sName = cleanStr(item.materialName || item.name);
+    const sCode = cleanStr(item.materialCode || item.code);
+
+    const planId = explicitPlanId || (mrpId && mrpId !== "all" ? String(mrpId) : (item.mrpSources?.length === 1 ? String(item.mrpSources[0].mrpId) : null));
+
+    if (planId) {
+      const planMapping = (sId && planSpecificMappingById.get(`${sId}_${planId}`)) ||
+                          (sName && planSpecificMappingByKey.get(`${sName}_${planId}`)) ||
+                          (sCode && planSpecificMappingByKey.get(`${sCode}_${planId}`));
+      if (planMapping) {
+        if (planMapping.isDetached) {
+          return {
+            isDetached: true,
+            isPlanSpecific: true,
+            mrpPlanId: planId,
+            mappingId: planMapping._id,
+            purchaseBucket: null
+          };
+        }
+        return {
+          isDetached: false,
+          isPlanSpecific: true,
+          mrpPlanId: planId,
+          mappingId: planMapping._id,
+          purchaseBucket: {
+            mappingId: planMapping._id,
+            targetPurchaseItemId: planMapping.targetPurchaseItemId,
+            targetPurchaseItemType: planMapping.targetPurchaseItemType,
+            targetPurchaseItemName: planMapping.targetPurchaseItemName,
+            targetPurchaseItemCode: planMapping.targetPurchaseItemCode,
+            targetPurchaseItemDescription: planMapping.targetPurchaseItemDescription || "",
+            primaryUnit: planMapping.primaryUnit,
+            secondaryUnit: planMapping.secondaryUnit,
+            hasSecondaryUnit: Boolean(planMapping.hasSecondaryUnit),
+            conversionFactor: Number(planMapping.conversionFactor) || 1,
+            isPlanSpecific: true,
+            mrpPlanId: planId
+          }
+        };
+      }
+
+      // If no plan-specific mapping exists for this MRP plan:
+      // Do NOT auto-lock this MRP into a global purchase bucket!
+      // Return null purchaseBucket so the item starts clean as its own RM / BO,
+      // and planners can explicitly convert it for this MRP or keep it individual!
+      return {
+        isDetached: false,
+        isPlanSpecific: false,
+        mrpPlanId: null,
+        mappingId: null,
+        purchaseBucket: null
+      };
+    }
+
+    const globalMapping = (sId && globalDefaultMappingById.get(sId)) ||
+                          (sName && globalDefaultMappingByKey.get(sName)) ||
+                          (sCode && globalDefaultMappingByKey.get(sCode));
+
+    if (globalMapping && !globalMapping.isDetached) {
+      return {
+        isDetached: false,
+        isPlanSpecific: false,
+        mrpPlanId: null,
+        mappingId: globalMapping._id,
+        purchaseBucket: {
+          mappingId: globalMapping._id,
+          targetPurchaseItemId: globalMapping.targetPurchaseItemId,
+          targetPurchaseItemType: globalMapping.targetPurchaseItemType,
+          targetPurchaseItemName: globalMapping.targetPurchaseItemName,
+          targetPurchaseItemCode: globalMapping.targetPurchaseItemCode,
+          targetPurchaseItemDescription: globalMapping.targetPurchaseItemDescription || "",
+          primaryUnit: globalMapping.primaryUnit,
+          secondaryUnit: globalMapping.secondaryUnit,
+          hasSecondaryUnit: Boolean(globalMapping.hasSecondaryUnit),
+          conversionFactor: Number(globalMapping.conversionFactor) || 1,
+          isPlanSpecific: false,
+          mrpPlanId: null
+        }
+      };
+    }
+
+    return {
+      isDetached: false,
+      isPlanSpecific: false,
+      mrpPlanId: null,
+      mappingId: null,
+      purchaseBucket: null
+    };
+  };
+
+  const attachBucketInfo = (item, explicitPlanId = null) => {
+    const resolved = resolveItemMapping(item, explicitPlanId);
+    if (resolved.isDetached) {
+      return {
+        ...item,
+        isDetachedForPlan: true,
+        planSpecificMappingId: resolved.mappingId,
+        purchaseBucket: null
+      };
+    }
+    if (resolved.purchaseBucket) {
+      let pStatus = item.materialPlanningStatus;
+      if (!pStatus || pStatus === 'Not Planned' || pStatus === 'Pending') {
+        pStatus = 'In Purchase Bucket';
+      }
+      return {
+        ...item,
+        materialPlanningStatus: pStatus,
+        isDetachedForPlan: false,
+        purchaseBucket: resolved.purchaseBucket
+      };
+    }
+    return {
+      ...item,
+      isDetachedForPlan: false,
+      purchaseBucket: null
+    };
+  };
 
   // 2. Build Nested BOM Tree per MRP Plan
   const mrpTreeList = activeMrpPlans.map(plan => {
@@ -651,31 +847,55 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     const planRmKeys = new Set((plan.rmRequirements || []).flatMap(r => [cleanStr(r.materialName), cleanStr(r.materialCode)]).filter(Boolean));
     const planBoKeys = new Set((plan.boRequirements || []).flatMap(b => [cleanStr(b.materialName), cleanStr(b.materialCode)]).filter(Boolean));
 
+    // PO numbers valid specifically for this plan
+    const validPlanPoNumbers = new Set(
+      openPOs
+        .filter(po => (po.mrpPlanId && String(po.mrpPlanId) === String(plan._id)) || (po.mrpNumber && po.mrpNumber === plan.mrpNumber))
+        .map(po => po.poNumber)
+    );
+
+    let planNeedsSanitization = false;
     const planStatusMap = new Map();
-    (plan.rmRequirements || []).forEach(r => {
-      if (r.status) {
-        planStatusMap.set(cleanStr(r.materialName), r.status);
-        planStatusMap.set(cleanStr(r.materialCode), r.status);
-      }
-    });
-    (plan.boRequirements || []).forEach(b => {
-      if (b.status) {
-        planStatusMap.set(cleanStr(b.materialName), b.status);
-        planStatusMap.set(cleanStr(b.materialCode), b.status);
-      }
-    });
-    (plan.subAssemblyRequirements || []).forEach(s => {
-      if (s.status) {
-        planStatusMap.set(cleanStr(s.materialName), s.status);
-        planStatusMap.set(cleanStr(s.materialCode), s.status);
-      }
-    });
-    (plan.consumableRequirements || []).forEach(c => {
-      if (c.status) {
-        planStatusMap.set(cleanStr(c.materialName), c.status);
-        planStatusMap.set(cleanStr(c.materialCode), c.status);
-      }
-    });
+    const planPoMap = new Map();
+    const planRfqMap = new Map();
+
+    const registerReqTracking = (reqList) => {
+      (reqList || []).forEach(r => {
+        const k1 = cleanStr(r.materialName);
+        const k2 = cleanStr(r.materialCode);
+
+        // Sanitize legacy cross-plan PO contamination
+        let effectivePo = r.poNumber || "";
+        let effectiveStatus = r.status || "Pending";
+        if (effectivePo && !validPlanPoNumbers.has(effectivePo)) {
+          effectivePo = "";
+          r.poNumber = "";
+          if (effectiveStatus === "PO Raised" || effectiveStatus === "PO Sent") {
+            effectiveStatus = "Pending";
+            r.status = "Pending";
+          }
+          planNeedsSanitization = true;
+        }
+
+        if (effectiveStatus) {
+          planStatusMap.set(k1, effectiveStatus);
+          if (k2) planStatusMap.set(k2, effectiveStatus);
+        }
+        if (effectivePo) {
+          planPoMap.set(k1, effectivePo);
+          if (k2) planPoMap.set(k2, effectivePo);
+        }
+        if (r.rfqNumber) {
+          planRfqMap.set(k1, r.rfqNumber);
+          if (k2) planRfqMap.set(k2, r.rfqNumber);
+        }
+      });
+    };
+
+    registerReqTracking(plan.rmRequirements);
+    registerReqTracking(plan.boRequirements);
+    registerReqTracking(plan.subAssemblyRequirements);
+    registerReqTracking(plan.consumableRequirements);
 
     const fgItemsTree = (plan.fgItems || []).map(fg => {
       const fgQty = Number(fg.quantity) || 1;
@@ -691,6 +911,19 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       const rawFGType = fgType === "Sub Assembly" ? "SubAssembly" : fgType;
       const rawFGCat = fgType === "Sub Assembly" ? "Sub Assembly" : (fgType === "Component" ? "In-House Component" : "Finished Good / Assembly");
 
+      // Sanitize root FG poNumber
+      const rawFGPo = fg.poNumber || "";
+      const validFGPo = validPlanPoNumbers.has(rawFGPo) ? rawFGPo : "";
+      let validFGStatus = fg.status || "Pending";
+      if (rawFGPo && !validFGPo) {
+        fg.poNumber = "";
+        if (validFGStatus === "PO Raised" || validFGStatus === "PO Sent") {
+          validFGStatus = "Pending";
+          fg.status = "Pending";
+        }
+        planNeedsSanitization = true;
+      }
+
       // Register root FG into appropriate map
       const fgClassification = processMaterialInfo(
         fg.fgItemName,
@@ -703,8 +936,11 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         1,
         planRmKeys,
         planBoKeys,
-        fg.status || "Pending",
-        fg.description || fgDoc?.description || fgDoc?.descriptions || ""
+        validFGStatus,
+        fg.description || fgDoc?.description || fgDoc?.descriptions || "",
+        validFGPo,
+        fg.rfqNumber || "",
+        plan._id
       );
 
       let fgTargetMap = assemblyMap;
@@ -713,10 +949,12 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
 
       const fgK = fgClassification.materialKey;
       if (!fgTargetMap.has(fgK)) {
-        fgTargetMap.set(fgK, { ...fgClassification, grossRequired: 0, mrpSources: [] });
+        fgTargetMap.set(fgK, { ...fgClassification, grossRequired: 0, mrpSources: [], poNumbers: new Set(), rfqNumbers: new Set() });
       }
       const fgEntry = fgTargetMap.get(fgK);
       fgEntry.grossRequired += fgQty;
+      if (fgClassification.poNumber) fgEntry.poNumbers.add(fgClassification.poNumber);
+      if (fgClassification.rfqNumber) fgEntry.rfqNumbers.add(fgClassification.rfqNumber);
       if (fgEntry.hasSecondaryUnit) {
         fgEntry.secondaryGrossRequired = Math.round(fgEntry.grossRequired * fgEntry.conversionFactor * 1000) / 1000;
         fgEntry.secondaryNetShortage = Math.round(fgEntry.netShortage * fgEntry.conversionFactor * 1000) / 1000;
@@ -735,7 +973,23 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       // Group nested materials by level and parent
       const nestedList = (fg.nestedMaterials || []).map(nMat => {
         const nQty = Number(nMat.totalRequired) || (Number(nMat.quantityPerFG) * fgQty) || 1;
-        const matStatus = nMat.status || planStatusMap.get(cleanStr(nMat.materialName)) || planStatusMap.get(cleanStr(nMat.materialCode)) || "Pending";
+
+        // Sanitize: Only accept poNumber if it actually belongs to this plan!
+        const rawNMatPo = nMat.poNumber || "";
+        const validNMatPo = validPlanPoNumbers.has(rawNMatPo) ? rawNMatPo : "";
+        let rawNMatStatus = nMat.status || "Pending";
+        if (rawNMatPo && !validNMatPo) {
+          nMat.poNumber = "";
+          if (rawNMatStatus === "PO Raised" || rawNMatStatus === "PO Sent") {
+            rawNMatStatus = "Pending";
+            nMat.status = "Pending";
+          }
+          planNeedsSanitization = true;
+        }
+
+        const matPoNumber = validNMatPo || planPoMap.get(cleanStr(nMat.materialName)) || planPoMap.get(cleanStr(nMat.materialCode)) || "";
+        const matStatus = (matPoNumber ? "PO Raised" : null) || rawNMatStatus || planStatusMap.get(cleanStr(nMat.materialName)) || planStatusMap.get(cleanStr(nMat.materialCode)) || "Pending";
+        const matRfqNumber = nMat.rfqNumber || planRfqMap.get(cleanStr(nMat.materialName)) || planRfqMap.get(cleanStr(nMat.materialCode)) || "";
 
         // Check if this nested material is an FGItem
         const matchedFG = fgStock.find(f =>
@@ -761,7 +1015,10 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
           planRmKeys,
           planBoKeys,
           matStatus,
-          nMat.description
+          nMat.description,
+          matPoNumber,
+          matRfqNumber,
+          plan._id
         );
 
         if (processed.netShortage > 0) planTotalShortages += processed.netShortage;
@@ -779,13 +1036,26 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
           targetMap.set(k, {
             ...processed,
             grossRequired: 0,
-            mrpSources: []
+            mrpSources: [],
+            poNumbers: new Set(),
+            rfqNumbers: new Set()
           });
         }
         const entry = targetMap.get(k);
         entry.grossRequired += nQty;
         entry.netShortage = Math.max(0, entry.grossRequired - entry.currentPhysicalStock - entry.totalInTransitPO);
         entry.estimatedValue = entry.netShortage * (entry.bestVendor?.rate || entry.estimatedRate || 0);
+        if (processed.status && processed.status !== "Pending") {
+          entry.status = processed.status;
+        }
+        if (processed.poNumber) {
+          if (!entry.poNumbers) entry.poNumbers = new Set();
+          entry.poNumbers.add(processed.poNumber);
+        }
+        if (processed.rfqNumber) {
+          if (!entry.rfqNumbers) entry.rfqNumbers = new Set();
+          entry.rfqNumbers.add(processed.rfqNumber);
+        }
         if (entry.hasSecondaryUnit) {
           entry.secondaryGrossRequired = Math.round(entry.grossRequired * entry.conversionFactor * 1000) / 1000;
           entry.secondaryNetShortage = Math.round(entry.netShortage * entry.conversionFactor * 1000) / 1000;
@@ -806,9 +1076,11 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
           ? Math.round(qtyPerFG * processed.conversionFactor * 1000) / 1000
           : null;
 
+        const withBucket = attachBucketInfo(processed, String(plan._id));
+
         return {
           ...nMat.toObject?.() || nMat,
-          ...processed,
+          ...withBucket,
           quantityPerFG: qtyPerFG,
           secondaryQuantityPerFG
         };
@@ -840,6 +1112,21 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
             ? "PO In-Transit"
             : (planTotalInTransit > 0 ? "Partially Planned" : "Not Planned"));
 
+    const liveCommitted = Math.round(((poCommittedByPlan.get(String(plan._id)) || 0) + (poCommittedByPlan.get(plan.mrpNumber) || 0)) * 100) / 100;
+    const targetExpense = Number(plan.targetExpense || 0);
+    const estimatedExp = Number(plan.totalEstimatedExpense || 0);
+    let planBudgetStatus = plan.budgetStatus || "Unset";
+    if (targetExpense > 0) {
+      const effectiveExpense = liveCommitted > 0 ? liveCommitted : estimatedExp;
+      if (effectiveExpense > targetExpense) {
+        planBudgetStatus = "Over Budget";
+      } else if (effectiveExpense >= targetExpense * 0.85) {
+        planBudgetStatus = "Near Limit";
+      } else {
+        planBudgetStatus = "Within Budget";
+      }
+    }
+
     return {
       _id: plan._id,
       mrpNumber: plan.mrpNumber,
@@ -856,6 +1143,14 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       planTotalInTransit,
       planPlanningStatus,
       isMaterialPlanned: planTotalShortages === 0 || planTotalInTransit >= planTotalShortages,
+      totalIncome: plan.totalIncome || 0,
+      totalGrossMaterialCost: plan.totalGrossMaterialCost || 0,
+      totalEstimatedExpense: plan.totalEstimatedExpense || 0,
+      targetExpense: plan.targetExpense || 0,
+      committedExpense: liveCommitted,
+      projectedGrossProfit: plan.projectedGrossProfit || 0,
+      projectedMarginPercentage: plan.projectedMarginPercentage || 0,
+      budgetStatus: planBudgetStatus,
       fgItems: fgItemsTree
     };
   });
@@ -903,6 +1198,8 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     }
 
     const isMaterialPlanned = materialPlanningStatus !== "Not Planned";
+    const poNumList = Array.from(item.poNumbers || (item.poNumber ? [item.poNumber] : []));
+    const rfqNumList = Array.from(item.rfqNumbers || (item.rfqNumber ? [item.rfqNumber] : []));
 
     return {
       ...item,
@@ -910,56 +1207,20 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       latestPlanDate,
       customerNames: Array.from(custSet),
       customerPoNumbers: Array.from(poSet),
+      poNumbers: poNumList,
+      rfqNumbers: rfqNumList,
+      poNumber: item.poNumber || poNumList[0] || "",
+      rfqNumber: item.rfqNumber || rfqNumList[0] || "",
       materialPlanningStatus,
       isMaterialPlanned
     };
   };
 
-  // Fetch active purchase item mappings for this company
-  const PurchaseItemMapping = req.getModel("PurchaseItemMapping", purchaseItemMappingSchema);
-  const activeMappings = await PurchaseItemMapping.find({ company: companyId }).lean();
-
-  const mappingBySourceId = new Map();
-  const mappingBySourceKey = new Map();
-  activeMappings.forEach(m => {
-    if (m.sourceItemId) mappingBySourceId.set(m.sourceItemId.toString(), m);
-    if (m.sourceItemName) mappingBySourceKey.set(cleanStr(m.sourceItemName), m);
-    if (m.sourceItemCode) mappingBySourceKey.set(cleanStr(m.sourceItemCode), m);
-  });
-
-  const attachBucketInfo = (item) => {
-    const sId = item.materialId ? item.materialId.toString() : null;
-    const mapping = (sId && mappingBySourceId.get(sId)) || 
-                    mappingBySourceKey.get(cleanStr(item.materialName)) || 
-                    mappingBySourceKey.get(cleanStr(item.materialCode));
-    if (mapping) {
-      let pStatus = item.materialPlanningStatus;
-      if (!pStatus || pStatus === 'Not Planned' || pStatus === 'Pending') {
-        pStatus = 'In Purchase Bucket';
-      }
-      return {
-        ...item,
-        materialPlanningStatus: pStatus,
-        purchaseBucket: {
-          mappingId: mapping._id,
-          targetPurchaseItemId: mapping.targetPurchaseItemId,
-          targetPurchaseItemType: mapping.targetPurchaseItemType,
-          targetPurchaseItemName: mapping.targetPurchaseItemName,
-          targetPurchaseItemCode: mapping.targetPurchaseItemCode,
-          targetPurchaseItemDescription: mapping.targetPurchaseItemDescription || "",
-          primaryUnit: mapping.primaryUnit,
-          secondaryUnit: mapping.secondaryUnit,
-          hasSecondaryUnit: Boolean(mapping.hasSecondaryUnit),
-          conversionFactor: Number(mapping.conversionFactor) || 1
-        }
-      };
-    }
-    return item;
-  };
-
   // Format Classified Arrays
-  const rmList = Array.from(rmMap.values()).map(enrichClassifiedItem).map(attachBucketInfo);
-  const boList = Array.from(boMap.values()).map(enrichClassifiedItem).map(attachBucketInfo);
+  const activePlanId = mrpId && mrpId !== "all" ? String(mrpId) : null;
+  const activeMrpNumber = activeMrpPlans.length === 1 ? activeMrpPlans[0].mrpNumber : null;
+  const rmList = Array.from(rmMap.values()).map(enrichClassifiedItem).map(it => attachBucketInfo(it, activePlanId));
+  const boList = Array.from(boMap.values()).map(enrichClassifiedItem).map(it => attachBucketInfo(it, activePlanId));
   const componentList = Array.from(componentMap.values()).map(enrichClassifiedItem);
   const subAssemblyList = Array.from(subAssemblyMap.values()).map(enrichClassifiedItem);
   const assemblyList = Array.from(assemblyMap.values()).map(enrichClassifiedItem);
@@ -989,12 +1250,13 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         const targetDesc = b.targetPurchaseItemDescription || stockInfo.description || "";
         const targetCategory = stockInfo.category || (bucketType === "RM" ? "Raw Material" : "Bought Out");
 
-        const inTransitInfo = 
-          (b.targetPurchaseItemId && inTransitMap.get(String(b.targetPurchaseItemId))) ||
-          inTransitMap.get(pCode) || 
-          inTransitMap.get(pName) || 
-          inTransitMap.get(cleanKey(pCode)) || 
-          inTransitMap.get(cleanKey(pName)) || { totalInTransit: 0, poList: [] };
+        const inTransitInfo = getInTransitForPlan([
+          b.targetPurchaseItemId ? String(b.targetPurchaseItemId) : null,
+          pCode,
+          pName,
+          cleanKey(pCode),
+          cleanKey(pName)
+        ], activePlanId, activeMrpNumber);
 
         const vendorQuotes = 
           (b.targetPurchaseItemId && priceListMap.get(String(b.targetPurchaseItemId))) ||
@@ -1040,12 +1302,26 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
           estimatedRate: bestVendor?.rate || stockInfo.baseRate || 0,
           estimatedValue: 0,
           mappedItems: [],
-          sourceCutSizes: []
+          sourceCutSizes: [],
+          mrpSources: [],
+          poNumbers: [],
+          rfqNumbers: []
         });
       }
 
       const entry = bucketMap.get(bucketId);
-      entry.grossRequired += Number(item.grossRequired || 0);
+      const convFactor = Number(b.conversionFactor) || 1;
+      const convertedGross = Math.round(Number(item.grossRequired || 0) * convFactor * 1000) / 1000;
+      entry.grossRequired += convertedGross;
+
+      // Accumulate mrpSources onto the bucket
+      if (!entry.mrpSources) entry.mrpSources = [];
+      (item.mrpSources || []).forEach(src => {
+        if (!entry.mrpSources.some(s => s.mrpNumber === src.mrpNumber)) {
+          entry.mrpSources.push(src);
+        }
+      });
+
       const cutSizeData = {
         sourceItemId: item.materialId,
         sourceItemName: item.materialName,
@@ -1059,13 +1335,21 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         description: item.description,
         grossRequired: item.grossRequired,
         netShortage: item.netShortage,
+        conversionFactor: convFactor,
+        convertedGrossRequired: convertedGross,
         currentPhysicalStock: item.currentPhysicalStock,
         currentStock: item.currentPhysicalStock,
         totalInTransitPO: item.totalInTransitPO || 0,
         unit: item.unit,
         hasSecondaryUnit: Boolean(item.hasSecondaryUnit),
         secondaryUnit: item.secondaryUnit || "",
-        mrpSources: item.mrpSources || []
+        mrpSources: item.mrpSources || [],
+        status: item.status || "Pending",
+        poNumber: item.poNumber || (item.poNumbers && item.poNumbers[0]) || "",
+        rfqNumber: item.rfqNumber || (item.rfqNumbers && item.rfqNumbers[0]) || "",
+        materialPlanningStatus: item.materialPlanningStatus || "Not Planned",
+        isPlanSpecific: Boolean(b.isPlanSpecific),
+        mrpPlanId: b.mrpPlanId || null
       };
       entry.mappedItems.push(cutSizeData);
       entry.sourceCutSizes.push(cutSizeData);
@@ -1079,7 +1363,64 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         b.secondaryNetShortage = Math.round(b.netShortage * b.conversionFactor * 1000) / 1000;
       }
       b.estimatedValue = Math.round(b.netShortage * (b.estimatedRate || 0) * 100) / 100;
-      b.materialPlanningStatus = b.netShortage === 0 ? "Stock Covered" : (b.totalInTransitPO >= b.grossRequired ? "PO In-Transit" : (b.totalInTransitPO > 0 ? "Partially In-Transit" : "Not Planned"));
+
+      // Collect all PO numbers associated with this bucket (strictly from contained requirement shortages belonging to this plan)
+      const bucketPoSet = new Set();
+      (b.sourceCutSizes || []).forEach(cs => {
+        if (cs.poNumber) {
+          if (!activePlanId || openPOs.some(po => po.poNumber === cs.poNumber && ((po.mrpPlanId && String(po.mrpPlanId) === activePlanId) || (po.mrpNumber && po.mrpNumber === activeMrpNumber)))) {
+            bucketPoSet.add(cs.poNumber);
+          }
+        }
+      });
+      b.poNumbers = Array.from(bucketPoSet);
+
+      const bucketRfqSet = new Set();
+      (b.sourceCutSizes || []).forEach(cs => {
+        if (cs.rfqNumber) bucketRfqSet.add(cs.rfqNumber);
+      });
+      b.rfqNumbers = Array.from(bucketRfqSet);
+
+      // Compute aggregated bucket status from contained cut sizes
+      const cutStatuses = (b.sourceCutSizes || []).map(cs => {
+        if (activePlanId && cs.poNumber && !b.poNumbers.includes(cs.poNumber)) {
+          return "Pending";
+        }
+        return cs.status || "Pending";
+      });
+      const allCompleted = cutStatuses.length > 0 && cutStatuses.every(s => s === "Completed" || s === "Material Received" || s === "Issued for Production");
+      const allPOSent   = cutStatuses.length > 0 && cutStatuses.every(s => s === "PO Sent" || s === "PO Raised" || s === "Completed" || s === "Material Received" || s === "Issued for Production");
+      const anyPOSent   = cutStatuses.some(s => s === "PO Sent" || s === "PO Raised") || b.poNumbers.length > 0;
+      const anyRFQ      = cutStatuses.some(s => s === "Raised RFQ" || s === "RFQ Raised") || b.rfqNumbers.length > 0;
+      const allRFQ      = cutStatuses.length > 0 && cutStatuses.every(s => s === "Raised RFQ" || s === "RFQ Raised" || s === "PO Sent" || s === "PO Raised" || s === "Completed" || s === "Material Received" || s === "Issued for Production");
+
+      if (allCompleted) {
+        b.status = "Completed";
+      } else if (allPOSent || anyPOSent) {
+        b.status = (allPOSent || b.poNumbers.length > 0) ? "PO Sent" : "PO Sent (Partial)";
+      } else if (allRFQ || anyRFQ) {
+        b.status = allRFQ ? "Raised RFQ" : "Raised RFQ (Partial)";
+      } else {
+        b.status = "Pending";
+      }
+
+      // Material planning status: prefer explicit status over stock calculation
+      if (["Completed", "Material Received", "Issued for Production"].includes(b.status)) {
+        b.materialPlanningStatus = "Completed";
+      } else if (b.status === "PO Sent" || b.status === "PO Sent (Partial)" || b.status === "PO Raised") {
+        b.materialPlanningStatus = "PO Sent";
+      } else if (b.status === "Raised RFQ" || b.status === "Raised RFQ (Partial)") {
+        b.materialPlanningStatus = "Raised RFQ";
+      } else if (b.netShortage === 0) {
+        b.materialPlanningStatus = "Stock Covered";
+      } else if (b.totalInTransitPO >= b.grossRequired) {
+        b.materialPlanningStatus = "PO In-Transit";
+      } else if (b.totalInTransitPO > 0) {
+        b.materialPlanningStatus = "Partially In-Transit";
+      } else {
+        b.materialPlanningStatus = "Not Planned";
+      }
+
       return b;
     });
   };
@@ -1210,19 +1551,94 @@ export const bulkGeneratePOFromMRP = asyncHandler(async (req, res) => {
 
     createdPOs.push(newPO);
 
-    // Update MRP Plan Item statuses
-    const affectedMrpIds = new Set();
+    // Update MRP Plan Item statuses across affected plans
+    const poMaterialNames = new Set();
+    const poMaterialCodes = new Set();
+    const poMaterialIds = new Set();
+
     vItems.forEach(vi => {
-      (vi.mrpSources || []).forEach((src) => {
-        if (src.mrpPlanId) affectedMrpIds.add(src.mrpPlanId);
-      });
+      if (vi.materialName) poMaterialNames.add(cleanStr(vi.materialName));
+      if (vi.materialCode) poMaterialCodes.add(cleanStr(vi.materialCode));
+      if (vi.materialId) poMaterialIds.add(String(vi.materialId));
+
+      // Also unpack sourceCutSizes from bucket
+      if (Array.isArray(vi.sourceCutSizes)) {
+        vi.sourceCutSizes.forEach(cs => {
+          if (cs.sourceItemName) poMaterialNames.add(cleanStr(cs.sourceItemName));
+          if (cs.sourceItemCode) poMaterialCodes.add(cleanStr(cs.sourceItemCode));
+          if (cs.materialName) poMaterialNames.add(cleanStr(cs.materialName));
+          if (cs.materialCode) poMaterialCodes.add(cleanStr(cs.materialCode));
+          if (cs.sourceItemId) poMaterialIds.add(String(cs.sourceItemId));
+          if (cs.materialId) poMaterialIds.add(String(cs.materialId));
+        });
+      }
     });
 
-    if (affectedMrpIds.size > 0) {
-      await MRPPlan.updateMany(
-        { _id: { $in: Array.from(affectedMrpIds) } },
-        { $set: { "rmRequirements.$[].status": "PO Raised", "boRequirements.$[].status": "PO Raised" } }
-      );
+    // Collect ONLY the target plan IDs that these items actually belong to
+    const targetPlanIds = new Set();
+    const { mrpPlanId, mrpNumber: bodyMrpNo } = req.body;
+    if (mrpPlanId) targetPlanIds.add(String(mrpPlanId));
+
+    vItems.forEach(vi => {
+      (vi.mrpSources || []).forEach(s => {
+        if (s.mrpId) targetPlanIds.add(String(s.mrpId));
+        if (s.mrpPlanId) targetPlanIds.add(String(s.mrpPlanId));
+      });
+      if (Array.isArray(vi.sourceCutSizes)) {
+        vi.sourceCutSizes.forEach(cs => {
+          (cs.mrpSources || []).forEach(s => {
+            if (s.mrpId) targetPlanIds.add(String(s.mrpId));
+            if (s.mrpPlanId) targetPlanIds.add(String(s.mrpPlanId));
+          });
+        });
+      }
+    });
+
+    const targetPlanIdArray = Array.from(targetPlanIds).filter(Boolean);
+    if (targetPlanIdArray.length > 0) {
+      const candidatePlans = await MRPPlan.find({ _id: { $in: targetPlanIdArray }, company: companyId });
+      for (const plan of candidatePlans) {
+        let planChanged = false;
+        const matchItem = (item) => {
+          const mId = item.material?._id || item.material;
+          return (
+            (mId && poMaterialIds.has(String(mId))) ||
+            (item.materialCode && poMaterialCodes.has(cleanStr(item.materialCode))) ||
+            (item.materialName && poMaterialNames.has(cleanStr(item.materialName)))
+          );
+        };
+
+        (plan.rmRequirements || []).forEach(r => {
+          if (matchItem(r)) {
+            r.status = "PO Raised";
+            r.poNumber = poNumber;
+            planChanged = true;
+          }
+        });
+        (plan.boRequirements || []).forEach(b => {
+          if (matchItem(b)) {
+            b.status = "PO Raised";
+            b.poNumber = poNumber;
+            planChanged = true;
+          }
+        });
+        (plan.fgItems || []).forEach(fg => {
+          (fg.nestedMaterials || []).forEach(nm => {
+            if (matchItem(nm)) {
+              nm.status = "PO Raised";
+              nm.poNumber = poNumber;
+              planChanged = true;
+            }
+          });
+        });
+
+        if (planChanged) {
+          if (plan.status === "Planned" || plan.status === "Draft") {
+            plan.status = "In Procurement";
+          }
+          await plan.save();
+        }
+      }
     }
   }
 
@@ -1371,7 +1787,7 @@ export const getMRPPPCIntakeBucket = asyncHandler(async (req, res) => {
 export const updateMRPItemStatus = asyncHandler(async (req, res) => {
   const companyId = getCompanyId(req);
   const { id } = req.params;
-  const { items, status } = req.body;
+  const { items, status, poNumber, rfqNumber } = req.body;
 
   const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
   const plan = await MRPPlan.findOne({ _id: id, company: companyId });
@@ -1379,62 +1795,75 @@ export const updateMRPItemStatus = asyncHandler(async (req, res) => {
     throw new ApiError(404, "MRP Plan not found");
   }
 
-  // Build updates map
+  // Build updates map, poMap, rfqMap
   const updatesMap = new Map();
+  const poMap = new Map();
+  const rfqMap = new Map();
+
   if (Array.isArray(items) && items.length > 0) {
     items.forEach(itm => {
       const targetStatus = itm.status || status;
-      if (targetStatus) {
-        if (itm.materialKey) updatesMap.set(cleanStr(itm.materialKey), targetStatus);
-        if (itm.materialName) updatesMap.set(cleanStr(itm.materialName), targetStatus);
-        if (itm.materialCode) updatesMap.set(cleanStr(itm.materialCode), targetStatus);
+      const targetPo = itm.poNumber || poNumber;
+      const targetRfq = itm.rfqNumber || rfqNumber;
+
+      const registerItem = (name, code, key, s, p, r) => {
+        if (s) {
+          if (name) updatesMap.set(cleanStr(name), s);
+          if (code) updatesMap.set(cleanStr(code), s);
+          if (key && !String(key).startsWith("bucket_")) updatesMap.set(cleanStr(key), s);
+        }
+        if (p) {
+          if (name) poMap.set(cleanStr(name), p);
+          if (code) poMap.set(cleanStr(code), p);
+        }
+        if (r) {
+          if (name) rfqMap.set(cleanStr(name), r);
+          if (code) rfqMap.set(cleanStr(code), r);
+        }
+      };
+
+      registerItem(itm.materialName, itm.materialCode, itm.materialKey, targetStatus, targetPo, targetRfq);
+
+      if (Array.isArray(itm.sourceCutSizes)) {
+        itm.sourceCutSizes.forEach(cs => {
+          registerItem(cs.sourceItemName || cs.materialName, cs.sourceItemCode || cs.materialCode, cs.materialKey, targetStatus, targetPo, targetRfq);
+        });
       }
     });
   } else if (status) {
-    // Global fallback for all items in plan if needed
     updatesMap.set("__ALL__", status);
+    if (poNumber) poMap.set("__ALL__", poNumber);
+    if (rfqNumber) rfqMap.set("__ALL__", rfqNumber);
   }
 
-  const getUpdatedStatus = (name, code, curr) => {
-    return (
-      updatesMap.get(cleanStr(code)) ||
-      updatesMap.get(cleanStr(name)) ||
-      (updatesMap.has("__ALL__") ? updatesMap.get("__ALL__") : null) ||
-      curr ||
-      "Pending"
-    );
+  const applyUpdates = (item) => {
+    const n = cleanStr(item.materialName);
+    const c = cleanStr(item.materialCode);
+    const newStatus = updatesMap.get(c) || updatesMap.get(n) || updatesMap.get("__ALL__");
+    if (newStatus) item.status = newStatus;
+
+    const newPo = poMap.get(c) || poMap.get(n) || poMap.get("__ALL__");
+    if (newPo) item.poNumber = newPo;
+
+    const newRfq = rfqMap.get(c) || rfqMap.get(n) || rfqMap.get("__ALL__");
+    if (newRfq) item.rfqNumber = newRfq;
   };
 
-  // 1. Update rmRequirements
-  (plan.rmRequirements || []).forEach(r => {
-    r.status = getUpdatedStatus(r.materialName, r.materialCode, r.status);
-  });
+  (plan.rmRequirements || []).forEach(applyUpdates);
+  (plan.boRequirements || []).forEach(applyUpdates);
+  (plan.subAssemblyRequirements || []).forEach(applyUpdates);
+  (plan.consumableRequirements || []).forEach(applyUpdates);
 
-  // 2. Update boRequirements
-  (plan.boRequirements || []).forEach(b => {
-    b.status = getUpdatedStatus(b.materialName, b.materialCode, b.status);
-  });
-
-  // 3. Update subAssemblyRequirements
-  (plan.subAssemblyRequirements || []).forEach(s => {
-    s.status = getUpdatedStatus(s.materialName, s.materialCode, s.status);
-  });
-
-  // 4. Update consumableRequirements
-  (plan.consumableRequirements || []).forEach(c => {
-    c.status = getUpdatedStatus(c.materialName, c.materialCode, c.status);
-  });
-
-  // 5. Update nestedMaterials inside fgItems
   (plan.fgItems || []).forEach(fg => {
-    // If updating FG item status directly
-    if (updatesMap.has(cleanStr(fg.fgItemName)) || updatesMap.has(cleanStr(fg.fgItemCode))) {
-      fg.status = getUpdatedStatus(fg.fgItemName, fg.fgItemCode, fg.status);
-    }
-    (fg.nestedMaterials || []).forEach(nm => {
-      nm.status = getUpdatedStatus(nm.materialName, nm.materialCode, nm.status);
-    });
+    applyUpdates(fg);
+    (fg.nestedMaterials || []).forEach(applyUpdates);
   });
+
+  if (plan.status === "Planned" || plan.status === "Draft") {
+    if (status === "PO Raised" || poNumber) {
+      plan.status = "In Procurement";
+    }
+  }
 
   await plan.save();
 
@@ -1446,8 +1875,13 @@ export const updateMRPItemStatus = asyncHandler(async (req, res) => {
  */
 export const getPurchaseBucketMappings = asyncHandler(async (req, res) => {
   const companyId = getCompanyId(req);
+  const { mrpPlanId } = req.query;
   const PurchaseItemMapping = req.getModel("PurchaseItemMapping", purchaseItemMappingSchema);
-  const mappings = await PurchaseItemMapping.find({ company: companyId }).sort({ updatedAt: -1 }).lean();
+  const query = { company: companyId };
+  if (mrpPlanId) {
+    query.mrpPlanId = (mrpPlanId === "global" || mrpPlanId === "null") ? null : mrpPlanId;
+  }
+  const mappings = await PurchaseItemMapping.find(query).sort({ updatedAt: -1 }).lean();
   return res.status(200).json(new ApiResponse(200, mappings, "Fetched Purchase Bucket Mappings"));
 });
 
@@ -1580,6 +2014,8 @@ export const mapItemToPurchaseBucket = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Target Purchase Item not found in master records.");
   }
 
+  const tHasSec = Boolean(targetDoc.hasSecondaryUnit && targetDoc.secondaryUnit);
+
   // 1. Unit Validation: Match if ANY one unit matches between Source and Target
   const sourceUnits = [
     sourceDoc?.unit || primaryUnit,
@@ -1603,6 +2039,10 @@ export const mapItemToPurchaseBucket = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
   const userName = req.user?.name || "System";
 
+  const customConversionFactor = req.body.conversionFactor != null && !isNaN(Number(req.body.conversionFactor)) && Number(req.body.conversionFactor) > 0
+    ? Number(req.body.conversionFactor)
+    : (tHasSec ? (Number(targetDoc.conversionFactor) || 1) : 1);
+
   const updatedMapping = await PurchaseItemMapping.findOneAndUpdate(
     {
       company: companyId,
@@ -1624,8 +2064,9 @@ export const mapItemToPurchaseBucket = asyncHandler(async (req, res) => {
       primaryUnit: targetDoc.unit,
       hasSecondaryUnit: tHasSec,
       secondaryUnit: tHasSec ? targetDoc.secondaryUnit : "",
-      conversionFactor: tHasSec ? (Number(targetDoc.conversionFactor) || 1) : 1,
+      conversionFactor: customConversionFactor,
       isDefault: Boolean(isDefault),
+      isDetached: false,
       mrpPlanId: mrpPlanId || null,
       createdBy: userId,
       createdByName: userName
@@ -1637,22 +2078,100 @@ export const mapItemToPurchaseBucket = asyncHandler(async (req, res) => {
 });
 
 /**
- * 15. UNMAP ITEM FROM PURCHASE BUCKET
+ * 15. DETACH ITEM FROM PURCHASE BUCKET (FOR A SPECIFIC MRP PLAN)
+ * Planners can unbind a cut-size item specifically for this MRP so it is procured directly as its native item
+ */
+export const detachItemFromPurchaseBucket = asyncHandler(async (req, res) => {
+  const companyId = getCompanyId(req);
+  const {
+    sourceItemId,
+    mrpPlanId,
+    sourceItemName,
+    sourceItemCode,
+    sourceItemDescription,
+    sourceItemType
+  } = req.body;
+
+  if (!sourceItemId) {
+    throw new ApiError(400, "Source item ID is required to detach item from purchase bucket.");
+  }
+
+  if (!mrpPlanId) {
+    throw new ApiError(400, "MRP Plan ID is required to detach item for a specific MRP plan.");
+  }
+
+  const PurchaseItemMapping = req.getModel("PurchaseItemMapping", purchaseItemMappingSchema);
+  const userId = req.user?._id;
+  const userName = req.user?.name || "System";
+
+  const detachedRecord = await PurchaseItemMapping.findOneAndUpdate(
+    {
+      company: companyId,
+      sourceItemId: sourceItemId,
+      mrpPlanId: mrpPlanId
+    },
+    {
+      company: companyId,
+      sourceItemId,
+      sourceItemType: sourceItemType || "RM",
+      sourceItemName: sourceItemName || "Material",
+      sourceItemCode: sourceItemCode || "",
+      sourceItemDescription: sourceItemDescription || "",
+      targetPurchaseItemId: null,
+      targetPurchaseItemType: sourceItemType || "RM",
+      targetPurchaseItemName: "",
+      targetPurchaseItemCode: "",
+      targetPurchaseItemDescription: "",
+      isDetached: true,
+      isDefault: false,
+      mrpPlanId: mrpPlanId,
+      createdBy: userId,
+      createdByName: userName
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      detachedRecord,
+      `Successfully detached '${sourceItemName || "Item"}' from purchase buckets for this MRP plan. It will now be procured directly as an individual item.`
+    )
+  );
+});
+
+/**
+ * 16. UNMAP ITEM FROM PURCHASE BUCKET
  */
 export const unmapItemFromPurchaseBucket = asyncHandler(async (req, res) => {
   const companyId = getCompanyId(req);
   const { id } = req.params;
+  const { mrpPlanId } = req.query;
 
   const PurchaseItemMapping = req.getModel("PurchaseItemMapping", purchaseItemMappingSchema);
-  const query = {
-    company: companyId,
-    $or: [
-      { _id: mongoose.Types.ObjectId.isValid(id) ? id : null },
-      { sourceItemId: mongoose.Types.ObjectId.isValid(id) ? id : null }
-    ].filter(Boolean)
-  };
+  
+  let deleted;
+  if (mrpPlanId) {
+    const targetPlanId = (mrpPlanId === "global" || mrpPlanId === "null") ? null : mrpPlanId;
+    deleted = await PurchaseItemMapping.findOneAndDelete({
+      company: companyId,
+      $or: [
+        { _id: mongoose.Types.ObjectId.isValid(id) ? id : null },
+        { sourceItemId: mongoose.Types.ObjectId.isValid(id) ? id : null }
+      ].filter(Boolean),
+      mrpPlanId: targetPlanId
+    });
+  } else {
+    const query = {
+      company: companyId,
+      $or: [
+        { _id: mongoose.Types.ObjectId.isValid(id) ? id : null },
+        { sourceItemId: mongoose.Types.ObjectId.isValid(id) ? id : null }
+      ].filter(Boolean)
+    };
+    deleted = await PurchaseItemMapping.findOneAndDelete(query);
+  }
 
-  const deleted = await PurchaseItemMapping.findOneAndDelete(query);
   if (!deleted) {
     throw new ApiError(404, "Purchase bucket mapping not found.");
   }

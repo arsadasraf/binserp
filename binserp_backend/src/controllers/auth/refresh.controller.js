@@ -24,7 +24,7 @@ const clearAuthCookies = (res) => {
 
 export const refreshTokens = async (req, res, next) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
+    const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken || req.headers["x-refresh-token"];
 
     if (!refreshToken) {
       clearAuthCookies(res);

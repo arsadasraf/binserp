@@ -41,9 +41,10 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // ==========================================
-// PUBLIC INBOUND WEBHOOK ENDPOINT (NO JWT)
+// PUBLIC INBOUND WEBHOOK & TEMPLATE ENDPOINTS (NO JWT REQUIRED)
 // ==========================================
 router.post("/webhook/:token", receiveWebhookLead);
+router.get("/excel/template/:type", downloadExcelTemplate);
 
 // ==========================================
 // AUTHENTICATED CRM ROUTES (REQUIRES JWT)
@@ -100,7 +101,6 @@ router.route("/activities/:id")
     .delete(deleteActivity);
 
 // 7. Excel Import / Export Data Hub
-router.get("/excel/template/:type", downloadExcelTemplate);
 router.post("/excel/import/leads", upload.single("file"), importLeadsFromExcel);
 router.post("/excel/import/customers", upload.single("file"), importCustomersFromExcel);
 router.get("/excel/export/leads", exportLeadsToExcel);

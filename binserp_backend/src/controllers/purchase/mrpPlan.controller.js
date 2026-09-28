@@ -1,8 +1,9 @@
 import mongoose from "mongoose";
-import { mrpPlanSchema, purchaseOrderSchema } from "../../models/purchase/index.js";
-import { bomSchema, inventorySchema, rmBoItemSchema, categorySchema, fgItemSchema, rawMaterialSchema, boughtOutSchema } from "../../models/store/index.js";
+import { mrpPlanSchema, purchaseOrderSchema, vendorPriceListSchema } from "../../models/purchase/index.js";
+import { bomSchema, inventorySchema, rmBoItemSchema, categorySchema, fgItemSchema, rawMaterialSchema, boughtOutSchema, storePrefixSchema, vendorSchema } from "../../models/store/index.js";
 import { incomingPOSchema } from "../../models/sales/index.js";
 import { userSchema } from "../../models/user/index.js";
+import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -111,13 +112,171 @@ export const createMRPPlan = async (req, res) => {
     const subAssemblyMap = new Map();
     const consumableMap = new Map();
 
-    // Cache inventory, RM/BO items, BOMs and FG items for fast hierarchy explosion
+    // Cache inventory, RM/BO items, BOMs, FG items, vendor price lists, and contributing Customer POs
     const allInventories = await Inventory.find({ company: companyId });
     const allRmBoItems = await RmBoItem.find({ company: companyId }).populate("categoryId");
     const allRawMaterials = await RawMaterial.find({ company: companyId }).populate("categoryId");
     const allBoughtOuts = await BoughtOut.find({ company: companyId }).populate("categoryId");
     const allBOMs = await BOM.find({ company: companyId });
     const allFGItems = await FGItem.find({ company: companyId });
+
+    const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
+    req.getModel("Vendor", vendorSchema);
+    const allPriceLists = await VendorPriceList.find({ company: companyId }).populate("vendor", "name code").lean().catch(() => []);
+
+    const allContributingPoIds = resolvedCustomerPOs
+      .map((p) => p.customerPo)
+      .filter((id) => id && mongoose.Types.ObjectId.isValid(id));
+
+    let contributingPODocs = [];
+    if (allContributingPoIds.length > 0) {
+      contributingPODocs = await IncomingPO.find({
+        company: companyId,
+        _id: { $in: allContributingPoIds }
+      }).lean().catch(() => []);
+    } else if (customerPoNumber) {
+      contributingPODocs = await IncomingPO.find({
+        company: companyId,
+        poNumber: customerPoNumber
+      }).lean().catch(() => []);
+    }
+
+    // String normalization helpers for lookup maps
+    const cleanStr = (s) => (s || "").trim().toLowerCase();
+    const cleanKey = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    // Build Fast Vendor Price List Map
+    const vendorPriceMap = new Map();
+    (allPriceLists || []).forEach((vpl) => {
+      const vendorId = vpl.vendor?._id || vpl.vendor;
+      const vendorName = vpl.vendor?.name || vpl.vendorName || "Vendor";
+      const rawMatId = (vpl.material?._id || vpl.material)?.toString();
+
+      const addPriceEntry = (keys, rate, isPref) => {
+        const entry = {
+          vendorId,
+          vendorName,
+          rate: Number(rate) || 0,
+          isPreferred: Boolean(isPref)
+        };
+        keys.filter(Boolean).forEach((k) => {
+          if (!vendorPriceMap.has(k)) vendorPriceMap.set(k, []);
+          vendorPriceMap.get(k).push(entry);
+        });
+      };
+
+      if (vpl.material || rawMatId) {
+        const mat = vpl.material;
+        const matName = typeof mat === 'object' ? (mat.name || mat.materialName || "") : "";
+        const matCode = typeof mat === 'object' ? (mat.code || mat.materialCode || "") : "";
+        const keys = [
+          rawMatId,
+          cleanStr(matName),
+          cleanStr(matCode),
+          cleanKey(matName),
+          cleanKey(matCode),
+        ];
+        addPriceEntry(keys, vpl.price, vpl.isPreferred);
+      }
+
+      if (Array.isArray(vpl.items)) {
+        vpl.items.forEach((vItem) => {
+          const vName = cleanStr(vItem.materialName || vItem.itemName);
+          const vCode = cleanStr(vItem.materialCode || vItem.itemCode);
+          const keys = [vName, vCode, cleanKey(vName), cleanKey(vCode)];
+          addPriceEntry(keys, vItem.rate || vItem.unitPrice || 0, vItem.isPreferred || vpl.isPreferred);
+        });
+      }
+    });
+
+    // Material Cost Resolver: checks VendorPriceList preferred rate > lowest rate > inventory unitPrice > rmBo baseRate
+    const resolveMaterialPrice = (name, code, matId, rmBoObj) => {
+      const keys = [
+        matId ? String(matId) : null,
+        cleanStr(code),
+        cleanStr(name),
+        cleanKey(code),
+        cleanKey(name)
+      ].filter(Boolean);
+
+      let quotes = [];
+      for (const k of keys) {
+        if (vendorPriceMap.has(k)) {
+          quotes = vendorPriceMap.get(k);
+          break;
+        }
+      }
+
+      if (quotes.length > 0) {
+        const preferred = quotes.find((q) => q.isPreferred);
+        const chosen = preferred || quotes.slice().sort((a, b) => a.rate - b.rate)[0];
+        if (chosen && chosen.rate > 0) {
+          return {
+            unitCost: chosen.rate,
+            costSource: "Vendor Price List",
+            preferredVendor: chosen.vendorId,
+            preferredVendorName: chosen.vendorName
+          };
+        }
+      }
+
+      const inv = allInventories.find(
+        (i) =>
+          (code && i.materialCode && i.materialCode.toLowerCase() === code.toLowerCase()) ||
+          (name && i.materialName && i.materialName.toLowerCase() === name.toLowerCase())
+      );
+
+      const invRate = Number(inv?.unitPrice || 0);
+      const baseRate = Number(rmBoObj?.baseRate || 0);
+      const fallbackRate = invRate > 0 ? invRate : baseRate;
+
+      return {
+        unitCost: fallbackRate,
+        costSource: fallbackRate > 0 ? "Inventory Valuation" : "Estimated Rate",
+        preferredVendor: undefined,
+        preferredVendorName: ""
+      };
+    };
+
+    // Finished Goods Selling Price Resolver: Customer PO rate > FGItem sellingPrice > Manual
+    const resolveFGSellingPrice = (fgId, fgName, fgCode, manualPrice) => {
+      if (manualPrice !== undefined && manualPrice !== null && Number(manualPrice) > 0) {
+        return { sellingPrice: Number(manualPrice), priceSource: "Manual Override" };
+      }
+
+      for (const poDoc of contributingPODocs) {
+        if (Array.isArray(poDoc.items)) {
+          const matchedItem = poDoc.items.find((it) => {
+            const itFgId = it.fgItem?._id || it.fgItem;
+            if (fgId && itFgId && String(itFgId) === String(fgId)) return true;
+            const pName = (it.productName || it.name || "").trim().toLowerCase();
+            const pCode = (it.productCode || it.code || "").trim().toLowerCase();
+            if (fgName && pName && pName === fgName.trim().toLowerCase()) return true;
+            if (fgCode && pCode && pCode === fgCode.trim().toLowerCase()) return true;
+            return false;
+          });
+
+          if (matchedItem) {
+            const resolvedRate = Number(matchedItem.rate || (matchedItem.quantity > 0 ? matchedItem.amount / matchedItem.quantity : 0));
+            if (resolvedRate > 0) {
+              return { sellingPrice: resolvedRate, priceSource: "Customer PO" };
+            }
+          }
+        }
+      }
+
+      const matchedMaster = allFGItems.find((f) =>
+        (fgId && String(f._id) === String(fgId)) ||
+        (fgName && f.name && f.name.trim().toLowerCase() === fgName.trim().toLowerCase()) ||
+        (fgCode && f.code && f.code.trim().toLowerCase() === fgCode.trim().toLowerCase())
+      );
+
+      if (matchedMaster && Number(matchedMaster.sellingPrice) > 0) {
+        return { sellingPrice: Number(matchedMaster.sellingPrice), priceSource: "Master Catalog" };
+      }
+
+      return { sellingPrice: 0, priceSource: "Unset" };
+    };
 
     const enrichedFgItems = [];
 
@@ -380,6 +539,8 @@ export const createMRPPlan = async (req, res) => {
           description: fg.description || "",
           quantity: 0,
           unit: fg.unit || "PCS",
+          sellingPrice: Number(fg.sellingPrice) || 0,
+          priceSource: fg.priceSource || "",
           poDeliveryDate: fgPoDate,
           targetDate: fgTargetDate,
           customerPo: fgPoId,
@@ -396,6 +557,10 @@ export const createMRPPlan = async (req, res) => {
       existing.quantity += rawQty;
       if (!existing.description && fg.description) existing.description = fg.description;
       if (!existing.bomId && fg.bomId) existing.bomId = fg.bomId;
+      if (!existing.sellingPrice && fg.sellingPrice) {
+        existing.sellingPrice = Number(fg.sellingPrice);
+        existing.priceSource = fg.priceSource || "Manual Override";
+      }
 
       // Keep earliest targetDate & poDeliveryDate
       if (fgTargetDate) {
@@ -438,6 +603,11 @@ export const createMRPPlan = async (req, res) => {
       // Explode nested tree passing combined Customer PO numbers for child traceability
       explodeItemTree(fgName, fgCode, fgQty, fgName, 1, nestedMaterials, fgId, fg.bomId, combinedPoNumbers);
 
+      // Financial resolution for FG selling rate
+      const fgPriceResult = resolveFGSellingPrice(fgId, fgName, fgCode, fg.sellingPrice);
+      const unitSellingPrice = fgPriceResult.sellingPrice;
+      const fgTotalPrice = Math.round(fgQty * unitSellingPrice * 100) / 100;
+
       enrichedFgItems.push({
         fgItem: fgId,
         fgItemName: fgName,
@@ -445,6 +615,9 @@ export const createMRPPlan = async (req, res) => {
         description: fgDesc,
         quantity: fgQty,
         unit: fg.unit || "PCS",
+        sellingPrice: unitSellingPrice,
+        totalPrice: fgTotalPrice,
+        priceSource: fgPriceResult.priceSource,
         poDeliveryDate: fg.poDeliveryDate,
         targetDate: fgTargetDate,
         customerPo: fg.customerPo,
@@ -463,6 +636,75 @@ export const createMRPPlan = async (req, res) => {
     const subAssemblyRequirements = Array.from(subAssemblyMap.values());
     const consumableRequirements = Array.from(consumableMap.values());
 
+    // Financial Metrics Calculation
+    let totalIncome = 0;
+    enrichedFgItems.forEach((f) => {
+      totalIncome += Number(f.totalPrice || 0);
+    });
+
+    let totalGrossMaterialCost = 0;
+    let totalEstimatedExpense = 0;
+
+    const populateReqPricing = (reqList) => {
+      reqList.forEach((r) => {
+        const rmBoObj = allRmBoItems.find(
+          (item) =>
+            (item._id && r.material && String(item._id) === String(r.material)) ||
+            (r.materialCode && item.code && item.code.toLowerCase() === r.materialCode.toLowerCase()) ||
+            (r.materialName && item.name && item.name.toLowerCase() === r.materialName.toLowerCase())
+        );
+        const pricing = resolveMaterialPrice(r.materialName, r.materialCode, r.material, rmBoObj);
+        r.unitCost = pricing.unitCost;
+        r.costSource = pricing.costSource;
+        if (pricing.preferredVendor) r.preferredVendor = pricing.preferredVendor;
+        if (pricing.preferredVendorName) r.preferredVendorName = pricing.preferredVendorName;
+
+        r.grossCost = Math.round(Number(r.requiredQuantity || 0) * r.unitCost * 100) / 100;
+        r.shortageCost = Math.round(Number(r.shortage || 0) * r.unitCost * 100) / 100;
+
+        totalGrossMaterialCost += r.grossCost;
+        totalEstimatedExpense += r.shortageCost;
+      });
+    };
+
+    populateReqPricing(rmRequirements);
+    populateReqPricing(boRequirements);
+    populateReqPricing(consumableRequirements);
+
+    // Also populate pricing on nestedMaterials inside enrichedFgItems
+    enrichedFgItems.forEach((fg) => {
+      if (Array.isArray(fg.nestedMaterials)) {
+        fg.nestedMaterials.forEach((nMat) => {
+          const pricing = resolveMaterialPrice(nMat.materialName, nMat.materialCode, undefined, undefined);
+          nMat.unitCost = pricing.unitCost;
+          nMat.costSource = pricing.costSource;
+          nMat.grossCost = Math.round(Number(nMat.totalRequired || 0) * pricing.unitCost * 100) / 100;
+          nMat.shortageCost = Math.round(Number(nMat.shortage || 0) * pricing.unitCost * 100) / 100;
+        });
+      }
+    });
+
+    totalIncome = Math.round(totalIncome * 100) / 100;
+    totalGrossMaterialCost = Math.round(totalGrossMaterialCost * 100) / 100;
+    totalEstimatedExpense = Math.round(totalEstimatedExpense * 100) / 100;
+
+    const projectedGrossProfit = Math.round((totalIncome - totalGrossMaterialCost) * 100) / 100;
+    const projectedMarginPercentage = totalIncome > 0
+      ? Math.round(((totalIncome - totalGrossMaterialCost) / totalIncome) * 10000) / 100
+      : 0;
+
+    const targetExpense = Math.max(0, Number(req.body.targetExpense || 0));
+    let budgetStatus = "Unset";
+    if (targetExpense > 0) {
+      if (totalEstimatedExpense > targetExpense) {
+        budgetStatus = "Over Budget";
+      } else if (totalEstimatedExpense >= targetExpense * 0.85) {
+        budgetStatus = "Near Limit";
+      } else {
+        budgetStatus = "Within Budget";
+      }
+    }
+
     const newPlan = await MRPPlan.create({
       company: companyId,
       mrpNumber,
@@ -480,6 +722,15 @@ export const createMRPPlan = async (req, res) => {
       boRequirements,
       subAssemblyRequirements,
       consumableRequirements,
+      totalIncome,
+      totalGrossMaterialCost,
+      totalEstimatedExpense,
+      targetExpense,
+      committedExpense: 0,
+      actualReceivedExpense: 0,
+      projectedGrossProfit,
+      projectedMarginPercentage,
+      budgetStatus,
       createdBy: req.user?.id || req.user?._id,
       createdByName: req.user?.name || req.user?.username || "Planner",
     });
@@ -572,23 +823,51 @@ export const getAllMRPPlans = async (req, res) => {
         { mrpPlanId: { $in: planIds } },
         { mrpNumber: { $in: planNumbers } }
       ]
-    }).select("mrpPlanId mrpNumber poNumber status").lean().catch(() => []);
+    }).select("mrpPlanId mrpNumber poNumber status grandTotal totalAmount").lean().catch(() => []);
 
     const poPlanIdMap = new Map();
     const poPlanNumMap = new Map();
+    const poCommittedAmountMap = new Map();
+
     (linkedPOs || []).forEach(po => {
+      const amt = Number(po.grandTotal != null ? po.grandTotal : (po.totalAmount != null ? po.totalAmount : 0)) || 0;
       if (po.mrpPlanId) {
         const idStr = String(po.mrpPlanId);
         poPlanIdMap.set(idStr, (poPlanIdMap.get(idStr) || 0) + 1);
+        poCommittedAmountMap.set(idStr, (poCommittedAmountMap.get(idStr) || 0) + amt);
       }
       if (po.mrpNumber) {
         poPlanNumMap.set(po.mrpNumber, (poPlanNumMap.get(po.mrpNumber) || 0) + 1);
+        poCommittedAmountMap.set(po.mrpNumber, (poCommittedAmountMap.get(po.mrpNumber) || 0) + amt);
       }
     });
+
+    // Resolve company time-lock policy for mrpPlan
+    const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
+    const prefixDoc = await StorePrefix.findOne();
+    const policyHours = prefixDoc?.timeLockPolicies?.mrpPlan !== undefined && prefixDoc?.timeLockPolicies?.mrpPlan !== null
+      ? Number(prefixDoc.timeLockPolicies.mrpPlan)
+      : 24;
 
     const enrichedPlans = mrpPlans.map(p => {
       const planObj = p.toObject ? p.toObject() : p;
       const poCount = (poPlanIdMap.get(String(p._id)) || 0) + (poPlanNumMap.get(p.mrpNumber) || 0);
+      const liveCommitted = Math.round(((poCommittedAmountMap.get(String(p._id)) || 0) + (poCommittedAmountMap.get(p.mrpNumber) || 0)) * 100) / 100;
+      const targetExpense = Number(p.targetExpense || 0);
+      const estimatedExp = Number(p.totalEstimatedExpense || 0);
+
+      let dynamicBudgetStatus = p.budgetStatus || "Unset";
+      if (targetExpense > 0) {
+        const effectiveExpense = liveCommitted > 0 ? liveCommitted : estimatedExp;
+        if (effectiveExpense > targetExpense) {
+          dynamicBudgetStatus = "Over Budget";
+        } else if (effectiveExpense >= targetExpense * 0.85) {
+          dynamicBudgetStatus = "Near Limit";
+        } else {
+          dynamicBudgetStatus = "Within Budget";
+        }
+      }
+
       const hasActiveReqs = (p.rmRequirements || []).some(r => r.status === 'PO Raised' || (r.orderedQuantity && r.orderedQuantity > 0) || (r.receivedQuantity && r.receivedQuantity > 0)) ||
         (p.boRequirements || []).some(b => b.status === 'PO Raised' || (b.orderedQuantity && b.orderedQuantity > 0) || (b.receivedQuantity && b.receivedQuantity > 0)) ||
         (p.fgItems || []).some(f => (f.receivedQuantity && f.receivedQuantity > 0));
@@ -596,15 +875,27 @@ export const getAllMRPPlans = async (req, res) => {
       
       const hasTransactions = poCount > 0 || hasActiveReqs || isProductionActive;
       const createdAtMs = new Date(p.createdAt || Date.now()).getTime();
-      const is24hExpired = (Date.now() - createdAtMs) > (24 * 60 * 60 * 1000);
+
+      let isExpired = false;
+      if (policyHours === -1) {
+        isExpired = false;
+      } else if (policyHours <= 0) {
+        isExpired = true;
+      } else {
+        isExpired = (Date.now() - createdAtMs) > (policyHours * 60 * 60 * 1000);
+      }
 
       return {
         ...planObj,
+        committedExpense: liveCommitted,
+        budgetStatus: dynamicBudgetStatus,
         linkedPOCount: poCount,
         hasTransactions,
-        is24hExpired,
-        canEdit: !is24hExpired && !hasTransactions,
-        canDelete: !is24hExpired && !hasTransactions,
+        policyHours,
+        is24hExpired: isExpired,
+        isTimeLockExpired: isExpired,
+        canEdit: !isExpired && !hasTransactions,
+        canDelete: !isExpired && !hasTransactions,
         createdByName: p.createdByName || p.createdBy?.name || p.createdBy?.username || p.createdBy?.email || "Planner",
         updatedByName: p.updatedByName || p.updatedBy?.name || p.updatedBy?.username || p.updatedBy?.email || ""
       };
@@ -642,10 +933,33 @@ export const getMRPPlanById = async (req, res) => {
       return res.status(404).json({ message: "MRP Plan not found" });
     }
 
-    const linkedPOCount = await PurchaseOrder.countDocuments({
+    const linkedPOs = await PurchaseOrder.find({
       company: companyId,
       $or: [{ mrpPlanId: id }, { mrpNumber: mrpPlan.mrpNumber }]
-    }).catch(() => 0);
+    }).select("grandTotal totalAmount").lean().catch(() => []);
+
+    const linkedPOCount = linkedPOs.length;
+    const committedExpense = Math.round(
+      linkedPOs.reduce((sum, po) => {
+        const amt = Number(po.grandTotal != null ? po.grandTotal : (po.totalAmount != null ? po.totalAmount : 0)) || 0;
+        return sum + amt;
+      }, 0) * 100
+    ) / 100;
+
+    const targetExpense = Number(mrpPlan.targetExpense || 0);
+    const estimatedExp = Number(mrpPlan.totalEstimatedExpense || 0);
+
+    let dynamicBudgetStatus = mrpPlan.budgetStatus || "Unset";
+    if (targetExpense > 0) {
+      const effectiveExpense = committedExpense > 0 ? committedExpense : estimatedExp;
+      if (effectiveExpense > targetExpense) {
+        dynamicBudgetStatus = "Over Budget";
+      } else if (effectiveExpense >= targetExpense * 0.85) {
+        dynamicBudgetStatus = "Near Limit";
+      } else {
+        dynamicBudgetStatus = "Within Budget";
+      }
+    }
 
     const hasActiveReqs = (mrpPlan.rmRequirements || []).some(r => r.status === 'PO Raised' || (r.orderedQuantity && r.orderedQuantity > 0) || (r.receivedQuantity && r.receivedQuantity > 0)) ||
       (mrpPlan.boRequirements || []).some(b => b.status === 'PO Raised' || (b.orderedQuantity && b.orderedQuantity > 0) || (b.receivedQuantity && b.receivedQuantity > 0)) ||
@@ -654,7 +968,22 @@ export const getMRPPlanById = async (req, res) => {
 
     const hasTransactions = linkedPOCount > 0 || hasActiveReqs || isProductionActive;
     const createdAtMs = new Date(mrpPlan.createdAt || Date.now()).getTime();
-    const is24hExpired = (Date.now() - createdAtMs) > (24 * 60 * 60 * 1000);
+
+    // Resolve company time-lock policy for mrpPlan
+    const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
+    const prefixDoc = await StorePrefix.findOne();
+    const policyHours = prefixDoc?.timeLockPolicies?.mrpPlan !== undefined && prefixDoc?.timeLockPolicies?.mrpPlan !== null
+      ? Number(prefixDoc.timeLockPolicies.mrpPlan)
+      : 24;
+
+    let isExpired = false;
+    if (policyHours === -1) {
+      isExpired = false;
+    } else if (policyHours <= 0) {
+      isExpired = true;
+    } else {
+      isExpired = (Date.now() - createdAtMs) > (policyHours * 60 * 60 * 1000);
+    }
 
     const planObj = mrpPlan.toObject ? mrpPlan.toObject() : mrpPlan;
 
@@ -662,11 +991,15 @@ export const getMRPPlanById = async (req, res) => {
       success: true,
       mrpPlan: {
         ...planObj,
+        committedExpense,
+        budgetStatus: dynamicBudgetStatus,
         linkedPOCount,
         hasTransactions,
-        is24hExpired,
-        canEdit: !is24hExpired && !hasTransactions,
-        canDelete: !is24hExpired && !hasTransactions,
+        policyHours,
+        is24hExpired: isExpired,
+        isTimeLockExpired: isExpired,
+        canEdit: !isExpired && !hasTransactions,
+        canDelete: !isExpired && !hasTransactions,
         createdByName: mrpPlan.createdByName || mrpPlan.createdBy?.name || mrpPlan.createdBy?.username || mrpPlan.createdBy?.email || "Planner",
         updatedByName: mrpPlan.updatedByName || mrpPlan.updatedBy?.name || mrpPlan.updatedBy?.username || mrpPlan.updatedBy?.email || ""
       },
@@ -689,12 +1022,12 @@ export const deleteMRPPlan = async (req, res) => {
       return res.status(404).json({ message: "MRP Plan not found" });
     }
 
-    // 1. Check 24-Hour window
-    const createdAtMs = new Date(plan.createdAt).getTime();
-    if ((Date.now() - createdAtMs) > (24 * 60 * 60 * 1000)) {
+    // 1. Check Dynamic Time Lock Policy (Master > Store Settings)
+    const lockCheck = await checkTimeLockGovernance(req, 'mrpPlan', plan.createdAt, 'delete');
+    if (!lockCheck.allowed) {
       return res.status(403).json({
         success: false,
-        message: `MRP Plan ${plan.mrpNumber} is older than 24 hours and can no longer be deleted.`
+        message: lockCheck.message
       });
     }
 
@@ -766,12 +1099,12 @@ export const updateMRPPlan = async (req, res) => {
       return res.status(404).json({ message: "MRP Plan not found" });
     }
 
-    // 1. Check 24-Hour window
-    const createdAtMs = new Date(plan.createdAt).getTime();
-    if ((Date.now() - createdAtMs) > (24 * 60 * 60 * 1000)) {
+    // 1. Check Dynamic Time Lock Policy (Master > Store Settings)
+    const lockCheck = await checkTimeLockGovernance(req, 'mrpPlan', plan.createdAt, 'edit');
+    if (!lockCheck.allowed) {
       return res.status(403).json({
         success: false,
-        message: `MRP Plan ${plan.mrpNumber} is older than 24 hours and can no longer be edited.`
+        message: lockCheck.message
       });
     }
 
@@ -964,6 +1297,151 @@ export const updateMRPPlan = async (req, res) => {
       plan.boRequirements = buildReqArray(boMap);
       plan.subAssemblyRequirements = buildReqArray(subAssemblyMap);
       plan.consumableRequirements = buildReqArray(consumableMap);
+
+      // Financial Recalculation on FG items modification
+      const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
+      req.getModel("Vendor", vendorSchema);
+      const allPriceLists = await VendorPriceList.find({ company: companyId }).populate("vendor", "name code").lean().catch(() => []);
+      const allInventories = await req.getModel("Inventory", inventorySchema).find({ company: companyId });
+
+      const cleanStr = (s) => (s || "").trim().toLowerCase();
+      const cleanKey = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+      const vendorPriceMap = new Map();
+      (allPriceLists || []).forEach((vpl) => {
+        const vendorId = vpl.vendor?._id || vpl.vendor;
+        const vendorName = vpl.vendor?.name || vpl.vendorName || "Vendor";
+        const rawMatId = (vpl.material?._id || vpl.material)?.toString();
+
+        const addPriceEntry = (keys, rate, isPref) => {
+          const entry = { vendorId, vendorName, rate: Number(rate) || 0, isPreferred: Boolean(isPref) };
+          keys.filter(Boolean).forEach((k) => {
+            if (!vendorPriceMap.has(k)) vendorPriceMap.set(k, []);
+            vendorPriceMap.get(k).push(entry);
+          });
+        };
+
+        if (vpl.material || rawMatId) {
+          const mat = vpl.material;
+          const matName = typeof mat === 'object' ? (mat.name || mat.materialName || "") : "";
+          const matCode = typeof mat === 'object' ? (mat.code || mat.materialCode || "") : "";
+          const keys = [rawMatId, cleanStr(matName), cleanStr(matCode), cleanKey(matName), cleanKey(matCode)];
+          addPriceEntry(keys, vpl.price, vpl.isPreferred);
+        }
+
+        if (Array.isArray(vpl.items)) {
+          vpl.items.forEach((vItem) => {
+            const vName = cleanStr(vItem.materialName || vItem.itemName);
+            const vCode = cleanStr(vItem.materialCode || vItem.itemCode);
+            const keys = [vName, vCode, cleanKey(vName), cleanKey(vCode)];
+            addPriceEntry(keys, vItem.rate || vItem.unitPrice || 0, vItem.isPreferred || vpl.isPreferred);
+          });
+        }
+      });
+
+      const resolveMaterialPrice = (name, code, matId, rmBoObj) => {
+        const keys = [matId ? String(matId) : null, cleanStr(code), cleanStr(name), cleanKey(code), cleanKey(name)].filter(Boolean);
+        let quotes = [];
+        for (const k of keys) {
+          if (vendorPriceMap.has(k)) {
+            quotes = vendorPriceMap.get(k);
+            break;
+          }
+        }
+        if (quotes.length > 0) {
+          const preferred = quotes.find((q) => q.isPreferred);
+          const chosen = preferred || quotes.slice().sort((a, b) => a.rate - b.rate)[0];
+          if (chosen && chosen.rate > 0) {
+            return {
+              unitCost: chosen.rate,
+              costSource: "Vendor Price List",
+              preferredVendor: chosen.vendorId,
+              preferredVendorName: chosen.vendorName
+            };
+          }
+        }
+        const inv = allInventories.find(
+          (i) => (code && i.materialCode && i.materialCode.toLowerCase() === code.toLowerCase()) ||
+                 (name && i.materialName && i.materialName.toLowerCase() === name.toLowerCase())
+        );
+        const invRate = Number(inv?.unitPrice || 0);
+        const baseRate = Number(rmBoObj?.baseRate || 0);
+        const fallbackRate = invRate > 0 ? invRate : baseRate;
+        return {
+          unitCost: fallbackRate,
+          costSource: fallbackRate > 0 ? "Inventory Valuation" : "Estimated Rate",
+          preferredVendor: undefined,
+          preferredVendorName: ""
+        };
+      };
+
+      const populateReqPricing = (reqList) => {
+        reqList.forEach((r) => {
+          const rmBoObj = allRmBoItems.find((item) =>
+            (item._id && r.material && String(item._id) === String(r.material)) ||
+            (r.materialCode && item.code && item.code.toLowerCase() === r.materialCode.toLowerCase()) ||
+            (r.materialName && item.name && item.name.toLowerCase() === r.materialName.toLowerCase())
+          );
+          const pricing = resolveMaterialPrice(r.materialName, r.materialCode, r.material, rmBoObj);
+          r.unitCost = pricing.unitCost;
+          r.costSource = pricing.costSource;
+          if (pricing.preferredVendor) r.preferredVendor = pricing.preferredVendor;
+          if (pricing.preferredVendorName) r.preferredVendorName = pricing.preferredVendorName;
+
+          r.grossCost = Math.round(Number(r.requiredQuantity || 0) * r.unitCost * 100) / 100;
+          r.shortageCost = Math.round(Number(r.shortage || 0) * r.unitCost * 100) / 100;
+        });
+      };
+
+      populateReqPricing(plan.rmRequirements);
+      populateReqPricing(plan.boRequirements);
+      populateReqPricing(plan.consumableRequirements);
+
+      let totalIncome = 0;
+      (plan.fgItems || []).forEach((fg) => {
+        if (!fg.sellingPrice) {
+          const matchedMaster = allFGItems.find((f) =>
+            (fg.fgItem && String(f._id) === String(fg.fgItem)) ||
+            (fg.fgItemName && f.name && f.name.trim().toLowerCase() === fg.fgItemName.trim().toLowerCase())
+          );
+          fg.sellingPrice = Number(matchedMaster?.sellingPrice || 0);
+        }
+        fg.totalPrice = Math.round(Number(fg.quantity || 0) * Number(fg.sellingPrice || 0) * 100) / 100;
+        totalIncome += fg.totalPrice;
+      });
+
+      let totalGrossMaterialCost = 0;
+      let totalEstimatedExpense = 0;
+
+      [...(plan.rmRequirements || []), ...(plan.boRequirements || []), ...(plan.consumableRequirements || [])].forEach((r) => {
+        totalGrossMaterialCost += Number(r.grossCost || 0);
+        totalEstimatedExpense += Number(r.shortageCost || 0);
+      });
+
+      plan.totalIncome = Math.round(totalIncome * 100) / 100;
+      plan.totalGrossMaterialCost = Math.round(totalGrossMaterialCost * 100) / 100;
+      plan.totalEstimatedExpense = Math.round(totalEstimatedExpense * 100) / 100;
+      plan.projectedGrossProfit = Math.round((plan.totalIncome - plan.totalGrossMaterialCost) * 100) / 100;
+      plan.projectedMarginPercentage = plan.totalIncome > 0
+        ? Math.round(((plan.totalIncome - plan.totalGrossMaterialCost) / plan.totalIncome) * 10000) / 100
+        : 0;
+    }
+
+    if (req.body.targetExpense !== undefined) {
+      plan.targetExpense = Math.max(0, Number(req.body.targetExpense));
+    }
+
+    if (plan.targetExpense > 0) {
+      const effectiveSpent = (plan.committedExpense || 0) > 0 ? plan.committedExpense : (plan.totalEstimatedExpense || 0);
+      if (effectiveSpent > plan.targetExpense) {
+        plan.budgetStatus = "Over Budget";
+      } else if (effectiveSpent >= plan.targetExpense * 0.85) {
+        plan.budgetStatus = "Near Limit";
+      } else {
+        plan.budgetStatus = "Within Budget";
+      }
+    } else {
+      plan.budgetStatus = "Unset";
     }
 
     plan.updatedBy = req.user?.id || req.user?._id;
@@ -988,6 +1466,74 @@ export const updateMRPPlan = async (req, res) => {
   } catch (error) {
     console.error("Error updating MRP plan:", error);
     res.status(500).json({ message: error.message || "Failed to update MRP plan" });
+  }
+};
+
+export const updateMRPTargetExpense = async (req, res) => {
+  try {
+    const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
+    const PurchaseOrder = req.getModel("PurchaseOrder", purchaseOrderSchema);
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const { targetExpense, remarks } = req.body;
+
+    const plan = await MRPPlan.findOne({ _id: id, company: companyId });
+    if (!plan) {
+      return res.status(404).json({ message: "MRP Plan not found" });
+    }
+
+    const newTarget = Math.max(0, Number(targetExpense) || 0);
+    plan.targetExpense = newTarget;
+
+    // Calculate live committed expense from linked POs
+    const linkedPOs = await PurchaseOrder.find({
+      company: companyId,
+      $or: [{ mrpPlanId: id }, { mrpNumber: plan.mrpNumber }]
+    }).select("grandTotal totalAmount").lean().catch(() => []);
+
+    const committedExpense = Math.round(
+      linkedPOs.reduce((sum, po) => {
+        const amt = Number(po.grandTotal != null ? po.grandTotal : (po.totalAmount != null ? po.totalAmount : 0)) || 0;
+        return sum + amt;
+      }, 0) * 100
+    ) / 100;
+
+    plan.committedExpense = committedExpense;
+
+    if (newTarget > 0) {
+      const effectiveExpense = committedExpense > 0 ? committedExpense : Number(plan.totalEstimatedExpense || 0);
+      if (effectiveExpense > newTarget) {
+        plan.budgetStatus = "Over Budget";
+      } else if (effectiveExpense >= newTarget * 0.85) {
+        plan.budgetStatus = "Near Limit";
+      } else {
+        plan.budgetStatus = "Within Budget";
+      }
+    } else {
+      plan.budgetStatus = "Unset";
+    }
+
+    plan.updatedBy = req.user?.id || req.user?._id;
+    plan.updatedByName = req.user?.name || req.user?.username || "Planner";
+    if (!Array.isArray(plan.editHistory)) plan.editHistory = [];
+    plan.editHistory.push({
+      updatedBy: req.user?.id || req.user?._id,
+      updatedByName: plan.updatedByName,
+      updatedAt: new Date(),
+      action: "Updated Target Budget",
+      remarks: remarks || `Target expense set to ₹${newTarget.toLocaleString('en-IN')}`
+    });
+
+    await plan.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Target expense updated to ₹${newTarget.toLocaleString('en-IN')}`,
+      mrpPlan: plan
+    });
+  } catch (error) {
+    console.error("Error updating MRP target expense:", error);
+    res.status(500).json({ message: error.message || "Failed to update target expense" });
   }
 };
 
@@ -1023,21 +1569,52 @@ export const updateMRPRequirementItemStatus = async (req, res) => {
   try {
     const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
     const companyId = getCompanyId(req);
-    const { items = [], status = "RFQ Raised", planId } = req.body;
+    const { items = [], status = "RFQ Raised", planId, poNumber, rfqNumber } = req.body;
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: "Items list is required" });
     }
 
+    const clean = (s) => (s || "").toString().trim().toLowerCase();
     const updatedPlanIds = new Set();
 
+    // Expand items: unpack sourceCutSizes from bucket items so underlying cut sizes get updated
+    const expandedItems = [];
     for (const it of items) {
+      expandedItems.push(it);
+      if (Array.isArray(it.sourceCutSizes) && it.sourceCutSizes.length > 0) {
+        const csStatus = it.status || status;
+        it.sourceCutSizes.forEach(cs => {
+          const csMrp = (Array.isArray(cs.mrpSources) && cs.mrpSources[0]) || {};
+          expandedItems.push({
+            planId: cs.planId || csMrp.mrpId || csMrp.mrpPlanId || it.planId,
+            mrpNumber: cs.mrpNumber || csMrp.mrpNumber || it.mrpNumber || it.sourceMRP,
+            materialId: cs.sourceItemId || cs.materialId,
+            materialName: cs.sourceItemName || cs.materialName,
+            materialCode: cs.sourceItemCode || cs.materialCode,
+            status: csStatus,
+            poNumber: cs.poNumber || it.poNumber || poNumber,
+            rfqNumber: cs.rfqNumber || it.rfqNumber || rfqNumber
+          });
+        });
+      }
+    }
+
+    for (const it of expandedItems) {
       const targetPlanId = it.planId || planId;
       const targetMrpNo = it.mrpNumber || it.sourceMRP;
       const targetMatId = it.materialId || it.material;
-      const targetMatName = (it.materialName || "").trim().toLowerCase();
-      const targetMatCode = (it.materialCode || "").trim().toLowerCase();
+      const targetMatName = clean(it.materialName);
+      const targetMatCode = clean(it.materialCode);
       const newStatus = it.status || status;
+      const curPoNumber = it.poNumber || poNumber || "";
+      const curRfqNumber = it.rfqNumber || rfqNumber || "";
+
+      if (!targetPlanId && !targetMrpNo) {
+        // Strict MRP isolation: never update all company plans without an explicit MRP plan identifier.
+        // Unscoped updates contaminate other MRP plans with foreign PO/RFQ numbers.
+        continue;
+      }
 
       const planQuery = { company: companyId };
       if (targetPlanId) {
@@ -1046,9 +1623,7 @@ export const updateMRPRequirementItemStatus = async (req, res) => {
         planQuery.mrpNumber = targetMrpNo;
       }
 
-      const matchingPlans = targetPlanId || targetMrpNo 
-        ? await MRPPlan.find(planQuery)
-        : await MRPPlan.find({ company: companyId, status: { $ne: "Completed" } });
+      const matchingPlans = await MRPPlan.find(planQuery);
 
       for (const plan of matchingPlans) {
         let changed = false;
@@ -1059,10 +1634,12 @@ export const updateMRPRequirementItemStatus = async (req, res) => {
             const mId = r.material?._id || r.material;
             const matches =
               (targetMatId && mId && mId.toString() === targetMatId.toString()) ||
-              (targetMatCode && r.materialCode && r.materialCode.toLowerCase() === targetMatCode) ||
-              (targetMatName && r.materialName && r.materialName.toLowerCase() === targetMatName);
+              (targetMatCode && r.materialCode && clean(r.materialCode) === targetMatCode) ||
+              (targetMatName && r.materialName && clean(r.materialName) === targetMatName);
             if (matches) {
               r.status = newStatus;
+              if (curPoNumber) r.poNumber = curPoNumber;
+              if (curRfqNumber) r.rfqNumber = curRfqNumber;
               changed = true;
             }
           });
@@ -1074,10 +1651,12 @@ export const updateMRPRequirementItemStatus = async (req, res) => {
             const mId = b.material?._id || b.material;
             const matches =
               (targetMatId && mId && mId.toString() === targetMatId.toString()) ||
-              (targetMatCode && b.materialCode && b.materialCode.toLowerCase() === targetMatCode) ||
-              (targetMatName && b.materialName && b.materialName.toLowerCase() === targetMatName);
+              (targetMatCode && b.materialCode && clean(b.materialCode) === targetMatCode) ||
+              (targetMatName && b.materialName && clean(b.materialName) === targetMatName);
             if (matches) {
               b.status = newStatus;
+              if (curPoNumber) b.poNumber = curPoNumber;
+              if (curRfqNumber) b.rfqNumber = curRfqNumber;
               changed = true;
             }
           });
@@ -1087,10 +1666,12 @@ export const updateMRPRequirementItemStatus = async (req, res) => {
         if (Array.isArray(plan.consumableRequirements)) {
           plan.consumableRequirements.forEach((c) => {
             const matches =
-              (targetMatCode && c.materialCode && c.materialCode.toLowerCase() === targetMatCode) ||
-              (targetMatName && c.materialName && c.materialName.toLowerCase() === targetMatName);
+              (targetMatCode && c.materialCode && clean(c.materialCode) === targetMatCode) ||
+              (targetMatName && c.materialName && clean(c.materialName) === targetMatName);
             if (matches) {
               c.status = newStatus;
+              if (curPoNumber) c.poNumber = curPoNumber;
+              if (curRfqNumber) c.rfqNumber = curRfqNumber;
               changed = true;
             }
           });
@@ -1102,10 +1683,12 @@ export const updateMRPRequirementItemStatus = async (req, res) => {
             if (Array.isArray(fg.nestedMaterials)) {
               fg.nestedMaterials.forEach((n) => {
                 const matches =
-                  (targetMatCode && n.materialCode && n.materialCode.toLowerCase() === targetMatCode) ||
-                  (targetMatName && n.materialName && n.materialName.toLowerCase() === targetMatName);
+                  (targetMatCode && n.materialCode && clean(n.materialCode) === targetMatCode) ||
+                  (targetMatName && n.materialName && clean(n.materialName) === targetMatName);
                 if (matches) {
                   n.status = newStatus;
+                  if (curPoNumber) n.poNumber = curPoNumber;
+                  if (curRfqNumber) n.rfqNumber = curRfqNumber;
                   changed = true;
                 }
               });
@@ -1131,5 +1714,393 @@ export const updateMRPRequirementItemStatus = async (req, res) => {
   } catch (error) {
     console.error("Error updating MRP requirement item status:", error);
     res.status(500).json({ message: error.message || "Failed to update item status" });
+  }
+};
+
+/**
+ * Preview MRP BOM Budget:
+ * Calculates total RM and BO costs for given Finished Goods items based on Vendor Price List & valuations
+ */
+export const previewMRPBOMBudget = async (req, res) => {
+  try {
+    const companyId = getCompanyId(req);
+    const { fgItems } = req.body;
+
+    if (!Array.isArray(fgItems) || fgItems.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          totalRmCost: 0,
+          totalBoCost: 0,
+          totalBOMCost: 0,
+          rmCount: 0,
+          boCount: 0,
+          rmItems: [],
+          boItems: []
+        }
+      });
+    }
+
+    // Load models
+    const Inventory = req.getModel("Inventory", inventorySchema);
+    const RmBoItem = req.getModel("RmBoItem", rmBoItemSchema);
+    const RawMaterial = req.getModel("RawMaterial", rawMaterialSchema);
+    const BoughtOut = req.getModel("BoughtOut", boughtOutSchema);
+    const BOM = req.getModel("BOM", bomSchema);
+    const FGItem = req.getModel("FGItem", fgItemSchema);
+    const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
+
+    // Parallel fetch cached collections for company
+    const [
+      allInventories,
+      allRmBoItems,
+      allRawMaterials,
+      allBoughtOuts,
+      allBOMs,
+      allFGItems,
+      allPriceLists
+    ] = await Promise.all([
+      Inventory.find({ company: companyId }),
+      RmBoItem.find({ company: companyId }).populate("categoryId"),
+      RawMaterial.find({ company: companyId }).populate("categoryId"),
+      BoughtOut.find({ company: companyId }).populate("categoryId"),
+      BOM.find({ company: companyId }),
+      FGItem.find({ company: companyId }),
+      VendorPriceList.find({ company: companyId }).populate("vendor", "name code").lean().catch(() => [])
+    ]);
+
+    const cleanStr = (s) => (s || "").trim().toLowerCase();
+    const cleanKey = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    // Fast Vendor Price List lookup map
+    const vendorPriceMap = new Map();
+    (allPriceLists || []).forEach((vpl) => {
+      const vendorId = vpl.vendor?._id || vpl.vendor;
+      const vendorName = vpl.vendor?.name || vpl.vendorName || "Vendor";
+      const rawMatId = (vpl.material?._id || vpl.material)?.toString();
+
+      const addPriceEntry = (keys, rate, isPref) => {
+        const entry = {
+          vendorId,
+          vendorName,
+          rate: Number(rate) || 0,
+          isPreferred: Boolean(isPref)
+        };
+        keys.filter(Boolean).forEach((k) => {
+          if (!vendorPriceMap.has(k)) vendorPriceMap.set(k, []);
+          vendorPriceMap.get(k).push(entry);
+        });
+      };
+
+      if (vpl.material || rawMatId) {
+        const mat = vpl.material;
+        const matName = typeof mat === 'object' ? (mat.name || mat.materialName || "") : "";
+        const matCode = typeof mat === 'object' ? (mat.code || mat.materialCode || "") : "";
+        const keys = [
+          rawMatId,
+          cleanStr(matName),
+          cleanStr(matCode),
+          cleanKey(matName),
+          cleanKey(matCode),
+        ];
+        addPriceEntry(keys, vpl.price, vpl.isPreferred);
+      }
+
+      if (Array.isArray(vpl.items)) {
+        vpl.items.forEach((vItem) => {
+          const vName = cleanStr(vItem.materialName || vItem.itemName);
+          const vCode = cleanStr(vItem.materialCode || vItem.itemCode);
+          const keys = [vName, vCode, cleanKey(vName), cleanKey(vCode)];
+          addPriceEntry(keys, vItem.rate || vItem.unitPrice || 0, vItem.isPreferred || vpl.isPreferred);
+        });
+      }
+    });
+
+    // Material Cost Resolver: checks VendorPriceList preferred rate > lowest rate > inventory unitPrice > rmBo baseRate
+    const resolveMaterialPrice = (name, code, matId, rmBoObj) => {
+      const keys = [
+        matId ? String(matId) : null,
+        cleanStr(code),
+        cleanStr(name),
+        cleanKey(code),
+        cleanKey(name)
+      ].filter(Boolean);
+
+      let quotes = [];
+      for (const k of keys) {
+        if (vendorPriceMap.has(k)) {
+          quotes = vendorPriceMap.get(k);
+          break;
+        }
+      }
+
+      if (quotes.length > 0) {
+        const preferred = quotes.find((q) => q.isPreferred);
+        const chosen = preferred || quotes.slice().sort((a, b) => a.rate - b.rate)[0];
+        if (chosen && chosen.rate > 0) {
+          return {
+            unitCost: chosen.rate,
+            costSource: "Vendor Price List",
+            preferredVendorName: chosen.vendorName
+          };
+        }
+      }
+
+      const inv = allInventories.find(
+        (i) =>
+          (code && i.materialCode && i.materialCode.toLowerCase() === code.toLowerCase()) ||
+          (name && i.materialName && i.materialName.toLowerCase() === name.toLowerCase())
+      );
+
+      const invRate = Number(inv?.unitPrice || 0);
+      const baseRate = Number(rmBoObj?.baseRate || 0);
+      const fallbackRate = invRate > 0 ? invRate : baseRate;
+
+      return {
+        unitCost: fallbackRate,
+        costSource: fallbackRate > 0 ? "Inventory Valuation" : "Estimated Rate",
+        preferredVendorName: ""
+      };
+    };
+
+    // Helper to find BOM for a product (from BOM collection OR FGItem embedded BOM)
+    const findBOM = (pName, pCode, bId, fgId) => {
+      if (bId) {
+        const found = allBOMs.find((b) => b._id && b._id.toString() === bId.toString());
+        if (found && Array.isArray(found.items) && found.items.length > 0) return found;
+
+        const foundByNum = allBOMs.find((b) => b.bomNumber && b.bomNumber.toString().toLowerCase() === bId.toString().toLowerCase());
+        if (foundByNum && Array.isArray(foundByNum.items) && foundByNum.items.length > 0) return foundByNum;
+      }
+
+      if (fgId) {
+        const foundFG = allFGItems.find((f) => f._id && f._id.toString() === fgId.toString());
+        if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
+          return {
+            _id: foundFG._id,
+            bomNumber: `BOM-${foundFG.code || foundFG.name}`,
+            productName: foundFG.name,
+            productCode: foundFG.code,
+            items: foundFG.bom.map((b) => ({
+              materialName: b.itemName || b.name || "Material",
+              materialCode: b.itemCode || b.code || "",
+              quantity: Number(b.quantity) || 1,
+              unit: b.unit || "PCS",
+              itemType: b.itemType || "Material",
+              description: b.description || b.descriptions || ""
+            })),
+          };
+        }
+      }
+
+      if (pName) {
+        const cleanPName = pName.trim().toLowerCase();
+        const found = allBOMs.find(
+          (b) => b.productName && b.productName.trim().toLowerCase() === cleanPName
+        );
+        if (found && Array.isArray(found.items) && found.items.length > 0) return found;
+
+        const foundFG = allFGItems.find(
+          (f) => f.name && f.name.trim().toLowerCase() === cleanPName
+        );
+        if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
+          return {
+            _id: foundFG._id,
+            bomNumber: `BOM-${foundFG.code || foundFG.name}`,
+            productName: foundFG.name,
+            productCode: foundFG.code,
+            items: foundFG.bom.map((b) => ({
+              materialName: b.itemName || b.name || "Material",
+              materialCode: b.itemCode || b.code || "",
+              quantity: Number(b.quantity) || 1,
+              unit: b.unit || "PCS",
+              itemType: b.itemType || "Material",
+              description: b.description || b.descriptions || ""
+            })),
+          };
+        }
+      }
+
+      if (pCode) {
+        const cleanPCode = pCode.trim().toLowerCase();
+        const found = allBOMs.find(
+          (b) => b.productCode && b.productCode.trim().toLowerCase() === cleanPCode
+        );
+        if (found && Array.isArray(found.items) && found.items.length > 0) return found;
+
+        const foundFG = allFGItems.find(
+          (f) => f.code && f.code.trim().toLowerCase() === cleanPCode
+        );
+        if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
+          return {
+            _id: foundFG._id,
+            bomNumber: `BOM-${foundFG.code || foundFG.name}`,
+            productName: foundFG.name,
+            productCode: foundFG.code,
+            items: foundFG.bom.map((b) => ({
+              materialName: b.itemName || b.name || "Material",
+              materialCode: b.itemCode || b.code || "",
+              quantity: Number(b.quantity) || 1,
+              unit: b.unit || "PCS",
+              itemType: b.itemType || "Material",
+              description: b.description || b.descriptions || ""
+            })),
+          };
+        }
+      }
+
+      return null;
+    };
+
+    const rmMap = new Map();
+    const boMap = new Map();
+
+    const explodeTree = (itemName, itemCode, multiplierQty, level, fgId, bId) => {
+      const subBOM = findBOM(itemName, itemCode, bId, fgId);
+      if (subBOM && Array.isArray(subBOM.items) && subBOM.items.length > 0 && level <= 5) {
+        for (const subItem of subBOM.items) {
+          const sName = (subItem.materialName || "").trim();
+          const sCode = (subItem.materialCode || "").trim();
+          const perQty = Number(subItem.quantity) || 1;
+          const grossQty = perQty * multiplierQty;
+          const unit = subItem.unit || "PCS";
+
+          const rmBo = allRmBoItems.find(
+            (r) =>
+              (sCode && r.code && r.code.toLowerCase() === sCode.toLowerCase()) ||
+              (r.name && r.name.toLowerCase() === sName.toLowerCase())
+          );
+          const rawMat = allRawMaterials.find(
+            (r) =>
+              (sCode && r.code && r.code.toLowerCase() === sCode.toLowerCase()) ||
+              (r.name && r.name.toLowerCase() === sName.toLowerCase())
+          );
+          const boughtOut = allBoughtOuts.find(
+            (r) =>
+              (sCode && r.code && r.code.toLowerCase() === sCode.toLowerCase()) ||
+              (r.name && r.name.toLowerCase() === sName.toLowerCase())
+          );
+
+          const matchedFG = allFGItems.find(
+            (f) =>
+              (sCode && f.code && f.code.toLowerCase() === sCode.toLowerCase()) ||
+              (f.name && f.name.toLowerCase() === sName.toLowerCase())
+          );
+          const nestedSubBOM = findBOM(sName, sCode);
+          const fgType = matchedFG?.type || subItem.fgType || subItem.itemClassification;
+          const isSubAssembly = fgType === "Sub Assembly" || Boolean(nestedSubBOM);
+
+          const assignedMasterCat = rawMat?.categoryId?.name || boughtOut?.categoryId?.name || rmBo?.categoryId?.name || rawMat?.category || boughtOut?.category || rmBo?.category || "";
+          const catName = (assignedMasterCat || rmBo?.categoryId?.name || rmBo?.category || "").toLowerCase();
+          const rawItemType = (rawMat?.itemType || boughtOut?.itemType || rmBo?.itemType || "").toLowerCase();
+          const isBO = Boolean(boughtOut) || rawItemType === 'bought out' || rawItemType === 'bo' || catName.includes('bought') || catName.includes('hardware') || catName.includes('fastener');
+
+          const sDesc = subItem.description || matchedFG?.description || matchedFG?.descriptions || rmBo?.description || rmBo?.descriptions || rawMat?.descriptions || rawMat?.description || boughtOut?.descriptions || boughtOut?.description || "";
+
+          if (isSubAssembly) {
+            explodeTree(sName, sCode, grossQty, level + 1, undefined, undefined);
+          } else if (isBO) {
+            const itemKey = (sCode || sName).toLowerCase();
+            if (!boMap.has(itemKey)) {
+              boMap.set(itemKey, {
+                material: rmBo?._id || boughtOut?._id,
+                materialName: sName,
+                materialCode: sCode,
+                description: sDesc,
+                requiredQuantity: 0,
+                unit,
+                rmBoObj: rmBo || boughtOut
+              });
+            }
+            const existing = boMap.get(itemKey);
+            existing.requiredQuantity += grossQty;
+            if (!existing.description && sDesc) existing.description = sDesc;
+          } else {
+            const itemKey = (sCode || sName).toLowerCase();
+            if (!rmMap.has(itemKey)) {
+              rmMap.set(itemKey, {
+                material: rmBo?._id || rawMat?._id,
+                materialName: sName,
+                materialCode: sCode,
+                description: sDesc,
+                requiredQuantity: 0,
+                unit,
+                rmBoObj: rmBo || rawMat
+              });
+            }
+            const existing = rmMap.get(itemKey);
+            existing.requiredQuantity += grossQty;
+            if (!existing.description && sDesc) existing.description = sDesc;
+          }
+        }
+      }
+    };
+
+    // Explode each FG item
+    for (const fg of fgItems) {
+      const rawQty = Math.max(0, Number(fg.quantity) || 0);
+      if (rawQty <= 0) continue;
+      explodeTree(fg.fgItemName, fg.fgItemCode, rawQty, 1, fg.fgItem, fg.bomId);
+    }
+
+    let totalRmCost = 0;
+    const rmItems = [];
+    rmMap.forEach((r) => {
+      const pricing = resolveMaterialPrice(r.materialName, r.materialCode, r.material, r.rmBoObj);
+      const unitCost = pricing.unitCost;
+      const grossCost = Math.round(r.requiredQuantity * unitCost * 100) / 100;
+      totalRmCost += grossCost;
+      rmItems.push({
+        materialName: r.materialName,
+        materialCode: r.materialCode,
+        description: r.description,
+        requiredQuantity: r.requiredQuantity,
+        unit: r.unit,
+        unitCost,
+        grossCost,
+        costSource: pricing.costSource,
+        preferredVendorName: pricing.preferredVendorName
+      });
+    });
+
+    let totalBoCost = 0;
+    const boItems = [];
+    boMap.forEach((b) => {
+      const pricing = resolveMaterialPrice(b.materialName, b.materialCode, b.material, b.rmBoObj);
+      const unitCost = pricing.unitCost;
+      const grossCost = Math.round(b.requiredQuantity * unitCost * 100) / 100;
+      totalBoCost += grossCost;
+      boItems.push({
+        materialName: b.materialName,
+        materialCode: b.materialCode,
+        description: b.description,
+        requiredQuantity: b.requiredQuantity,
+        unit: b.unit,
+        unitCost,
+        grossCost,
+        costSource: pricing.costSource,
+        preferredVendorName: pricing.preferredVendorName
+      });
+    });
+
+    totalRmCost = Math.round(totalRmCost * 100) / 100;
+    totalBoCost = Math.round(totalBoCost * 100) / 100;
+    const totalBOMCost = Math.round((totalRmCost + totalBoCost) * 100) / 100;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalRmCost,
+        totalBoCost,
+        totalBOMCost,
+        rmCount: rmMap.size,
+        boCount: boMap.size,
+        rmItems,
+        boItems
+      }
+    });
+  } catch (error) {
+    console.error("Error previewing MRP BOM budget:", error);
+    res.status(500).json({ message: error.message || "Failed to calculate BOM budget preview" });
   }
 };

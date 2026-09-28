@@ -77,10 +77,15 @@ export const apiRequest = async (
       isRefreshing = true;
       try {
         const refreshUrl = `${API_BASE_URL}/api/auth/refresh`;
+        const storedRefreshToken = typeof window !== "undefined" ? localStorage.getItem("refreshToken") : null;
         const refreshRes = await fetch(refreshUrl, {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(storedRefreshToken ? { "x-refresh-token": storedRefreshToken } : {})
+          },
+          body: JSON.stringify({ refreshToken: storedRefreshToken })
         });
 
         if (refreshRes.ok) {
@@ -90,6 +95,9 @@ export const apiRequest = async (
             localStorage.setItem("token", newToken);
             const isSecure = window.location.protocol === "https:";
             document.cookie = `accessToken=${encodeURIComponent(newToken)}; max-age=${12 * 60 * 60}; path=/; SameSite=Lax; ${isSecure ? "Secure" : ""}`;
+          }
+          if (data.refreshToken && typeof window !== "undefined") {
+            localStorage.setItem("refreshToken", data.refreshToken);
           }
           isRefreshing = false;
           processQueue(null, newToken);

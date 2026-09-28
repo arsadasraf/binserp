@@ -9,7 +9,8 @@ export const DEFAULT_TIME_LOCK_HOURS: Record<string, number> = {
   purchasePo: 24,
   jobWorkChallan: 24,
   rfqQuotation: 24,
-  mrbDisposition: 24
+  mrbDisposition: 24,
+  mrpPlan: 24
 };
 
 let globalTimeLockPolicies: Record<string, number> = { ...DEFAULT_TIME_LOCK_HOURS };

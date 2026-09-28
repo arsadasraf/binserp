@@ -4,7 +4,7 @@ import {
   Layers, Filter, Search, ArrowRight, ArrowLeft, Building2, Truck, 
   Plus, CheckSquare, Square, ChevronDown, ChevronRight, ChevronLeft,
   TrendingDown, FileText, Sparkles, Send, Boxes, GitBranch,
-  Factory, Package, Check, Eye, Clock, Calendar, Download, Printer, Tag, X, RotateCcw
+  Factory, Package, Check, Eye, Clock, Calendar, Download, Printer, Tag, X, RotateCcw, Target
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiPatch } from '@/src/lib/api';
 import { generateNestedBOMPDF } from '@/src/utils/generateNestedBOMPDF';
@@ -734,10 +734,50 @@ export default function MRPProcurementWorkbench({
   };
 
   // Open Manual Outward PO Modal prefilled with selected items
-  const handleOpenManualPO = () => {
+  const handleOpenManualPO = async () => {
     if (selectedItems.length === 0) {
       Swal.fire('No Items Selected', 'Please select items to create an Outward Purchase Order.', 'info');
       return;
+    }
+
+    // Budget Guard Check
+    if (selectedPlan && selectedPlan.targetExpense > 0) {
+      const estimatedItemsCost = selectedItems.reduce((sum: number, it: any) => {
+        const qty = Number(it.netShortage || it.requiredQuantity || it.grossRequired) || 1;
+        const rate = Number(it.bestVendor?.rate || it.estimatedRate || 0);
+        return sum + (qty * rate);
+      }, 0);
+
+      const currentCommitted = Number(selectedPlan.committedExpense || 0);
+      const targetExpense = Number(selectedPlan.targetExpense || 0);
+      const projectedTotal = currentCommitted + estimatedItemsCost;
+
+      if (projectedTotal > targetExpense) {
+        const overrun = projectedTotal - targetExpense;
+        const result = await Swal.fire({
+          title: '🚨 Budget Overrun Alert',
+          html: `
+            <div class="text-left text-xs text-slate-700 dark:text-slate-300 space-y-2">
+              <p>Creating this Purchase Order (est. <b>₹${Math.round(estimatedItemsCost).toLocaleString('en-IN')}</b>) will cause total procurement commitments for MRP <b>${selectedPlan.mrpNumber}</b> to reach <b>₹${Math.round(projectedTotal).toLocaleString('en-IN')}</b>.</p>
+              <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-800 dark:text-rose-200">
+                <div><b>Target Budget Ceiling:</b> ₹${targetExpense.toLocaleString('en-IN')}</div>
+                <div><b>Current Committed POs:</b> ₹${currentCommitted.toLocaleString('en-IN')}</div>
+                <div><b>Projected Overrun:</b> ₹${Math.round(overrun).toLocaleString('en-IN')} (${Math.round((projectedTotal / targetExpense) * 100)}% of budget ceiling)</div>
+              </div>
+              <p class="font-medium">Do you wish to proceed with raising this Purchase Order anyway?</p>
+            </div>
+          `,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#e11d48',
+          confirmButtonText: 'Yes, Proceed Anyway',
+          cancelButtonText: 'Cancel & Review'
+        });
+
+        if (!result.isConfirmed) {
+          return;
+        }
+      }
     }
 
     if (onOpenPoModal) {
@@ -773,7 +813,9 @@ export default function MRPProcurementWorkbench({
           secondaryQuantity: secQty,
           rate: rate,
           amount: lineSub,
-          description: it.customPoDescription || it.description || `MRP Requirement for ${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || 'MRP'}`
+          description: it.customPoDescription || it.description || `MRP Requirement for ${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || 'MRP'}`,
+          isBucket: Boolean(it.isBucket),
+          sourceCutSizes: it.sourceCutSizes || []
         };
       });
 
@@ -825,6 +867,45 @@ export default function MRPProcurementWorkbench({
       }
     }
 
+    // Budget Guard Check for Bulk Generate
+    if (selectedPlan && selectedPlan.targetExpense > 0) {
+      const estimatedItemsCost = selectedItems.reduce((sum: number, it: any) => {
+        const qty = Number(it.netShortage || it.requiredQuantity || it.grossRequired) || 1;
+        const rate = Number(it.bestVendor?.rate || it.estimatedRate || 0);
+        return sum + (qty * rate);
+      }, 0);
+
+      const currentCommitted = Number(selectedPlan.committedExpense || 0);
+      const targetExpense = Number(selectedPlan.targetExpense || 0);
+      const projectedTotal = currentCommitted + estimatedItemsCost;
+
+      if (projectedTotal > targetExpense) {
+        const overrun = projectedTotal - targetExpense;
+        const result = await Swal.fire({
+          title: '🚨 Budget Overrun Alert',
+          html: `
+            <div class="text-left text-xs text-slate-700 dark:text-slate-300 space-y-2">
+              <p>Bulk generating these Purchase Orders (est. <b>₹${Math.round(estimatedItemsCost).toLocaleString('en-IN')}</b>) will cause commitments for MRP <b>${selectedPlan.mrpNumber}</b> to reach <b>₹${Math.round(projectedTotal).toLocaleString('en-IN')}</b>.</p>
+              <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-800 dark:text-rose-200">
+                <div><b>Target Budget Ceiling:</b> ₹${targetExpense.toLocaleString('en-IN')}</div>
+                <div><b>Projected Overrun:</b> ₹${Math.round(overrun).toLocaleString('en-IN')} (${Math.round((projectedTotal / targetExpense) * 100)}% of budget ceiling)</div>
+              </div>
+              <p class="font-medium">Do you wish to proceed with generating these POs?</p>
+            </div>
+          `,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#e11d48',
+          confirmButtonText: 'Yes, Proceed Anyway',
+          cancelButtonText: 'Cancel'
+        });
+
+        if (!result.isConfirmed) {
+          return;
+        }
+      }
+    }
+
     const confirm = await Swal.fire({
       title: 'Generate Consolidated POs?',
       html: `Generate Purchase Orders for <b>${selectedItems.length}</b> shortage item(s) grouped by preferred suppliers.`,
@@ -839,6 +920,8 @@ export default function MRPProcurementWorkbench({
     setSubmittingPO(true);
     try {
       const payload = {
+        mrpPlanId: selectedPlan?._id,
+        mrpNumber: selectedPlan?.mrpNumber,
         items: selectedItems.map((it: any) => ({
           materialName: it.materialName,
           materialCode: it.materialCode,
@@ -851,16 +934,49 @@ export default function MRPProcurementWorkbench({
           secondaryQuantity: it.hasSecondaryUnit ? (Number(it.secondaryNetShortage) || parseFloat(((it.netShortage || it.requiredQuantity) * (Number(it.conversionFactor) || 1)).toFixed(3))) : undefined,
           rate: it.bestVendor?.rate || it.estimatedRate || 0,
           vendorId: it.bestVendor?.vendorId,
-          sourceMRPs: it.mrpSources?.map((s: any) => s.mrpNumber) || [it.parentMRP || selectedPlan?.mrpNumber]
+          sourceMRPs: it.mrpSources?.map((s: any) => s.mrpNumber) || [it.parentMRP || selectedPlan?.mrpNumber].filter(Boolean),
+          mrpSources: it.mrpSources || (selectedPlan ? [{ mrpId: selectedPlan._id, mrpNumber: selectedPlan.mrpNumber }] : []),
+          sourceCutSizes: it.sourceCutSizes || []
         }))
       };
 
       const res = await apiPost('/api/purchase/mrp/bulk-generate-po', payload, token);
+
+      // After PO generation, update statuses for bucket items and their cut sizes with the generated PO number
+      const createdPOs = res?.data?.purchaseOrders || [];
+      const createdPoNums = createdPOs.map((p: any) => p.poNumber).filter(Boolean);
+      const mainPoNum = createdPoNums[0] || "";
+
+      try {
+        const statusPayload = {
+          planId: selectedPlan?._id,
+          mrpNumber: selectedPlan?.mrpNumber,
+          items: selectedItems.map((it: any) => ({
+            planId: selectedPlan?._id || it.planId || it.mrpSources?.[0]?.mrpId,
+            mrpNumber: selectedPlan?.mrpNumber || it.mrpNumber || it.mrpSources?.[0]?.mrpNumber,
+            materialName: it.materialName,
+            materialCode: it.materialCode,
+            sourceCutSizes: it.sourceCutSizes || [],
+            status: 'PO Raised',
+            poNumber: mainPoNum
+          })),
+          status: 'PO Raised',
+          poNumber: mainPoNum
+        };
+        if (selectedPlan?._id) {
+          await apiPut(`/api/purchase/mrp/plan/${selectedPlan._id}/item-status`, statusPayload, token);
+        } else {
+          await apiPut('/api/purchase/mrp/update-item-status', statusPayload, token);
+        }
+      } catch (statusErr) {
+        console.warn('Could not update MRP item statuses after auto PO:', statusErr);
+      }
+
       Swal.fire({
         icon: 'success',
         title: 'Purchase Orders Created!',
-        text: res.message || `Successfully created Purchase Order(s).`,
-        timer: 3000
+        html: `Successfully created <b>${createdPOs.length || 1}</b> Purchase Order(s).<br/>${createdPoNums.length > 0 ? `<span class="font-mono text-xs text-emerald-700 font-bold">${createdPoNums.join(', ')}</span>` : ''}`,
+        timer: 3500
       });
 
       setSelectedKeys(new Set());
@@ -898,7 +1014,10 @@ export default function MRPProcurementWorkbench({
         secondaryUnit: it.secondaryUnit || '',
         conversionFactor: Number(it.conversionFactor) || 1,
         secondaryQuantity: it.hasSecondaryUnit ? (Number(it.secondaryNetShortage || it.secondaryGrossRequired) || parseFloat(((it.netShortage || it.requiredQuantity || it.grossRequired) * (Number(it.conversionFactor) || 1)).toFixed(3))) : undefined,
-        description: it.customPoDescription || it.description || `Consolidated MRP Shortage (${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || ''})`
+        description: it.customPoDescription || it.description || `Consolidated MRP Shortage (${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || ''})`,
+        isBucket: Boolean(it.isBucket),
+        sourceCutSizes: it.sourceCutSizes || [],
+        mrpSources: it.mrpSources || []
       }));
       onOpenRfqModal(rfqItems);
     }
@@ -955,9 +1074,8 @@ export default function MRPProcurementWorkbench({
     }
   };
 
-  // Manual Status Update (Single or Bulk)
+  // Manual Status Update (Single or Bulk) — works with both cut-size items and bucket items, even without a selectedPlan
   const handleUpdateItemStatus = async (newStatus: string, specificItem?: any) => {
-    if (!selectedPlan) return;
     const targetItems = specificItem ? [specificItem] : selectedItems;
     if (targetItems.length === 0) {
       Swal.fire('No Items Selected', 'Please select items to update status.', 'info');
@@ -965,37 +1083,82 @@ export default function MRPProcurementWorkbench({
     }
 
     try {
-      const payload = {
-        items: targetItems.map((i: any) => ({
-          materialKey: i.materialKey,
-          materialName: i.materialName,
-          materialCode: i.materialCode,
+      if (selectedPlan) {
+        // Single-plan mode: update specifically this plan
+        const payload = {
+          planId: selectedPlan._id,
+          mrpNumber: selectedPlan.mrpNumber,
+          items: targetItems.map((i: any) => ({
+            planId: selectedPlan._id,
+            mrpNumber: selectedPlan.mrpNumber,
+            materialKey: i.materialKey,
+            materialName: i.materialName,
+            materialCode: i.materialCode,
+            sourceCutSizes: i.sourceCutSizes || [],
+            status: newStatus
+          })),
           status: newStatus
-        })),
-        status: newStatus
-      };
-
-      await apiPut(`/api/purchase/mrp/plan/${selectedPlan._id}/item-status`, payload, token);
-      
-      // Update local state instantly for fast UX
-      if (data?.classifiedLists) {
-        const updateList = (list: any[]) =>
-          (list || []).map((item: any) => {
-            const isMatch = targetItems.some((ti: any) => ti.materialKey === item.materialKey);
-            return isMatch ? { ...item, status: newStatus } : item;
-          });
-
-        setData((prev: any) => ({
-          ...prev,
-          classifiedLists: {
-            rmList: updateList(prev?.classifiedLists?.rmList),
-            boList: updateList(prev?.classifiedLists?.boList),
-            componentList: updateList(prev?.classifiedLists?.componentList),
-            subAssemblyList: updateList(prev?.classifiedLists?.subAssemblyList),
-            assemblyList: updateList(prev?.classifiedLists?.assemblyList)
-          }
-        }));
+        };
+        await apiPut(`/api/purchase/mrp/plan/${selectedPlan._id}/item-status`, payload, token);
+      } else {
+        // Multi-plan / all-plans mode: update via the cross-plan endpoint with per-item plan tagging
+        const payload = {
+          items: targetItems.map((i: any) => ({
+            planId: i.planId || i.mrpSources?.[0]?.mrpId,
+            mrpNumber: i.mrpNumber || i.mrpSources?.[0]?.mrpNumber,
+            materialName: i.materialName,
+            materialCode: i.materialCode,
+            sourceCutSizes: i.sourceCutSizes || [],
+            status: newStatus
+          })),
+          status: newStatus
+        };
+        await apiPut('/api/purchase/mrp/update-item-status', payload, token);
       }
+      
+      // Optimistic update: classifiedLists
+      const updateList = (list: any[]) =>
+        (list || []).map((item: any) => {
+          const isMatch = targetItems.some((ti: any) => ti.materialKey === item.materialKey);
+          return isMatch ? { ...item, status: newStatus } : item;
+        });
+
+      // Optimistic update: purchaseBuckets
+      const updateBuckets = (buckets: any[]) =>
+        (buckets || []).map((b: any) => {
+          const bKey = b.bucketKey || `bucket_${b.targetPurchaseItemId}`;
+          const isDirectMatch = targetItems.some((ti: any) => ti.materialKey === bKey || ti.materialKey === b.bucketKey || (ti.materialName && ti.materialName === b.targetPurchaseItemName));
+          const hasContainedMatch = (b.sourceCutSizes || []).some((cs: any) =>
+            targetItems.some((ti: any) => ti.materialKey === cs.materialKey || ti.materialName === cs.sourceItemName || ti.materialName === cs.materialName)
+          );
+          if (isDirectMatch) {
+            const updatedSources = (b.sourceCutSizes || []).map((cs: any) => ({ ...cs, status: newStatus }));
+            return { ...b, status: newStatus, sourceCutSizes: updatedSources };
+          }
+          if (hasContainedMatch) {
+            const updatedSources = (b.sourceCutSizes || []).map((cs: any) => {
+              const matched = targetItems.some((ti: any) => ti.materialKey === cs.materialKey || ti.materialName === cs.sourceItemName || ti.materialName === cs.materialName);
+              return matched ? { ...cs, status: newStatus } : cs;
+            });
+            return { ...b, sourceCutSizes: updatedSources };
+          }
+          return b;
+        });
+
+      setData((prev: any) => ({
+        ...prev,
+        classifiedLists: {
+          rmList: updateList(prev?.classifiedLists?.rmList),
+          boList: updateList(prev?.classifiedLists?.boList),
+          componentList: updateList(prev?.classifiedLists?.componentList),
+          subAssemblyList: updateList(prev?.classifiedLists?.subAssemblyList),
+          assemblyList: updateList(prev?.classifiedLists?.assemblyList)
+        },
+        purchaseBuckets: {
+          rmBuckets: updateBuckets(prev?.purchaseBuckets?.rmBuckets),
+          boBuckets: updateBuckets(prev?.purchaseBuckets?.boBuckets)
+        }
+      }));
 
       Swal.fire({
         toast: true,
@@ -1049,9 +1212,9 @@ export default function MRPProcurementWorkbench({
 
   // Render Consolidated Types Classification View (Reusable for Single Plan and All Active Plans Consolidated)
   const renderTypesClassificationView = (isConsolidated: boolean = false) => (
-    <div className="space-y-3">
-      {/* Type Switcher Pills with Arrow Controls & Smooth Touch Scroll */}
-      <div className="relative flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/60 shadow-2xs">
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-2">
+      {/* Type Switcher Pills with Arrow Controls & Smooth Touch Scroll (PINNED) */}
+      <div className="shrink-0 relative flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/60 shadow-2xs">
         {/* Left Scroll Chevron */}
         <button
           type="button"
@@ -1196,9 +1359,9 @@ export default function MRPProcurementWorkbench({
         </button>
       </div>
 
-      {/* Sub-view Switcher for RM / BO: [📋 Cut Sizes / BOM Items] vs [📦 Purchase Buckets] */}
+      {/* Sub-view Switcher for RM / BO: [📋 Cut Sizes / BOM Items] vs [📦 Purchase Buckets] (PINNED) */}
       {(activeTypeTab === 'rm' || activeTypeTab === 'bo') && (
-        <div className="flex items-center justify-between flex-wrap gap-2 px-1">
+        <div className="shrink-0 flex items-center justify-between flex-wrap gap-2 px-1">
           <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700/60 shadow-2xs">
             <button
               type="button"
@@ -1244,7 +1407,7 @@ export default function MRPProcurementWorkbench({
           </div>
 
           {procurementSubView === 'purchase_buckets' && (
-            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+            <div className="hidden sm:flex text-[11px] font-semibold text-slate-500 dark:text-slate-400 items-center gap-1.5">
               <Sparkles size={13} className="text-amber-500" />
               <span>Multiple BOM cut sizes mapped into standard purchasable item buckets for single RFQ / PO release</span>
             </div>
@@ -1252,8 +1415,8 @@ export default function MRPProcurementWorkbench({
         </div>
       )}
 
-      {/* Action Toolbar for Selected Items */}
-      <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+      {/* Action Toolbar for Selected Items (PINNED) */}
+      <div className="shrink-0 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-2">
         <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-start">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
@@ -1288,27 +1451,25 @@ export default function MRPProcurementWorkbench({
 
         <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scroll-smooth touch-pan-x flex-nowrap sm:flex-wrap justify-start sm:justify-end no-scrollbar">
           
-          {/* Manual Status Bulk Dropdown (Only for cut sizes / BOM items) */}
-          {!isBucketSubView && (
-            <div className="flex items-center shrink-0">
-              <select
-                disabled={selectedKeys.size === 0}
-                onChange={(e) => {
-                  if (e.target.value) {
-                    handleUpdateItemStatus(e.target.value);
-                    e.target.value = '';
-                  }
-                }}
-                defaultValue=""
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs disabled:opacity-30 transition-all cursor-pointer outline-none border border-slate-200 dark:border-slate-700 shrink-0"
-              >
-                <option value="" disabled>🏷️ Set Status ({selectedKeys.size})</option>
-                {STATUS_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          {/* Manual Status Bulk Dropdown */}
+          <div className="flex items-center shrink-0">
+            <select
+              disabled={selectedKeys.size === 0}
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleUpdateItemStatus(e.target.value);
+                  e.target.value = '';
+                }
+              }}
+              defaultValue=""
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs disabled:opacity-30 transition-all cursor-pointer outline-none border border-slate-200 dark:border-slate-700 shrink-0"
+            >
+              <option value="" disabled>🏷️ Set Status ({selectedKeys.size})</option>
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </div>
 
           {/* Common Purchasing Actions: RFQ & PO */}
           <button
@@ -1378,14 +1539,11 @@ export default function MRPProcurementWorkbench({
         </div>
       </div>
 
-      {/* Tables: Render Consolidated Purchase Buckets OR Cut Sizes BOM Items */}
+      {/* Tables & Mobile Cards Container: Render Consolidated Purchase Buckets OR Cut Sizes BOM Items */}
       {isBucketSubView ? (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-          <div className="sm:hidden px-3 py-1.5 bg-cyan-50 dark:bg-cyan-950/80 border-b border-cyan-200 dark:border-cyan-800 text-[10px] font-bold text-cyan-800 dark:text-cyan-300 flex items-center justify-between">
-            <span>📦 Consolidated Purchase Buckets</span>
-            <span className="text-cyan-600 font-semibold">← Swipe horizontally →</span>
-          </div>
-          <div className="overflow-x-auto scroll-smooth touch-pan-x">
+        <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+          {/* Desktop Table View (ONLY TABLE SCROLLS) */}
+          <div className="hidden md:block flex-1 min-h-0 overflow-y-auto overflow-x-auto scroll-smooth">
             <table className="w-full min-w-[960px] text-xs text-left">
               <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                 <tr>
@@ -1405,6 +1563,8 @@ export default function MRPProcurementWorkbench({
                   <th className="p-3 text-center">Bucket Live Stock</th>
                   <th className="p-3 text-center">In-Transit PO</th>
                   <th className="p-3 text-center">Net Shortage (To Buy)</th>
+                  <th className="p-3 text-center">Status</th>
+                  <th className="p-3 text-center">PO Number</th>
                   <th className="p-3">Preferred Supplier</th>
                   <th className="p-3 text-center">Cut Sizes Dumped</th>
                 </tr>
@@ -1412,7 +1572,7 @@ export default function MRPProcurementWorkbench({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredBuckets.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="p-8 text-center text-slate-400">
+                    <td colSpan={12} className="p-8 text-center text-slate-400">
                       No purchase buckets created yet. Switch to "BOM Cut Sizes" tab and click "+ Convert to Purchase {activeTypeTab === 'rm' ? 'RM' : 'BO'}" on any cut size to create a purchase bucket.
                     </td>
                   </tr>
@@ -1497,6 +1657,60 @@ export default function MRPProcurementWorkbench({
                               { isShortage: true }
                             )}
                           </td>
+                          {/* Bucket Status Column */}
+                          <td className="p-3 text-center">
+                            <div className="inline-block relative">
+                              <select
+                                value={bucket.status || 'Pending'}
+                                onChange={(e) => {
+                                  const bKey = bucket.bucketKey || `bucket_${bucket.targetPurchaseItemId || bIdx}`;
+                                  const bucketItem = {
+                                    materialKey: bKey,
+                                    materialName: bucket.targetPurchaseItemName || bucket.materialName || '',
+                                    materialCode: bucket.targetPurchaseItemCode || bucket.materialCode || '',
+                                    sourceCutSizes: bucket.sourceCutSizes || []
+                                  };
+                                  handleUpdateItemStatus(e.target.value, bucketItem);
+                                }}
+                                className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border outline-none cursor-pointer appearance-none pr-5 text-center transition-all ${getStatusBadgeClass(bucket.status || 'Pending')}`}
+                              >
+                                {STATUS_OPTIONS.map((opt) => (
+                                  <option key={opt} value={opt} className="text-slate-800 bg-white dark:bg-slate-900 dark:text-slate-200">{opt}</option>
+                                ))}
+                              </select>
+                              <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                            </div>
+                          </td>
+                          {/* PO Number Column */}
+                          <td className="p-3 text-center">
+                            {bucket.poNumbers && bucket.poNumbers.length > 0 ? (
+                              <div className="flex flex-col items-center gap-1">
+                                {bucket.poNumbers.map((poNum: string, pIdx: number) => (
+                                  <span
+                                    key={pIdx}
+                                    title={`Purchase Order: ${poNum}`}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shadow-2xs whitespace-nowrap"
+                                  >
+                                    <span>📄 {poNum}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : bucket.inTransitPOs && bucket.inTransitPOs.length > 0 ? (
+                              <div className="flex flex-col items-center gap-1">
+                                {bucket.inTransitPOs.map((po: any, pIdx: number) => (
+                                  <span
+                                    key={pIdx}
+                                    title={`In-Transit PO: ${po.poNumber}`}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-cyan-50 text-cyan-800 dark:bg-cyan-950/70 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-700 shadow-2xs whitespace-nowrap"
+                                  >
+                                    <span>🚚 {po.poNumber}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-300 dark:text-slate-600 font-mono text-[11px]">—</span>
+                            )}
+                          </td>
                           <td className="p-3">
                             {bucket.bestVendor ? (
                               <div className="text-[11px]">
@@ -1534,7 +1748,7 @@ export default function MRPProcurementWorkbench({
                         {/* Expanded Drawer: List Contained Cut Sizes with Breakdowns */}
                         {isExpanded && (
                           <tr className="bg-slate-50/70 dark:bg-slate-800/40">
-                            <td colSpan={10} className="p-3 pl-12 pr-6 border-b border-slate-200 dark:border-slate-700">
+                            <td colSpan={12} className="p-3 pl-12 pr-6 border-b border-slate-200 dark:border-slate-700">
                               <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-3 shadow-2xs space-y-2">
                                 <div className="flex items-center justify-between">
                                   <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
@@ -1553,6 +1767,8 @@ export default function MRPProcurementWorkbench({
                                       <th className="py-1.5 px-2 text-center">Gross Required</th>
                                       <th className="py-1.5 px-2 text-center">Live Stock</th>
                                       <th className="py-1.5 px-2 text-center">Shortage</th>
+                                      <th className="py-1.5 px-2 text-center">Status</th>
+                                      <th className="py-1.5 px-2 text-center">PO #</th>
                                       <th className="py-1.5 px-2 text-center">Demanded In</th>
                                       <th className="py-1.5 px-2 text-right">Mapping Action</th>
                                     </tr>
@@ -1560,6 +1776,7 @@ export default function MRPProcurementWorkbench({
                                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                                     {((bucket.sourceCutSizes || bucket.mappedItems || []) as any[]).map((cs: any, csIdx: number) => {
                                       const matchedSource = currentTypeList.find((i: any) => String(i.materialId) === String(cs.sourceItemId));
+                                      const csStatus = cs.status || 'Pending';
                                       return (
                                         <tr key={csIdx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                                           <td className="py-2 px-2">
@@ -1581,6 +1798,39 @@ export default function MRPProcurementWorkbench({
                                           </td>
                                           <td className="py-2 px-2 text-center font-bold text-rose-600 dark:text-rose-400">
                                             {cs.netShortage || 0} {bucket.unit}
+                                          </td>
+                                          {/* Per-cut-size status selector */}
+                                          <td className="py-2 px-2 text-center">
+                                            <div className="inline-block relative">
+                                              <select
+                                                value={csStatus}
+                                                onChange={(e) => {
+                                                  const csItem = {
+                                                    materialKey: cs.materialKey || `cs_${csIdx}`,
+                                                    materialName: cs.sourceItemName || cs.materialName || '',
+                                                    materialCode: cs.sourceItemCode || cs.materialCode || '',
+                                                    sourceCutSizes: []
+                                                  };
+                                                  handleUpdateItemStatus(e.target.value, csItem);
+                                                }}
+                                                className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border outline-none cursor-pointer appearance-none pr-4 text-center transition-all ${getStatusBadgeClass(csStatus)}`}
+                                              >
+                                                {STATUS_OPTIONS.map((opt) => (
+                                                  <option key={opt} value={opt} className="text-slate-800 bg-white dark:bg-slate-900 dark:text-slate-200">{opt}</option>
+                                                ))}
+                                              </select>
+                                              <ChevronDown size={9} className="absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                                            </div>
+                                          </td>
+                                          {/* Cut Size PO # */}
+                                          <td className="py-2 px-2 text-center">
+                                            {cs.poNumber ? (
+                                              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 whitespace-nowrap">
+                                                📄 {cs.poNumber}
+                                              </span>
+                                            ) : (
+                                              <span className="text-slate-300 dark:text-slate-600 font-mono text-[10px]">—</span>
+                                            )}
                                           </td>
                                           <td className="py-2 px-2 text-center">
                                             <div className="flex flex-wrap items-center justify-center gap-1">
@@ -1639,15 +1889,214 @@ export default function MRPProcurementWorkbench({
               </tbody>
             </table>
           </div>
+
+          {/* Dedicated Native Mobile Cards View for Purchase Buckets */}
+          <div className="md:hidden flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5 divide-y divide-slate-100 dark:divide-slate-800/80">
+            {filteredBuckets.length === 0 ? (
+              <div className="p-8 text-center text-slate-400">
+                No purchase buckets created yet. Switch to "BOM Cut Sizes" tab and click "+ Convert to Purchase {activeTypeTab === 'rm' ? 'RM' : 'BO'}" on any cut size to create a purchase bucket.
+              </div>
+            ) : (
+              filteredBuckets.map((bucket: any, bIdx: number) => {
+                const bKey = bucket.bucketKey || `bucket_${bucket.targetPurchaseItemId || bIdx}`;
+                const isSelected = selectedKeys.has(bKey);
+                const isExpanded = expandedBucketIds.has(bKey);
+                const bucketName = bucket.targetPurchaseItemName || bucket.materialName || 'Commercial Purchase Item';
+                const bucketDesc = bucket.targetPurchaseItemDescription || bucket.description;
+
+                return (
+                  <div
+                    key={`${bKey}_${bIdx}`}
+                    className={`bg-white dark:bg-slate-900/90 rounded-2xl border p-3.5 shadow-xs transition-all space-y-3 ${
+                      isSelected
+                        ? "border-cyan-500 bg-cyan-50/20 dark:bg-cyan-950/20"
+                        : "border-slate-200/90 dark:border-slate-800"
+                    }`}
+                  >
+                    {/* Top Row: Checkbox, Name, Category */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2.5 flex-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSelect(bKey);
+                          }}
+                          className="mt-0.5 text-slate-400 hover:text-cyan-600 shrink-0"
+                        >
+                          {isSelected ? <CheckSquare size={16} className="text-cyan-600" /> : <Square size={16} />}
+                        </button>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
+                            <Boxes size={14} className="text-cyan-600 shrink-0" />
+                            <span className="truncate">{bucketName}</span>
+                          </div>
+                          {bucketDesc && (
+                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                              {bucketDesc}
+                            </div>
+                          )}
+                          <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1.5">
+                            <span>Unit: <strong className="font-mono text-slate-600 dark:text-slate-300">{bucket.unit}</strong></span>
+                            {bucket.hasSecondaryUnit && bucket.secondaryUnit && (
+                              <span>| Sec: <strong className="font-mono text-slate-600 dark:text-slate-300">{bucket.secondaryUnit} ({bucket.conversionFactor})</strong></span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className="shrink-0 px-2 py-0.5 rounded-md text-[10px] font-bold border bg-cyan-50 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-200/80 dark:border-cyan-800/50">
+                        {bucket.targetPurchaseItemCategory || (activeTypeTab === 'rm' ? 'Raw Material' : 'Bought Out')}
+                      </span>
+                    </div>
+
+                    {/* Metrics Grid 4-col */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50/80 dark:bg-slate-800/50 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 text-center">
+                      <div>
+                        <span className="text-[9.5px] uppercase tracking-wider text-slate-400 font-bold block">Gross Req</span>
+                        <div className="mt-0.5">{renderDualUnitQty(Number(bucket.grossRequired) || 0, bucket.unit, bucket)}</div>
+                      </div>
+                      <div>
+                        <span className="text-[9.5px] uppercase tracking-wider text-slate-400 font-bold block">Live Stock</span>
+                        <div className="mt-0.5">{renderDualUnitQty(Number(bucket.currentPhysicalStock) || 0, bucket.unit, bucket, { fontClass: 'font-semibold text-slate-600 dark:text-slate-400' })}</div>
+                      </div>
+                      <div>
+                        <span className="text-[9.5px] uppercase tracking-wider text-slate-400 font-bold block">In-Transit</span>
+                        <div className="mt-0.5">{renderDualUnitQty(Number(bucket.totalInTransitPO) || 0, bucket.unit, bucket, { isInTransit: true })}</div>
+                      </div>
+                      <div>
+                        <span className="text-[9.5px] uppercase tracking-wider text-slate-400 font-bold block">To Buy</span>
+                        <div className="mt-0.5">{renderDualUnitQty(Number(bucket.netShortage) || 0, bucket.unit, bucket, { isShortage: true })}</div>
+                      </div>
+                    </div>
+
+                    {/* Status, PO, Vendor Info */}
+                    <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="inline-block relative">
+                          <select
+                            value={bucket.status || 'Pending'}
+                            onChange={(e) => {
+                              const bucketItem = {
+                                materialKey: bKey,
+                                materialName: bucketName,
+                                materialCode: bucket.targetPurchaseItemCode || bucket.materialCode || '',
+                                sourceCutSizes: bucket.sourceCutSizes || []
+                              };
+                              handleUpdateItemStatus(e.target.value, bucketItem);
+                            }}
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border outline-none cursor-pointer appearance-none pr-5 text-center transition-all ${getStatusBadgeClass(bucket.status || 'Pending')}`}
+                          >
+                            {STATUS_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt} className="text-slate-800 bg-white dark:bg-slate-900 dark:text-slate-200">{opt}</option>
+                            ))}
+                          </select>
+                          <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                        </div>
+
+                        {bucket.poNumbers && bucket.poNumbers.length > 0 && (
+                          bucket.poNumbers.map((poNum: string, pIdx: number) => (
+                            <span key={pIdx} className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 whitespace-nowrap">
+                              📄 {poNum}
+                            </span>
+                          ))
+                        )}
+                      </div>
+
+                      {bucket.bestVendor && (
+                        <div className="text-right text-[11px]">
+                          <span className="font-bold text-slate-700 dark:text-slate-300">{bucket.bestVendor.vendorName}</span>
+                          <span className="text-[10px] text-slate-400 block font-mono">₹{Number(bucket.bestVendor.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })}/{bucket.unit}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Contained Cut Sizes Toggle */}
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = new Set(expandedBucketIds);
+                          if (next.has(bucket.bucketKey)) next.delete(bucket.bucketKey);
+                          else next.add(bucket.bucketKey);
+                          setExpandedBucketIds(next);
+                        }}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-cyan-600 dark:text-cyan-400 hover:underline cursor-pointer"
+                      >
+                        <Layers size={13} />
+                        <span>{(bucket.sourceCutSizes || bucket.mappedItems || []).length} Contained Cut Size(s)</span>
+                        {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      </button>
+                    </div>
+
+                    {/* Contained Cut Sizes Accordion Drawer on Mobile */}
+                    {isExpanded && (
+                      <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-2.5 space-y-2 border border-slate-200/80 dark:border-slate-700/60">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                          Contained Cut Sizes:
+                        </span>
+                        {((bucket.sourceCutSizes || bucket.mappedItems || []) as any[]).map((cs: any, csIdx: number) => {
+                          const matchedSource = currentTypeList.find((i: any) => String(i.materialId) === String(cs.sourceItemId));
+                          return (
+                            <div key={csIdx} className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
+                              <div className="flex items-start justify-between gap-1">
+                                <div>
+                                  <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs">{cs.sourceItemName}</div>
+                                  {cs.sourceItemDescription && <div className="text-[10px] text-slate-400 italic">{cs.sourceItemDescription}</div>}
+                                </div>
+                                <span className="font-bold text-rose-600 dark:text-rose-400 font-mono text-[11px] shrink-0">
+                                  {cs.netShortage || 0} {bucket.unit} short
+                                </span>
+                              </div>
+
+                              <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800">
+                                <span className="text-slate-400 font-mono">Gross: {cs.grossRequired} {bucket.unit}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (matchedSource) {
+                                      setBucketModalItem(matchedSource);
+                                    } else {
+                                      setBucketModalItem({
+                                        materialId: cs.sourceItemId,
+                                        materialName: cs.sourceItemName,
+                                        description: cs.sourceItemDescription,
+                                        category: cs.sourceItemCategory,
+                                        unit: bucket.unit,
+                                        hasSecondaryUnit: bucket.hasSecondaryUnit,
+                                        secondaryUnit: bucket.secondaryUnit,
+                                        conversionFactor: bucket.conversionFactor,
+                                        grossRequired: cs.grossRequired,
+                                        netShortage: cs.netShortage,
+                                        purchaseBucket: {
+                                          targetPurchaseItemId: bucket.targetPurchaseItemId,
+                                          targetPurchaseItemName: bucket.targetPurchaseItemName,
+                                          targetPurchaseItemDescription: bucket.targetPurchaseItemDescription,
+                                          targetPurchaseItemCategory: bucket.targetPurchaseItemCategory
+                                        }
+                                      });
+                                    }
+                                  }}
+                                  className="text-[11px] text-cyan-600 hover:text-cyan-700 font-bold hover:underline cursor-pointer"
+                                >
+                                  Re-map / Unmap
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       ) : (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-          {/* Mobile horizontal scroll hint */}
-          <div className="sm:hidden px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-500 flex items-center justify-between">
-            <span>📋 Material Shortages</span>
-            <span className="text-emerald-600 font-semibold">← Swipe horizontally →</span>
-          </div>
-          <div className="overflow-x-auto scroll-smooth touch-pan-x">
+        <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+          {/* Desktop Table View (ONLY TABLE SCROLLS) */}
+          <div className="hidden md:block flex-1 min-h-0 overflow-y-auto overflow-x-auto scroll-smooth">
             <table className="w-full min-w-[960px] text-xs text-left">
               <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                 <tr>
@@ -1698,11 +2147,40 @@ export default function MRPProcurementWorkbench({
                           
                           {/* Purchase Bucket Conversion Indicator & Action for RM and BO */}
                           {(activeTypeTab === 'rm' || activeTypeTab === 'bo') && (
-                            <div className="mt-1.5 flex items-center gap-1.5">
-                              {item.purchaseBucket ? (
+                            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                              {item.isDetachedForPlan ? (
+                                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-[10px] font-semibold">
+                                  <span>🔓 Detached ({selectedPlan?.mrpNumber || 'This MRP'})</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setBucketModalItem(item);
+                                    }}
+                                    className="ml-1 text-[9px] underline font-bold hover:text-amber-950 dark:hover:text-amber-100 cursor-pointer"
+                                    title="Re-bind this item to a purchase bucket"
+                                  >
+                                    Re-map
+                                  </button>
+                                </div>
+                              ) : item.purchaseBucket ? (
                                 <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[10px]">
                                   <Boxes size={10} className="text-indigo-500 shrink-0" />
-                                  <span>Bucket: <strong className="font-semibold">{item.purchaseBucket.targetPurchaseItemName || item.purchaseBucket.name || 'Commercial Purchase Item'}</strong></span>
+                                  <span>
+                                    {item.purchaseBucket.isPlanSpecific ? (
+                                      <span className="mr-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-200 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-700">
+                                        ⚡ Plan Mapped
+                                      </span>
+                                    ) : (
+                                      <span className="mr-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600">
+                                        🌐 Global
+                                      </span>
+                                    )}
+                                    Bucket: <strong className="font-semibold">{item.purchaseBucket.targetPurchaseItemName || item.purchaseBucket.name || 'Commercial Purchase Item'}</strong>
+                                    {item.purchaseBucket.conversionFactor && item.purchaseBucket.conversionFactor !== 1 ? (
+                                      <span className="ml-1 font-mono text-[9px] text-indigo-600 dark:text-indigo-400">(@ {item.purchaseBucket.conversionFactor}x)</span>
+                                    ) : null}
+                                  </span>
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -1710,9 +2188,9 @@ export default function MRPProcurementWorkbench({
                                       setBucketModalItem(item);
                                     }}
                                     className="ml-1 text-[9px] underline font-bold hover:text-indigo-900 dark:hover:text-indigo-200 cursor-pointer"
-                                    title="Change or unmap purchase bucket"
+                                    title="Change conversion or detach for this MRP"
                                   >
-                                    Change
+                                    Edit
                                   </button>
                                 </div>
                               ) : (
@@ -1838,6 +2316,19 @@ export default function MRPProcurementWorkbench({
                         {/* Material Planning Status (Remark) */}
                         <td className="p-3 text-center">
                           {(() => {
+                            if (item.isDetachedForPlan) {
+                              return (
+                                <div className="inline-flex flex-col items-center">
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 inline-flex items-center gap-1 whitespace-nowrap">
+                                    🔓 Detached
+                                  </span>
+                                  <span className="text-[9px] text-amber-700 dark:text-amber-400 font-semibold mt-0.5">
+                                    Direct Purchase
+                                  </span>
+                                </div>
+                              );
+                            }
+
                             if (item.purchaseBucket) {
                               return (
                                 <div className="inline-flex flex-col items-center">
@@ -1926,13 +2417,293 @@ export default function MRPProcurementWorkbench({
               </tbody>
             </table>
           </div>
+
+          {/* Dedicated Native Mobile Cards View for Material Shortages */}
+          <div className="md:hidden flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5 divide-y divide-slate-100 dark:divide-slate-800/80">
+            {filteredConsolidatedList.length === 0 ? (
+              <div className="p-8 text-center text-slate-400">
+                No {activeTypeTab.toUpperCase()} items found matching the selected filters.
+              </div>
+            ) : (
+              filteredConsolidatedList.map((item: any, idx: number) => {
+                const rowKey = item.materialKey || item.materialId || item._id || `mat_row_${idx}`;
+                const isSelected = selectedKeys.has(rowKey);
+                const currentStatus = item.status || 'Pending';
+                const pStatus = item.materialPlanningStatus || (item.netShortage === 0 ? 'Stock Covered' : 'Not Planned');
+
+                return (
+                  <div
+                    key={`${rowKey}_${idx}`}
+                    className={`bg-white dark:bg-slate-900/90 rounded-2xl border p-3.5 shadow-xs transition-all space-y-3 ${
+                      isSelected
+                        ? "border-emerald-500 bg-emerald-50/20 dark:bg-emerald-950/20"
+                        : "border-slate-200/90 dark:border-slate-800"
+                    }`}
+                  >
+                    {/* Header Row: Checkbox, Name & Desc, Category */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2.5 flex-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSelect(rowKey);
+                          }}
+                          className="mt-0.5 text-slate-400 hover:text-emerald-600 shrink-0"
+                        >
+                          {isSelected ? <CheckSquare size={16} className="text-emerald-600" /> : <Square size={16} />}
+                        </button>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                            {item.materialName}
+                          </div>
+                          {item.description && (
+                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                              {item.description}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <span className={`shrink-0 px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                        activeTypeTab === 'rm'
+                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border-blue-200/80 dark:border-blue-800/50'
+                          : activeTypeTab === 'bo'
+                          ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200/80 dark:border-indigo-800/50'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                      }`}>
+                        {item.category || (activeTypeTab === 'rm' ? 'Raw Material' : activeTypeTab === 'bo' ? 'Bought Out' : 'Component')}
+                      </span>
+                    </div>
+
+                    {/* Purchase Bucket Conversion Action for RM / BO */}
+                    {(activeTypeTab === 'rm' || activeTypeTab === 'bo') && (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {item.isDetachedForPlan ? (
+                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-[10px] font-semibold">
+                            <span>🔓 Detached ({selectedPlan?.mrpNumber || 'This MRP'})</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setBucketModalItem(item);
+                              }}
+                              className="ml-1 text-[9px] underline font-bold hover:text-amber-950 cursor-pointer"
+                            >
+                              Re-map
+                            </button>
+                          </div>
+                        ) : item.purchaseBucket ? (
+                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[10px]">
+                            <Boxes size={10} className="text-indigo-500 shrink-0" />
+                            <span>
+                              {item.purchaseBucket.isPlanSpecific ? (
+                                <span className="mr-1 px-1 py-0.2 rounded text-[9px] font-bold bg-indigo-200 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-200">
+                                  ⚡ Plan
+                                </span>
+                              ) : (
+                                <span className="mr-1 px-1 py-0.2 rounded text-[9px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                                  🌐 Global
+                                </span>
+                              )}
+                              Bucket: <strong className="font-semibold">{item.purchaseBucket.targetPurchaseItemName || item.purchaseBucket.name || 'Commercial Item'}</strong>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setBucketModalItem(item);
+                              }}
+                              className="ml-1 text-[9px] underline font-bold hover:text-indigo-900 cursor-pointer"
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setBucketModalItem(item);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-cyan-50 dark:bg-slate-800 dark:hover:bg-cyan-950/50 border border-slate-200 hover:border-cyan-300 text-slate-600 hover:text-cyan-700 text-[10.5px] font-bold cursor-pointer transition-colors"
+                          >
+                            <ArrowRight size={11} />
+                            <span>+ Convert to Purchase {activeTypeTab === 'rm' ? 'RM' : 'BO'}</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Demanded in & Target Date */}
+                    <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                      {item.earliestTargetDate && (
+                        <span className="font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800/60 inline-flex items-center gap-1">
+                          <Calendar size={10} /> Due: {new Date(item.earliestTargetDate).toLocaleDateString('en-IN')}
+                        </span>
+                      )}
+                      {Array.isArray(item.mrpSources) && item.mrpSources.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="text-slate-400 font-medium">Demanded in:</span>
+                          {item.mrpSources.map((src: any, sIdx: number) => {
+                            const mrpNum = src.mrpNumber || src;
+                            const matchedPlan = mrpTreeList.find((p: any) => p.mrpNumber === mrpNum);
+                            return (
+                              <button
+                                key={sIdx}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (matchedPlan) handleSelectPlan(matchedPlan);
+                                }}
+                                className={`px-1.5 py-0.2 rounded font-mono ${
+                                  matchedPlan
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 cursor-pointer'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200'
+                                }`}
+                              >
+                                {mrpNum}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 4-col Metrics Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50/80 dark:bg-slate-800/50 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 text-center">
+                      <div>
+                        <span className="text-[9.5px] uppercase tracking-wider text-slate-400 font-bold block">Gross Req</span>
+                        <div className="mt-0.5">{renderDualUnitQty(Number(item.grossRequired || item.requiredQuantity) || 0, item.unit, item)}</div>
+                      </div>
+                      <div>
+                        <span className="text-[9.5px] uppercase tracking-wider text-slate-400 font-bold block">Live Stock</span>
+                        <div className="mt-0.5">{renderDualUnitQty(Number(item.currentPhysicalStock) || 0, item.unit, item, { fontClass: 'font-semibold text-slate-600 dark:text-slate-400' })}</div>
+                      </div>
+                      <div>
+                        <span className="text-[9.5px] uppercase tracking-wider text-slate-400 font-bold block">In-Transit</span>
+                        <div className="mt-0.5">{renderDualUnitQty(Number(item.totalInTransitPO) || 0, item.unit, item, { isInTransit: true })}</div>
+                      </div>
+                      <div>
+                        <span className="text-[9.5px] uppercase tracking-wider text-slate-400 font-bold block">Shortage</span>
+                        <div className="mt-0.5">{renderDualUnitQty(Number(item.netShortage) || 0, item.unit, item, { isShortage: true })}</div>
+                      </div>
+                    </div>
+
+                    {/* Planning Remark & Interactive Status Selector & Vendor */}
+                    <div className="flex items-center justify-between flex-wrap gap-2 text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {/* Planning Remark Badge */}
+                        {pStatus === 'Completed' ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300">
+                            ✓ Completed
+                          </span>
+                        ) : pStatus === 'PO Sent' ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300">
+                            📦 PO Sent
+                          </span>
+                        ) : pStatus === 'Stock Covered' || item.netShortage === 0 ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300">
+                            ✅ Stock Covered
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 inline-flex items-center gap-1">
+                            <AlertTriangle size={10} /> ⚠️ Not Planned
+                          </span>
+                        )}
+
+                        {/* Status Select */}
+                        <div className="inline-block relative">
+                          <select
+                            value={currentStatus}
+                            onChange={(e) => handleUpdateItemStatus(e.target.value, item)}
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border outline-none cursor-pointer appearance-none pr-5 text-center transition-all ${getStatusBadgeClass(currentStatus)}`}
+                          >
+                            {STATUS_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt} className="text-slate-800 bg-white dark:bg-slate-900 dark:text-slate-200">
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                        </div>
+                      </div>
+
+                      {item.bestVendor ? (
+                        <div className="text-right text-[11px]">
+                          <span className="font-bold text-slate-700 dark:text-slate-300">{item.bestVendor.vendorName}</span>
+                          <span className="text-[10px] text-slate-400 block font-mono">₹{Number(item.bestVendor.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })}/{item.unit}</span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 italic text-[10px]">No vendor quote</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Bar for Mobile when items are selected */}
+      {selectedKeys.size > 0 && (
+        <div className="md:hidden shrink-0 bg-slate-900/95 dark:bg-slate-800/95 backdrop-blur-md text-white p-2.5 rounded-2xl shadow-xl border border-slate-700/80 flex items-center justify-between gap-2 z-20">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="w-5 h-5 rounded-full bg-emerald-500 text-white font-black text-[11px] flex items-center justify-center">
+              {selectedKeys.size}
+            </span>
+            <span className="text-xs font-bold">Selected</span>
+          </div>
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+            <select
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleUpdateItemStatus(e.target.value);
+                  e.target.value = '';
+                }
+              }}
+              defaultValue=""
+              className="px-2 py-1 bg-slate-800 dark:bg-slate-700 text-white rounded-lg font-bold text-[11px] border border-slate-600 outline-none cursor-pointer shrink-0"
+            >
+              <option value="" disabled>🏷️ Status</option>
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt} value={opt} className="bg-slate-900 text-white">{opt}</option>
+              ))}
+            </select>
+
+            <button
+              onClick={handleCreateRFQ}
+              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold text-[11px] border border-slate-600 flex items-center gap-1 shrink-0 cursor-pointer"
+            >
+              <FileText size={11} />
+              <span>RFQ</span>
+            </button>
+
+            <button
+              onClick={handleOpenManualPO}
+              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shrink-0 cursor-pointer"
+            >
+              <ShoppingCart size={11} />
+              <span>Outward PO</span>
+            </button>
+
+            <button
+              onClick={handleBulkGeneratePO}
+              disabled={submittingPO}
+              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-lg font-bold text-[11px] flex items-center gap-1 shrink-0 cursor-pointer"
+            >
+              <Sparkles size={11} />
+              <span>{submittingPO ? "..." : "Auto PO"}</span>
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
 
   return (
-    <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-y-auto space-y-4 pb-28 sm:pb-20 pr-1 sm:pr-2 scroll-smooth">
+    <div className="w-full flex-1 min-h-0 flex flex-col overflow-hidden gap-2">
       
       {/* ========================================================================= */}
       {/* VIEW 1: INITIAL MRP NUMBERS LIST (Click on an MRP number to view BOM)     */}
@@ -1941,13 +2712,13 @@ export default function MRPProcurementWorkbench({
       {/* VIEW 1: INITIAL MRP NUMBERS LIST & UNIFIED TOP FILTER BAR                */}
       {/* ========================================================================= */}
       {!selectedPlan && (
-        <div className="space-y-3.5">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-2">
           
           {/* ========================================================================= */}
           {/* UNIFIED FILTER BAR (Applies to both Plans View and Items Wise View)       */}
           {/* ========================================================================= */}
-          {/* Controls Toolbar: Search, View Switcher, 3 Dropdown Filter Tabs, Customer, Toggles, Reset, Refresh in Single Line */}
-          <div className="relative z-30 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap xl:flex-nowrap items-center justify-between gap-2">
+          {/* Controls Toolbar: Search, View Switcher, 3 Dropdown Filter Tabs, Customer, Toggles, Reset, Refresh in Single Line (PINNED) */}
+          <div className="shrink-0 relative z-30 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap xl:flex-nowrap items-center justify-between gap-2">
             
             {/* Left Group: Search & View Mode Switcher */}
             <div className="flex items-center gap-2 shrink-0 min-w-0 flex-1 max-w-sm sm:max-w-md">
@@ -2466,27 +3237,23 @@ export default function MRPProcurementWorkbench({
           {workbenchViewMode === 'items' ? (
             renderTypesClassificationView(true)
           ) : (
-            <>
+            <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
               {/* MRP Numbers Table */}
               {loading ? (
-                <div className="p-16 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <div className="flex-1 flex flex-col items-center justify-center p-16 text-center">
                   <RefreshCw className="w-8 h-8 animate-spin text-emerald-600 mx-auto mb-2" />
                   <p className="text-xs text-slate-400 font-semibold">Loading MRP Demand Plans...</p>
                 </div>
               ) : filteredMrpList.length === 0 ? (
-                <div className="p-16 text-center bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                <div className="flex-1 flex flex-col items-center justify-center p-16 text-center">
                   <Package className="w-10 h-10 text-slate-300 mx-auto mb-2 opacity-60" />
                   <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">No MRP Plans Found</h3>
                   <p className="text-[11px] text-slate-400 mt-0.5">Adjust your date or status filters, or create an MRP Demand Plan in Tab 1 to start procurement.</p>
                 </div>
               ) : (
-                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-                  {/* Mobile horizontal scroll hint */}
-                  <div className="sm:hidden px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-500 flex items-center justify-between">
-                    <span>📑 Demand Plans</span>
-                    <span className="text-emerald-600 font-semibold">← Swipe horizontally →</span>
-                  </div>
-                  <div className="overflow-x-auto scroll-smooth touch-pan-x">
+                <>
+                  {/* Desktop Table View (ONLY TABLE SCROLLS) */}
+                  <div className="hidden md:block flex-1 min-h-0 overflow-y-auto overflow-x-auto scroll-smooth">
                     <table className="w-full min-w-[880px] text-xs text-left">
                       <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                         <tr>
@@ -2620,9 +3387,100 @@ export default function MRPProcurementWorkbench({
                       </tbody>
                     </table>
                   </div>
-                </div>
+
+                  {/* Dedicated Native Mobile Cards View */}
+                  <div className="md:hidden flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5 divide-y divide-slate-100 dark:divide-slate-800/80">
+                    {filteredMrpList.map((plan: any, pIdx: number) => {
+                      const planKey = plan._id ? String(plan._id) : (plan.mrpNumber || `plan_${pIdx}`);
+                      const fgCount = (plan.fgItems || []).length;
+                      const firstFG = (plan.fgItems || [])[0];
+
+                      return (
+                        <div
+                          key={planKey}
+                          onClick={() => handleSelectPlan(plan)}
+                          className="bg-white dark:bg-slate-900/90 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-3.5 shadow-xs hover:border-emerald-300 dark:hover:border-emerald-700 active:scale-[0.99] transition-all cursor-pointer space-y-3"
+                        >
+                          {/* Top: MRP # & Live Shortages chip */}
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/70 px-2.5 py-1 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                              {plan.mrpNumber}
+                            </span>
+                            {plan.planTotalShortages > 0 ? (
+                              <span className="inline-flex items-center gap-1 font-bold text-red-600 bg-red-50 dark:bg-red-950/70 border border-red-200 px-2.5 py-1 rounded-xl text-[10.5px]">
+                                <AlertTriangle size={11} /> {plan.planTotalShortages} Shortages
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 px-2.5 py-1 rounded-xl text-[10.5px]">
+                                <CheckCircle2 size={11} /> Stock Covered
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Customer & PO */}
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-bold truncate">
+                              <Building2 size={13} className="text-slate-400 shrink-0" />
+                              <span className="truncate">{plan.customerName || "Internal Demand"}</span>
+                            </div>
+                            {plan.customerPoNumber && (
+                              <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 shrink-0 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">
+                                PO: {plan.customerPoNumber}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* FG Demand Summary (Strict rule compliance: AGENTS.md) */}
+                          <div className="bg-slate-50/80 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-0.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-900 dark:text-white">
+                                {firstFG?.fgItemName || "Finished Good"}
+                                {fgCount > 1 && <span className="text-emerald-600 dark:text-emerald-400 font-semibold ml-1">+{fgCount - 1} more</span>}
+                              </span>
+                              <span className="font-mono text-[10px] text-slate-400 font-bold">
+                                {fgCount} FG item{fgCount > 1 ? 's' : ''}
+                              </span>
+                            </div>
+                            {firstFG?.description && (
+                              <div className="text-[11px] text-slate-500 italic line-clamp-1">
+                                {firstFG.description}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Bottom info & Action */}
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-[11px]">
+                            <div className="space-y-0.5 text-slate-500 text-[10.5px]">
+                              {plan.targetDate && (
+                                <div className="text-amber-600 dark:text-amber-400 font-semibold">
+                                  Due: {new Date(plan.targetDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                                </div>
+                              )}
+                              {plan.planTotalInTransit > 0 && (
+                                <div className="text-blue-600 font-semibold">
+                                  🚚 {plan.planTotalInTransit} In-Transit
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectPlan(plan);
+                              }}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>View Nested BOM</span>
+                              <ChevronRight size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
               )}
-            </>
+            </div>
           )}
         </div>
       )}
@@ -2631,10 +3489,10 @@ export default function MRPProcurementWorkbench({
       {/* VIEW 2: SELECTED MRP PLAN WORKBENCH WITH NESTED BOM & CLASSIFICATIONS     */}
       {/* ========================================================================= */}
       {selectedPlan && (
-        <div className="space-y-4">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-2">
           
-          {/* Top Header Bar with Navigation and PDF Export */}
-          <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+          {/* Top Header Bar with Navigation and PDF Export (PINNED) */}
+          <div className="shrink-0 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-2">
             
             <div className="flex items-center gap-3">
               <button
@@ -2655,6 +3513,20 @@ export default function MRPProcurementWorkbench({
                   </span>
                   {selectedPlan.customerPoNumber && (
                     <span className="text-[10px] text-slate-400 font-mono">PO: {selectedPlan.customerPoNumber}</span>
+                  )}
+                  {/* Budget Guard Pill */}
+                  {selectedPlan.targetExpense > 0 && (
+                    <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-mono font-bold flex items-center gap-1 ${
+                      selectedPlan.committedExpense > selectedPlan.targetExpense
+                        ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200'
+                        : selectedPlan.committedExpense >= selectedPlan.targetExpense * 0.85
+                        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200'
+                        : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200'
+                    }`} title={`Committed: ₹${(selectedPlan.committedExpense || 0).toLocaleString('en-IN')} / Target: ₹${selectedPlan.targetExpense.toLocaleString('en-IN')}`}>
+                      <Target size={11} />
+                      <span>Budget: ₹{(selectedPlan.committedExpense || 0).toLocaleString('en-IN')} / ₹{selectedPlan.targetExpense.toLocaleString('en-IN')}</span>
+                      {selectedPlan.committedExpense > selectedPlan.targetExpense && <span className="font-black text-rose-600">🚨 (Over)</span>}
+                    </span>
                   )}
                 </div>
               </div>
@@ -2718,30 +3590,30 @@ export default function MRPProcurementWorkbench({
             </div>
           </div>
 
-          {/* Quick Metrics Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-xs">
+          {/* Quick Metrics Bar (PINNED) */}
+          <div className="shrink-0 grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs">
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Finished Goods</span>
-              <div className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
+              <div className="text-lg sm:text-xl font-black text-slate-900 dark:text-white mt-0.5">
                 {(selectedPlan.fgItems || []).length} <span className="text-xs font-semibold text-slate-400">items</span>
               </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-xs">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs">
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-red-500">Net Shortages</span>
-              <div className="text-xl font-black text-red-600 dark:text-red-400 mt-0.5">
+              <div className="text-lg sm:text-xl font-black text-red-600 dark:text-red-400 mt-0.5">
                 {selectedPlan.planTotalShortages} <span className="text-xs font-semibold text-slate-400">units</span>
               </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-xs">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs">
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-500">In-Transit Open POs</span>
-              <div className="text-xl font-black text-blue-600 mt-0.5">
+              <div className="text-lg sm:text-xl font-black text-blue-600 mt-0.5">
                 {selectedPlan.planTotalInTransit} <span className="text-xs font-semibold text-slate-400">units</span>
               </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-xs">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs">
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600">Procurement Status</span>
               <div className="mt-1">
                 {selectedPlan.isProcurementFulfilled ? (
@@ -2761,7 +3633,7 @@ export default function MRPProcurementWorkbench({
           {/* TAB 1: NESTED MULTI-LEVEL BOM TREE VIEW (CLEAN HIERARCHY - NO SELECTION)  */}
           {/* ========================================================================= */}
           {viewMode === 'nested-tree' && (
-            <div className="space-y-3">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 scroll-smooth">
               {(selectedPlan.fgItems || []).map((fg: any, fgIdx: number) => {
                 const fgKey = `${selectedPlan._id}_fg_${fgIdx}`;
                 const isExpanded = expandedNodes.has(fgKey) || true;
@@ -2812,108 +3684,176 @@ export default function MRPProcurementWorkbench({
 
                     {/* Level 2, 3, 4: Nested Child Materials Table (Clean View) */}
                     {isExpanded && (
-                      <div className="overflow-x-auto scroll-smooth touch-pan-x">
-                        <table className="w-full min-w-[780px] text-xs text-left">
-                          <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
-                            <tr>
-                              <th className="p-3">Nested Component / Material</th>
-                              <th className="p-3">Classification Type</th>
-                              <th className="p-3 text-center">Req / FG</th>
-                              <th className="p-3 text-center">Total Req</th>
-                              <th className="p-3 text-center">Live Stock</th>
-                              <th className="p-3 text-center">In-Transit PO</th>
-                              <th className="p-3 text-center">True Net Shortage</th>
-                              <th className="p-3">Best Vendor Quote</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                            {(fg.nestedMaterials || []).map((nMat: any, nIdx: number) => {
-                              const levelIndent = nMat.level ? (nMat.level - 1) * 16 : 0;
+                      <>
+                        {/* Desktop Table View */}
+                        <div className="hidden md:block overflow-x-auto scroll-smooth">
+                          <table className="w-full min-w-[780px] text-xs text-left">
+                            <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
+                              <tr>
+                                <th className="p-3">Nested Component / Material</th>
+                                <th className="p-3">Classification Type</th>
+                                <th className="p-3 text-center">Req / FG</th>
+                                <th className="p-3 text-center">Total Req</th>
+                                <th className="p-3 text-center">Live Stock</th>
+                                <th className="p-3 text-center">In-Transit PO</th>
+                                <th className="p-3 text-center">True Net Shortage</th>
+                                <th className="p-3">Best Vendor Quote</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                              {(fg.nestedMaterials || []).map((nMat: any, nIdx: number) => {
+                                const levelIndent = nMat.level ? (nMat.level - 1) * 16 : 0;
 
-                              return (
-                                <tr key={nIdx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                                  <td className="p-3">
-                                    <div style={{ paddingLeft: `${levelIndent}px` }} className="flex items-center gap-1.5">
-                                      {nMat.level > 1 && <span className="text-slate-300 font-mono">↳</span>}
-                                      <div>
-                                        <span className="font-bold text-slate-800 dark:text-slate-200">{nMat.materialName}</span>
-                                        {nMat.description && <span className="block text-[10px] text-slate-500 italic mt-0.5">{nMat.description}</span>}
+                                return (
+                                  <tr key={nIdx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                                    <td className="p-3">
+                                      <div style={{ paddingLeft: `${levelIndent}px` }} className="flex items-center gap-1.5">
+                                        {nMat.level > 1 && <span className="text-slate-300 font-mono">↳</span>}
+                                        <div>
+                                          <span className="font-bold text-slate-800 dark:text-slate-200">{nMat.materialName}</span>
+                                          {nMat.description && <span className="block text-[10px] text-slate-500 italic mt-0.5">{nMat.description}</span>}
+                                        </div>
                                       </div>
+                                    </td>
+
+                                    <td className="p-3">
+                                      <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                                        nMat.itemType === 'SubAssembly' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' :
+                                        nMat.itemType === 'Component' ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300' :
+                                        nMat.itemType === 'BO' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' :
+                                        nMat.itemType === 'Assembly' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' :
+                                        'bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300'
+                                      }`}>
+                                        {nMat.itemType || "RM"}
+                                      </span>
+                                    </td>
+
+                                    <td className="p-3 text-center">
+                                      {renderDualUnitQty(
+                                        Number(nMat.quantityPerFG) || 1,
+                                        nMat.unit,
+                                        nMat,
+                                        { isPerFG: true, fontClass: 'font-mono text-slate-600 dark:text-slate-400' }
+                                      )}
+                                    </td>
+
+                                    <td className="p-3 text-center">
+                                      {renderDualUnitQty(
+                                        Number(nMat.totalRequired || nMat.requiredQuantity) || 0,
+                                        nMat.unit,
+                                        nMat
+                                      )}
+                                    </td>
+
+                                    <td className="p-3 text-center">
+                                      {renderDualUnitQty(
+                                        Number(nMat.currentPhysicalStock) || 0,
+                                        nMat.unit,
+                                        nMat,
+                                        { fontClass: 'font-semibold text-slate-600 dark:text-slate-400' }
+                                      )}
+                                    </td>
+
+                                    <td className="p-3 text-center">
+                                      {renderDualUnitQty(
+                                        Number(nMat.totalInTransitPO) || 0,
+                                        nMat.unit,
+                                        nMat,
+                                        { isInTransit: true }
+                                      )}
+                                    </td>
+
+                                    <td className="p-3 text-center">
+                                      {renderDualUnitQty(
+                                        Number(nMat.netShortage) || 0,
+                                        nMat.unit,
+                                        nMat,
+                                        { isShortage: true }
+                                      )}
+                                    </td>
+
+                                    <td className="p-3">
+                                      {nMat.bestVendor ? (
+                                        <div className="text-[11px]">
+                                          <span className="font-bold text-slate-700 dark:text-slate-300">{nMat.bestVendor.vendorName}</span>
+                                          <span className="text-slate-400 block text-[10px]">₹{nMat.bestVendor.rate}/{nMat.unit}</span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-400 italic text-[10px]">No vendor quote</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Mobile Cards View for Nested Materials */}
+                        <div className="md:hidden p-2.5 space-y-2 divide-y divide-slate-100 dark:divide-slate-800">
+                          {(fg.nestedMaterials || []).map((nMat: any, nIdx: number) => {
+                            return (
+                              <div key={nIdx} className="pt-2 first:pt-0 space-y-1.5 text-xs">
+                                <div className="flex items-start justify-between gap-1.5">
+                                  <div className="flex items-start gap-1 min-w-0">
+                                    {nMat.level > 1 && (
+                                      <span className="text-slate-400 font-mono text-[10px] mt-0.5 shrink-0">
+                                        {'↳'.repeat(nMat.level - 1)}
+                                      </span>
+                                    )}
+                                    <div className="min-w-0">
+                                      <span className="font-bold text-slate-800 dark:text-slate-200">
+                                        {nMat.materialName}
+                                      </span>
+                                      {nMat.description && (
+                                        <span className="block text-[10.5px] text-slate-500 italic mt-0.5 line-clamp-2">
+                                          {nMat.description}
+                                        </span>
+                                      )}
                                     </div>
-                                  </td>
+                                  </div>
 
-                                  <td className="p-3">
-                                    <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                                      nMat.itemType === 'SubAssembly' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' :
-                                      nMat.itemType === 'Component' ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300' :
-                                      nMat.itemType === 'BO' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' :
-                                      nMat.itemType === 'Assembly' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' :
-                                      'bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300'
-                                    }`}>
-                                      {nMat.itemType || "RM"}
-                                    </span>
-                                  </td>
+                                  <span className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-bold ${
+                                    nMat.itemType === 'SubAssembly' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' :
+                                    nMat.itemType === 'Component' ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300' :
+                                    nMat.itemType === 'BO' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' :
+                                    nMat.itemType === 'Assembly' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' :
+                                    'bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300'
+                                  }`}>
+                                    {nMat.itemType || "RM"}
+                                  </span>
+                                </div>
 
-                                  <td className="p-3 text-center">
-                                    {renderDualUnitQty(
-                                      Number(nMat.quantityPerFG) || 1,
-                                      nMat.unit,
-                                      nMat,
-                                      { isPerFG: true, fontClass: 'font-mono text-slate-600 dark:text-slate-400' }
-                                    )}
-                                  </td>
+                                <div className="grid grid-cols-4 gap-1.5 bg-slate-50/80 dark:bg-slate-800/50 p-2 rounded-xl text-center">
+                                  <div>
+                                    <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">Req/FG</span>
+                                    <div className="mt-0.5">{renderDualUnitQty(Number(nMat.quantityPerFG) || 1, nMat.unit, nMat, { isPerFG: true, fontClass: 'font-mono text-[11px] text-slate-600 dark:text-slate-400' })}</div>
+                                  </div>
+                                  <div>
+                                    <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">Total Req</span>
+                                    <div className="mt-0.5">{renderDualUnitQty(Number(nMat.totalRequired || nMat.requiredQuantity) || 0, nMat.unit, nMat)}</div>
+                                  </div>
+                                  <div>
+                                    <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">Live Stock</span>
+                                    <div className="mt-0.5">{renderDualUnitQty(Number(nMat.currentPhysicalStock) || 0, nMat.unit, nMat, { fontClass: 'font-semibold text-[11px] text-slate-600 dark:text-slate-400' })}</div>
+                                  </div>
+                                  <div>
+                                    <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">Shortage</span>
+                                    <div className="mt-0.5">{renderDualUnitQty(Number(nMat.netShortage) || 0, nMat.unit, nMat, { isShortage: true })}</div>
+                                  </div>
+                                </div>
 
-                                  <td className="p-3 text-center">
-                                    {renderDualUnitQty(
-                                      Number(nMat.totalRequired || nMat.requiredQuantity) || 0,
-                                      nMat.unit,
-                                      nMat
-                                    )}
-                                  </td>
-
-                                  <td className="p-3 text-center">
-                                    {renderDualUnitQty(
-                                      Number(nMat.currentPhysicalStock) || 0,
-                                      nMat.unit,
-                                      nMat,
-                                      { fontClass: 'font-semibold text-slate-600 dark:text-slate-400' }
-                                    )}
-                                  </td>
-
-                                  <td className="p-3 text-center">
-                                    {renderDualUnitQty(
-                                      Number(nMat.totalInTransitPO) || 0,
-                                      nMat.unit,
-                                      nMat,
-                                      { isInTransit: true }
-                                    )}
-                                  </td>
-
-                                  <td className="p-3 text-center">
-                                    {renderDualUnitQty(
-                                      Number(nMat.netShortage) || 0,
-                                      nMat.unit,
-                                      nMat,
-                                      { isShortage: true }
-                                    )}
-                                  </td>
-
-                                  <td className="p-3">
-                                    {nMat.bestVendor ? (
-                                      <div className="text-[11px]">
-                                        <span className="font-bold text-slate-700 dark:text-slate-300">{nMat.bestVendor.vendorName}</span>
-                                        <span className="text-slate-400 block text-[10px]">₹{nMat.bestVendor.rate}/{nMat.unit}</span>
-                                      </div>
-                                    ) : (
-                                      <span className="text-slate-400 italic text-[10px]">No vendor quote</span>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                                {nMat.bestVendor && (
+                                  <div className="flex items-center justify-between text-[10.5px] text-slate-500 pt-0.5">
+                                    <span className="font-semibold text-slate-700 dark:text-slate-300">Quote: {nMat.bestVendor.vendorName}</span>
+                                    <span className="font-mono">₹{nMat.bestVendor.rate}/{nMat.unit}</span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
                     )}
                   </div>
                 );
@@ -2939,6 +3879,8 @@ export default function MRPProcurementWorkbench({
           item={bucketModalItem}
           items={bucketModalItems || undefined}
           token={token}
+          mrpPlanId={selectedPlan?._id}
+          mrpNumber={selectedPlan?.mrpNumber}
           onSuccess={() => {
             fetchWorkbenchData(selectedPlan?._id);
             setSelectedKeys(new Set());

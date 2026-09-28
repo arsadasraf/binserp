@@ -5,7 +5,7 @@ import {
   Package, Eye, Calendar, Building2, Layers, CheckCircle2, 
   Clock, ArrowUpDown, ExternalLink, FileText, CheckCircle, 
   ShoppingBag, Truck, Info, FileCheck, X, Search, ChevronRight,
-  TrendingUp, AlertCircle
+  TrendingUp, AlertCircle, ChevronUp, LayoutGrid
 } from 'lucide-react';
 
 export interface MRPItemWiseViewProps {
@@ -22,6 +22,8 @@ export interface MRPItemWiseViewProps {
   commitStartDate?: string;
   commitEndDate?: string;
   onResetFilters?: () => void;
+  showDashboard?: boolean;
+  onToggleDashboard?: () => void;
 }
 
 interface LinkedPlanEntry {
@@ -126,8 +128,14 @@ export default function MRPItemWiseView({
   commitDateFilter = 'all',
   commitStartDate = '',
   commitEndDate = '',
-  onResetFilters
+  onResetFilters,
+  showDashboard: showDashboardProp,
+  onToggleDashboard
 }: MRPItemWiseViewProps) {
+  const [internalShowDashboard, setInternalShowDashboard] = useState<boolean>(false);
+  const isDashboardVisible = showDashboardProp !== undefined ? showDashboardProp : internalShowDashboard;
+  const handleToggleDashboard = onToggleDashboard || (() => setInternalShowDashboard(prev => !prev));
+
   const [selectedItemForPreview, setSelectedItemForPreview] = useState<AggregatedMRPItem | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'completed'>('all');
 
@@ -284,45 +292,81 @@ export default function MRPItemWiseView({
   }, [aggregatedItems]);
 
   return (
-    <div className="space-y-4">
-      {/* KPI Cards Banner */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 rounded-2xl shadow-xs">
-          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Total FG Items</span>
-          <div className="text-xl font-black text-slate-900 dark:text-white font-mono mt-0.5">
-            {metrics.totalItems} <span className="text-xs font-normal text-slate-400">products</span>
+    <div className="w-full flex-1 min-h-0 flex flex-col overflow-hidden gap-2 sm:gap-2.5">
+      {/* KPI Cards Banner (Collapsible Dashboard for Items - Hidden by Default) */}
+      {isDashboardVisible && (
+        <div className="shrink-0 space-y-1.5 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                Finished Goods Demand Overview
+              </span>
+              <span className="text-[10px] text-slate-400 font-semibold">
+                ({metrics.totalItems} Products)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleToggleDashboard}
+              className="px-2 py-0.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1 cursor-pointer border border-slate-200 dark:border-slate-700"
+              title="Hide Demand Metrics"
+            >
+              <ChevronUp size={13} />
+              <span>Hide</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[9.5px] font-extrabold uppercase tracking-wider text-slate-400 block">Total FG Items</span>
+                <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white font-mono leading-tight mt-0.5">
+                  {metrics.totalItems} <span className="text-[10px] font-normal text-slate-400">products</span>
+                </div>
+              </div>
+              <Package className="w-5 h-5 text-slate-300 dark:text-slate-600 shrink-0" />
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[9.5px] font-extrabold uppercase tracking-wider text-indigo-500 block">Total Planned</span>
+                <div className="text-base sm:text-lg font-black text-indigo-600 dark:text-indigo-400 font-mono leading-tight mt-0.5">
+                  {metrics.totalPlanned.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">units</span>
+                </div>
+              </div>
+              <Layers className="w-5 h-5 text-indigo-300 dark:text-indigo-600 shrink-0" />
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[9.5px] font-extrabold uppercase tracking-wider text-teal-600 block">GRN Received</span>
+                <div className="text-base sm:text-lg font-black text-teal-600 dark:text-teal-400 font-mono leading-tight mt-0.5">
+                  {metrics.totalReceived.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">units</span>
+                </div>
+              </div>
+              <CheckCircle2 className="w-5 h-5 text-teal-300 dark:text-teal-600 shrink-0" />
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[9.5px] font-extrabold uppercase tracking-wider text-emerald-600 block">Fulfillment</span>
+                <div className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono leading-tight mt-0.5">
+                  {metrics.overallRate}% <span className="text-[10px] font-normal text-slate-400">completed</span>
+                </div>
+              </div>
+              <Truck className="w-5 h-5 text-emerald-300 dark:text-emerald-600 shrink-0" />
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 rounded-2xl shadow-xs">
-          <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-500">Total Planned Demand</span>
-          <div className="text-xl font-black text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
-            {metrics.totalPlanned.toLocaleString()} <span className="text-xs font-normal text-slate-400">units</span>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 rounded-2xl shadow-xs">
-          <span className="text-[10px] font-extrabold uppercase tracking-wider text-teal-600">Total GRN Received</span>
-          <div className="text-xl font-black text-teal-600 dark:text-teal-400 font-mono mt-0.5">
-            {metrics.totalReceived.toLocaleString()} <span className="text-xs font-normal text-slate-400">units</span>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 rounded-2xl shadow-xs">
-          <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600">Fulfillment Rate</span>
-          <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">
-            {metrics.overallRate}% <span className="text-xs font-normal text-slate-400">completed</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Secondary Filter Row: Status Tabs */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+      {/* Secondary Filter Row: Status Tabs (PINNED - Compact) */}
+      <div className="shrink-0 flex flex-wrap items-center justify-between gap-1.5 px-0.5">
         <div className="flex items-center gap-2">
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl text-xs font-semibold">
             <button
               onClick={() => setStatusFilter('all')}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer text-xs ${
                 statusFilter === 'all' 
                   ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs' 
                   : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -332,7 +376,7 @@ export default function MRPItemWiseView({
             </button>
             <button
               onClick={() => setStatusFilter('pending')}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer text-xs ${
                 statusFilter === 'pending' 
                   ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 font-bold shadow-xs' 
                   : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -342,7 +386,7 @@ export default function MRPItemWiseView({
             </button>
             <button
               onClick={() => setStatusFilter('completed')}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer text-xs ${
                 statusFilter === 'completed' 
                   ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs' 
                   : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -353,15 +397,30 @@ export default function MRPItemWiseView({
           </div>
         </div>
 
-        <div className="text-xs font-semibold text-slate-500">
-          Showing <b>{filteredItems.length}</b> of <b>{aggregatedItems.length}</b> items
+        <div className="flex items-center gap-2">
+          <div className="text-[11px] font-semibold text-slate-500">
+            Showing <b>{filteredItems.length}</b> of <b>{aggregatedItems.length}</b> items
+          </div>
+          <button
+            type="button"
+            onClick={handleToggleDashboard}
+            className={`px-2 py-1 text-xs font-bold rounded-lg border transition-colors flex items-center gap-1 cursor-pointer shrink-0 ${
+              isDashboardVisible
+                ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300 shadow-2xs'
+                : 'bg-white hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+            }`}
+            title={isDashboardVisible ? "Hide Items KPI Dashboard" : "Show Items KPI Dashboard"}
+          >
+            <LayoutGrid size={12} className={isDashboardVisible ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500"} />
+            <span className="hidden sm:inline">{isDashboardVisible ? "Hide Stats" : "Show Stats"}</span>
+          </button>
         </div>
       </div>
 
-      {/* Standard Table View */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+      {/* Standard Table View Container */}
+      <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
         {filteredItems.length === 0 ? (
-          <div className="text-center py-16 px-4">
+          <div className="flex-1 flex flex-col items-center justify-center text-center py-16 px-4">
             <Package className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600 mb-3" />
             <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Demand Items Found</h3>
             <p className="text-xs text-slate-500 mt-1 mb-4">No finished good items match the selected status or date filters.</p>
@@ -377,8 +436,8 @@ export default function MRPItemWiseView({
           </div>
         ) : (
           <>
-            {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto scroll-smooth touch-pan-x">
+            {/* Desktop Table View (ONLY TABLE SCROLLS) */}
+            <div className="hidden md:block flex-1 min-h-0 overflow-y-auto overflow-x-auto scroll-smooth">
               <table className="w-full min-w-[900px] text-sm text-left">
                 <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                   <tr>
@@ -487,16 +546,17 @@ export default function MRPItemWiseView({
               </table>
             </div>
 
-            {/* Mobile Cards View */}
-            <div className="md:hidden divide-y divide-slate-200 dark:divide-slate-800">
+            {/* Dedicated Native Mobile Cards View */}
+            <div className="md:hidden flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5 divide-y divide-slate-100 dark:divide-slate-800/80">
               {filteredItems.map((item) => (
                 <div
                   key={`mob-${item.id}`}
                   onClick={() => setSelectedItemForPreview(item)}
-                  className="p-4 space-y-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer"
+                  className="bg-white dark:bg-slate-900/90 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-3.5 shadow-xs hover:border-indigo-300 active:scale-[0.99] transition-all cursor-pointer space-y-2.5"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
+                      {/* Strict Workspace Rule: Item Name on primary line, description in subtle italic below */}
                       <div className="font-bold text-sm text-slate-900 dark:text-slate-100">
                         {item.name || "Finished Good"}
                       </div>
@@ -536,7 +596,7 @@ export default function MRPItemWiseView({
                         e.stopPropagation();
                         setSelectedItemForPreview(item);
                       }}
-                      className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-indigo-600 text-white font-bold text-xs"
+                      className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-indigo-600 text-white font-bold text-xs cursor-pointer"
                     >
                       <Eye size={12} /> View Details
                     </button>

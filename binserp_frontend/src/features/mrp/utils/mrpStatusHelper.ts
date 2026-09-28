@@ -42,6 +42,10 @@ export function calculateMRPLockStatus(plan: any, currentTime: number = Date.now
 
   return {
     remainingMs,
+    policyHours,
+    isUnlimited,
+    isImmediatelyLocked,
+    isExpired,
     is24hExpired: isExpired,
     countdownText,
     hasTransactions,

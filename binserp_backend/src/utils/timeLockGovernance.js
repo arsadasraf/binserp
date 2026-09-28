@@ -8,7 +8,8 @@ export const DEFAULT_TIME_LOCK_HOURS = {
     purchasePo: 24,
     jobWorkChallan: 24,
     rfqQuotation: 24,
-    mrbDisposition: 24
+    mrbDisposition: 24,
+    mrpPlan: 24
 };
 
 const DOC_DISPLAY_NAMES = {
@@ -19,13 +20,14 @@ const DOC_DISPLAY_NAMES = {
     purchasePo: "Purchase Order",
     jobWorkChallan: "Job Work Challan",
     rfqQuotation: "RFQ / Quotation",
-    mrbDisposition: "MRB Disposition"
+    mrbDisposition: "MRB Disposition",
+    mrpPlan: "MRP Demand Plan"
 };
 
 /**
  * Validates whether an edit or delete action is permitted based on the company's dynamic timeLock policy.
  * @param {Object} req Express request object with req.getModel
- * @param {string} entityKey 'grn' | 'customerPo' | 'deliveryChallan' | 'invoice' | 'purchasePo' | 'jobWorkChallan' | 'rfqQuotation' | 'mrbDisposition'
+ * @param {string} entityKey 'grn' | 'customerPo' | 'deliveryChallan' | 'invoice' | 'purchasePo' | 'jobWorkChallan' | 'rfqQuotation' | 'mrbDisposition' | 'mrpPlan'
  * @param {Date|string} createdAt Date of record creation
  * @param {'edit'|'delete'} action 'edit' | 'delete'
  * @returns {Promise<{ allowed: boolean, message?: string, policyHours?: number }>}

@@ -5,6 +5,7 @@ import {
     FileSpreadsheet, Upload, Download, CheckCircle2, AlertTriangle, 
     RefreshCw, Filter, Calendar, Users, Target, ArrowRight, X, FileText 
 } from "lucide-react";
+import { apiRequest } from "@/src/lib/api";
 
 export default function CRMDataHub() {
     const [importType, setImportType] = useState<"leads" | "customers">("leads");
@@ -22,25 +23,25 @@ export default function CRMDataHub() {
     const [exportToDate, setExportToDate] = useState<string>("");
     const [exporting, setExporting] = useState(false);
 
-    const handleDownloadTemplate = (type: "leads" | "customers") => {
-        const token = localStorage.getItem("token");
-        const url = `/api/crm/excel/template/${type}`;
-        
-        // Trigger download with auth token
-        fetch(url, {
-            headers: { Authorization: `Bearer ${token}` }
-        })
-            .then(res => res.blob())
-            .then(blob => {
-                const downloadUrl = window.URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = downloadUrl;
-                a.download = `CRM_${type === "leads" ? "Leads" : "Customers"}_Import_Template.xlsx`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-            })
-            .catch(err => console.error("Template download failed", err));
+    const handleDownloadTemplate = async (type: "leads" | "customers") => {
+        try {
+            const res = await apiRequest(`/api/crm/excel/template/${type}`, {
+                method: "GET"
+            });
+            if (!res.ok) throw new Error("Failed to download template");
+            const blob = await res.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = downloadUrl;
+            a.download = `CRM_${type === "leads" ? "Leads" : "Customers"}_Import_Template.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => window.URL.revokeObjectURL(downloadUrl), 1000);
+        } catch (err: any) {
+            console.error("Template download failed", err);
+            alert(err.message || "Failed to download template");
+        }
     };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -65,13 +66,11 @@ export default function CRMDataHub() {
         setImportResult(null);
 
         try {
-            const token = localStorage.getItem("token");
             const formData = new FormData();
             formData.append("file", selectedFile);
 
-            const res = await fetch(`/api/crm/excel/import/${importType}`, {
+            const res = await apiRequest(`/api/crm/excel/import/${importType}`, {
                 method: "POST",
-                headers: { Authorization: `Bearer ${token}` },
                 body: formData
             });
 
@@ -92,7 +91,6 @@ export default function CRMDataHub() {
     const handleExport = async () => {
         setExporting(true);
         try {
-            const token = localStorage.getItem("token");
             let url = `/api/crm/excel/export/${exportType}?`;
 
             if (exportType === "leads") {
@@ -103,8 +101,8 @@ export default function CRMDataHub() {
             if (exportFromDate) url += `fromDate=${encodeURIComponent(exportFromDate)}&`;
             if (exportToDate) url += `toDate=${encodeURIComponent(exportToDate)}&`;
 
-            const res = await fetch(url, {
-                headers: { Authorization: `Bearer ${token}` }
+            const res = await apiRequest(url, {
+                method: "GET"
             });
 
             const blob = await res.blob();
@@ -115,6 +113,7 @@ export default function CRMDataHub() {
             document.body.appendChild(a);
             a.click();
             a.remove();
+            setTimeout(() => window.URL.revokeObjectURL(downloadUrl), 1000);
         } catch (err) {
             console.error("Export error", err);
         } finally {

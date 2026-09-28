@@ -34,6 +34,7 @@ export const getStorePrefixSettings = async (req, res) => {
             jobWorkChallan: 24,
             rfqQuotation: 24,
             mrbDisposition: 24,
+            mrpPlan: 24,
         };
 
         const defaultApprovalSettings = {
@@ -103,6 +104,7 @@ export const updateStorePrefixSettings = async (req, res) => {
             jobWorkChallan: 24,
             rfqQuotation: 24,
             mrbDisposition: 24,
+            mrpPlan: 24,
         };
 
         const updateData = {
