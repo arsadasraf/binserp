@@ -1509,18 +1509,19 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
     const igstRate = isInterState ? (po.igstRate != null ? Number(po.igstRate) : overallTaxRate) : 0;
 
     items.forEach((item: any, idx: number) => {
-        const qty = Number(item.quantity || 1);
-        const rate = Number(item.rate || item.unitPrice || 0);
-        const hasSec = Boolean(item.hasSecondaryUnit);
-        const secQty = Number(item.secondaryQuantity || 0);
+        const hasSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
         const secUnit = item.secondaryUnit || '';
-        const rateUnit = item.rateUnit || 'primary';
-        const unitLabel = item.unit || item.uom || 'PCS';
-        const isSecRate = rateUnit === 'secondary' && hasSec;
+        const isSecRate = item.rateUnit === 'secondary' && hasSec;
+        const convFactor = Number(item.conversionFactor) || 1;
 
-        const lineNet = isSecRate 
-            ? (secQty * rate) 
-            : (item.amount != null ? Number(item.amount) : (qty * rate));
+        const activeUnit = isSecRate ? secUnit : (item.unit || item.uom || 'PCS');
+        const activeQty = isSecRate 
+            ? (Number(item.secondaryQuantity) || (Number(item.quantity || 1) * convFactor))
+            : Number(item.quantity || 1);
+
+        const rate = Number(item.rate || item.unitPrice || 0);
+        const lineNet = Number(item.amount != null ? item.amount : (activeQty * rate));
+
         const rawItemDesc = item.description || item.itemDescription || item.remarks || item.specifications || item.material?.description || (idx === 0 ? (po.description || po.remarks) : '') || '';
         let itemDesc = rawItemDesc;
         if (itemDesc && resolvedMrp) {
@@ -1533,13 +1534,7 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
 
         itemsSubtotal += lineNet;
 
-        const qtyHtml = `${qty} ${unitLabel}${hasSec && secQty ? `<br><span style="font-size: 8.5px; color: #4338ca; font-weight: normal;">(${secQty} ${secUnit})</span>` : ''}`;
-        const activeRateUnit = isSecRate && secUnit ? secUnit : unitLabel;
-        const reciprocalText = isSecRate && item.primaryRate
-            ? `<br><span style="font-size: 8px; color: #64748b; font-weight: normal;">(~₹${Number(item.primaryRate).toFixed(2)} / ${unitLabel})</span>`
-            : (!isSecRate && hasSec && item.secondaryRate
-                ? `<br><span style="font-size: 8px; color: #64748b; font-weight: normal;">(~₹${Number(item.secondaryRate).toFixed(2)} / ${secUnit})</span>`
-                : '');
+        const qtyHtml = `${activeQty.toLocaleString('en-IN', { maximumFractionDigits: 3 })} ${activeUnit}`;
 
         itemsTableRowsHtml += `
             <tr>
@@ -1554,8 +1549,7 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                 <td style="text-align: center; font-weight: bold; color: #7c2d12; padding: 7px 4px; vertical-align: top;">${pieceCount > 0 ? `${pieceCount} Pcs` : '-'}</td>
                 <td style="text-align: center; font-weight: bold; padding: 7px 4px; vertical-align: top;">${qtyHtml}</td>
                 <td style="text-align: right; padding: 7px 8px; font-weight: bold; vertical-align: top;">
-                    ₹${rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${activeRateUnit}
-                    ${reciprocalText}
+                    ₹${rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${activeUnit}
                 </td>
                 <td style="text-align: right; padding: 7px 8px; font-weight: 800; color: #0f172a; vertical-align: top;">₹${lineNet.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             </tr>

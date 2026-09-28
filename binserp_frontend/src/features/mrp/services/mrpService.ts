@@ -57,5 +57,15 @@ export const mrpService = {
   // Update item status in plan
   updateItemStatus: async (planId: string, payload: any, token: string): Promise<any> => {
     return apiPatch(`/api/purchase/mrp/plan/${planId}/item-status`, payload, token);
+  },
+
+  // Synchronize plan with latest FG BOM
+  syncPlanBOM: async (planId: string, token: string): Promise<any> => {
+    return apiPost(`/api/purchase/mrp/plan/${planId}/sync-bom`, {}, token);
+  },
+
+  // Bulk sync all active plans with latest BOMs
+  syncAllPlansBOM: async (token: string): Promise<any> => {
+    return apiPost("/api/purchase/mrp/sync-all-bom", {}, token);
   }
 };

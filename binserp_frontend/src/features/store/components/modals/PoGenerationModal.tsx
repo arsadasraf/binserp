@@ -105,14 +105,34 @@ export default function PoGenerationModal({
     const hasSec = Boolean(current.hasSecondaryUnit && current.secondaryUnit);
     const convFactor = Number(current.conversionFactor) || 1;
 
-    if (field === 'quantity') {
+    if (field === 'rateUnit') {
+      const targetRateUnit = (value === 'secondary' && hasSec) ? 'secondary' : 'primary';
+      const prevRateUnit = updated[index].rateUnit || 'primary';
+      current.rateUnit = targetRateUnit;
+
+      if (targetRateUnit === 'secondary' && prevRateUnit === 'primary') {
+        if (current.secondaryRate && current.secondaryRate > 0) {
+          current.rate = current.secondaryRate;
+        } else if (convFactor > 0 && current.rate > 0) {
+          current.rate = parseFloat((current.rate / convFactor).toFixed(2));
+        }
+      } else if (targetRateUnit === 'primary' && prevRateUnit === 'secondary') {
+        if (current.primaryRate && current.primaryRate > 0) {
+          current.rate = current.primaryRate;
+        } else if (convFactor > 0 && current.rate > 0) {
+          current.rate = parseFloat((current.rate * convFactor).toFixed(2));
+        }
+      }
+    } else if (field === 'quantity') {
       const qtyVal = Number(value) || 0;
-      if (hasSec && convFactor > 0 && !current.secondaryQuantity) {
+      current.quantity = qtyVal;
+      if (hasSec && convFactor > 0) {
         current.secondaryQuantity = parseFloat((qtyVal * convFactor).toFixed(3));
       }
     } else if (field === 'secondaryQuantity') {
       const secVal = Number(value) || 0;
-      if (hasSec && convFactor > 0 && !current.quantity) {
+      current.secondaryQuantity = secVal;
+      if (hasSec && convFactor > 0) {
         current.quantity = parseFloat((secVal / convFactor).toFixed(3));
       }
     }
@@ -128,21 +148,37 @@ export default function PoGenerationModal({
     let lineSubtotal = 0;
 
     if (rateUnit === 'secondary' && hasSec) {
+      const activeQty = secQty > 0 ? secQty : (convFactor > 0 ? qty * convFactor : qty);
+      lineSubtotal = parseFloat((activeQty * rate).toFixed(2));
       secondaryRate = rate;
-      primaryRate = (qty > 0 && secQty > 0) ? ((secQty * rate) / qty) : (convFactor > 0 ? rate / convFactor : rate);
-      const activeQty = secQty > 0 ? secQty : (qty * convFactor);
-      lineSubtotal = activeQty * rate;
+      if (qty > 0 && activeQty > 0) {
+        primaryRate = parseFloat(((activeQty * rate) / qty).toFixed(3));
+      } else if (convFactor > 0) {
+        primaryRate = parseFloat((rate / convFactor).toFixed(3));
+      } else {
+        primaryRate = rate;
+      }
     } else {
+      lineSubtotal = parseFloat((qty * rate).toFixed(2));
       primaryRate = rate;
-      secondaryRate = (qty > 0 && secQty > 0) ? ((qty * rate) / secQty) : (convFactor > 0 ? rate * convFactor : rate);
-      lineSubtotal = qty * rate;
+      const activeQty = secQty > 0 ? secQty : (convFactor > 0 ? qty * convFactor : qty);
+      if (hasSec) {
+        if (qty > 0 && activeQty > 0) {
+          secondaryRate = parseFloat(((qty * rate) / activeQty).toFixed(3));
+        } else if (convFactor > 0) {
+          secondaryRate = parseFloat((rate * convFactor).toFixed(3));
+        } else {
+          secondaryRate = rate;
+        }
+      }
     }
 
     current.rateUnit = rateUnit;
+    current.selectedUnit = (rateUnit === 'secondary' && hasSec) ? current.secondaryUnit : current.unit;
     current.primaryRate = primaryRate;
     current.secondaryRate = secondaryRate;
     current.subtotal = lineSubtotal;
-    current.amount = lineSubtotal * (1 + tax / 100);
+    current.amount = parseFloat((lineSubtotal * (1 + tax / 100)).toFixed(2));
 
     updated[index] = current;
     setItems(updated);
@@ -202,6 +238,7 @@ export default function PoGenerationModal({
         conversionFactor: Number(it.conversionFactor) || 1,
         secondaryQuantity: it.hasSecondaryUnit ? Number(it.secondaryQuantity || 0) : undefined,
         rateUnit: (it.rateUnit === 'secondary' && it.hasSecondaryUnit) ? 'secondary' : 'primary',
+        selectedUnit: (it.rateUnit === 'secondary' && it.hasSecondaryUnit) ? it.secondaryUnit : it.unit,
         primaryRate: Number(it.primaryRate) || Number(it.rate),
         secondaryRate: Number(it.secondaryRate) || Number(it.rate),
         rate: Number(it.rate) || 0,
@@ -316,8 +353,8 @@ export default function PoGenerationModal({
                   <tr>
                     <th className="px-4 py-3">Material Name</th>
                     <th className="px-4 py-3 text-center w-28">Quantity</th>
-                    <th className="px-4 py-3 text-center w-24">Unit</th>
-                    <th className="px-4 py-3 text-right w-32">Agreed Rate (₹)</th>
+                    <th className="px-4 py-3 text-center w-32">Billing Unit</th>
+                    <th className="px-4 py-3 text-right w-36">Agreed Rate (₹)</th>
                     <th className="px-4 py-3 text-center w-20">GST %</th>
                     <th className="px-4 py-3 text-right w-36">Total Amount (₹)</th>
                     <th className="px-3 py-3 text-center w-12"></th>
@@ -361,53 +398,75 @@ export default function PoGenerationModal({
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="text"
-                          value={item.unit}
-                          onChange={(e) => handleItemChange(idx, 'unit', e.target.value)}
-                          className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-center"
-                        />
-                        {item.hasSecondaryUnit && item.secondaryUnit && (
-                          <div className="text-[9px] text-indigo-500 font-semibold text-center mt-1">
-                            Sec: {item.secondaryUnit}
+                      <td className="px-3 py-2 min-w-[120px]">
+                        {item.hasSecondaryUnit && item.secondaryUnit ? (
+                          <div className="space-y-1">
+                            <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-2xs">
+                              <button
+                                type="button"
+                                onClick={() => handleItemChange(idx, 'rateUnit', 'primary')}
+                                className={`flex-1 py-1 px-1 rounded text-[10px] font-extrabold transition-all cursor-pointer ${
+                                  item.rateUnit !== 'secondary'
+                                    ? 'bg-cyan-600 text-white shadow-xs'
+                                    : 'text-slate-600 dark:text-slate-400'
+                                }`}
+                                title={`Rate charged on Primary Unit: ${item.unit}`}
+                              >
+                                {item.unit}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleItemChange(idx, 'rateUnit', 'secondary')}
+                                className={`flex-1 py-1 px-1 rounded text-[10px] font-extrabold transition-all cursor-pointer ${
+                                  item.rateUnit === 'secondary'
+                                    ? 'bg-indigo-600 text-white shadow-xs'
+                                    : 'text-slate-600 dark:text-slate-400'
+                                }`}
+                                title={`Rate charged on Secondary Unit: ${item.secondaryUnit}`}
+                              >
+                                {item.secondaryUnit}
+                              </button>
+                            </div>
+                            <div className="text-[9px] text-center font-bold">
+                              Rate: <span className={item.rateUnit === 'secondary' ? 'text-indigo-600' : 'text-cyan-600'}>{item.rateUnit === 'secondary' ? item.secondaryUnit : item.unit}</span>
+                            </div>
                           </div>
+                        ) : (
+                          <input
+                            type="text"
+                            value={item.unit}
+                            onChange={(e) => handleItemChange(idx, 'unit', e.target.value)}
+                            className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-center"
+                          />
                         )}
                       </td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
-                            value={item.rate}
-                            onChange={(e) => handleItemChange(idx, 'rate', e.target.value)}
-                            className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right font-bold"
-                          />
-                          {item.hasSecondaryUnit && item.secondaryUnit ? (
-                            <button
-                              type="button"
-                              onClick={() => handleItemChange(idx, 'rateUnit', item.rateUnit === 'secondary' ? 'primary' : 'secondary')}
-                              className={`px-1.5 py-1 rounded text-[10px] font-bold border transition-colors cursor-pointer shrink-0 ${
-                                item.rateUnit === 'secondary'
-                                  ? 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300'
-                                  : 'bg-cyan-100 text-cyan-800 border-cyan-300 dark:bg-cyan-950 dark:text-cyan-300'
-                              }`}
-                              title="Toggle Rate Unit between Primary and Secondary"
-                            >
-                              /{item.rateUnit === 'secondary' ? item.secondaryUnit : item.unit}
-                            </button>
-                          ) : (
-                            <span className="text-[10px] text-slate-400 font-bold shrink-0">/{item.unit}</span>
+                      <td className="px-3 py-2 min-w-[130px]">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={item.rate}
+                              onChange={(e) => handleItemChange(idx, 'rate', e.target.value)}
+                              className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right font-bold"
+                            />
+                            <span className={`px-2 py-1 rounded text-[10px] font-bold border shrink-0 ${
+                              item.rateUnit === 'secondary'
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300'
+                                : 'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950 dark:text-cyan-300'
+                            }`}>
+                              /{item.rateUnit === 'secondary' && item.secondaryUnit ? item.secondaryUnit : item.unit}
+                            </span>
+                          </div>
+                          {item.hasSecondaryUnit && item.secondaryUnit && Number(item.rate) > 0 && (
+                            <div className="text-[9px] text-slate-400 font-mono text-right italic">
+                              {item.rateUnit === 'secondary'
+                                ? `≈ ₹${Number(item.primaryRate || 0).toFixed(2)}/${item.unit}`
+                                : `≈ ₹${Number(item.secondaryRate || 0).toFixed(2)}/${item.secondaryUnit}`}
+                            </div>
                           )}
                         </div>
-                        {item.hasSecondaryUnit && item.secondaryUnit && Number(item.rate) > 0 && (
-                          <div className="text-[9px] text-slate-400 font-mono text-right italic mt-0.5">
-                            {item.rateUnit === 'secondary'
-                              ? `≈ ₹${Number(item.primaryRate || 0).toFixed(2)}/${item.unit}`
-                              : `≈ ₹${Number(item.secondaryRate || 0).toFixed(2)}/${item.secondaryUnit}`}
-                          </div>
-                        )}
                       </td>
                       <td className="px-3 py-2">
                         <input

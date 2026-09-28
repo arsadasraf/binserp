@@ -1880,9 +1880,14 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                 }]
                                             ).map((it: any, idx: number) => {
                                                 const itemName = getMaterialNameStr(it);
-                                                const qty = Number(it.quantity || 1);
+                                                const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+                                                const isSecRate = it.rateUnit === 'secondary' && hasSec;
+                                                const convFactor = Number(it.conversionFactor) || 1;
+                                                const activeUnit = isSecRate ? it.secondaryUnit : (it.unit || it.uom || 'PCS');
+                                                const activeQty = isSecRate 
+                                                    ? (Number(it.secondaryQuantity) || (Number(it.quantity || 1) * convFactor))
+                                                    : Number(it.quantity || 1);
                                                 const pieceCount = Number(it.pieceCount || it.count || 0);
-                                                const unit = it.unit || it.uom || 'PCS';
                                                 const rawItemDesc = it.description || it.itemDescription || it.remarks || it.specifications || it.material?.description || (idx === 0 ? (selectedPoPreview.description || selectedPoPreview.remarks) : '') || '';
                                                 let itemDesc = rawItemDesc;
                                                 const previewMrp = selectedPoPreview.mrpNumber || 
@@ -1896,7 +1901,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                 }
 
                                                 const rate = Number(it.rate || it.unitPrice || it.price || 0);
-                                                const lineNet = Number(it.lineTotal || it.amount || (qty * rate));
+                                                const lineNet = Number(it.lineTotal || it.amount || (activeQty * rate));
 
                                                 return (
                                                     <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
@@ -1907,8 +1912,8 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                         </td>
                                                         <td className="p-3 text-center font-mono font-semibold text-slate-600 dark:text-slate-300">{it.hsnCode || '-'}</td>
                                                         <td className="p-3 text-center font-bold text-amber-700 dark:text-amber-300">{pieceCount > 0 ? `${pieceCount} Pcs` : '-'}</td>
-                                                        <td className="p-3 text-center font-bold text-slate-700 dark:text-slate-300">{qty} {unit}</td>
-                                                        <td className="p-3 text-right font-semibold">₹{rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                                                        <td className="p-3 text-center font-bold text-slate-700 dark:text-slate-300">{activeQty} {activeUnit}</td>
+                                                        <td className="p-3 text-right font-semibold">₹{rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })} / {activeUnit}</td>
                                                         <td className="p-3 text-right font-extrabold text-purple-600 dark:text-purple-400 font-mono">
                                                             ₹{lineNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                                         </td>

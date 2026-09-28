@@ -31,6 +31,7 @@ export interface POLineItemEntry {
     conversionFactor?: number;
     secondaryQuantity?: number;
     rateUnit?: 'primary' | 'secondary';
+    selectedUnit?: string;
     primaryRate?: number;
     secondaryRate?: number;
     rate: number;
@@ -243,7 +244,6 @@ export default function POModal({
                     setMaterialEntries(initialData.items.map((item: any) => {
                         const qty = Number(item.quantity) || Number(item.shortage) || Number(item.requiredQuantity) || 0;
                         const rate = Number(item.rate || item.unitPrice) || 0;
-                        const lineSub = Number(item.amount) || (qty * rate);
                         const matVal = typeof item.material === 'object' 
                             ? item.material?._id 
                             : (item.material || item.materialId || item.materialKey || '');
@@ -258,6 +258,8 @@ export default function POModal({
                         const convFactor = Number(item.conversionFactor) || 1;
                         const secQty = isDual ? (Number(item.secondaryQuantity) || (qty * convFactor)) : undefined;
                         const rateUnit = (item.rateUnit === 'secondary' && isDual) ? 'secondary' : 'primary';
+                        const selectedUnit = rateUnit === 'secondary' ? secUnit : savedUnit;
+                        const lineSub = rateUnit === 'secondary' ? ((secQty || (qty * convFactor)) * rate) : (qty * rate);
                         const primaryRate = Number(item.primaryRate || (rateUnit === 'primary' ? rate : (qty > 0 && secQty ? (secQty * rate) / qty : (convFactor > 0 ? rate / convFactor : rate))));
                         const secondaryRate = Number(item.secondaryRate || (rateUnit === 'secondary' ? rate : (qty > 0 && secQty ? (qty * rate) / secQty : (convFactor > 0 ? rate * convFactor : rate))));
 
@@ -276,6 +278,7 @@ export default function POModal({
                             conversionFactor: convFactor,
                             secondaryQuantity: secQty,
                             rateUnit: rateUnit,
+                            selectedUnit: selectedUnit,
                             primaryRate: primaryRate,
                             secondaryRate: secondaryRate,
                             rate: rate,
@@ -527,12 +530,14 @@ export default function POModal({
             const rate = autoRate || updated[index].rate || 0;
             const secQty = hasSec ? (updated[index].secondaryQuantity || (qty * convFactor)) : undefined;
             const rateUnit = (updated[index].rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
+            const selectedUnit = (rateUnit === 'secondary' && hasSec) ? secUnit : autoUnit;
 
             let lineSub = 0;
             if (rateUnit === 'secondary' && hasSec) {
-                lineSub = (secQty || (qty * convFactor)) * rate;
+                const activeQty = secQty || (qty * convFactor);
+                lineSub = parseFloat((activeQty * rate).toFixed(2));
             } else {
-                lineSub = qty * rate;
+                lineSub = parseFloat((qty * rate).toFixed(2));
             }
 
             updated[index] = {
@@ -547,6 +552,7 @@ export default function POModal({
                 conversionFactor: convFactor,
                 secondaryQuantity: secQty,
                 rateUnit: rateUnit,
+                selectedUnit: selectedUnit,
                 primaryRate: rateUnit === 'primary' ? rate : (qty > 0 && secQty ? (secQty * rate) / qty : (convFactor > 0 ? rate / convFactor : rate)),
                 secondaryRate: rateUnit === 'secondary' ? rate : (qty > 0 && secQty ? (qty * rate) / secQty : (convFactor > 0 ? rate * convFactor : rate)),
                 rate: rate,
@@ -565,14 +571,35 @@ export default function POModal({
             const hasSec = Boolean(current.hasSecondaryUnit && current.secondaryUnit);
             const convFactor = Number(current.conversionFactor) || 1;
 
-            if (field === 'quantity') {
+            if (field === 'rateUnit') {
+                const targetRateUnit = (value === 'secondary' && hasSec) ? 'secondary' : 'primary';
+                const prevRateUnit = updated[index].rateUnit || 'primary';
+                current.rateUnit = targetRateUnit;
+
+                // Adjust active rate value when switching units so line amount stays aligned
+                if (targetRateUnit === 'secondary' && prevRateUnit === 'primary') {
+                    if (current.secondaryRate && current.secondaryRate > 0) {
+                        current.rate = current.secondaryRate;
+                    } else if (convFactor > 0 && current.rate > 0) {
+                        current.rate = parseFloat((current.rate / convFactor).toFixed(2));
+                    }
+                } else if (targetRateUnit === 'primary' && prevRateUnit === 'secondary') {
+                    if (current.primaryRate && current.primaryRate > 0) {
+                        current.rate = current.primaryRate;
+                    } else if (convFactor > 0 && current.rate > 0) {
+                        current.rate = parseFloat((current.rate * convFactor).toFixed(2));
+                    }
+                }
+            } else if (field === 'quantity') {
                 const qtyVal = Number(value) || 0;
-                if (hasSec && convFactor > 0 && (!current.secondaryQuantity || current.secondaryQuantity === 0)) {
+                current.quantity = qtyVal;
+                if (hasSec && convFactor > 0) {
                     current.secondaryQuantity = parseFloat((qtyVal * convFactor).toFixed(3));
                 }
             } else if (field === 'secondaryQuantity') {
                 const secVal = Number(value) || 0;
-                if (hasSec && convFactor > 0 && (!current.quantity || current.quantity === 0)) {
+                current.secondaryQuantity = secVal;
+                if (hasSec && convFactor > 0) {
                     current.quantity = parseFloat((secVal / convFactor).toFixed(3));
                 }
             }
@@ -587,31 +614,33 @@ export default function POModal({
             let lineAmount = 0;
 
             if (rateUnit === 'secondary' && hasSec) {
+                const activeQty = secQty > 0 ? secQty : (convFactor > 0 ? qty * convFactor : qty);
+                lineAmount = parseFloat((activeQty * rate).toFixed(2));
                 secondaryRate = rate;
-                if (qty > 0 && secQty > 0) {
-                    primaryRate = parseFloat(((secQty * rate) / qty).toFixed(3));
+                if (qty > 0 && activeQty > 0) {
+                    primaryRate = parseFloat(((activeQty * rate) / qty).toFixed(3));
                 } else if (convFactor > 0) {
                     primaryRate = parseFloat((rate / convFactor).toFixed(3));
                 } else {
                     primaryRate = rate;
                 }
-                const activeQty = secQty > 0 ? secQty : (qty * convFactor);
-                lineAmount = activeQty * rate;
             } else {
+                lineAmount = parseFloat((qty * rate).toFixed(2));
                 primaryRate = rate;
+                const activeQty = secQty > 0 ? secQty : (convFactor > 0 ? qty * convFactor : qty);
                 if (hasSec) {
-                    if (qty > 0 && secQty > 0) {
-                        secondaryRate = parseFloat(((qty * rate) / secQty).toFixed(3));
+                    if (qty > 0 && activeQty > 0) {
+                        secondaryRate = parseFloat(((qty * rate) / activeQty).toFixed(3));
                     } else if (convFactor > 0) {
                         secondaryRate = parseFloat((rate * convFactor).toFixed(3));
                     } else {
                         secondaryRate = rate;
                     }
                 }
-                lineAmount = qty * rate;
             }
 
             current.rateUnit = rateUnit;
+            current.selectedUnit = (rateUnit === 'secondary' && hasSec) ? current.secondaryUnit : current.unit;
             current.primaryRate = primaryRate;
             current.secondaryRate = secondaryRate;
             current.amount = lineAmount;
@@ -928,28 +957,41 @@ export default function POModal({
             subtotal,
             totalTax,
             grandTotal,
-            items: materialEntries.map(item => ({
-                itemType: poCategory,
-                material: item.material || undefined,
-                component: item.component || undefined,
-                materialName: item.materialName.trim(),
-                description: item.description || '',
-                hsnCode: item.hsnCode || '',
-                pieceCount: Number(item.pieceCount) || 0,
-                quantity: Number(item.quantity),
-                unit: item.unit ? item.unit.trim() : (poCategory === 'rm' ? 'KG' : 'PCS'),
-                hasSecondaryUnit: Boolean(item.hasSecondaryUnit && item.secondaryUnit),
-                secondaryUnit: item.secondaryUnit || '',
-                conversionFactor: Number(item.conversionFactor) || 1,
-                secondaryQuantity: item.hasSecondaryUnit ? Number(item.secondaryQuantity || 0) : undefined,
-                rateUnit: (item.rateUnit === 'secondary' && item.hasSecondaryUnit) ? 'secondary' : 'primary',
-                primaryRate: Number(item.primaryRate) || (item.rateUnit === 'secondary' ? Number(item.primaryRate) : Number(item.rate)),
-                secondaryRate: Number(item.secondaryRate) || (item.rateUnit === 'secondary' ? Number(item.rate) : Number(item.secondaryRate)),
-                rate: Number(item.rate) || 0,
-                taxRate: Number(taxRate),
-                amount: Number(item.amount) || ((Number(item.quantity) || 0) * (Number(item.rate) || 0)), // Pure amount without tax
-                category: item.category || (poCategory === 'rm' ? 'Raw Material' : poCategory === 'bo' ? 'Bought Out' : 'Consumable'),
-            })),
+            items: materialEntries.map(item => {
+                const hasSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
+                const isSecRate = (item.rateUnit === 'secondary' && hasSec);
+                const chosenUnit = isSecRate ? item.secondaryUnit! : (item.unit ? item.unit.trim() : (poCategory === 'rm' ? 'KG' : 'PCS'));
+                const primaryQty = Number(item.quantity) || 0;
+                const convFactor = Number(item.conversionFactor) || 1;
+                const secQty = hasSec ? Number(item.secondaryQuantity != null ? item.secondaryQuantity : (primaryQty * convFactor)) : undefined;
+                const activeQty = isSecRate ? (secQty || (primaryQty * convFactor)) : primaryQty;
+                const rate = Number(item.rate) || 0;
+                const amount = Number(item.amount) || parseFloat((activeQty * rate).toFixed(2));
+
+                return {
+                    itemType: poCategory,
+                    material: item.material || undefined,
+                    component: item.component || undefined,
+                    materialName: item.materialName.trim(),
+                    description: item.description || '',
+                    hsnCode: item.hsnCode || '',
+                    pieceCount: Number(item.pieceCount) || 0,
+                    quantity: primaryQty,
+                    unit: item.unit ? item.unit.trim() : (poCategory === 'rm' ? 'KG' : 'PCS'),
+                    hasSecondaryUnit: hasSec,
+                    secondaryUnit: item.secondaryUnit || '',
+                    conversionFactor: convFactor,
+                    secondaryQuantity: secQty,
+                    rateUnit: isSecRate ? 'secondary' : 'primary',
+                    selectedUnit: chosenUnit,
+                    primaryRate: Number(item.primaryRate) || (isSecRate ? Number(item.primaryRate) : rate),
+                    secondaryRate: Number(item.secondaryRate) || (isSecRate ? rate : Number(item.secondaryRate)),
+                    rate: rate,
+                    taxRate: Number(taxRate),
+                    amount: amount,
+                    category: item.category || (poCategory === 'rm' ? 'Raw Material' : poCategory === 'bo' ? 'Bought Out' : 'Consumable'),
+                };
+            }),
             totalAmount: grandTotal,
         };
 
@@ -1389,7 +1431,7 @@ export default function POModal({
                                         <th className="py-3 px-3 w-36 min-w-[130px] text-center">HSN / SAC</th>
                                         <th className="py-3 px-3 w-28 min-w-[100px] text-center" title="Informational Piece/Count tracking">Count (Pcs)</th>
                                         <th className="py-3 px-3 w-36 min-w-[140px] text-center">Quantity <span className="text-rose-500">*</span></th>
-                                        <th className="py-3 px-3 w-24 min-w-[90px] text-center">Unit <span className="text-rose-500">*</span></th>
+                                        <th className="py-3 px-3 w-28 min-w-[120px] text-center">Billing Unit <span className="text-rose-500">*</span></th>
                                         <th className="py-3 px-3 w-32 min-w-[130px] text-right">Rate (₹)</th>
                                         <th className="py-3 px-3 w-36 min-w-[140px] text-right">Amount (₹)</th>
                                         <th className="py-3 px-3 w-20 text-center">Actions</th>
@@ -1532,31 +1574,60 @@ export default function POModal({
                                                     )}
                                                 </td>
 
-                                                {/* Unit */}
-                                                <td className="py-2.5 px-3">
-                                                    <input
-                                                        type="text"
-                                                        required
-                                                        value={entry.unit}
-                                                        onChange={(e) => updateEntry(index, 'unit', e.target.value)}
-                                                        placeholder={poCategory === 'rm' ? 'KG' : 'PCS'}
-                                                        className={`w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 text-center ${
-                                                            rowErrors.unit 
-                                                                ? 'border-rose-500 bg-rose-50/40' 
-                                                                : 'border-slate-200 dark:border-slate-700'
-                                                        }`}
-                                                    />
-                                                    {entry.hasSecondaryUnit && entry.secondaryUnit && (
-                                                        <div className="text-[9px] text-indigo-500 dark:text-indigo-400 text-center mt-0.5 font-semibold">
-                                                            Sec: {entry.secondaryUnit}
+                                                {/* Unit / Billing Unit Selection */}
+                                                <td className="py-2.5 px-3 min-w-[130px]">
+                                                    {entry.hasSecondaryUnit && entry.secondaryUnit ? (
+                                                        <div className="space-y-1">
+                                                            <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => updateEntry(index, 'rateUnit', 'primary')}
+                                                                    className={`flex-1 py-1 px-1 rounded-lg text-[10.5px] font-extrabold transition-all cursor-pointer text-center truncate ${
+                                                                        entry.rateUnit !== 'secondary'
+                                                                            ? 'bg-cyan-600 text-white shadow-xs'
+                                                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                                                    }`}
+                                                                    title={`Charge rate on Primary Unit: ${entry.unit}`}
+                                                                >
+                                                                    {entry.unit}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => updateEntry(index, 'rateUnit', 'secondary')}
+                                                                    className={`flex-1 py-1 px-1 rounded-lg text-[10.5px] font-extrabold transition-all cursor-pointer text-center truncate ${
+                                                                        entry.rateUnit === 'secondary'
+                                                                            ? 'bg-indigo-600 text-white shadow-xs'
+                                                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                                                    }`}
+                                                                    title={`Charge rate on Secondary Unit: ${entry.secondaryUnit}`}
+                                                                >
+                                                                    {entry.secondaryUnit}
+                                                                </button>
+                                                            </div>
+                                                            <div className="text-[9.5px] text-center font-bold">
+                                                                Rate: <span className={entry.rateUnit === 'secondary' ? 'text-indigo-600 dark:text-indigo-400' : 'text-cyan-600 dark:text-cyan-400'}>{entry.rateUnit === 'secondary' ? entry.secondaryUnit : entry.unit}</span>
+                                                            </div>
                                                         </div>
+                                                    ) : (
+                                                        <input
+                                                            type="text"
+                                                            required
+                                                            value={entry.unit}
+                                                            onChange={(e) => updateEntry(index, 'unit', e.target.value)}
+                                                            placeholder={poCategory === 'rm' ? 'KG' : 'PCS'}
+                                                            className={`w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 text-center ${
+                                                                rowErrors.unit 
+                                                                    ? 'border-rose-500 bg-rose-50/40' 
+                                                                    : 'border-slate-200 dark:border-slate-700'
+                                                            }`}
+                                                        />
                                                     )}
                                                 </td>
 
                                                 {/* Rate & Rate Unit Selector */}
-                                                <td className="py-2.5 px-3">
+                                                <td className="py-2.5 px-3 min-w-[130px]">
                                                     <div className="space-y-1">
-                                                        <div className="flex items-center gap-1">
+                                                        <div className="flex items-center gap-1.5">
                                                             <input
                                                                 type="number"
                                                                 min="0"
@@ -1566,22 +1637,13 @@ export default function POModal({
                                                                 placeholder="0.00"
                                                                 className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white text-right font-mono focus:ring-2 focus:ring-cyan-500"
                                                             />
-                                                            {entry.hasSecondaryUnit && entry.secondaryUnit ? (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => updateEntry(index, 'rateUnit', entry.rateUnit === 'secondary' ? 'primary' : 'secondary')}
-                                                                    className={`px-1.5 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer shrink-0 ${
-                                                                        entry.rateUnit === 'secondary'
-                                                                            ? 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-700'
-                                                                            : 'bg-cyan-100 text-cyan-800 border-cyan-300 dark:bg-cyan-950 dark:text-cyan-300 dark:border-cyan-700'
-                                                                    }`}
-                                                                    title="Click to toggle rate between Primary and Secondary unit"
-                                                                >
-                                                                    / {entry.rateUnit === 'secondary' ? entry.secondaryUnit : entry.unit} ⇄
-                                                                </button>
-                                                            ) : (
-                                                                <span className="text-[10px] font-bold text-slate-400 shrink-0">/ {entry.unit}</span>
-                                                            )}
+                                                            <span className={`px-2 py-1 rounded-lg text-[10.5px] font-mono font-bold shrink-0 border ${
+                                                                entry.rateUnit === 'secondary'
+                                                                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800'
+                                                                    : 'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950/60 dark:text-cyan-300 dark:border-cyan-800'
+                                                            }`}>
+                                                                /{entry.rateUnit === 'secondary' ? entry.secondaryUnit : entry.unit}
+                                                            </span>
                                                         </div>
 
                                                         {entry.hasSecondaryUnit && entry.secondaryUnit && entry.rate > 0 && (
@@ -1758,30 +1820,51 @@ export default function POModal({
                                             </div>
                                             <div>
                                                 <label className="block text-[10px] font-bold text-slate-500 mb-1">Unit *</label>
-                                                <input
-                                                    type="text"
-                                                    value={entry.unit}
-                                                    onChange={(e) => updateEntry(index, 'unit', e.target.value)}
-                                                    className="w-full px-1 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-center"
-                                                />
-                                                {entry.hasSecondaryUnit && entry.secondaryUnit && (
-                                                    <div className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 text-center mt-1 truncate">
-                                                        {entry.secondaryUnit}
+                                                {entry.hasSecondaryUnit && entry.secondaryUnit ? (
+                                                    <div className="flex flex-col gap-1">
+                                                        <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => updateEntry(index, 'rateUnit', 'primary')}
+                                                                className={`flex-1 py-0.5 px-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                                                    entry.rateUnit !== 'secondary'
+                                                                        ? 'bg-cyan-600 text-white shadow-xs'
+                                                                        : 'text-slate-600 dark:text-slate-400'
+                                                                }`}
+                                                            >
+                                                                {entry.unit}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => updateEntry(index, 'rateUnit', 'secondary')}
+                                                                className={`flex-1 py-0.5 px-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                                                    entry.rateUnit === 'secondary'
+                                                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                                                        : 'text-slate-600 dark:text-slate-400'
+                                                                }`}
+                                                            >
+                                                                {entry.secondaryUnit}
+                                                            </button>
+                                                        </div>
+                                                        <span className="text-[9px] text-center font-bold text-slate-500">
+                                                            /{entry.rateUnit === 'secondary' ? entry.secondaryUnit : entry.unit}
+                                                        </span>
                                                     </div>
+                                                ) : (
+                                                    <input
+                                                        type="text"
+                                                        value={entry.unit}
+                                                        onChange={(e) => updateEntry(index, 'unit', e.target.value)}
+                                                        className="w-full px-1 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-center"
+                                                    />
                                                 )}
                                             </div>
                                             <div>
                                                 <label className="block text-[10px] font-bold text-slate-500 mb-1 flex items-center justify-between">
                                                     <span>Rate</span>
-                                                    {entry.hasSecondaryUnit && entry.secondaryUnit && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => updateEntry(index, 'rateUnit', entry.rateUnit === 'secondary' ? 'primary' : 'secondary')}
-                                                            className="text-[9px] font-bold text-indigo-600 underline"
-                                                        >
-                                                            /{entry.rateUnit === 'secondary' ? entry.secondaryUnit : entry.unit}
-                                                        </button>
-                                                    )}
+                                                    <span className={`text-[9px] font-bold ${entry.rateUnit === 'secondary' ? 'text-indigo-600 dark:text-indigo-400' : 'text-cyan-600 dark:text-cyan-400'}`}>
+                                                        /{entry.rateUnit === 'secondary' && entry.secondaryUnit ? entry.secondaryUnit : entry.unit}
+                                                    </span>
                                                 </label>
                                                 <input
                                                     type="number"

@@ -24,6 +24,8 @@ import {
     RefreshCw,
     Calculator
 } from 'lucide-react';
+import { useExchangeRates } from '@/src/hooks/useExchangeRates';
+import { getExchangeRateToINR, getCurrencySymbol } from '@/src/utils/currencyHelper';
 import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import Swal from 'sweetalert2';
 
@@ -46,6 +48,9 @@ interface FGRow {
     sellingPrice?: number;
     totalPrice?: number;
     priceSource?: string;
+    currency?: string;
+    originalSellingPrice?: number;
+    exchangeRate?: number;
     poDeliveryDate?: string;
     targetDate: string;
     bomId?: string;
@@ -59,6 +64,11 @@ interface FGRow {
         customerPoNumber: string;
         customerName: string;
         quantity: number;
+        currency?: string;
+        originalRate?: number;
+        exchangeRate?: number;
+        rateInINR?: number;
+        amountInINR?: number;
     }>;
     sourceCustomerPOs?: string[];
 }
@@ -74,6 +84,9 @@ interface BOMCostSummary {
 export default function MRPModal({ isOpen, onClose, onSuccess, token, initialData, preselectedPoIds }: MRPModalProps) {
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+
+    // Active Exchange Rates from Master > Store Settings
+    const { exchangeRates } = useExchangeRates(token);
 
     // Masters Data
     const [customerList, setCustomerList] = useState<any[]>([]);
@@ -156,6 +169,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
         const cName = po.customerName || (typeof po.customer === 'object' ? po.customer?.name : '') || '';
 
+        const poCurrency = (po.currency || 'INR').trim().toUpperCase();
+        const exRate = getExchangeRateToINR(poCurrency, undefined, exchangeRates);
+
         return po.items.map((item: any) => {
             const pName = item.productName || item.name || item.itemName || '';
             const pCode = item.productCode || item.code || '';
@@ -193,11 +209,17 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 itemCommittedDate = itemPoDate || resolvedCommittedDate;
             }
 
-            const unitSellingPrice = Number(
+            const rawRate = Number(
                 item.rate || (item.quantity > 0 ? Number(item.amount || 0) / Number(item.quantity) : 0) || fgObj?.sellingPrice || 0
             );
+            const inrRate = Math.round(rawRate * exRate * 100) / 100;
             const lineQty = qty > 0 ? qty : Number(item.quantity) || 1;
-            const lineTotalPrice = Math.round(lineQty * unitSellingPrice * 100) / 100;
+            const lineTotalPrice = Math.round(lineQty * inrRate * 100) / 100;
+
+            const isForeign = poCurrency !== 'INR';
+            const priceSourceLabel = item.rate
+                ? (isForeign ? `Customer PO (${poCurrency} @ ₹${exRate})` : 'Customer PO')
+                : (fgObj?.sellingPrice ? 'Master Catalog' : 'Unset');
 
             return {
                 fgItem: fgObj?._id || (typeof item.fgItem === 'object' ? item.fgItem?._id : item.fgItem) || '',
@@ -206,9 +228,12 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 description: item.description || fgObj?.description || fgObj?.descriptions || '',
                 quantity: lineQty,
                 unit: item.unit || fgObj?.unit || 'PCS',
-                sellingPrice: unitSellingPrice,
+                sellingPrice: inrRate,
                 totalPrice: lineTotalPrice,
-                priceSource: item.rate ? 'Customer PO' : (fgObj?.sellingPrice ? 'Master Catalog' : 'Unset'),
+                currency: poCurrency,
+                originalSellingPrice: rawRate,
+                exchangeRate: exRate,
+                priceSource: priceSourceLabel,
                 poDeliveryDate: itemPoDate,
                 targetDate: itemCommittedDate,
                 isFromOA,
@@ -243,17 +268,22 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                     const itemKey = (row.fgItem || row.fgItemCode || row.fgItemName).toLowerCase().trim();
                     if (!itemKey) return;
 
+                    const breakdownEntry = {
+                        customerPo: row.customerPo,
+                        customerPoNumber: row.customerPoNumber || '',
+                        customerName: row.customerName || '',
+                        quantity: row.quantity,
+                        currency: row.currency || 'INR',
+                        originalRate: row.originalSellingPrice || row.sellingPrice || 0,
+                        exchangeRate: row.exchangeRate || 1,
+                        rateInINR: row.sellingPrice || 0,
+                        amountInINR: Math.round(row.quantity * (row.sellingPrice || 0) * 100) / 100
+                    };
+
                     if (!itemMap.has(itemKey)) {
                         itemMap.set(itemKey, {
                             ...row,
-                            sourceBreakdown: [
-                                {
-                                    customerPo: row.customerPo,
-                                    customerPoNumber: row.customerPoNumber || '',
-                                    customerName: row.customerName || '',
-                                    quantity: row.quantity
-                                }
-                            ],
+                            sourceBreakdown: [breakdownEntry],
                             sourceCustomerPOs: row.customerPoNumber ? [row.customerPoNumber] : []
                         });
                     } else {
@@ -264,36 +294,44 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                             existing.bomId = row.bomId;
                             existing.bomNumber = row.bomNumber;
                         }
-                        if (!existing.sellingPrice && row.sellingPrice) {
-                            existing.sellingPrice = row.sellingPrice;
-                            existing.priceSource = row.priceSource;
-                        }
-                        existing.totalPrice = Math.round(existing.quantity * (existing.sellingPrice || 0) * 100) / 100;
 
                         // Keep earliest targetDate & poDeliveryDate
-                        if (row.targetDate) {
-                            if (!existing.targetDate || row.targetDate < existing.targetDate) {
-                                existing.targetDate = row.targetDate;
-                            }
+                        if (row.targetDate && (!existing.targetDate || row.targetDate < existing.targetDate)) {
+                            existing.targetDate = row.targetDate;
                         }
-                        if (row.poDeliveryDate) {
-                            if (!existing.poDeliveryDate || row.poDeliveryDate < existing.poDeliveryDate) {
-                                existing.poDeliveryDate = row.poDeliveryDate;
-                            }
+                        if (row.poDeliveryDate && (!existing.poDeliveryDate || row.poDeliveryDate < existing.poDeliveryDate)) {
+                            existing.poDeliveryDate = row.poDeliveryDate;
                         }
 
                         // Track source breakdown
                         if (!existing.sourceBreakdown) existing.sourceBreakdown = [];
-                        existing.sourceBreakdown.push({
-                            customerPo: row.customerPo,
-                            customerPoNumber: row.customerPoNumber || '',
-                            customerName: row.customerName || '',
-                            quantity: row.quantity
-                        });
+                        existing.sourceBreakdown.push(breakdownEntry);
 
                         if (!existing.sourceCustomerPOs) existing.sourceCustomerPOs = [];
                         if (row.customerPoNumber && !existing.sourceCustomerPOs.includes(row.customerPoNumber)) {
                             existing.sourceCustomerPOs.push(row.customerPoNumber);
+                        }
+
+                        // Recompute weighted average sellingPrice & totalPrice in INR across all sources
+                        const totalAmountINR = existing.sourceBreakdown.reduce((s, b) => s + (b.amountInINR || 0), 0);
+                        const totalQty = existing.quantity || 1;
+                        existing.sellingPrice = Math.round((totalAmountINR / totalQty) * 100) / 100;
+                        existing.totalPrice = Math.round(totalAmountINR * 100) / 100;
+
+                        const uniqueCurrs = [...new Set(existing.sourceBreakdown.map(b => b.currency).filter(Boolean))];
+                        if (uniqueCurrs.length === 1 && uniqueCurrs[0] !== 'INR') {
+                            existing.currency = uniqueCurrs[0];
+                            existing.originalSellingPrice = existing.sourceBreakdown[0].originalRate;
+                            existing.exchangeRate = existing.sourceBreakdown[0].exchangeRate;
+                            existing.priceSource = `Customer PO (${uniqueCurrs[0]} @ ₹${existing.sourceBreakdown[0].exchangeRate})`;
+                        } else if (uniqueCurrs.length > 1) {
+                            existing.currency = 'MIXED';
+                            existing.priceSource = `Customer PO (Consolidated: ${uniqueCurrs.join(', ')})`;
+                        } else {
+                            existing.currency = 'INR';
+                            existing.originalSellingPrice = existing.sellingPrice;
+                            existing.exchangeRate = 1;
+                            existing.priceSource = 'Customer PO';
                         }
 
                         // Update combined PO & Customer labels
@@ -475,12 +513,13 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
     const loadDropdownMasters = async () => {
         setLoading(true);
         try {
-            const [custRes, fgRes, bomRes, poRes, mrpRes] = await Promise.allSettled([
+            const [custRes, fgRes, bomRes, poRes, mrpRes, priceListRes] = await Promise.allSettled([
                 apiGet('/api/store/customer', token),
                 apiGet('/api/store/fg-item', token),
                 apiGet('/api/store/bom', token),
                 apiGet('/api/sales/incoming-po', token),
-                apiGet('/api/purchase/mrp/plans', token)
+                apiGet('/api/purchase/mrp/plans', token),
+                apiGet('/api/sales/price-list', token)
             ]);
 
             let loadedFGs: any[] = [];
@@ -492,8 +531,31 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             }
             if (fgRes.status === 'fulfilled' && fgRes.value) {
                 loadedFGs = Array.isArray(fgRes.value) ? fgRes.value : (fgRes.value.fgItems || fgRes.value.data || []);
-                setFgItemList(loadedFGs);
             }
+            if (priceListRes.status === 'fulfilled' && priceListRes.value) {
+                const loadedPLs = Array.isArray(priceListRes.value)
+                    ? priceListRes.value
+                    : (priceListRes.value.priceLists || priceListRes.value.data || []);
+                const plMap = new Map<string, any>();
+                loadedPLs.forEach((pl: any) => {
+                    const fgId = pl.fgItem?._id || pl.fgItem;
+                    if (fgId) plMap.set(String(fgId), pl);
+                });
+                loadedFGs = loadedFGs.map((fg: any) => {
+                    const pl = plMap.get(String(fg._id));
+                    const effectivePrice = Number(fg.sellingPrice || pl?.price || 0);
+                    const effectiveCurrency = (fg.currency || pl?.currency || 'INR').trim().toUpperCase();
+                    return {
+                        ...fg,
+                        sellingPrice: effectivePrice,
+                        currency: effectiveCurrency,
+                        salesPriceListPrice: pl ? Number(pl.price || 0) : undefined,
+                        salesPriceListCurrency: pl ? pl.currency : undefined,
+                        priceSource: pl ? 'Sales Price List' : (fg.sellingPrice ? 'Master Catalog' : 'Unset')
+                    };
+                });
+            }
+            setFgItemList(loadedFGs);
             if (bomRes.status === 'fulfilled' && bomRes.value) {
                 loadedBOMs = Array.isArray(bomRes.value) ? bomRes.value : (bomRes.value.boms || bomRes.value.data || []);
                 setBomsList(loadedBOMs);
@@ -778,8 +840,12 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         const bomNum = matchedBom?.bomNumber || (hasEmbeddedBom ? `BOM-${selected.code || selected.name}` : undefined);
         const bomId = matchedBom?._id || (hasEmbeddedBom ? selected._id : undefined);
 
-        const sellingPrice = Number(selected.sellingPrice || 0);
+        const rawPrice = Number(selected.sellingPrice || selected.salesPriceListPrice || 0);
+        const curr = (selected.currency || selected.salesPriceListCurrency || 'INR').trim().toUpperCase();
+        const exRate = getExchangeRateToINR(curr, undefined, exchangeRates);
+        const inrPrice = Math.round(rawPrice * exRate * 100) / 100;
         const qty = Number(fgRows[index]?.quantity) || 1;
+        const resolvedSource = selected.priceSource || (rawPrice > 0 ? (selected.salesPriceListPrice ? 'Sales Price List' : 'Master Catalog') : 'Unset');
 
         const updated = [...fgRows];
         updated[index] = {
@@ -789,9 +855,12 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             fgItemCode: selected.code || '',
             description: selected.description || selected.descriptions || updated[index].description || '',
             unit: selected.unit || 'PCS',
-            sellingPrice: sellingPrice,
-            totalPrice: Math.round(qty * sellingPrice * 100) / 100,
-            priceSource: sellingPrice > 0 ? 'Master Catalog' : 'Unset',
+            sellingPrice: inrPrice,
+            originalSellingPrice: rawPrice,
+            exchangeRate: exRate,
+            currency: curr,
+            totalPrice: Math.round(qty * inrPrice * 100) / 100,
+            priceSource: resolvedSource,
             bomId: bomId,
             bomNumber: bomNum
         };
@@ -1615,10 +1684,15 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                                 <span
                                                                     key={bIdx}
                                                                     className="inline-flex items-center gap-1 text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
-                                                                    title={`${b.customerName ? `${b.customerName} — ` : ''}${b.quantity} ${row.unit}`}
+                                                                    title={`${b.customerName ? `${b.customerName} — ` : ''}${b.quantity} ${row.unit} @ ${b.currency || 'INR'} ${b.originalRate || b.rateInINR} (${b.currency && b.currency !== 'INR' ? `1 ${b.currency} = ₹${b.exchangeRate}` : 'Base INR'}) = ₹${(b.amountInINR || 0).toLocaleString('en-IN')}`}
                                                                 >
                                                                     <span>{b.customerPoNumber}:</span>
                                                                     <span className="font-extrabold text-blue-900 dark:text-blue-100">{b.quantity} {row.unit}</span>
+                                                                    {b.originalRate ? (
+                                                                        <span className="text-[9px] text-emerald-700 dark:text-emerald-400 font-bold ml-0.5">
+                                                                            @ {b.currency && b.currency !== 'INR' ? `${getCurrencySymbol(b.currency)}${b.originalRate} (₹${b.rateInINR})` : `₹${b.rateInINR}`}
+                                                                        </span>
+                                                                    ) : null}
                                                                 </span>
                                                             ))}
                                                         </div>
@@ -1633,6 +1707,11 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                                 {row.customerName}
                                                             </span>
                                                         )}
+                                                        {row.currency && row.currency !== 'INR' && row.originalSellingPrice ? (
+                                                            <span className="text-[10px] text-amber-700 dark:text-amber-400 font-mono font-bold bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded-md">
+                                                                {getCurrencySymbol(row.currency)}{row.originalSellingPrice} {row.currency} @ ₹{row.exchangeRate}
+                                                            </span>
+                                                        ) : null}
                                                     </div>
                                                 ) : null}
 

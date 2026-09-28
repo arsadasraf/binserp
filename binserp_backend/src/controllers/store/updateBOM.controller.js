@@ -3,6 +3,8 @@ import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialReq
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
+import { mrpPlanSchema } from "../../models/purchase/index.js";
+import { recalculateMRPWithLatestBOM } from "../purchase/mrpPlan.controller.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import fs from 'fs';
 import path from 'path';
@@ -55,6 +57,36 @@ export const updateBOM = async (req, res) => {
       { new: true }
     );
     if (!bom) return res.status(404).json({ message: "BOM not found" });
+
+    // If BOM items were updated, automatically sync linked active MRP plans
+    if (Array.isArray(req.body.items)) {
+      try {
+        const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
+        const linkedPlans = await MRPPlan.find({
+          company: companyId,
+          status: { $in: ["Planned", "In Procurement", "Draft", "Partially Completed"] },
+          $or: [
+            { "fgItems.bomId": id },
+            { "fgItems.bomNumber": bom.bomNumber },
+            { "fgItems.fgItemCode": bom.productCode },
+            { "fgItems.fgItemName": bom.productName },
+            { "fgItems.nestedMaterials.materialName": bom.productName },
+            { "fgItems.nestedMaterials.materialCode": bom.productCode },
+            { "subAssemblyRequirements.materialName": bom.productName },
+            { "subAssemblyRequirements.materialCode": bom.productCode }
+          ]
+        });
+
+        for (const plan of linkedPlans) {
+          await recalculateMRPWithLatestBOM(plan, req).catch((err) => {
+            console.warn(`Auto-sync MRP Plan ${plan.mrpNumber} failed:`, err);
+          });
+        }
+      } catch (syncErr) {
+        console.warn("Auto-syncing linked MRP plans failed:", syncErr);
+      }
+    }
+
     res.status(200).json({ message: "BOM updated successfully", bom });
   } catch (error) {
     res.status(500).json({ message: error.message });

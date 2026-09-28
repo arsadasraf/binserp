@@ -42,6 +42,10 @@ export const mrpPlanSchema = new mongoose.Schema(
         customerName: { type: String, default: "" },
         poDate: { type: Date },
         targetDate: { type: Date },
+        currency: { type: String, default: "INR" },
+        exchangeRate: { type: Number, default: 1 },
+        totalAmount: { type: Number, default: 0 },
+        totalAmountInINR: { type: Number, default: 0 },
       },
     ],
     poDate: {
@@ -72,8 +76,11 @@ export const mrpPlanSchema = new mongoose.Schema(
         quantity: { type: Number, required: true },
         receivedQuantity: { type: Number, default: 0 },
         unit: { type: String, default: "PCS" },
-        sellingPrice: { type: Number, default: 0 },
-        totalPrice: { type: Number, default: 0 },
+        sellingPrice: { type: Number, default: 0 }, // Converted selling price in INR
+        totalPrice: { type: Number, default: 0 }, // Converted total price in INR
+        currency: { type: String, default: "INR" },
+        originalSellingPrice: { type: Number, default: 0 },
+        exchangeRate: { type: Number, default: 1 },
         priceSource: { type: String, default: "Master Catalog" }, // "Customer PO" | "Master Catalog" | "Manual Override"
         poDeliveryDate: { type: Date },
         targetDate: { type: Date },
@@ -92,6 +99,11 @@ export const mrpPlanSchema = new mongoose.Schema(
             customerPoNumber: { type: String, default: "" },
             customerName: { type: String, default: "" },
             quantity: { type: Number, default: 0 },
+            currency: { type: String, default: "INR" },
+            originalRate: { type: Number, default: 0 },
+            exchangeRate: { type: Number, default: 1 },
+            rateInINR: { type: Number, default: 0 },
+            amountInINR: { type: Number, default: 0 },
           },
         ],
         sourceCustomerPOs: [{ type: String }],
@@ -275,6 +287,13 @@ export const mrpPlanSchema = new mongoose.Schema(
       type: String,
       enum: ["Unset", "Within Budget", "Near Limit", "Over Budget"],
       default: "Unset",
+    },
+    bomSyncedAt: {
+      type: Date,
+    },
+    isBOMOutdated: {
+      type: Boolean,
+      default: false,
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

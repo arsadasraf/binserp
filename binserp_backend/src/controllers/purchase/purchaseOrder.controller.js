@@ -4,6 +4,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
+import { syncMRPPlanFinancials } from "./mrpPlan.controller.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -97,32 +98,32 @@ export const createPO = asyncHandler(async (req, res) => {
       let computedAmount = Number(item.amount);
 
       if (rateUnit === 'secondary' && hasSec && (secQty > 0 || convFactor > 0)) {
+        const activeQty = secQty > 0 ? secQty : (qty * convFactor);
         secondaryRate = enteredRate;
-        if (qty > 0 && secQty > 0) {
-          primaryRate = Math.round(((secQty * enteredRate) / qty) * 1000) / 1000;
+        if (qty > 0 && activeQty > 0) {
+          primaryRate = Math.round(((activeQty * enteredRate) / qty) * 1000) / 1000;
         } else if (convFactor > 0) {
           primaryRate = Math.round((enteredRate / convFactor) * 1000) / 1000;
         } else {
           primaryRate = enteredRate;
         }
-        if (isNaN(computedAmount) || computedAmount === 0) {
-          computedAmount = (secQty || (qty * convFactor)) * enteredRate;
-        }
+        computedAmount = parseFloat((activeQty * enteredRate).toFixed(2));
       } else {
         primaryRate = enteredRate;
+        const activeQty = secQty > 0 ? secQty : (qty * convFactor);
         if (hasSec) {
-          if (qty > 0 && secQty > 0) {
-            secondaryRate = Math.round(((qty * enteredRate) / secQty) * 1000) / 1000;
+          if (qty > 0 && activeQty > 0) {
+            secondaryRate = Math.round(((qty * enteredRate) / activeQty) * 1000) / 1000;
           } else if (convFactor > 0) {
             secondaryRate = Math.round((enteredRate * convFactor) * 1000) / 1000;
           } else {
             secondaryRate = enteredRate;
           }
         }
-        if (isNaN(computedAmount) || computedAmount === 0) {
-          computedAmount = qty * enteredRate;
-        }
+        computedAmount = parseFloat((qty * enteredRate).toFixed(2));
       }
+
+      const selectedUnit = (rateUnit === 'secondary' && hasSec) ? secUnit : (item.unit ? item.unit.trim() : 'KG');
 
       return {
         ...item,
@@ -140,6 +141,7 @@ export const createPO = asyncHandler(async (req, res) => {
         conversionFactor: convFactor,
         secondaryQuantity: secQty,
         rateUnit,
+        selectedUnit,
         primaryRate,
         secondaryRate,
         rate: enteredRate,
@@ -213,6 +215,14 @@ export const createPO = asyncHandler(async (req, res) => {
   }
 
   const po = await PurchaseOrder.create(poData);
+
+  if (po.mrpPlanId || po.mrpNumber) {
+    try {
+      await syncMRPPlanFinancials(po.mrpPlanId || po.mrpNumber, req);
+    } catch (e) {
+      console.warn("Failed to sync MRP Plan financials on PO creation:", e.message);
+    }
+  }
 
   res.status(201).json(new ApiResponse(201, po, "Purchase Order created successfully"));
 });
@@ -675,32 +685,32 @@ export const updatePO = asyncHandler(async (req, res) => {
       let computedAmount = Number(item.amount);
 
       if (rateUnit === 'secondary' && hasSec && (secQty > 0 || convFactor > 0)) {
+        const activeQty = secQty > 0 ? secQty : (qty * convFactor);
         secondaryRate = enteredRate;
-        if (qty > 0 && secQty > 0) {
-          primaryRate = Math.round(((secQty * enteredRate) / qty) * 1000) / 1000;
+        if (qty > 0 && activeQty > 0) {
+          primaryRate = Math.round(((activeQty * enteredRate) / qty) * 1000) / 1000;
         } else if (convFactor > 0) {
           primaryRate = Math.round((enteredRate / convFactor) * 1000) / 1000;
         } else {
           primaryRate = enteredRate;
         }
-        if (isNaN(computedAmount) || computedAmount === 0) {
-          computedAmount = (secQty || (qty * convFactor)) * enteredRate;
-        }
+        computedAmount = parseFloat((activeQty * enteredRate).toFixed(2));
       } else {
         primaryRate = enteredRate;
+        const activeQty = secQty > 0 ? secQty : (qty * convFactor);
         if (hasSec) {
-          if (qty > 0 && secQty > 0) {
-            secondaryRate = Math.round(((qty * enteredRate) / secQty) * 1000) / 1000;
+          if (qty > 0 && activeQty > 0) {
+            secondaryRate = Math.round(((qty * enteredRate) / activeQty) * 1000) / 1000;
           } else if (convFactor > 0) {
             secondaryRate = Math.round((enteredRate * convFactor) * 1000) / 1000;
           } else {
             secondaryRate = enteredRate;
           }
         }
-        if (isNaN(computedAmount) || computedAmount === 0) {
-          computedAmount = qty * enteredRate;
-        }
+        computedAmount = parseFloat((qty * enteredRate).toFixed(2));
       }
+
+      const selectedUnit = (rateUnit === 'secondary' && hasSec) ? secUnit : (item.unit ? item.unit.trim() : 'KG');
 
       return {
         ...item,
@@ -710,6 +720,7 @@ export const updatePO = asyncHandler(async (req, res) => {
         itemType: (item.itemType || 'rm').toLowerCase(),
         description: item.description || item.itemDescription || item.remarks || item.specifications || '',
         hsnCode: item.hsnCode || item.hsn || '',
+        pieceCount: Number(item.pieceCount || item.count || 0),
         quantity: qty,
         unit: item.unit ? item.unit.trim() : 'KG',
         hasSecondaryUnit: hasSec,
@@ -717,6 +728,7 @@ export const updatePO = asyncHandler(async (req, res) => {
         conversionFactor: convFactor,
         secondaryQuantity: secQty,
         rateUnit,
+        selectedUnit,
         primaryRate,
         secondaryRate,
         rate: enteredRate,
@@ -771,6 +783,20 @@ export const updatePO = asyncHandler(async (req, res) => {
     { new: true }
   );
 
+  const affectedPlan = po?.mrpPlanId || po?.mrpNumber || existingPO?.mrpPlanId || existingPO?.mrpNumber;
+  if (affectedPlan) {
+    try {
+      await syncMRPPlanFinancials(affectedPlan, req);
+      const prevPlan = existingPO?.mrpPlanId || existingPO?.mrpNumber;
+      const currPlan = po?.mrpPlanId || po?.mrpNumber;
+      if (prevPlan && currPlan && String(prevPlan) !== String(currPlan)) {
+        await syncMRPPlanFinancials(prevPlan, req);
+      }
+    } catch (e) {
+      console.warn("Failed to sync MRP Plan financials on PO update:", e.message);
+    }
+  }
+
   res.status(200).json(new ApiResponse(200, po, "PO updated successfully"));
 });
 
@@ -804,6 +830,14 @@ export const deletePO = asyncHandler(async (req, res) => {
   console.log(`[PO Audit] PO ${po.poNumber} (${id}) deleted by ${userName} (${req.user?.id || req.user?._id}) at ${new Date().toISOString()}`);
 
   await PurchaseOrder.deleteOne({ _id: id, company: companyId });
+
+  if (po.mrpPlanId || po.mrpNumber) {
+    try {
+      await syncMRPPlanFinancials(po.mrpPlanId || po.mrpNumber, req);
+    } catch (e) {
+      console.warn("Failed to sync MRP Plan financials on PO deletion:", e.message);
+    }
+  }
 
   res.status(200).json(new ApiResponse(200, {
     deletedPoNumber: po.poNumber,

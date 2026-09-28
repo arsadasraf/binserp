@@ -34,6 +34,8 @@ import {
   updateMRPPlanStatus,
   updateMRPTargetExpense,
   previewMRPBOMBudget,
+  syncMRPPlanBOM,
+  syncAllMRPPlansBOM,
   updateMRPRequirementItemStatus,
   getMRPProcurementWorkbench,
   bulkGeneratePOFromMRP,
@@ -125,6 +127,13 @@ router.route("/mrp/plan/:id")
   .get(getMRPPlanById)
   .put(updateMRPPlan)
   .delete(deleteMRPPlan);
+
+router.route("/mrp/plan/:id/sync-bom")
+  .post(syncMRPPlanBOM)
+  .put(syncMRPPlanBOM);
+
+router.route("/mrp/sync-all-bom")
+  .post(syncAllMRPPlansBOM);
 
 router.route("/mrp/plan/:id/target-expense")
   .put(updateMRPTargetExpense);

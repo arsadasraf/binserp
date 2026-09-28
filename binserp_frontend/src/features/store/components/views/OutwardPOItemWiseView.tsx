@@ -106,9 +106,14 @@ export default function OutwardPOItemWiseView({
           const key = matId || `name_${rawName.toLowerCase()}`;
 
           const desc = it.description || matObj?.descriptions || matObj?.description || '';
-          const unit = it.unit || matObj?.unit || 'PCS';
+          const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+          const isSecRate = it.rateUnit === 'secondary' && hasSec;
+          const convFactor = Number(it.conversionFactor) || 1;
+          const activeUnit = isSecRate ? it.secondaryUnit : (it.unit || matObj?.unit || 'PCS');
           const cat = it.itemType || matObj?.category || matObj?.type || 'rm';
-          const ordered = Number(it.quantity || 0);
+          const ordered = isSecRate 
+            ? (Number(it.secondaryQuantity) || (Number(it.quantity || 0) * convFactor))
+            : Number(it.quantity || 0);
           const received = Number(it.receivedQuantity || 0);
           const pending = it.pendingQuantity != null ? Number(it.pendingQuantity) : Math.max(0, ordered - received);
           const rate = Number(it.rate || 0);
@@ -122,7 +127,7 @@ export default function OutwardPOItemWiseView({
             vendorId,
             poDate: po.date || po.createdAt || '',
             orderedQty: ordered,
-            unit,
+            unit: activeUnit,
             rate,
             amount,
             receivedQty: received,
@@ -145,7 +150,7 @@ export default function OutwardPOItemWiseView({
               id: key,
               name: rawName,
               description: desc,
-              unit,
+              unit: activeUnit,
               category: cat,
               matObj,
               totalOrderedQty: ordered,

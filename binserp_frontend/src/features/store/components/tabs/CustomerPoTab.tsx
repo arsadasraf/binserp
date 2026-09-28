@@ -1691,7 +1691,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                     </span>
                                                 )}
                                                 {(po.mrpNumber || po.mrpPlan) && (
-                                                    <div className="mt-1">
+                                                    <div className="mt-1 flex items-center gap-1 flex-wrap">
                                                         <button
                                                             type="button"
                                                             onClick={(e) => {
@@ -1704,6 +1704,11 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                             <Layers size={10} />
                                                             <span>MRP: {po.mrpNumber || (typeof po.mrpPlan === 'object' ? po.mrpPlan.mrpNumber : 'Linked')}</span>
                                                         </button>
+                                                        {po.mrpPlan && typeof po.mrpPlan === 'object' && po.mrpPlan.isBOMOutdated && (
+                                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300 animate-pulse" title="Master FG BOM has changed. Click MRP to sync.">
+                                                                BOM Changed
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 )}
                                             </td>
@@ -1975,7 +1980,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 </span>
                                             )}
                                             {(po.mrpNumber || po.mrpPlan) && (
-                                                <div className="mt-1">
+                                                <div className="mt-1 flex items-center gap-1 flex-wrap">
                                                     <button
                                                         type="button"
                                                         onClick={(e) => {
@@ -1988,6 +1993,11 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                         <Layers size={10} />
                                                         <span>MRP: {po.mrpNumber || (typeof po.mrpPlan === 'object' ? po.mrpPlan.mrpNumber : 'Linked')}</span>
                                                     </button>
+                                                    {po.mrpPlan && typeof po.mrpPlan === 'object' && po.mrpPlan.isBOMOutdated && (
+                                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300 animate-pulse" title="Master FG BOM has changed. Click MRP to sync.">
+                                                            BOM Changed
+                                                        </span>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -3322,6 +3332,10 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                     isOpen={!!viewingMrpPlan}
                     onClose={() => setViewingMrpPlan(null)}
                     mrpPlan={viewingMrpPlan}
+                    onPlanUpdated={(updatedPlan) => {
+                        setViewingMrpPlan(updatedPlan);
+                        fetchData();
+                    }}
                 />
             )}
 

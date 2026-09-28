@@ -295,6 +295,73 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
     }
   };
 
+  const [syncingPlanId, setSyncingPlanId] = useState<string | null>(null);
+
+  const handleSyncBOM = async (plan: any, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const token = propToken || localStorage.getItem('token') || '';
+    if (!token || !plan?._id) return;
+
+    try {
+      setSyncingPlanId(plan._id);
+      const res = await apiPost(`/api/purchase/mrp/plan/${plan._id}/sync-bom`, {}, token);
+      if (res?.success && res?.mrpPlan) {
+        Swal.fire({
+          icon: 'success',
+          title: 'Plan Synchronized',
+          text: `MRP Plan ${plan.mrpNumber} has been synchronized with latest BOM, Customer PO quantities & rates, and Sales Price Lists.`,
+          timer: 2500,
+          showConfirmButton: false
+        });
+        if (selectedDemandPlan && selectedDemandPlan._id === plan._id) {
+          setSelectedDemandPlan(res.mrpPlan);
+        }
+        if (selectedPlanForDetails && selectedPlanForDetails._id === plan._id) {
+          setSelectedPlanForDetails(res.mrpPlan);
+        }
+        await fetchData();
+      } else {
+        throw new Error(res?.message || 'Sync failed');
+      }
+    } catch (err: any) {
+      Swal.fire('Sync Error', err.message || 'Failed to synchronize with latest BOM', 'error');
+    } finally {
+      setSyncingPlanId(null);
+    }
+  };
+
+  const [isBulkSyncing, setIsBulkSyncing] = useState(false);
+
+  const handleSyncAllBOMs = async () => {
+    const token = propToken || localStorage.getItem('token') || '';
+    if (!token) return;
+
+    const confirm = await Swal.fire({
+      title: 'Sync All Active Plans?',
+      text: 'This will check and recalculate RM, BO, and FG requirements for all active MRP plans using their latest BOM definitions from the Finished Goods catalog.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Sync All',
+      cancelButtonText: 'Cancel'
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      setIsBulkSyncing(true);
+      const res = await apiPost('/api/purchase/mrp/sync-all-bom', {}, token);
+      if (res?.success) {
+        Swal.fire('Synchronized!', res.message || 'All active MRP plans synchronized with latest BOMs.', 'success');
+        await fetchData();
+      } else {
+        throw new Error(res?.message || 'Sync failed');
+      }
+    } catch (err: any) {
+      Swal.fire('Sync Error', err.message || 'Failed to sync plans', 'error');
+    } finally {
+      setIsBulkSyncing(false);
+    }
+  };
+
   const handleOpenDetails = (plan: any) => {
     setSelectedPlanForDetails(plan);
     setIsDetailsModalOpen(true);
@@ -1159,6 +1226,16 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                     <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
                   </button>
 
+                  {/* Sync All Active Plans BOMs Button */}
+                  <button
+                    onClick={handleSyncAllBOMs}
+                    disabled={isBulkSyncing}
+                    className="p-2 rounded-xl border border-amber-200 dark:border-amber-800 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/60 transition-colors bg-white dark:bg-slate-900 cursor-pointer shrink-0 disabled:opacity-50"
+                    title="Recalculate & Sync All Active Plans with Latest FG BOMs"
+                  >
+                    <RefreshCw size={13} className={isBulkSyncing ? "animate-spin text-amber-600" : ""} />
+                  </button>
+
                   {/* Create MRP Plan Button */}
                   <button
                     onClick={() => {
@@ -1259,6 +1336,11 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                   <span className="font-mono text-xs font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800">
                                     {plan.mrpNumber}
                                   </span>
+                                  {plan.isBOMOutdated && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 animate-pulse" title="Finished Goods BOM was modified in catalog. Click Sync BOM to update requirements.">
+                                      <RefreshCw size={9} /> BOM Changed
+                                    </span>
+                                  )}
                                   {plan.isConsolidated && (
                                     <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800" title={`Consolidated from ${plan.customerPOs?.length || 'multiple'} Customer POs`}>
                                       Consolidated ({plan.customerPOs?.length || 2} POs)
@@ -1276,11 +1358,24 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                       <span>Multi-Customer Demand ({plan.customerPOs.length} POs)</span>
                                     </div>
                                     <div className="flex flex-wrap gap-1 mt-1">
-                                      {plan.customerPOs.map((cpo: any, idx: number) => (
-                                        <span key={idx} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700" title={cpo.customerName || ''}>
-                                          {cpo.customerPoNumber}
-                                        </span>
-                                      ))}
+                                      {plan.customerPOs.map((cpo: any, idx: number) => {
+                                        const hasForeignCurrency = cpo.currency && cpo.currency !== 'INR';
+                                        const tooltip = `${cpo.customerName || ''}${hasForeignCurrency ? ` (${cpo.currency} @ ₹${cpo.exchangeRate || '-'})` : ''}`;
+                                        return (
+                                          <span
+                                            key={idx}
+                                            className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 inline-flex items-center gap-1"
+                                            title={tooltip}
+                                          >
+                                            <span>{cpo.customerPoNumber}</span>
+                                            {hasForeignCurrency && (
+                                              <span className="text-[8.5px] font-black tracking-tight text-amber-700 dark:text-amber-400 bg-amber-100/70 dark:bg-amber-950/60 px-1 rounded border border-amber-200/60 dark:border-amber-800/40">
+                                                {cpo.currency}
+                                              </span>
+                                            )}
+                                          </span>
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                 ) : (
@@ -1446,6 +1541,19 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                   </button>
 
                                   <button
+                                    onClick={(e) => handleSyncBOM(plan, e)}
+                                    disabled={syncingPlanId === plan._id}
+                                    className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
+                                      plan.isBOMOutdated
+                                        ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                        : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-900'
+                                    }`}
+                                    title={plan.isBOMOutdated ? "BOM or Customer PO changed! Click to sync latest BOM, Customer PO quantities & prices" : "Sync Plan (BOM, Customer PO & Sales Price)"}
+                                  >
+                                    <RefreshCw size={13} className={syncingPlanId === plan._id ? "animate-spin text-amber-600" : ""} />
+                                  </button>
+
+                                  <button
                                     onClick={() => {
                                       if (!lockStatus.canEdit) {
                                         const hrs = getPolicyHours('mrpPlan');
@@ -1517,6 +1625,11 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                               <span className="font-mono text-xs font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/70 px-2.5 py-1 rounded-xl border border-indigo-200 dark:border-indigo-800">
                                 {plan.mrpNumber}
                               </span>
+                              {plan.isBOMOutdated && (
+                                <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 flex items-center gap-1 animate-pulse">
+                                  <RefreshCw size={9} /> BOM Changed
+                                </span>
+                              )}
                               {plan.isConsolidated && (
                                 <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200">
                                   Consolidated ({plan.customerPOs?.length || 2})
@@ -1627,6 +1740,19 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                               )}
                             </div>
                             <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={(e) => handleSyncBOM(plan, e)}
+                                disabled={syncingPlanId === plan._id}
+                                className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                                  plan.isBOMOutdated
+                                    ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                    : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400'
+                                }`}
+                                title={plan.isBOMOutdated ? "BOM or Customer PO changed! Click to sync latest BOM, Customer PO quantities & prices" : "Sync Plan (BOM, Customer PO & Sales Price)"}
+                              >
+                                <RefreshCw size={12} className={syncingPlanId === plan._id ? "animate-spin text-amber-600" : ""} />
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1796,6 +1922,17 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                     <span>Details & GRN</span>
                   </button>
 
+                  {/* Sync Plan (BOM, Customer PO & Sales Price) Button */}
+                  <button
+                    onClick={(e) => handleSyncBOM(selectedDemandPlan, e)}
+                    disabled={syncingPlanId === selectedDemandPlan._id}
+                    className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-bold text-xs rounded-xl border border-amber-200 dark:border-amber-800 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    title="Synchronize latest BOM, Customer PO quantities & prices, and Sales Price Lists"
+                  >
+                    <RefreshCw size={13} className={syncingPlanId === selectedDemandPlan._id ? "animate-spin text-amber-600" : ""} />
+                    <span>{syncingPlanId === selectedDemandPlan._id ? "Syncing..." : "Sync Plan (BOM & PO)"}</span>
+                  </button>
+
                   {/* Edit Plan Button */}
                   {(() => {
                     const lockStatus = getPlanLockStatus(selectedDemandPlan);
@@ -1850,6 +1987,24 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                   })()}
                 </div>
               </div>
+
+              {/* Outdated BOM Alert Banner */}
+              {selectedDemandPlan.isBOMOutdated && (
+                <div className="p-3 bg-amber-500/10 border border-amber-400/30 rounded-xl flex items-center justify-between gap-3 text-amber-800 dark:text-amber-300 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-white font-bold text-[10px]">!</span>
+                    <span><strong>BOM Configuration Changed:</strong> The Bill of Materials for Finished Goods in this plan has been modified in the catalog. Synchronize now to update material requirements and gross profit projections.</span>
+                  </div>
+                  <button
+                    onClick={(e) => handleSyncBOM(selectedDemandPlan, e)}
+                    disabled={syncingPlanId === selectedDemandPlan._id}
+                    className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg text-xs transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw size={12} className={syncingPlanId === selectedDemandPlan._id ? "animate-spin" : ""} />
+                    Sync Now
+                  </button>
+                </div>
+              )}
 
               {/* Financial Health & Target Budget Guard Dashboard Card */}
               {(() => {
@@ -2330,6 +2485,13 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
           isOpen={isDetailsModalOpen}
           onClose={() => setIsDetailsModalOpen(false)}
           mrpPlan={selectedPlanForDetails}
+          onPlanUpdated={(updatedPlan) => {
+            setSelectedPlanForDetails(updatedPlan);
+            if (selectedDemandPlan && selectedDemandPlan._id === updatedPlan._id) {
+              setSelectedDemandPlan(updatedPlan);
+            }
+            fetchData();
+          }}
         />
       )}
 

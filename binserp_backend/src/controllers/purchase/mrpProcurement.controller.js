@@ -18,6 +18,7 @@ import { componentSchema, ppcOrderSchema } from "../../models/ppc/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { ApiError } from "../../utils/ApiError.js";
+import { recalculateMRPWithLatestBOM, syncMRPPlanFinancials } from "./mrpPlan.controller.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -165,6 +166,41 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     VendorPriceList.find({ company: companyId }).populate("vendor", "name code email phone").lean(),
     Category.find({ company: companyId }).lean()
   ]);
+
+  // Dynamically verify and synchronize any active MRP plan if the Master FG BOM was modified
+  for (let i = 0; i < activeMrpPlans.length; i++) {
+    const plan = activeMrpPlans[i];
+    let needsSync = Boolean(plan.isBOMOutdated);
+
+    if (!needsSync && plan.fgItems && plan.fgItems.length > 0) {
+      const planSyncDate = plan.bomSyncedAt
+        ? new Date(plan.bomSyncedAt).getTime()
+        : new Date(plan.updatedAt || plan.createdAt).getTime();
+
+      for (const fg of plan.fgItems) {
+        const fgMaster = fgStock.find(f => 
+          (fg.fgItem && String(f._id) === String(fg.fgItem)) ||
+          (f.name && f.name.toLowerCase() === (fg.fgItemName || '').toLowerCase()) ||
+          (f.code && f.code.toLowerCase() === (fg.fgItemCode || '').toLowerCase())
+        );
+        if (fgMaster?.updatedAt && new Date(fgMaster.updatedAt).getTime() > planSyncDate + 1000) {
+          needsSync = true;
+          break;
+        }
+      }
+    }
+
+    if (needsSync) {
+      try {
+        const refreshedPlan = await recalculateMRPWithLatestBOM(plan, req);
+        if (refreshedPlan) {
+          activeMrpPlans[i] = refreshedPlan;
+        }
+      } catch (err) {
+        console.warn(`[getMRPProcurementWorkbench] Auto-sync BOM for plan ${plan.mrpNumber} failed:`, err);
+      }
+    }
+  }
 
   // Fast Category map and Master Category lookup map
   const categoryMap = new Map();
@@ -1637,6 +1673,11 @@ export const bulkGeneratePOFromMRP = asyncHandler(async (req, res) => {
             plan.status = "In Procurement";
           }
           await plan.save();
+          try {
+            await syncMRPPlanFinancials(plan, req);
+          } catch (e) {
+            console.warn("Failed to sync MRP Plan financials after bulk PO generation:", e.message);
+          }
         }
       }
     }

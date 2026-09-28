@@ -20,7 +20,9 @@ import {
   getAllSalesOrderMRPs,
   createIndentFromMRP,
   createWorkOrderFromMRP,
-  previewMRPBOMBudget
+  previewMRPBOMBudget,
+  syncMRPPlanBOM,
+  syncAllMRPPlansBOM
 } from "../controllers/mrp/index.js";
 
 const router = Router();
@@ -78,6 +80,13 @@ router.route("/plan/:id")
   .get(getMRPPlanById)
   .put(updateMRPPlan)
   .delete(deleteMRPPlan);
+
+router.route("/plan/:id/sync-bom")
+  .post(syncMRPPlanBOM)
+  .put(syncMRPPlanBOM);
+
+router.route("/sync-all-bom")
+  .post(syncAllMRPPlansBOM);
 
 router.route("/plan/:id/target-expense")
   .put(updateMRPTargetExpense);

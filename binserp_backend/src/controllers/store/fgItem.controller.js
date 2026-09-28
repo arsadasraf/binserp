@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, storeOrderFulfillmentSchema, storePrefixSchema, stockTransactionSchema } from "../../models/store/index.js";
-import { salesOrderSchema } from "../../models/sales/index.js";
+import { salesOrderSchema, priceListSchema } from "../../models/sales/index.js";
+import { mrpPlanSchema } from "../../models/purchase/index.js";
+import { recalculateMRPWithLatestBOM } from "../purchase/mrpPlan.controller.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
 import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
@@ -159,6 +161,14 @@ export const getAllFGItems = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
+    // Fetch active Sales Price List to ensure sellingPrice & currency are up to date
+    const PriceList = req.getModel('PriceList', priceListSchema);
+    const priceLists = await PriceList.find({ company: companyId }).lean().catch(() => []);
+    const priceListMap = new Map();
+    priceLists.forEach(pl => {
+      if (pl.fgItem) priceListMap.set(pl.fgItem.toString(), pl);
+    });
+
     // Fetch active StoreOrderFulfillment to compute PO & Sales Order reserved breakdown
     const StoreOrderFulfillment = req.getModel('StoreOrderFulfillment', storeOrderFulfillmentSchema);
     req.getModel('SalesOrder', salesOrderSchema);
@@ -251,10 +261,20 @@ export const getAllFGItems = async (req, res) => {
         const totalInward = Math.max(itemMonthly?.totalInwardQuantity || 0, txInward);
         const totalOutward = Math.max(itemMonthly?.totalOutwardQuantity || 0, txOutward);
 
+        const matchedPL = priceListMap.get(itemIdStr);
+        const resolvedSellingPrice = Number(item.sellingPrice || matchedPL?.price || 0);
+        const resolvedTaxRate = Number(item.taxRate != null ? item.taxRate : (matchedPL?.taxRate != null ? matchedPL.taxRate : 18));
+        const resolvedCurrency = (item.currency || matchedPL?.currency || 'INR').trim().toUpperCase();
+
         return {
             ...item,
             quantity: stock,
             currentStock: stock,
+            sellingPrice: resolvedSellingPrice,
+            taxRate: resolvedTaxRate,
+            currency: resolvedCurrency,
+            salesPriceListPrice: matchedPL ? Number(matchedPL.price || 0) : undefined,
+            salesPriceListCurrency: matchedPL ? matchedPL.currency : undefined,
             hasTransactions,
             status: item.status || (item.isActive === false ? 'Inactive' : 'Active'),
             isActive: item.isActive !== false && item.status !== 'Inactive' && item.status !== 'Deactivated',
@@ -407,6 +427,35 @@ export const updateFGItem = async (req, res) => {
     );
 
     if (!fgItem) return res.status(404).json({ message: "FG Item not found" });
+
+    // If BOM was modified, automatically sync all active MRP plans referencing this FG item
+    if (Array.isArray(bom)) {
+      try {
+        const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
+        const linkedPlans = await MRPPlan.find({
+          company: companyId,
+          status: { $in: ["Planned", "In Procurement", "Draft", "Partially Completed"] },
+          $or: [
+            { "fgItems.fgItem": id },
+            { "fgItems.fgItemCode": fgItem.code },
+            { "fgItems.fgItemName": fgItem.name },
+            { "fgItems.nestedMaterials.materialName": fgItem.name },
+            { "fgItems.nestedMaterials.materialCode": fgItem.code },
+            { "subAssemblyRequirements.material": id },
+            { "subAssemblyRequirements.materialName": fgItem.name },
+            { "subAssemblyRequirements.materialCode": fgItem.code }
+          ]
+        });
+
+        for (const plan of linkedPlans) {
+          await recalculateMRPWithLatestBOM(plan, req).catch((err) => {
+            console.warn(`Auto-sync MRP Plan ${plan.mrpNumber} failed:`, err);
+          });
+        }
+      } catch (syncErr) {
+        console.warn("Auto-syncing linked MRP plans failed:", syncErr);
+      }
+    }
 
     res.status(200).json({ message: "FG Item updated successfully", fgItem });
   } catch (error) {

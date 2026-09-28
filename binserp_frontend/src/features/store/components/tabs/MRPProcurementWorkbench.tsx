@@ -1207,6 +1207,34 @@ export default function MRPProcurementWorkbench({
     fetchWorkbenchData();
   };
 
+  const [syncingBOM, setSyncingBOM] = useState(false);
+
+  const handleSyncBOM = async () => {
+    if (!selectedPlan?._id) return;
+    try {
+      setSyncingBOM(true);
+      const res = await apiPost(`/api/purchase/mrp/plan/${selectedPlan._id}/sync-bom`, {}, token);
+      if (res?.success && res?.mrpPlan) {
+        Swal.fire({
+          icon: 'success',
+          title: 'Plan Synchronized',
+          text: `MRP Plan ${selectedPlan.mrpNumber} synchronized with latest BOM, Customer PO quantities & prices, and Sales Price Lists.`,
+          timer: 2000,
+          showConfirmButton: false
+        });
+        setSelectedPlan(res.mrpPlan);
+        await fetchWorkbenchData(res.mrpPlan._id);
+        if (onRefreshPlans) onRefreshPlans();
+      } else {
+        throw new Error(res?.message || 'Sync failed');
+      }
+    } catch (err: any) {
+      Swal.fire('Sync Error', err.message || 'Failed to sync latest BOM', 'error');
+    } finally {
+      setSyncingBOM(false);
+    }
+  };
+
   // Is active tab eligible for PPC dispatch
   const isPpcEligibleTab = activeTypeTab === 'component' || activeTypeTab === 'subassembly' || activeTypeTab === 'assembly';
 
@@ -3281,9 +3309,16 @@ export default function MRPProcurementWorkbench({
                             >
                               {/* MRP Number */}
                               <td className="p-3.5">
-                                <span className="font-mono text-xs font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
-                                  {plan.mrpNumber}
-                                </span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-mono text-xs font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                                    {plan.mrpNumber}
+                                  </span>
+                                  {plan.isBOMOutdated && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 animate-pulse" title="FG BOM changed in catalog. Click to view and sync.">
+                                      <RefreshCw size={9} /> BOM Changed
+                                    </span>
+                                  )}
+                                </div>
                               </td>
 
                               {/* Customer & PO */}
@@ -3403,9 +3438,16 @@ export default function MRPProcurementWorkbench({
                         >
                           {/* Top: MRP # & Live Shortages chip */}
                           <div className="flex items-start justify-between gap-2">
-                            <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/70 px-2.5 py-1 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                              {plan.mrpNumber}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/70 px-2.5 py-1 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                                {plan.mrpNumber}
+                              </span>
+                              {plan.isBOMOutdated && (
+                                <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 flex items-center gap-1 animate-pulse">
+                                  <RefreshCw size={9} /> BOM Changed
+                                </span>
+                              )}
+                            </div>
                             {plan.planTotalShortages > 0 ? (
                               <span className="inline-flex items-center gap-1 font-bold text-red-600 bg-red-50 dark:bg-red-950/70 border border-red-200 px-2.5 py-1 rounded-xl text-[10.5px]">
                                 <AlertTriangle size={11} /> {plan.planTotalShortages} Shortages
@@ -3580,6 +3622,17 @@ export default function MRPProcurementWorkbench({
                 </button>
               )}
 
+              {/* Sync Plan (BOM, Customer PO & Sales Price) Button */}
+              <button
+                onClick={handleSyncBOM}
+                disabled={syncingBOM}
+                className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-bold text-xs rounded-xl border border-amber-200 dark:border-amber-800 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                title="Synchronize latest BOM configurations, Customer PO quantities & prices, and Sales Price Lists"
+              >
+                <RefreshCw size={13} className={syncingBOM ? "animate-spin text-amber-600" : ""} />
+                <span>{syncingBOM ? "Syncing..." : "Sync Plan (BOM & PO)"}</span>
+              </button>
+
               <button
                 onClick={() => fetchWorkbenchData(selectedPlan._id)}
                 className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl cursor-pointer shrink-0"
@@ -3589,6 +3642,24 @@ export default function MRPProcurementWorkbench({
               </button>
             </div>
           </div>
+
+          {/* Outdated BOM Alert Banner */}
+          {selectedPlan.isBOMOutdated && (
+            <div className="shrink-0 p-2.5 bg-amber-500/10 border border-amber-400/30 rounded-xl flex items-center justify-between gap-3 text-amber-800 dark:text-amber-300 text-xs">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={15} className="text-amber-600 shrink-0" />
+                <span><strong>BOM Configuration Changed:</strong> The Finished Goods BOM for this plan has been modified in the catalog. Sync now to refresh material requirements, cut sizes, and shortages.</span>
+              </div>
+              <button
+                onClick={handleSyncBOM}
+                disabled={syncingBOM}
+                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg text-xs transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw size={12} className={syncingBOM ? "animate-spin" : ""} />
+                Sync Now
+              </button>
+            </div>
+          )}
 
           {/* Quick Metrics Bar (PINNED) */}
           <div className="shrink-0 grid grid-cols-2 sm:grid-cols-4 gap-2">
