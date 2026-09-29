@@ -69,14 +69,11 @@ export const SYSTEM_PERMISSIONS = [
     module: "CRM",
     label: "CRM & Sales",
     tabs: [
-      { id: "overview", label: "CRM Overview", description: "Analytics, KPIs & Conversion Funnel", route: "/dashboard/crm" },
-      { id: "leads", label: "Leads Management", description: "Kanban Pipeline & Lead Ingestion", route: "/dashboard/crm" },
-      { id: "deals", label: "Deals & Opportunities", description: "Revenue Forecasting & Deal Velocity", route: "/dashboard/crm" },
-      { id: "customers", label: "Customer 360", description: "Customer Directory & Contact Ledger", route: "/dashboard/crm" },
-      { id: "activities", label: "Activities & Follow-ups", description: "Call/Meeting Logs & Follow-up Scheduler", route: "/dashboard/crm" },
-      { id: "datahub", label: "Data Hub (Excel Import/Export)", description: "Bulk Excel/CSV Importer & Exporter", route: "/dashboard/crm" },
-      { id: "integrations", label: "Integrations & Webhooks", description: "IndiaMART, TradeIndia & Webhook API", route: "/dashboard/crm" },
-      { id: "masters", label: "CRM Masters", description: "Sources, Stages, Industries & Loss Reasons", route: "/dashboard/crm" }
+      { id: "overview", label: "Overview", description: "CRM Pipeline KPIs, Win Ratio & Revenue Velocity", route: "/dashboard/crm/overview" },
+      { id: "leads", label: "Lead Pipeline", description: "Kanban Pipeline, Ingestion & Multi-Platform Sync", route: "/dashboard/crm/leads" },
+      { id: "deals", label: "Deals & Revenue", description: "Deals Pipeline, Proposals Sent & Payment Receipts", route: "/dashboard/crm/deals" },
+      { id: "customers", label: "Customer 360", description: "Customer Profiles, Installed Base & After-Sales Services", route: "/dashboard/crm/customers" },
+      { id: "masters", label: "CRM Masters", description: "Product Showcase with Photos, Team Access, Integrations & Catalog", route: "/dashboard/crm/masters/products" }
     ]
   },
   {

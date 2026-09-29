@@ -5,7 +5,7 @@ import {
     Plus, Search, Filter, RefreshCw, LayoutGrid, List, Flame, Sun, Snowflake, 
     Phone, Mail, MapPin, Tag, ArrowRight, UserCheck, Trash2, Edit2, X, Check, 
     Building2, Calendar, FileText, FileSpreadsheet, Download, Upload, 
-    ChevronDown, AlertCircle, CheckCircle2, DollarSign, Package, Sparkles
+    ChevronDown, AlertCircle, CheckCircle2, DollarSign, Package, Sparkles, Zap, ExternalLink
 } from "lucide-react";
 import { apiRequest, apiGet, apiPost, apiPut, apiDelete } from "@/src/lib/api";
 
@@ -133,6 +133,11 @@ export default function LeadKanban() {
     const [convertingLead, setConvertingLead] = useState<Lead | null>(null);
     const [convertDealTitle, setConvertDealTitle] = useState("");
     const [convertDealValue, setConvertDealValue] = useState(0);
+
+    // Multi-Platform External Fetch Modal State
+    const [isFetchModalOpen, setIsFetchModalOpen] = useState(false);
+    const [syncingPlatform, setSyncingPlatform] = useState<string | null>(null);
+    const [syncResultMsg, setSyncResultMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
     // Close Excel Dropdown on Outside Click
     useEffect(() => {
@@ -404,6 +409,28 @@ export default function LeadKanban() {
         }
     };
 
+    // External Fetch from IndiaMART
+    const handleSyncIndiaMart = async () => {
+        setSyncingPlatform("indiamart");
+        setSyncResultMsg(null);
+        try {
+            const token = localStorage.getItem("token");
+            const res = await apiPost("/api/crm/leads/sync-indiamart", {}, token);
+            setSyncResultMsg({
+                type: "success",
+                text: res.message || `IndiaMART sync finished: ${res.data?.leadsInserted || 0} new leads pulled.`
+            });
+            fetchLeads();
+        } catch (err: any) {
+            setSyncResultMsg({
+                type: "error",
+                text: err.message || "Failed to sync from IndiaMART. Please check credentials in CRM Masters."
+            });
+        } finally {
+            setSyncingPlatform(null);
+        }
+    };
+
     // Helper: Select / toggle Master Product in Form
     const handleToggleProduct = (productName: string, standardRate?: number) => {
         setFormData(prev => {
@@ -544,6 +571,15 @@ export default function LeadKanban() {
                             </div>
                         )}
                     </div>
+
+                    {/* Multi-Platform Fetch Leads Quick Button */}
+                    <button
+                        onClick={() => { setIsFetchModalOpen(true); setSyncResultMsg(null); }}
+                        className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs"
+                    >
+                        <Zap size={14} />
+                        <span>Fetch Leads</span>
+                    </button>
 
                     {/* Single Entry Manual Add Lead */}
                     <button
@@ -1392,6 +1428,94 @@ export default function LeadKanban() {
                                     className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md shadow-emerald-600/20 disabled:opacity-50 flex items-center gap-1.5"
                                 >
                                     {submitting ? "Converting..." : <><Check size={14} /> Confirm Conversion</>}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MULTI-PLATFORM EXTERNAL FETCH MODAL */}
+            {isFetchModalOpen && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-150">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 dark:border-slate-800">
+                        <div className="p-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex justify-between items-center border-b border-slate-700">
+                            <div>
+                                <h3 className="font-extrabold text-base flex items-center gap-2">
+                                    <Zap size={18} className="text-amber-400" />
+                                    Fetch Leads from External Tools
+                                </h3>
+                                <p className="text-xs text-slate-300 mt-0.5">Ingest leads from B2B portals, Excel, and Webhooks</p>
+                            </div>
+                            <button onClick={() => setIsFetchModalOpen(false)} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300">
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            {syncResultMsg && (
+                                <div className={`p-3.5 rounded-2xl text-xs font-bold flex items-start gap-2 ${
+                                    syncResultMsg.type === "success" 
+                                        ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" 
+                                        : "bg-rose-50 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+                                }`}>
+                                    {syncResultMsg.type === "success" ? <CheckCircle2 size={16} className="shrink-0 text-emerald-600" /> : <AlertCircle size={16} className="shrink-0 text-rose-600" />}
+                                    <span>{syncResultMsg.text}</span>
+                                </div>
+                            )}
+
+                            {/* Option 1: IndiaMART Pull */}
+                            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-amber-400 dark:hover:border-amber-500 transition-all flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <strong className="text-xs font-bold text-slate-900 dark:text-white block">IndiaMART Lead Pull API</strong>
+                                    <span className="text-[11px] text-slate-500">Fetches latest buyer inquiries using credentials configured in Master</span>
+                                </div>
+                                <button
+                                    onClick={handleSyncIndiaMart}
+                                    disabled={Boolean(syncingPlatform)}
+                                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                                >
+                                    {syncingPlatform === "indiamart" ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={13} />}
+                                    <span>{syncingPlatform === "indiamart" ? "Pulling..." : "Pull Now"}</span>
+                                </button>
+                            </div>
+
+                            {/* Option 2: Excel / CSV Bulk File Import */}
+                            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-emerald-400 dark:hover:border-emerald-500 transition-all flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <strong className="text-xs font-bold text-slate-900 dark:text-white block">Excel / CSV Spreadsheet</strong>
+                                    <span className="text-[11px] text-slate-500">Upload bulk inquiries using standard template</span>
+                                </div>
+                                <button
+                                    onClick={() => { setIsFetchModalOpen(false); setIsImportModalOpen(true); }}
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5"
+                                >
+                                    <Upload size={13} />
+                                    <span>Import File</span>
+                                </button>
+                            </div>
+
+                            {/* Option 3: Manage Credentials in Master Link */}
+                            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <strong className="text-xs font-bold text-slate-900 dark:text-white block">API Credentials & Keys</strong>
+                                    <span className="text-[11px] text-slate-500">GLUSR Mobile, Auth Key & Webhooks are managed in Master</span>
+                                </div>
+                                <a
+                                    href="/dashboard/crm/masters/integrations"
+                                    className="px-3.5 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl flex items-center gap-1 transition-colors"
+                                >
+                                    <span>Settings</span>
+                                    <ExternalLink size={12} />
+                                </a>
+                            </div>
+
+                            <div className="pt-2 flex justify-end">
+                                <button
+                                    onClick={() => setIsFetchModalOpen(false)}
+                                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl hover:bg-slate-200"
+                                >
+                                    Close
                                 </button>
                             </div>
                         </div>

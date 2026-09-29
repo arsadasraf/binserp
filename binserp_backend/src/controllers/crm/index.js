@@ -27,5 +27,20 @@ export { downloadExcelTemplate, importLeadsFromExcel, importCustomersFromExcel, 
 // Integrations & Webhooks
 export { getCRMIntegrations, saveCRMIntegrations, syncIndiaMartLeads, receiveWebhookLead, getSyncLogs } from "./crmIntegration.controller.js";
 
+// Proposals
+export { getProposals, createProposal, updateProposal, deleteProposal } from "./crmProposal.controller.js";
+
+// Payments & Receipts
+export { getPayments, createPayment, updatePayment, deletePayment } from "./crmPayment.controller.js";
+
+// After-Sales Service (Installed Base & Service Tickets)
+export { 
+    getInstalledBase, createInstalledBase, updateInstalledBase, deleteInstalledBase, 
+    getServiceTickets, createServiceTicket, updateServiceTicket, deleteServiceTicket 
+} from "./afterSalesService.controller.js";
+
+// Team Access
+export { getCRMTeamAccess } from "./crmTeamAccess.controller.js";
+
 // Stats
 export { getCRMStats } from "./getCRMStats.controller.js";

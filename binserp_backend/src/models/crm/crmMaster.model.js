@@ -23,6 +23,13 @@ export const crmMasterSchema = new mongoose.Schema(
         unit: { type: String, default: "PCS" }, // for product catalog
         
         // Product & Service Advanced Commercial Configuration
+        photos: [{ type: String }], // URLs / Base64 photos of the product
+        specifications: [
+            {
+                label: { type: String, trim: true },
+                value: { type: String, trim: true }
+            }
+        ],
         itemClassification: {
             type: String,
             enum: ["product", "service"],
@@ -70,7 +77,13 @@ export const crmMasterSchema = new mongoose.Schema(
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
-        }
+        },
+        createdByName: { type: String, trim: true },
+        updatedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+        },
+        updatedByName: { type: String, trim: true }
     },
     { timestamps: true }
 );

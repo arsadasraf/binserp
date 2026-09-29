@@ -143,7 +143,13 @@ const MODULE_DEFINITIONS: ModuleSchema[] = [
     label: "CRM & Sales",
     icon: PhoneCall,
     color: "from-blue-500 to-indigo-500",
-    tabs: [{ id: "overview", label: "CRM Overview", description: "Lead Pipeline, Customers & Deals", route: "/dashboard/crm" }]
+    tabs: [
+      { id: "overview", label: "Overview", description: "Real-time pipeline analytics, conversion funnels & KPI scorecards", route: "/dashboard/crm/overview" },
+      { id: "leads", label: "Lead Pipeline", description: "Kanban pipeline, multi-platform external ingestion & 1-click conversions", route: "/dashboard/crm/leads" },
+      { id: "deals", label: "Deals & Revenue", description: "Sales stages, sent proposals & payment receipts ledger", route: "/dashboard/crm/deals" },
+      { id: "customers", label: "Customer 360", description: "Customer directory, installed base equipment & after-sales service tickets", route: "/dashboard/crm/customers" },
+      { id: "masters", label: "CRM Masters", description: "Product showcase with photos, team access inspector & API credentials", route: "/dashboard/crm/masters/products" }
+    ]
   },
   {
     name: "Accounts",

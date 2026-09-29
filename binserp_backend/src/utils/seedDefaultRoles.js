@@ -23,6 +23,7 @@ export const seedDefaultRoles = async (RoleModel, companyId) => {
     // Seed/Update GM Role
     let gmRole = await RoleModel.findOne({
       $or: [{ name: "GM" }, { name: "Admin Default Role" }],
+      company: companyId,
     });
 
     if (!gmRole) {
@@ -56,7 +57,7 @@ export const seedDefaultRoles = async (RoleModel, companyId) => {
         },
       ];
 
-      let existingRole = await RoleModel.findOne({ name: roleName });
+      let existingRole = await RoleModel.findOne({ name: roleName, company: companyId });
 
       if (!existingRole) {
         await RoleModel.create({

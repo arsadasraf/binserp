@@ -261,6 +261,30 @@ export function usePermission() {
       }
     }
 
+    // 10. CRM Module Aliases
+    if (mod === "crm") {
+      if ((tab === "leads" || tab === "lead") && (
+        permissionSet.has("crm:leads") || permissionSet.has("CRM:leads")
+      )) {
+        return true;
+      }
+      if ((tab === "deals" || tab === "deal" || tab === "proposals" || tab === "payments") && (
+        permissionSet.has("crm:deals") || permissionSet.has("CRM:deals")
+      )) {
+        return true;
+      }
+      if ((tab === "customers" || tab === "customer" || tab === "services" || tab === "installed-base") && (
+        permissionSet.has("crm:customers") || permissionSet.has("CRM:customers")
+      )) {
+        return true;
+      }
+      if ((tab === "masters" || tab === "master" || tab === "products" || tab === "team-access" || tab === "integrations" || tab === "pipeline") && (
+        permissionSet.has("crm:masters") || permissionSet.has("CRM:masters")
+      )) {
+        return true;
+      }
+    }
+
     // Sub-route prefix matching (e.g., policy has "inventory" -> allows "inventory/rm-bo-stock", or policy has "purchase/po" -> allows "purchase")
     for (const key of permissionSet) {
       const lowerKey = key.toLowerCase();

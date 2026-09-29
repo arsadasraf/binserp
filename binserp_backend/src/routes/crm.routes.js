@@ -1,6 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, requirePermission } from "../middlewares/auth.middleware.js";
 import {
     createLead,
     getLeads,
@@ -34,7 +34,24 @@ import {
     syncIndiaMartLeads,
     receiveWebhookLead,
     getSyncLogs,
-    getCRMStats
+    getCRMStats,
+    getProposals,
+    createProposal,
+    updateProposal,
+    deleteProposal,
+    getPayments,
+    createPayment,
+    updatePayment,
+    deletePayment,
+    getInstalledBase,
+    createInstalledBase,
+    updateInstalledBase,
+    deleteInstalledBase,
+    getServiceTickets,
+    createServiceTicket,
+    updateServiceTicket,
+    deleteServiceTicket,
+    getCRMTeamAccess
 } from "../controllers/crm/index.js";
 
 const router = Router();
@@ -51,16 +68,15 @@ router.get("/excel/template/:type", downloadExcelTemplate);
 // ==========================================
 router.use(verifyJWT);
 
-// 1. Stats & Analytics
-router.get("/stats", getCRMStats);
+// ------------------------------------------
+// 1. Overview Tab & Analytics
+// ------------------------------------------
+router.get("/stats", requirePermission("CRM", "overview"), getCRMStats);
 
-// 2. CRM Masters (Sources, Stages, Industries, Loss Reasons, Products)
-router.get("/masters/:type", getCRMMasters);
-router.post("/masters/:type", createCRMMasterItem);
-router.put("/masters/:type/:id", updateCRMMasterItem);
-router.delete("/masters/:type/:id", deleteCRMMasterItem);
-
-// 3. Leads Management
+// ------------------------------------------
+// 2. Lead Pipeline Tab (with External Fetch & Excel)
+// ------------------------------------------
+router.use(["/leads", "/excel/import/leads", "/excel/export/leads"], requirePermission("CRM", "leads"));
 router.route("/leads")
     .get(getLeads)
     .post(createLead);
@@ -70,8 +86,16 @@ router.route("/leads/:id")
     .delete(deleteLead);
 
 router.post("/leads/:id/convert", convertLeadToCustomer);
+router.post("/leads/sync-indiamart", syncIndiaMartLeads);
+router.post("/excel/import/leads", upload.single("file"), importLeadsFromExcel);
+router.get("/excel/export/leads", exportLeadsToExcel);
 
-// 4. Deals & Opportunities
+// ------------------------------------------
+// 3. Deals & Revenue Tab (Deals, Proposals, Payment Receipts)
+// ------------------------------------------
+router.use(["/deals", "/proposals", "/payments"], requirePermission("CRM", "deals"));
+
+// Deals
 router.route("/deals")
     .get(getDeals)
     .post(createDeal);
@@ -80,7 +104,37 @@ router.route("/deals/:id")
     .put(updateDeal)
     .delete(deleteDeal);
 
-// 5. Customers 360
+// Proposals & Quotations
+router.route("/proposals")
+    .get(getProposals)
+    .post(createProposal);
+
+router.route("/proposals/:id")
+    .put(updateProposal)
+    .delete(deleteProposal);
+
+// Payments & Receipts
+router.route("/payments")
+    .get(getPayments)
+    .post(createPayment);
+
+router.route("/payments/:id")
+    .put(updatePayment)
+    .delete(deletePayment);
+
+// ------------------------------------------
+// 4. Customer 360 & After-Sales Services Tab
+// ------------------------------------------
+router.use([
+    "/customers", 
+    "/installed-base", 
+    "/service-tickets", 
+    "/activities", 
+    "/excel/import/customers", 
+    "/excel/export/customers"
+], requirePermission("CRM", "customers"));
+
+// Customers
 router.route("/customers")
     .get(getCustomers)
     .post(createCustomer);
@@ -91,7 +145,28 @@ router.route("/customers/:id")
     .put(updateCustomer)
     .delete(deleteCustomer);
 
-// 6. Activities & Follow-ups
+router.post("/excel/import/customers", upload.single("file"), importCustomersFromExcel);
+router.get("/excel/export/customers", exportCustomersToExcel);
+
+// Installed Base (Sold Goods, Warranty Tracking)
+router.route("/installed-base")
+    .get(getInstalledBase)
+    .post(createInstalledBase);
+
+router.route("/installed-base/:id")
+    .put(updateInstalledBase)
+    .delete(deleteInstalledBase);
+
+// Service & Support Tickets
+router.route("/service-tickets")
+    .get(getServiceTickets)
+    .post(createServiceTicket);
+
+router.route("/service-tickets/:id")
+    .put(updateServiceTicket)
+    .delete(deleteServiceTicket);
+
+// Activities & Follow-ups
 router.route("/activities")
     .get(getActivities)
     .post(createActivity);
@@ -100,13 +175,20 @@ router.route("/activities/:id")
     .put(updateActivity)
     .delete(deleteActivity);
 
-// 7. Excel Import / Export Data Hub
-router.post("/excel/import/leads", upload.single("file"), importLeadsFromExcel);
-router.post("/excel/import/customers", upload.single("file"), importCustomersFromExcel);
-router.get("/excel/export/leads", exportLeadsToExcel);
-router.get("/excel/export/customers", exportCustomersToExcel);
+// ------------------------------------------
+// 5. CRM Masters Tab (Products + Photos, Team Access, Credentials, Pipeline)
+// ------------------------------------------
+// Read access for master items (for dropdowns across CRM) is open to CRM users; mutations require CRM:masters
+router.get("/masters/:type", getCRMMasters);
+router.post("/masters/:type", requirePermission("CRM", "masters"), createCRMMasterItem);
+router.put("/masters/:type/:id", requirePermission("CRM", "masters"), updateCRMMasterItem);
+router.delete("/masters/:type/:id", requirePermission("CRM", "masters"), deleteCRMMasterItem);
 
-// 8. Integrations & Connectors
+// Team Access List
+router.get("/team-access", requirePermission("CRM", "masters"), getCRMTeamAccess);
+
+// Integrations & Credentials (IndiaMART, TradeIndia, Webhook)
+router.use("/integrations", requirePermission("CRM", "masters"));
 router.get("/integrations", getCRMIntegrations);
 router.post("/integrations/save", saveCRMIntegrations);
 router.post("/integrations/sync-indiamart", syncIndiaMartLeads);

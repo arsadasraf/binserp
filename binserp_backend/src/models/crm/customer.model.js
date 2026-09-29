@@ -74,10 +74,12 @@ export const customerSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
         },
+        createdByName: { type: String, trim: true },
         updatedBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
         },
+        updatedByName: { type: String, trim: true },
     },
     { timestamps: true }
 );
