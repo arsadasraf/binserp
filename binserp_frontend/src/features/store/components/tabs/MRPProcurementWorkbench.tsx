@@ -3349,13 +3349,35 @@ export default function MRPProcurementWorkbench({
 
                               {/* FG Summary */}
                               <td className="p-3.5">
-                                <div className="font-semibold text-slate-800 dark:text-slate-200">
-                                  {firstFG?.fgItemName || "Finished Good"}
-                                  {fgCount > 1 && <span className="text-slate-400 font-normal ml-1">+{fgCount - 1} more</span>}
+                                <div className="space-y-1">
+                                  {(plan.fgItems || []).slice(0, 2).map((fg: any, fgIdx: number) => {
+                                    const itemName = fg.fgItem?.name || fg.fgItemName || "FG Item";
+                                    const itemDesc = fg.fgItem?.description || fg.fgItem?.descriptions || fg.description;
+                                    return (
+                                      <div key={fgIdx} className="leading-tight">
+                                        <div className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+                                          {itemName}
+                                          <span className="text-[11px] font-normal text-slate-500 ml-1.5 font-mono">
+                                            ({fg.quantity} {fg.unit || 'PCS'})
+                                          </span>
+                                        </div>
+                                        {itemDesc && (
+                                          <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
+                                            {itemDesc}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                  {fgCount > 2 && (
+                                    <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                      +{fgCount - 2} more finished goods
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-slate-400 block font-mono">
+                                    {fgCount} FG Item{fgCount > 1 ? 's' : ''} planned
+                                  </span>
                                 </div>
-                                <span className="text-[10px] text-slate-400 block font-mono">
-                                  {fgCount} FG Item{fgCount > 1 ? 's' : ''} planned
-                                </span>
                               </td>
 
                               {/* Live Shortages */}
@@ -3473,21 +3495,28 @@ export default function MRPProcurementWorkbench({
                           </div>
 
                           {/* FG Demand Summary (Strict rule compliance: AGENTS.md) */}
-                          <div className="bg-slate-50/80 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-0.5">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-bold text-slate-900 dark:text-white">
-                                {firstFG?.fgItemName || "Finished Good"}
-                                {fgCount > 1 && <span className="text-emerald-600 dark:text-emerald-400 font-semibold ml-1">+{fgCount - 1} more</span>}
-                              </span>
-                              <span className="font-mono text-[10px] text-slate-400 font-bold">
-                                {fgCount} FG item{fgCount > 1 ? 's' : ''}
-                              </span>
-                            </div>
-                            {firstFG?.description && (
-                              <div className="text-[11px] text-slate-500 italic line-clamp-1">
-                                {firstFG.description}
-                              </div>
-                            )}
+                          <div className="bg-slate-50/80 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1.5">
+                            {(plan.fgItems || []).map((fg: any, fgIdx: number) => {
+                              const itemName = fg.fgItem?.name || fg.fgItemName || "FG Item";
+                              const itemDesc = fg.fgItem?.description || fg.fgItem?.descriptions || fg.description;
+                              return (
+                                <div key={fgIdx} className="space-y-0.5 border-b border-slate-100 dark:border-slate-800/80 pb-1.5 last:border-b-0 last:pb-0">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="font-bold text-slate-900 dark:text-white">
+                                      {itemName}
+                                    </span>
+                                    <span className="font-mono text-[10px] text-slate-400 font-bold">
+                                      {fg.quantity} {fg.unit || 'PCS'}
+                                    </span>
+                                  </div>
+                                  {itemDesc && (
+                                    <div className="text-[11px] text-slate-500 italic line-clamp-1">
+                                      {itemDesc}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
 
                           {/* Bottom info & Action */}
@@ -3722,9 +3751,11 @@ export default function MRPProcurementWorkbench({
                           Level 1: Assembly / FG
                         </span>
                         <span className="font-bold text-sm text-slate-900 dark:text-white">
-                          {fg.fgItemName}
+                          {fg.fgItem?.name || fg.fgItemName || "FG Item"}
                         </span>
-                        {fg.description && <span className="text-xs text-slate-500 italic font-normal">({fg.description})</span>}
+                        {(fg.fgItem?.description || fg.fgItem?.descriptions || fg.description) && (
+                          <span className="text-xs text-slate-500 italic font-normal">({fg.fgItem?.description || fg.fgItem?.descriptions || fg.description})</span>
+                        )}
                         {fg.bomNumber && (
                           <span className="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-mono text-[9px]">
                             {fg.bomNumber}

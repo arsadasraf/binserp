@@ -1,6 +1,6 @@
 import { incomingPOSchema, salesOrderSchema, quotationSchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { mrpPlanSchema } from "../../models/purchase/index.js";
-import { customerSchema } from "../../models/store/index.js";
+import { customerSchema, fgItemSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { generateOrderNumber } from "./salesOrder.controller.js";
@@ -22,11 +22,30 @@ export const createIncomingPO = asyncHandler(async (req, res) => {
     req.body.items = JSON.parse(req.body.items);
   }
 
-  if (Array.isArray(req.body.items)) {
+  if (Array.isArray(req.body.items) && req.body.items.length > 0) {
+    const FGItem = req.getModel("FGItem", fgItemSchema);
+    const fgIdsToFetch = req.body.items
+      .filter(it => it.fgItem && !it.description)
+      .map(it => it.fgItem);
+
+    let fgMap = new Map();
+    if (fgIdsToFetch.length > 0) {
+      try {
+        const fgs = await FGItem.find({ _id: { $in: fgIdsToFetch } }).select("description descriptions name");
+        fgs.forEach(fg => fgMap.set(fg._id.toString(), fg));
+      } catch (fgErr) {
+        console.error("FG description lookup error:", fgErr);
+      }
+    }
+
     req.body.items = req.body.items.map(item => {
       const cleaned = { ...item };
       if (!cleaned.fgItem || cleaned.fgItem === "") delete cleaned.fgItem;
       if (!cleaned.expectedDeliveryDate || cleaned.expectedDeliveryDate === "") delete cleaned.expectedDeliveryDate;
+      if (cleaned.fgItem && !cleaned.description && fgMap.has(cleaned.fgItem.toString())) {
+        const fg = fgMap.get(cleaned.fgItem.toString());
+        cleaned.description = fg.description || fg.descriptions || "";
+      }
       return cleaned;
     });
   }
@@ -171,7 +190,7 @@ export const getAllIncomingPOs = asyncHandler(async (req, res) => {
     .populate("createdBy", "name email")
     .populate("updatedBy", "name email")
     .populate("statusHistory.updatedBy", "name email")
-    .populate("items.fgItem", "name code unit description specification category");
+    .populate("items.fgItem", "name unit description descriptions specification category sellingPrice hsnCode");
 
   // Sync real-time fulfillment status for each PO based on DCs & Invoices
   for (const po of pos) {
@@ -245,11 +264,30 @@ export const updateIncomingPO = asyncHandler(async (req, res) => {
     req.body.items = JSON.parse(req.body.items);
   }
 
-  if (Array.isArray(req.body.items)) {
+  if (Array.isArray(req.body.items) && req.body.items.length > 0) {
+    const FGItem = req.getModel("FGItem", fgItemSchema);
+    const fgIdsToFetch = req.body.items
+      .filter(it => it.fgItem && !it.description)
+      .map(it => it.fgItem);
+
+    let fgMap = new Map();
+    if (fgIdsToFetch.length > 0) {
+      try {
+        const fgs = await FGItem.find({ _id: { $in: fgIdsToFetch } }).select("description descriptions name");
+        fgs.forEach(fg => fgMap.set(fg._id.toString(), fg));
+      } catch (fgErr) {
+        console.error("FG description lookup error:", fgErr);
+      }
+    }
+
     req.body.items = req.body.items.map(item => {
       const cleaned = { ...item };
       if (!cleaned.fgItem || cleaned.fgItem === "") delete cleaned.fgItem;
       if (!cleaned.expectedDeliveryDate || cleaned.expectedDeliveryDate === "") delete cleaned.expectedDeliveryDate;
+      if (cleaned.fgItem && !cleaned.description && fgMap.has(cleaned.fgItem.toString())) {
+        const fg = fgMap.get(cleaned.fgItem.toString());
+        cleaned.description = fg.description || fg.descriptions || "";
+      }
       return cleaned;
     });
   }
@@ -320,7 +358,7 @@ export const updateIncomingPO = asyncHandler(async (req, res) => {
     .populate("createdBy", "name email")
     .populate("updatedBy", "name email")
     .populate("statusHistory.updatedBy", "name email")
-    .populate("items.fgItem", "name code unit description specification category");
+    .populate("items.fgItem", "name unit description descriptions specification category sellingPrice hsnCode");
 
   // Auto-sync linked Sales Order if one was already generated for this PO
   try {
@@ -458,7 +496,7 @@ export const acknowledgeIncomingPO = asyncHandler(async (req, res) => {
     .populate("createdBy", "name email")
     .populate("updatedBy", "name email")
     .populate("statusHistory.updatedBy", "name email")
-    .populate("items.fgItem", "name code unit description specification category sellingPrice hsnCode");
+    .populate("items.fgItem", "name unit description descriptions specification category sellingPrice hsnCode");
 
   res.status(200).json({
     message: "Order Acknowledgement & Commitment saved successfully",

@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Layers, Calendar, User, FileText, CheckCircle2, 
   Package, Clock, Check, Building2, Truck, ShieldCheck,
-  RefreshCw, ChevronRight, Boxes, AlertTriangle, Cpu, Wrench,
+  RefreshCw, ChevronRight, ChevronDown, Download, Boxes, AlertTriangle, Cpu, Wrench,
   Wallet, TrendingUp, IndianRupee
 } from 'lucide-react';
 import { apiGet, apiPost } from '@/src/lib/api';
 import { getCurrencySymbol } from '@/src/utils/currencyHelper';
+import { generateNestedBOMPDF } from '@/src/utils/generateNestedBOMPDF';
 
 interface MRPDetailsModalProps {
   isOpen: boolean;
@@ -22,6 +23,35 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
   const [loadingGRN, setLoadingGRN] = useState(false);
   const [fgGrnHistory, setFgGrnHistory] = useState<any[]>([]);
   const [activeMaterialTab, setActiveMaterialTab] = useState<'all' | 'rm' | 'bo'>('all');
+  const [expandedFgBoms, setExpandedFgBoms] = useState<Record<number, boolean>>({});
+
+  const toggleFgBom = (index: number) => {
+    setExpandedFgBoms(prev => ({ ...prev, [index]: !prev[index] }));
+  };
+
+  const handleExportNestedBOMPDF = () => {
+    if (!currentPlan) return;
+    try {
+      generateNestedBOMPDF({
+        mrpNumber: currentPlan.mrpNumber,
+        customerName: currentPlan.customerName,
+        customerPoNumber: currentPlan.customerPoNumber,
+        targetDate: currentPlan.targetDate,
+        status: currentPlan.status,
+        fgItems: (currentPlan.fgItems || []).map((fg: any) => ({
+          fgItemName: fg.fgItem?.name || fg.fgItemName || "FG Item",
+          fgItemCode: fg.fgItem?.code || fg.fgItemCode,
+          bomNumber: fg.bomNumber,
+          quantity: Number(fg.quantity) || 1,
+          receivedQuantity: Number(fg.receivedQuantity) || 0,
+          unit: fg.unit || "PCS",
+          nestedMaterials: fg.nestedMaterials || []
+        }))
+      });
+    } catch (err) {
+      console.error("Failed to generate nested BOM PDF:", err);
+    }
+  };
 
   useEffect(() => {
     setCurrentPlan(mrpPlan);
@@ -180,6 +210,16 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
           </div>
 
           <div className="flex items-center gap-2 shrink-0 ml-2">
+            <button
+              type="button"
+              onClick={handleExportNestedBOMPDF}
+              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-xl border border-indigo-200 dark:border-indigo-800 transition-all flex items-center gap-1.5 cursor-pointer"
+              title="Download Full Multi-Level Nested BOM PDF"
+            >
+              <Download size={13} className="text-indigo-600 dark:text-indigo-400" />
+              <span>Export Nested BOM</span>
+            </button>
+
             <button
               type="button"
               onClick={handleSyncBOM}
@@ -364,112 +404,220 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
                     const recQty = Number(fg.receivedQuantity) || 0;
                     const balQty = Math.max(0, fgQty - recQty);
                     const pct = Math.min(100, Math.round((recQty / fgQty) * 100));
+                    const itemName = fg.fgItem?.name || fg.fgItemName || "FG Item";
+                    const itemDesc = fg.fgItem?.description || fg.fgItem?.descriptions || fg.description;
+                    const hasNested = Array.isArray(fg.nestedMaterials) && fg.nestedMaterials.length > 0;
+                    const isExpanded = Boolean(expandedFgBoms[idx]);
 
                     return (
-                      <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                        <td className="p-3">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <strong className="text-slate-900 dark:text-white block">{fg.fgItemName}</strong>
-                            {fg.sourceBreakdown && fg.sourceBreakdown.length > 1 ? (
-                              <div className="mt-1 space-y-1">
-                                <div className="text-[10px] font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1">
-                                  <Layers size={10} />
-                                  <span>Consolidated ({fg.sourceBreakdown.length} Customer POs):</span>
-                                </div>
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  {fg.sourceBreakdown.map((b: any, bIdx: number) => {
-                                    const origRate = Number(b.originalRate || b.rate || 0);
-                                    const curr = b.currency || 'INR';
-                                    const exRate = Number(b.exchangeRate || 1);
-                                    const inrRate = Number(b.rateInINR || (origRate * exRate) || 0);
-                                    const isForeign = curr !== 'INR';
+                      <React.Fragment key={idx}>
+                        <tr className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                          <td className="p-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <strong className="text-slate-900 dark:text-white block font-bold text-xs sm:text-sm">{itemName}</strong>
+                              {fg.sourceBreakdown && fg.sourceBreakdown.length > 1 ? (
+                                <div className="mt-1 space-y-1 w-full">
+                                  <div className="text-[10px] font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                                    <Layers size={10} />
+                                    <span>Consolidated ({fg.sourceBreakdown.length} Customer POs):</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {fg.sourceBreakdown.map((b: any, bIdx: number) => {
+                                      const origRate = Number(b.originalRate || b.rate || 0);
+                                      const curr = b.currency || 'INR';
+                                      const exRate = Number(b.exchangeRate || 1);
+                                      const inrRate = Number(b.rateInINR || (origRate * exRate) || 0);
+                                      const isForeign = curr !== 'INR';
 
-                                    return (
-                                      <span
-                                        key={bIdx}
-                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
-                                        title={`${b.customerName ? `${b.customerName} — ` : ''}${b.quantity} ${fg.unit || 'PCS'} @ ${curr} ${origRate} ${isForeign ? `(1 ${curr} = ₹${exRate})` : ''} = ₹${(b.amountInINR || (b.quantity * inrRate)).toLocaleString('en-IN')}`}
-                                      >
-                                        <span>{b.customerPoNumber}: {b.quantity} {fg.unit || 'PCS'}</span>
-                                        {origRate > 0 && (
-                                          <span className="text-[9px] text-emerald-700 dark:text-emerald-400 font-bold ml-0.5">
-                                            @ {isForeign ? `${getCurrencySymbol(curr)}${origRate.toLocaleString()} → ₹${inrRate.toLocaleString('en-IN')}` : `₹${inrRate.toLocaleString('en-IN')}`}
-                                          </span>
-                                        )}
-                                      </span>
-                                    );
-                                  })}
+                                      return (
+                                        <span
+                                          key={bIdx}
+                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                                          title={`${b.customerName ? `${b.customerName} — ` : ''}${b.quantity} ${fg.unit || 'PCS'} @ ${curr} ${origRate} ${isForeign ? `(1 ${curr} = ₹${exRate})` : ''} = ₹${(b.amountInINR || (b.quantity * inrRate)).toLocaleString('en-IN')}`}
+                                        >
+                                          <span>{b.customerPoNumber}: {b.quantity} {fg.unit || 'PCS'}</span>
+                                          {origRate > 0 && (
+                                            <span className="text-[9px] text-emerald-700 dark:text-emerald-400 font-bold ml-0.5">
+                                              @ {isForeign ? `${getCurrencySymbol(curr)}${origRate.toLocaleString()} → ₹${inrRate.toLocaleString('en-IN')}` : `₹${inrRate.toLocaleString('en-IN')}`}
+                                            </span>
+                                          )}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
-                              </div>
-                            ) : fg.customerPoNumber ? (
-                              <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200">
-                                  PO: {fg.customerPoNumber}
-                                </span>
-                                {fg.currency && fg.currency !== 'INR' && Number(fg.originalSellingPrice || 0) > 0 && (
-                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
-                                    {getCurrencySymbol(fg.currency)}{Number(fg.originalSellingPrice).toLocaleString()} {fg.currency} @ ₹{Number(fg.exchangeRate || 1)}
+                              ) : fg.customerPoNumber ? (
+                                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200">
+                                    PO: {fg.customerPoNumber}
                                   </span>
-                                )}
-                                {fg.customerName && (
-                                  <span className="text-[10px] text-slate-400 font-medium">({fg.customerName})</span>
-                                )}
+                                  {fg.currency && fg.currency !== 'INR' && Number(fg.originalSellingPrice || 0) > 0 && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
+                                      {getCurrencySymbol(fg.currency)}{Number(fg.originalSellingPrice).toLocaleString()} {fg.currency} @ ₹{Number(fg.exchangeRate || 1)}
+                                    </span>
+                                  )}
+                                  {fg.customerName && (
+                                    <span className="text-[10px] text-slate-400 font-medium">({fg.customerName})</span>
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
+                            {itemDesc && <span className="block text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">{itemDesc}</span>}
+                            
+                            {/* Nested BOM Accordion Trigger */}
+                            <div className="mt-1.5">
+                              {hasNested ? (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleFgBom(idx)}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
+                                >
+                                  {isExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                                  <span>{isExpanded ? "Hide Nested BOM" : `View Nested BOM (${fg.nestedMaterials.length} components)`}</span>
+                                </button>
+                              ) : (
+                                <span className="text-[9.5px] text-slate-400 italic block">
+                                  No nested BOM attached (Click &quot;Sync Plan&quot; to explode)
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3 text-center font-mono text-[10px] text-slate-500">
+                            {fg.bomNumber || "BOM-Active"}
+                          </td>
+                          <td className="p-3 text-center font-bold text-slate-800 dark:text-slate-200">
+                            {fgQty} {fg.unit || 'PCS'}
+                          </td>
+                          <td className="p-3 text-right font-mono">
+                            <div className="font-bold text-slate-800 dark:text-slate-200">
+                              ₹{(Number(fg.totalPrice) || (fgQty * Number(fg.sellingPrice || 0))).toLocaleString('en-IN')}
+                            </div>
+                            {Number(fg.sellingPrice || 0) > 0 && (
+                              <div className="text-[10px] text-slate-400">
+                                @ ₹{Number(fg.sellingPrice).toLocaleString('en-IN')}/{fg.unit || 'PCS'}
                               </div>
-                            ) : null}
-                          </div>
-                          {fg.description && <span className="block text-[11px] text-slate-500 italic mt-0.5">{fg.description}</span>}
-                        </td>
-                        <td className="p-3 text-center font-mono text-[10px] text-slate-500">
-                          {fg.bomNumber || "BOM-Active"}
-                        </td>
-                        <td className="p-3 text-center font-bold text-slate-800 dark:text-slate-200">
-                          {fgQty} {fg.unit || 'PCS'}
-                        </td>
-                        <td className="p-3 text-right font-mono">
-                          <div className="font-bold text-slate-800 dark:text-slate-200">
-                            ₹{(Number(fg.totalPrice) || (fgQty * Number(fg.sellingPrice || 0))).toLocaleString('en-IN')}
-                          </div>
-                          {Number(fg.sellingPrice || 0) > 0 && (
-                            <div className="text-[10px] text-slate-400">
-                              @ ₹{Number(fg.sellingPrice).toLocaleString('en-IN')}/{fg.unit || 'PCS'}
+                            )}
+                            {fg.currency && fg.currency !== 'INR' && Number(fg.originalSellingPrice || 0) > 0 && (
+                              <div className="text-[9.5px] text-amber-600 dark:text-amber-400 font-bold">
+                                Orig: {getCurrencySymbol(fg.currency)}{Number(fg.originalSellingPrice).toLocaleString()} (@ ₹{Number(fg.exchangeRate || 1)})
+                              </div>
+                            )}
+                            {fg.priceSource && (
+                              <span className="inline-block text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 mt-0.5">
+                                {fg.priceSource.includes('Customer PO') ? fg.priceSource : 'Customer PO Agreed'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 text-center text-[11px] text-slate-500">
+                            {fg.poDeliveryDate ? new Date(fg.poDeliveryDate).toLocaleDateString() : "-"}
+                          </td>
+                          <td className="p-3 text-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                            {fg.targetDate ? new Date(fg.targetDate).toLocaleDateString() : "-"}
+                          </td>
+                          <td className="p-3 text-center font-bold text-teal-600">
+                            {recQty} {fg.unit || 'PCS'}
+                          </td>
+                          <td className="p-3 text-center">
+                            {balQty > 0 ? (
+                              <span className="font-bold text-amber-600">{balQty} {fg.unit || 'PCS'}</span>
+                            ) : (
+                              <span className="font-bold text-emerald-600">0 (Fulfilled)</span>
+                            )}
+                          </td>
+                          <td className="p-3 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <div className="w-16 bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                <div className="bg-teal-500 h-full rounded-full" style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="font-bold text-[10px] text-slate-600 dark:text-slate-400">{pct}%</span>
                             </div>
-                          )}
-                          {fg.currency && fg.currency !== 'INR' && Number(fg.originalSellingPrice || 0) > 0 && (
-                            <div className="text-[9.5px] text-amber-600 dark:text-amber-400 font-bold">
-                              Orig: {getCurrencySymbol(fg.currency)}{Number(fg.originalSellingPrice).toLocaleString()} (@ ₹{Number(fg.exchangeRate || 1)})
-                            </div>
-                          )}
-                          {fg.priceSource && (
-                            <span className="inline-block text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 mt-0.5">
-                              {fg.priceSource.includes('Customer PO') ? fg.priceSource : 'Customer PO Agreed'}
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3 text-center text-[11px] text-slate-500">
-                          {fg.poDeliveryDate ? new Date(fg.poDeliveryDate).toLocaleDateString() : "-"}
-                        </td>
-                        <td className="p-3 text-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                          {fg.targetDate ? new Date(fg.targetDate).toLocaleDateString() : "-"}
-                        </td>
-                        <td className="p-3 text-center font-bold text-teal-600">
-                          {recQty} {fg.unit || 'PCS'}
-                        </td>
-                        <td className="p-3 text-center">
-                          {balQty > 0 ? (
-                            <span className="font-bold text-amber-600">{balQty} {fg.unit || 'PCS'}</span>
-                          ) : (
-                            <span className="font-bold text-emerald-600">0 (Fulfilled)</span>
-                          )}
-                        </td>
-                        <td className="p-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <div className="w-16 bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                              <div className="bg-teal-500 h-full rounded-full" style={{ width: `${pct}%` }} />
-                            </div>
-                            <span className="font-bold text-[10px] text-slate-600 dark:text-slate-400">{pct}%</span>
-                          </div>
-                        </td>
-                      </tr>
+                          </td>
+                        </tr>
+
+                        {/* Hierarchical Nested BOM Breakdown for this FG item */}
+                        {isExpanded && hasNested && (
+                          <tr className="bg-indigo-50/20 dark:bg-indigo-950/20">
+                            <td colSpan={9} className="p-3 pl-6 pr-6">
+                              <div className="rounded-xl border border-indigo-200/70 dark:border-indigo-800/60 bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
+                                <div className="p-2.5 bg-indigo-50/70 dark:bg-indigo-950/40 border-b border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between">
+                                  <span className="font-bold text-xs text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                                    <Layers size={13} className="text-indigo-600" />
+                                    Exploded Nested BOM: {itemName} ({fg.bomNumber || "BOM-Active"})
+                                  </span>
+                                  <span className="text-[10px] font-mono text-slate-500">
+                                    {fg.nestedMaterials.length} Component{fg.nestedMaterials.length > 1 ? 's' : ''} Exploded
+                                  </span>
+                                </div>
+                                <table className="w-full text-xs text-left">
+                                  <thead className="bg-slate-50/80 dark:bg-slate-800/50 font-bold text-slate-500 border-b border-slate-200 dark:border-slate-800 text-[10.5px]">
+                                    <tr>
+                                      <th className="p-2">Component Name & Description</th>
+                                      <th className="p-2 text-center">Level</th>
+                                      <th className="p-2 text-center">Type</th>
+                                      <th className="p-2 text-center">Qty / FG</th>
+                                      <th className="p-2 text-center">Gross Required</th>
+                                      <th className="p-2 text-center">Stock in Hand</th>
+                                      <th className="p-2 text-center">Shortage</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {fg.nestedMaterials.map((nMat: any, nIdx: number) => {
+                                      const indent = nMat.level ? (nMat.level - 1) * 16 : 0;
+                                      return (
+                                        <tr key={nIdx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                                          <td className="p-2">
+                                            <div style={{ paddingLeft: `${indent}px` }} className="flex items-center gap-1.5">
+                                              {nMat.level > 1 && <span className="text-slate-300 font-mono">↳</span>}
+                                              <div>
+                                                <span className="font-bold text-slate-800 dark:text-slate-200 block">{nMat.materialName}</span>
+                                                {nMat.description && (
+                                                  <span className="text-[10px] text-slate-500 italic block mt-0.5 line-clamp-1">{nMat.description}</span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </td>
+                                          <td className="p-2 text-center font-mono text-[10px] text-slate-500">
+                                            Level {nMat.level || 1}
+                                          </td>
+                                          <td className="p-2 text-center">
+                                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                                              nMat.itemType === 'SubAssembly' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' :
+                                              nMat.itemType === 'Component' ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300' :
+                                              nMat.itemType === 'BO' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' :
+                                              nMat.itemType === 'Assembly' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' :
+                                              'bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300'
+                                            }`}>
+                                              {nMat.itemType || "RM"}
+                                            </span>
+                                          </td>
+                                          <td className="p-2 text-center font-mono text-slate-600 dark:text-slate-400">
+                                            {nMat.quantityPerFG || 1} {nMat.unit || 'PCS'}
+                                          </td>
+                                          <td className="p-2 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
+                                            {nMat.totalRequired || nMat.requiredQuantity || 0} {nMat.unit || 'PCS'}
+                                          </td>
+                                          <td className="p-2 text-center font-mono text-slate-600 dark:text-slate-400">
+                                            {nMat.currentStock || nMat.currentPhysicalStock || 0} {nMat.unit || 'PCS'}
+                                          </td>
+                                          <td className="p-2 text-center">
+                                            {(nMat.shortage || nMat.netShortage || 0) > 0 ? (
+                                              <span className="font-bold font-mono text-rose-600 dark:text-rose-400">
+                                                {nMat.shortage || nMat.netShortage} {nMat.unit || 'PCS'}
+                                              </span>
+                                            ) : (
+                                              <span className="font-bold text-[10px] text-emerald-600">Available</span>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>

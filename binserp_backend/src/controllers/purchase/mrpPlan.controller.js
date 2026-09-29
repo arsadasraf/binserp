@@ -515,7 +515,8 @@ export const createMRPPlan = async (req, res) => {
 
       // 2. Direct FG Item ID match with embedded BOM
       if (fgId) {
-        const foundFG = fgById.get(fgId.toString());
+        const strId = String(typeof fgId === 'object' && fgId !== null ? fgId._id || fgId : fgId);
+        const foundFG = fgById.get(strId);
         if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
           return {
             _id: foundFG._id,
@@ -525,35 +526,43 @@ export const createMRPPlan = async (req, res) => {
             items: foundFG.bom.map((b) => ({
               materialName: b.itemName || b.name || "Material",
               materialCode: b.itemCode || b.code || "",
+              description: b.description || b.descriptions || "",
               quantity: Number(b.quantity) || 1,
               unit: b.unit || "PCS",
               itemType: b.itemType || "Material",
+              fgType: b.fgType,
+              itemClassification: b.itemClassification,
             })),
           };
         }
       }
 
-      // 3. Match by Product Name
+      // 3. Match by Product Name (ignore generic placeholders)
       if (pName) {
         const cleanPName = pName.trim().toLowerCase();
-        const found = bomByName.get(cleanPName);
-        if (found && Array.isArray(found.items) && found.items.length > 0) return found;
+        if (cleanPName !== 'finished good' && cleanPName !== 'finish goods' && cleanPName !== 'finished goods') {
+          const found = bomByName.get(cleanPName);
+          if (found && Array.isArray(found.items) && found.items.length > 0) return found;
 
-        const foundFG = fgByName.get(cleanPName);
-        if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
-          return {
-            _id: foundFG._id,
-            bomNumber: `BOM-${foundFG.code || foundFG.name}`,
-            productName: foundFG.name,
-            productCode: foundFG.code,
-            items: foundFG.bom.map((b) => ({
-              materialName: b.itemName || b.name || "Material",
-              materialCode: b.itemCode || b.code || "",
-              quantity: Number(b.quantity) || 1,
-              unit: b.unit || "PCS",
-              itemType: b.itemType || "Material",
-            })),
-          };
+          const foundFG = fgByName.get(cleanPName);
+          if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
+            return {
+              _id: foundFG._id,
+              bomNumber: `BOM-${foundFG.code || foundFG.name}`,
+              productName: foundFG.name,
+              productCode: foundFG.code,
+              items: foundFG.bom.map((b) => ({
+                materialName: b.itemName || b.name || "Material",
+                materialCode: b.itemCode || b.code || "",
+                description: b.description || b.descriptions || "",
+                quantity: Number(b.quantity) || 1,
+                unit: b.unit || "PCS",
+                itemType: b.itemType || "Material",
+                fgType: b.fgType,
+                itemClassification: b.itemClassification,
+              })),
+            };
+          }
         }
       }
 
@@ -573,9 +582,12 @@ export const createMRPPlan = async (req, res) => {
             items: foundFG.bom.map((b) => ({
               materialName: b.itemName || b.name || "Material",
               materialCode: b.itemCode || b.code || "",
+              description: b.description || b.descriptions || "",
               quantity: Number(b.quantity) || 1,
               unit: b.unit || "PCS",
               itemType: b.itemType || "Material",
+              fgType: b.fgType,
+              itemClassification: b.itemClassification,
             })),
           };
         }
@@ -589,8 +601,8 @@ export const createMRPPlan = async (req, res) => {
       const subBOM = findBOM(itemName, itemCode, bId, fgId);
       if (subBOM && Array.isArray(subBOM.items) && subBOM.items.length > 0 && level <= 5) {
         for (const subItem of subBOM.items) {
-          const sName = (subItem.materialName || "").trim();
-          const sCode = (subItem.materialCode || "").trim();
+          const sName = (subItem.materialName || subItem.itemName || "").trim();
+          const sCode = (subItem.materialCode || subItem.itemCode || "").trim();
           const perQty = Number(subItem.quantity) || 1;
           const grossQty = perQty * multiplierQty;
           const unit = subItem.unit || "PCS";
@@ -614,10 +626,12 @@ export const createMRPPlan = async (req, res) => {
                             null;
 
           // Check if this subItem itself is an FGItem / sub-assembly via fast lookup
-          const matchedFG = (sCode && fgByCode.get(sCode.toLowerCase())) ||
+          const subItemId = subItem.item || subItem._id;
+          const matchedFG = (subItemId && fgById.get(String(subItemId))) ||
+                            (sCode && fgByCode.get(sCode.toLowerCase())) ||
                             (sName && fgByName.get(sName.toLowerCase())) ||
                             null;
-          const nestedSubBOM = findBOM(sName, sCode);
+          const nestedSubBOM = findBOM(sName, sCode, undefined, matchedFG?._id);
           const fgType = matchedFG?.type || subItem.fgType || subItem.itemClassification;
           const isSubAssembly = fgType === "Sub Assembly" || Boolean(nestedSubBOM);
           const isComponent = fgType === "Component";
@@ -649,7 +663,7 @@ export const createMRPPlan = async (req, res) => {
             categoryLabel = assignedMasterCat || "Consumable";
           }
 
-          const sDesc = subItem.description || matchedFG?.description || matchedFG?.descriptions || rmBo?.description || rmBo?.descriptions || "";
+          const sDesc = subItem.description || matchedFG?.description || matchedFG?.descriptions || rmBo?.description || rmBo?.descriptions || rawMat?.descriptions || rawMat?.description || boughtOut?.descriptions || boughtOut?.description || "";
 
           nestedList.push({
             materialName: sName,
@@ -676,7 +690,7 @@ export const createMRPPlan = async (req, res) => {
 
           if (!targetMap.has(itemKey)) {
             targetMap.set(itemKey, {
-              material: rmBo?._id,
+              material: rmBo?._id || rawMat?._id || boughtOut?._id,
               materialName: sName,
               materialCode: sCode,
               description: sDesc,
@@ -710,9 +724,9 @@ export const createMRPPlan = async (req, res) => {
             existing.sourceFGNames.push(fgLabel);
           }
 
-          // If it has sub-components, recurse into next level
+          // If it has sub-components, recurse into next level with resolved sub-assembly IDs
           if (isSubAssembly) {
-            explodeItemTree(sName, sCode, grossQty, sName, level + 1, nestedList, undefined, undefined, sourcePoNumber);
+            explodeItemTree(sName, sCode, grossQty, sName, level + 1, nestedList, matchedFG?._id, nestedSubBOM?._id, sourcePoNumber);
           }
         }
       }
@@ -721,16 +735,39 @@ export const createMRPPlan = async (req, res) => {
     // Deduplicate and aggregate Finished Goods line items with full multi-currency and breakdown tracking
     const mergedFgMap = new Map();
 
+    const isGenericPlaceholder = (name) => {
+      const s = (name || "").toLowerCase().trim();
+      return !s || s === "finished good" || s === "finish goods" || s === "finished goods" || s === "unspecified fg item";
+    };
+
     for (const fg of fgItems) {
       const rawQty = Number(fg.quantity) || 1;
-      const rawName = (fg.fgItemName || fg.name || fg.productName || fg.itemName || fg.description || "").trim();
-      const fgCode = (fg.fgItemCode || fg.code || fg.productCode || "").trim();
-      const fgId = fg.fgItem || fg._id;
+      const rawName = (
+        (!isGenericPlaceholder(fg.fgItemName) ? fg.fgItemName : "") ||
+        (typeof fg.fgItem === 'object' && fg.fgItem !== null ? fg.fgItem.name : '') ||
+        fg.name ||
+        fg.productName ||
+        fg.itemName ||
+        ""
+      ).trim();
+      const fgCode = (
+        fg.fgItemCode ||
+        (typeof fg.fgItem === 'object' && fg.fgItem !== null ? fg.fgItem.code : '') ||
+        fg.code ||
+        fg.productCode ||
+        ""
+      ).trim();
+      const fgId = typeof fg.fgItem === 'object' && fg.fgItem !== null ? fg.fgItem._id : (fg.fgItem || fg._id);
+
       const freshFG = (fgId && fgById.get(String(fgId))) ||
                       (rawName && fgByName.get(cleanStr(rawName))) ||
-                      (fgCode && fgByCode.get(cleanStr(fgCode)));
-      const fgName = (freshFG?.name || rawName || (fgCode ? `Item ${fgCode}` : "") || "Finished Good").trim();
-      const itemKey = fgId ? String(fgId) : (fgCode || fgName).toLowerCase();
+                      (fgCode && fgByCode.get(cleanStr(fgCode))) ||
+                      (rawName && allFGItems.find(f => cleanStr(f.name) === cleanStr(rawName))) ||
+                      (fgCode && allFGItems.find(f => cleanStr(f.code) === cleanStr(fgCode)));
+
+      const fgName = (freshFG?.name || (!isGenericPlaceholder(rawName) ? rawName : "") || (fgCode ? `Item ${fgCode}` : "") || (freshFG?.code ? `Item ${freshFG.code}` : "") || "FG Item").trim();
+      const resolvedFGId = freshFG?._id || fgId;
+      const itemKey = resolvedFGId ? String(resolvedFGId) : (fgCode || fgName).toLowerCase();
       if (!itemKey) continue;
 
       const fgPoNumber = fg.customerPoNumber || (resolvedCustomerPOs.length === 1 ? resolvedCustomerPOs[0].customerPoNumber : "");
@@ -806,12 +843,12 @@ export const createMRPPlan = async (req, res) => {
 
       if (!mergedFgMap.has(itemKey)) {
         mergedFgMap.set(itemKey, {
-          fgItem: fgId,
+          fgItem: resolvedFGId,
           fgItemName: fgName,
-          fgItemCode: fgCode,
-          description: fg.description || "",
+          fgItemCode: freshFG?.code || fgCode,
+          description: fg.description || freshFG?.description || freshFG?.descriptions || freshFG?.specification || "",
           quantity: 0,
-          unit: fg.unit || "PCS",
+          unit: fg.unit || freshFG?.unit || "PCS",
           sellingPrice: Number(fg.sellingPrice) || 0,
           priceSource: fg.priceSource || "",
           poDeliveryDate: fgPoDate,
@@ -819,8 +856,8 @@ export const createMRPPlan = async (req, res) => {
           customerPo: fgPoId,
           customerPoNumber: fgPoNumber,
           customerName: fgCustName,
-          bomId: fg.bomId,
-          bomNumber: fg.bomNumber,
+          bomId: fg.bomId || freshFG?.bomId,
+          bomNumber: fg.bomNumber || (freshFG?.bom?.length > 0 ? `BOM-${freshFG.code || freshFG.name}` : undefined),
           sourceBreakdown: [],
           sourceCustomerPOs: [],
         });
@@ -828,8 +865,12 @@ export const createMRPPlan = async (req, res) => {
 
       const existing = mergedFgMap.get(itemKey);
       existing.quantity += rawQty;
-      if (!existing.description && fg.description) existing.description = fg.description;
-      if (!existing.bomId && fg.bomId) existing.bomId = fg.bomId;
+      if (!existing.description && (fg.description || freshFG?.description)) {
+        existing.description = fg.description || freshFG?.description || freshFG?.descriptions || freshFG?.specification || "";
+      }
+      if (!existing.bomId && (fg.bomId || freshFG?.bomId)) {
+        existing.bomId = fg.bomId || freshFG?.bomId;
+      }
 
       // Keep earliest targetDate & poDeliveryDate
       if (fgTargetDate) {
@@ -1115,6 +1156,8 @@ export const getAllMRPPlans = async (req, res) => {
     const mrpPlans = await MRPPlan.find(query)
       .populate("createdBy", "name username email")
       .populate("updatedBy", "name username email")
+      .populate("fgItems.fgItem", "name code description descriptions specification unit sellingPrice category type bom")
+      .populate("fgItems.bomId", "bomNumber productName productCode")
       .sort({ createdAt: -1 })
       .lean();
 
@@ -1154,8 +1197,25 @@ export const getAllMRPPlans = async (req, res) => {
       ? Number(prefixDoc.timeLockPolicies.mrpPlan)
       : 24;
 
+    const isPlaceholder = (n) => !n || n.toLowerCase().trim() === 'finished good' || n.toLowerCase().trim() === 'finish goods' || n.toLowerCase().trim() === 'finished goods' || n.toLowerCase().trim() === 'unspecified fg item';
+
     const enrichedPlans = mrpPlans.map(p => {
-      const planObj = p;
+      const cleanFgItems = (p.fgItems || []).map(f => {
+        const masterFG = f.fgItem && typeof f.fgItem === 'object' ? f.fgItem : null;
+        const resolvedName = masterFG?.name || (!isPlaceholder(f.fgItemName) ? f.fgItemName : '') || masterFG?.code || (f.fgItemCode ? `Item ${f.fgItemCode}` : '') || 'FG Item';
+        const resolvedDesc = f.description || masterFG?.description || masterFG?.descriptions || masterFG?.specification || '';
+        return {
+          ...f,
+          fgItemName: resolvedName,
+          description: resolvedDesc
+        };
+      });
+
+      const planObj = {
+        ...p,
+        fgItems: cleanFgItems
+      };
+
       const poCount = (poPlanIdMap.get(String(p._id)) || 0) + (poPlanNumMap.get(p.mrpNumber) || 0);
       const liveCommitted = Math.round(((poCommittedAmountMap.get(String(p._id)) || 0) + (poCommittedAmountMap.get(p.mrpNumber) || 0)) * 100) / 100;
       const targetExpense = Number(p.targetExpense || 0);
@@ -1230,9 +1290,10 @@ export const getMRPPlanById = async (req, res) => {
       .populate("createdBy", "name username email")
       .populate("updatedBy", "name username email")
       .populate("editHistory.updatedBy", "name username email")
-      .populate("fgItems.fgItem")
-      .populate("rmRequirements.material")
-      .populate("boRequirements.material");
+      .populate("fgItems.fgItem", "name code description descriptions specification unit sellingPrice category type bom")
+      .populate("fgItems.bomId")
+      .populate("rmRequirements.material", "name code unit category descriptions description specification")
+      .populate("boRequirements.material", "name code unit category descriptions description specification");
 
     if (!mrpPlan) {
       return res.status(404).json({ message: "MRP Plan not found" });
@@ -1311,6 +1372,19 @@ export const getMRPPlanById = async (req, res) => {
     }
 
     const planObj = mrpPlan.toObject ? mrpPlan.toObject() : mrpPlan;
+
+    // Sanitize FG items to ensure master catalog name and technical descriptions are populated
+    const isPlaceholderFG = (n) => !n || n.toLowerCase().trim() === 'finished good' || n.toLowerCase().trim() === 'finish goods' || n.toLowerCase().trim() === 'finished goods' || n.toLowerCase().trim() === 'unspecified fg item';
+    planObj.fgItems = (planObj.fgItems || []).map(f => {
+      const masterFG = f.fgItem && typeof f.fgItem === 'object' ? f.fgItem : null;
+      const resolvedName = masterFG?.name || (!isPlaceholderFG(f.fgItemName) ? f.fgItemName : '') || masterFG?.code || (f.fgItemCode ? `Item ${f.fgItemCode}` : '') || 'FG Item';
+      const resolvedDesc = f.description || masterFG?.description || masterFG?.descriptions || masterFG?.specification || '';
+      return {
+        ...f,
+        fgItemName: resolvedName,
+        description: resolvedDesc
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -2428,7 +2502,8 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
   const findBOM = (pName, pCode, bId, fgId) => {
     // 1. Direct FG Item ID match with embedded BOM (LATEST)
     if (fgId) {
-      const foundFG = fgById.get(fgId.toString());
+      const strId = String(typeof fgId === 'object' && fgId !== null ? fgId._id || fgId : fgId);
+      const foundFG = fgById.get(strId);
       if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
         return {
           _id: foundFG._id,
@@ -2449,27 +2524,29 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
       }
     }
 
-    // 2. Match by Product Name on FGItem embedded BOM
+    // 2. Match by Product Name on FGItem embedded BOM (ignore generic placeholders)
     if (pName) {
       const cleanPName = cleanStr(pName);
-      const foundFG = fgByName.get(cleanPName);
-      if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
-        return {
-          _id: foundFG._id,
-          bomNumber: `BOM-${foundFG.code || foundFG.name}`,
-          productName: foundFG.name,
-          productCode: foundFG.code,
-          items: foundFG.bom.map((b) => ({
-            materialName: b.itemName || b.name || "Material",
-            materialCode: b.itemCode || b.code || "",
-            quantity: Number(b.quantity) || 1,
-            unit: b.unit || "PCS",
-            itemType: b.itemType || "Material",
-            fgType: b.fgType,
-            itemClassification: b.itemClassification,
-            description: b.description || b.descriptions || "",
-          })),
-        };
+      if (cleanPName !== 'finished good' && cleanPName !== 'finish goods' && cleanPName !== 'finished goods' && cleanPName !== 'unspecified fg item') {
+        const foundFG = fgByName.get(cleanPName);
+        if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
+          return {
+            _id: foundFG._id,
+            bomNumber: `BOM-${foundFG.code || foundFG.name}`,
+            productName: foundFG.name,
+            productCode: foundFG.code,
+            items: foundFG.bom.map((b) => ({
+              materialName: b.itemName || b.name || "Material",
+              materialCode: b.itemCode || b.code || "",
+              quantity: Number(b.quantity) || 1,
+              unit: b.unit || "PCS",
+              itemType: b.itemType || "Material",
+              fgType: b.fgType,
+              itemClassification: b.itemClassification,
+              description: b.description || b.descriptions || "",
+            })),
+          };
+        }
       }
     }
 
@@ -2505,8 +2582,10 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
 
     if (pName) {
       const cleanPName = cleanStr(pName);
-      const found = bomByName.get(cleanPName);
-      if (found && Array.isArray(found.items) && found.items.length > 0) return found;
+      if (cleanPName !== 'finished good' && cleanPName !== 'finish goods' && cleanPName !== 'finished goods' && cleanPName !== 'unspecified fg item') {
+        const found = bomByName.get(cleanPName);
+        if (found && Array.isArray(found.items) && found.items.length > 0) return found;
+      }
     }
 
     if (pCode) {
@@ -2540,8 +2619,8 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     const subBOM = findBOM(itemName, itemCode, bId, fgId);
     if (subBOM && Array.isArray(subBOM.items) && subBOM.items.length > 0 && level <= 5) {
       for (const subItem of subBOM.items) {
-        const sName = (subItem.materialName || "").trim();
-        const sCode = (subItem.materialCode || "").trim();
+        const sName = (subItem.materialName || subItem.itemName || "").trim();
+        const sCode = (subItem.materialCode || subItem.itemCode || "").trim();
         const perQty = Number(subItem.quantity) || 1;
         const grossQty = perQty * multiplierQty;
         const unit = subItem.unit || "PCS";
@@ -2565,7 +2644,9 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
                           null;
 
         // Check if this subItem itself is an FGItem / sub-assembly via fast lookup
-        const matchedFG = (sCode && fgByCode.get(sCode.toLowerCase())) ||
+        const subItemId = subItem.item || subItem._id;
+        const matchedFG = (subItemId && fgById.get(String(subItemId))) ||
+                          (sCode && fgByCode.get(sCode.toLowerCase())) ||
                           (sName && fgByName.get(sName.toLowerCase())) ||
                           null;
         const nestedSubBOM = findBOM(sName, sCode, undefined, matchedFG?._id);
@@ -2662,7 +2743,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
         }
 
         if (isSubAssembly) {
-          explodeItemTree(sName, sCode, grossQty, sName, level + 1, nestedList, matchedFG?._id, undefined, sourcePoNumber);
+          explodeItemTree(sName, sCode, grossQty, sName, level + 1, nestedList, matchedFG?._id, nestedSubBOM?._id, sourcePoNumber);
         }
       }
     }
@@ -2892,26 +2973,63 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
   // Re-explode all FG items in this plan with their latest BOM
   const enrichedFgItems = [];
 
+  const isGenericPlaceholder = (name) => {
+    const s = (name || "").toLowerCase().trim();
+    return !s || s === "finished good" || s === "finish goods" || s === "finished goods" || s === "unspecified fg item";
+  };
+
   for (const fg of workingFgItems) {
     const fgQty = Number(fg.quantity) || 1;
-    const rawName = (fg.fgItemName || fg.name || fg.productName || fg.itemName || fg.description || "").trim();
-    const fgCode = (fg.fgItemCode || fg.code || fg.productCode || "").trim();
-    const fgId = fg.fgItem?._id || fg.fgItem || fg._id;
+    let rawName = (
+      (!isGenericPlaceholder(fg.fgItemName) ? fg.fgItemName : "") ||
+      (typeof fg.fgItem === 'object' && fg.fgItem !== null ? fg.fgItem.name : '') ||
+      fg.name ||
+      fg.productName ||
+      fg.itemName ||
+      ""
+    ).trim();
+    const fgCode = (
+      fg.fgItemCode ||
+      (typeof fg.fgItem === 'object' && fg.fgItem !== null ? fg.fgItem.code : '') ||
+      fg.code ||
+      fg.productCode ||
+      ""
+    ).trim();
+    const fgId = typeof fg.fgItem === 'object' && fg.fgItem !== null ? fg.fgItem._id : (fg.fgItem || fg._id);
 
     // Refresh FG details from latest master catalog
-    const freshFG = (fgId && fgById.get(String(fgId))) ||
-                    (rawName && fgByName.get(cleanStr(rawName))) ||
-                    (fgCode && fgByCode.get(cleanStr(fgCode))) ||
-                    allFGItems.find(
-                      (f) => (fgId && f._id && f._id.toString() === fgId.toString()) ||
-                             (rawName && f.name && cleanStr(f.name) === cleanStr(rawName)) ||
-                             (fgCode && f.code && cleanStr(f.code) === cleanStr(fgCode))
-                    );
+    let freshFG = (fgId && fgById.get(String(fgId))) ||
+                  (rawName && fgByName.get(cleanStr(rawName))) ||
+                  (fgCode && fgByCode.get(cleanStr(fgCode))) ||
+                  allFGItems.find(
+                    (f) => (fgId && f._id && f._id.toString() === fgId.toString()) ||
+                           (rawName && f.name && cleanStr(f.name) === cleanStr(rawName)) ||
+                           (fgCode && f.code && cleanStr(f.code) === cleanStr(fgCode))
+                  );
 
-    const resolvedFGName = (freshFG?.name || rawName || (fgCode ? `Item ${fgCode}` : "") || "Finished Good").trim();
+    // Self-healing: If still not found and we have customer PO docs, recover actual item from linked customer PO
+    if (!freshFG && isGenericPlaceholder(fg.fgItemName) && linkedCustomerPOs.length > 0) {
+      for (const cpo of linkedCustomerPOs) {
+        const matchedItem = (cpo.items || []).find(it => {
+          const itId = it.fgItem?._id || it.fgItem;
+          return (fgId && itId && String(itId) === String(fgId)) ||
+                 (fgCode && (it.productCode === fgCode || it.code === fgCode));
+        }) || (cpo.items || [])[0];
+        if (matchedItem) {
+          const poName = (matchedItem.productName || matchedItem.name || matchedItem.description || "").trim();
+          if (poName && !isGenericPlaceholder(poName)) {
+            rawName = poName;
+            freshFG = fgByName.get(cleanStr(poName)) || allFGItems.find(f => cleanStr(f.name) === cleanStr(poName));
+            break;
+          }
+        }
+      }
+    }
+
+    const resolvedFGName = (freshFG?.name || (!isGenericPlaceholder(rawName) ? rawName : "") || (fgCode ? `Item ${fgCode}` : "") || (freshFG?.code ? `Item ${freshFG.code}` : "") || "FG Item").trim();
     const resolvedFGCode = freshFG?.code || fgCode;
     const resolvedFGId = freshFG?._id || fgId;
-    const resolvedDesc = freshFG?.description || freshFG?.descriptions || fg.description || "";
+    const resolvedDesc = freshFG?.description || freshFG?.descriptions || freshFG?.specification || (!isGenericPlaceholder(fg.description) ? fg.description : "") || "";
 
     const combinedPoNumbers = Array.isArray(fg.sourceCustomerPOs) && fg.sourceCustomerPOs.length > 0
       ? fg.sourceCustomerPOs.join(", ")

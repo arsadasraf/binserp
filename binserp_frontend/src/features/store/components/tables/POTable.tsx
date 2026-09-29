@@ -77,6 +77,26 @@ const getVendorGstStr = (vendorObj: any): string => {
 
 const ALL_STATUSES = ['Released', 'Approved', 'Partially Received', 'Completed', 'Cancelled'] as const;
 
+const formatNoteTime = (d: string | Date): string => {
+    if (!d) return '';
+    try {
+        const date = new Date(d);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMins / 60);
+        const diffDays = Math.floor(diffHours / 24);
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays === 1) return 'Yesterday';
+        if (diffDays < 7) return `${diffDays}d ago`;
+        return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+    } catch {
+        return '';
+    }
+};
+
 export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendors = [], materials = [], companyInfo, onStatusChange }: POTableProps) {
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [selectedPoPreview, setSelectedPoPreview] = useState<any | null>(null);
@@ -262,31 +282,49 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         try {
             const token = localStorage.getItem('token');
             const poId = selectedPoPreview._id || selectedPoPreview.id;
-            const res = await fetch(`${API_BASE_URL}/api/purchase/po/${poId}`, {
-                method: 'PUT',
+            
+            // Try dedicated follow-up endpoint first
+            let res = await fetch(`${API_BASE_URL}/api/purchase/po/${poId}/follow-up`, {
+                method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    newFollowUp: {
-                        comment: newCommentText.trim(),
-                        category: newCommentCategory
-                    }
+                    comment: newCommentText.trim(),
+                    category: newCommentCategory
                 })
             });
 
+            // Fallback to PUT if 404
+            if (!res.ok && res.status === 404) {
+                res = await fetch(`${API_BASE_URL}/api/purchase/po/${poId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        newFollowUp: {
+                            comment: newCommentText.trim(),
+                            category: newCommentCategory
+                        }
+                    })
+                });
+            }
+
             if (res.ok) {
                 const json = await res.json();
-                const updated = json.data || json;
-                const newEntry = {
+                const payload = json.data || json;
+                const authorName = currentUser?.name || currentUser?.username || 'You';
+                const newEntry = payload?.newFollowUp || {
                     comment: newCommentText.trim(),
                     category: newCommentCategory,
-                    author: updated?.updatedByName || 'You',
+                    author: authorName,
                     createdAt: new Date().toISOString()
                 };
 
-                const newFollowUpsList = updated?.followUps || [...(selectedPoPreview?.followUps || []), newEntry];
+                const newFollowUpsList = payload?.followUps || [...(selectedPoPreview?.followUps || []), newEntry];
 
                 setSelectedPoPreview((prev: any) => ({
                     ...prev,
@@ -1026,6 +1064,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     <th className="px-4 py-3.5 w-36">Material Type</th>
                                     <th className="px-6 py-3.5">Vendor / Supplier</th>
                                     <th className="px-6 py-3.5">Items & Piece Count</th>
+                                    <th className="px-5 py-3.5 w-72">Follow-Up / Remarks</th>
                                     <th className="px-6 py-3.5 text-right">Total Value</th>
                                     <th className="px-6 py-3.5 text-center">Status</th>
                                     <th className="px-6 py-3.5 text-right">Actions</th>
@@ -1107,6 +1146,73 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                         <span className="text-xs text-purple-600 dark:text-purple-400 font-bold">({itemsList.length} items)</span>
                                                     )}
                                                 </div>
+                                            </td>
+
+                                            {/* Follow-Up / Remarks (Top 2 Messages) */}
+                                            <td className="px-5 py-4">
+                                                {(() => {
+                                                    const rawFollowUps = localFollowUpsMap[item._id || item.id] || item.followUps || [];
+                                                    const sortedFollowUps = [...rawFollowUps].sort((a: any, b: any) => 
+                                                        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+                                                    );
+                                                    const topTwo = sortedFollowUps.slice(0, 2);
+                                                    const extraCount = Math.max(0, sortedFollowUps.length - 2);
+
+                                                    if (topTwo.length === 0) {
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSelectedPoPreview({ ...item, followUps: [] })}
+                                                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-lg text-xs font-medium border border-dashed border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                                                                title="Add follow-up note"
+                                                            >
+                                                                <MessageSquare size={12} className="text-slate-400" />
+                                                                <span>Add Note</span>
+                                                            </button>
+                                                        );
+                                                    }
+
+                                                    return (
+                                                        <div className="space-y-1.5 max-w-[270px]">
+                                                            {topTwo.map((fu: any, fIdx: number) => {
+                                                                const authorName = fu.author || fu.authorId?.name || fu.authorId?.username || 'User';
+                                                                const cat = fu.category || 'General';
+                                                                return (
+                                                                    <div key={fIdx} className="bg-slate-50/90 dark:bg-slate-800/80 p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 text-xs space-y-0.5 shadow-2xs">
+                                                                        <div className="flex items-center justify-between text-[10px]">
+                                                                            <span className={`px-1.5 py-0.2 rounded font-bold uppercase tracking-wide text-[9px] ${
+                                                                                cat === 'Vendor Follow-up' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
+                                                                                cat === 'Dispatch Update' ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300' :
+                                                                                cat === 'Payment Note' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                                                                                cat === 'Urgent' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' :
+                                                                                'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                                                                            }`}>
+                                                                                {cat}
+                                                                            </span>
+                                                                            <span className="text-slate-400 font-mono text-[9px]">{formatNoteTime(fu.createdAt)}</span>
+                                                                        </div>
+                                                                        <p className="text-[11px] text-slate-800 dark:text-slate-200 line-clamp-1 font-medium" title={fu.comment}>
+                                                                            {fu.comment}
+                                                                        </p>
+                                                                        <div className="text-[10px] text-slate-400 flex items-center gap-1 truncate">
+                                                                            <User size={10} className="shrink-0 text-slate-400" />
+                                                                            <span>By: <strong className="text-slate-600 dark:text-slate-300 font-semibold">{authorName}</strong></span>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                            {extraCount > 0 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setSelectedPoPreview({ ...item, followUps: sortedFollowUps })}
+                                                                    className="text-[10.5px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer pl-0.5"
+                                                                >
+                                                                    <MessageSquare size={11} /> +{extraCount} more note{extraCount !== 1 ? 's' : ''}
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
 
                                             <td className="px-6 py-4 text-right text-gray-900 dark:text-white font-extrabold font-mono text-sm">
@@ -1356,6 +1462,53 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                             </span>
                                         </div>
                                     </div>
+
+                                    {/* Mobile Follow-Up Top 2 Notes */}
+                                    {(() => {
+                                        const rawFollowUps = localFollowUpsMap[item._id || item.id] || item.followUps || [];
+                                        const sortedFollowUps = [...rawFollowUps].sort((a: any, b: any) => 
+                                            new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+                                        );
+                                        const topTwo = sortedFollowUps.slice(0, 2);
+                                        const extraCount = Math.max(0, sortedFollowUps.length - 2);
+
+                                        if (topTwo.length === 0) return null;
+
+                                        return (
+                                            <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200/70 dark:border-slate-800 space-y-1.5">
+                                                <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                                                    <span className="flex items-center gap-1">
+                                                        <MessageSquare size={12} className="text-indigo-500" />
+                                                        Follow-Up Notes ({sortedFollowUps.length})
+                                                    </span>
+                                                    {extraCount > 0 && (
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => setSelectedPoPreview({ ...item, followUps: sortedFollowUps })}
+                                                            className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline"
+                                                        >
+                                                            +{extraCount} more
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <div className="space-y-1">
+                                                    {topTwo.map((fu: any, fIdx: number) => {
+                                                        const authorName = fu.author || fu.authorId?.name || fu.authorId?.username || 'User';
+                                                        return (
+                                                            <div key={fIdx} className="text-xs border-b border-slate-100 dark:border-slate-800/80 pb-1 last:border-b-0 last:pb-0">
+                                                                <div className="flex items-center justify-between text-[10px]">
+                                                                    <span className="font-bold text-indigo-600 dark:text-indigo-400">[{fu.category || 'General'}]</span>
+                                                                    <span className="text-slate-400 font-mono text-[9px]">{formatNoteTime(fu.createdAt)}</span>
+                                                                </div>
+                                                                <p className="text-[11px] text-slate-800 dark:text-slate-200 line-clamp-1">{fu.comment}</p>
+                                                                <span className="text-[9.5px] text-slate-400">By: <strong>{authorName}</strong></span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
 
                                     {/* Action Buttons & Countdown */}
                                     <div className="flex items-center justify-between gap-1.5 pt-1">
@@ -1640,45 +1793,62 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                 </div>
 
                                 {/* Existing Notes Timeline */}
-                                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
                                     {(!selectedPoPreview.followUps || selectedPoPreview.followUps.length === 0) ? (
-                                        <div className="p-3 text-center bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400 text-xs">
-                                            <p className="font-medium">No follow-up notes recorded yet.</p>
-                                            <span className="text-[10px]">Add your first follow-up note below to track vendor communications or dispatch status.</span>
+                                        <div className="p-4 text-center bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400 text-xs space-y-1">
+                                            <MessageSquare size={20} className="mx-auto text-slate-300 mb-1" />
+                                            <p className="font-bold text-slate-600 dark:text-slate-400">No follow-up notes recorded yet.</p>
+                                            <span className="text-[11px]">Add your first follow-up note below to track vendor communications or dispatch status.</span>
                                         </div>
                                     ) : (
-                                        selectedPoPreview.followUps.map((fu: any, fIdx: number) => {
-                                            const noteDate = new Date(fu.createdAt || Date.now()).toLocaleString('en-GB', {
-                                                day: '2-digit', month: 'short', year: 'numeric',
-                                                hour: '2-digit', minute: '2-digit'
-                                            });
-                                            const tag = fu.category || 'General';
+                                        [...selectedPoPreview.followUps]
+                                            .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+                                            .map((fu: any, fIdx: number) => {
+                                                const noteDate = new Date(fu.createdAt || Date.now()).toLocaleString('en-GB', {
+                                                    day: '2-digit', month: 'short', year: 'numeric',
+                                                    hour: '2-digit', minute: '2-digit'
+                                                });
+                                                const tag = fu.category || 'General';
+                                                const authorName = fu.author || fu.authorId?.name || fu.authorId?.username || 'User';
+                                                const authorInitials = authorName.slice(0, 2).toUpperCase();
 
-                                            return (
-                                                <div key={fIdx} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5 shadow-2xs">
-                                                    <div className="flex items-center justify-between text-[10px]">
-                                                        <div className="flex items-center gap-1.5">
-                                                            <span className={`px-2 py-0.5 rounded-full font-bold uppercase tracking-wide text-[9px] ${
-                                                                tag === 'Vendor Follow-up' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
-                                                                tag === 'Dispatch Update' ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300' :
-                                                                tag === 'Payment Note' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
-                                                                tag === 'Urgent' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' :
-                                                                'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
-                                                            }`}>
-                                                                {tag}
-                                                            </span>
-                                                            <span className="font-bold text-slate-700 dark:text-slate-300">
-                                                                By: {fu.author || 'User'}
-                                                            </span>
+                                                return (
+                                                    <div key={fIdx} className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200/90 dark:border-slate-800 space-y-2 shadow-2xs">
+                                                        <div className="flex items-center justify-between text-xs gap-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-bold text-[10px] flex items-center justify-center shrink-0">
+                                                                    {authorInitials}
+                                                                </div>
+                                                                <div>
+                                                                    <div className="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                                                                        <span>{authorName}</span>
+                                                                        {fu.authorId?.email && (
+                                                                            <span className="text-[10px] text-slate-400 font-normal hidden sm:inline">
+                                                                                ({fu.authorId.email})
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-2 shrink-0">
+                                                                <span className={`px-2 py-0.5 rounded-full font-bold uppercase tracking-wide text-[9px] ${
+                                                                    tag === 'Vendor Follow-up' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
+                                                                    tag === 'Dispatch Update' ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300' :
+                                                                    tag === 'Payment Note' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                                                                    tag === 'Urgent' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' :
+                                                                    'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
+                                                                }`}>
+                                                                    {tag}
+                                                                </span>
+                                                                <span className="text-slate-400 font-mono text-[10px]">{noteDate}</span>
+                                                            </div>
                                                         </div>
-                                                        <span className="text-slate-400 font-mono">{noteDate}</span>
+                                                        <p className="text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap pl-8">
+                                                            {fu.comment}
+                                                        </p>
                                                     </div>
-                                                    <p className="text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
-                                                        {fu.comment}
-                                                    </p>
-                                                </div>
-                                            );
-                                        })
+                                                );
+                                            })
                                     )}
                                 </div>
 

@@ -239,7 +239,7 @@ export default function OrderAcknowledgementModal({
                                 <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider text-[10px]">
                                     <tr>
                                         <th className="p-3.5 text-center w-10">#</th>
-                                        <th className="p-3.5">Product Name & Specifications</th>
+                                        <th className="p-3.5">Item Name & Description</th>
                                         <th className="p-3.5 text-center">Ordered Qty</th>
                                         <th className="p-3.5 text-right">Unit Rate ({po.currency || 'INR'})</th>
                                         <th className="p-3.5 text-center">Requested Date</th>
@@ -251,6 +251,7 @@ export default function OrderAcknowledgementModal({
                                         const key = item._id || item.fgItem?._id || item.fgItem || `item-${idx}`;
                                         const itemVal = itemsCommitments[key] || "";
                                         const pName = item.productName || item.fgItem?.name || 'Product Item';
+                                        const pDesc = item.description || item.fgItem?.description || item.fgItem?.descriptions || '';
                                         const qty = Number(item.quantity || 1);
                                         const rate = Number(item.rate || 0);
                                         const reqDate = item.expectedDeliveryDate ? new Date(item.expectedDeliveryDate).toLocaleDateString('en-GB') : '-';
@@ -259,9 +260,13 @@ export default function OrderAcknowledgementModal({
                                             <tr key={idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
                                                 <td className="p-3.5 text-center font-bold text-slate-400">{idx + 1}</td>
                                                 <td className="p-3.5">
-                                                    <strong className="text-slate-800 dark:text-slate-200 block text-xs">{pName}</strong>
-                                                    {item.description && (
-                                                        <span className="text-[10px] text-slate-400 block line-clamp-1">{item.description}</span>
+                                                    <div className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+                                                        {pName}
+                                                    </div>
+                                                    {pDesc && (
+                                                        <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                                                            {pDesc}
+                                                        </div>
                                                     )}
                                                 </td>
                                                 <td className="p-3.5 text-center font-bold text-blue-600 dark:text-blue-400">

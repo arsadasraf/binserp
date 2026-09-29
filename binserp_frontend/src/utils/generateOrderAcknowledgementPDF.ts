@@ -63,8 +63,8 @@ export const generateFrontendOrderAcknowledgementPDF = ({ po, companyInfo }: Ord
 
     items.forEach((item: any, idx: number) => {
         const pName = item.productName || item.fgItem?.name || "Product Item";
-        const pCode = item.fgItem?.code ? `(${item.fgItem.code})` : "";
-        const desc = item.description ? `<br/><span style="font-size: 9px; color: #64748b;">${item.description}</span>` : "";
+        const descText = item.description || item.fgItem?.description || item.fgItem?.descriptions || "";
+        const desc = descText ? `<div style="font-size: 9.5px; color: #64748b; font-style: italic; margin-top: 2px; line-height: 1.25;">${descText}</div>` : "";
         const qty = Number(item.quantity || 1);
         const unit = item.unit || "PCS";
         const rate = Number(item.rate || 0);
@@ -84,7 +84,7 @@ export const generateFrontendOrderAcknowledgementPDF = ({ po, companyInfo }: Ord
             <tr style="border-bottom: 1px solid #e2e8f0;">
                 <td style="padding: 7px 8px; text-align: center; font-size: 11px; font-weight: bold; color: #475569;">${idx + 1}</td>
                 <td style="padding: 7px 8px; text-align: left; font-size: 11px;">
-                    <strong style="color: #0f172a;">${pName} ${pCode}</strong>
+                    <div style="font-weight: 700; color: #0f172a; font-size: 11px; line-height: 1.3;">${pName}</div>
                     ${desc}
                 </td>
                 <td style="padding: 7px 8px; text-align: center; font-size: 11px; font-family: monospace; font-weight: bold; color: #475569;">
@@ -248,7 +248,7 @@ export const generateFrontendOrderAcknowledgementPDF = ({ po, companyInfo }: Ord
                         <thead style="background: #1e3a8a; color: #fff;">
                             <tr>
                                 <th style="padding: 7px 6px; font-size: 10px; font-weight: 800; text-align: center; width: 5%;">#</th>
-                                <th style="padding: 7px 8px; font-size: 10px; font-weight: 800; text-align: left; width: 30%;">Item Description / Spec</th>
+                                <th style="padding: 7px 8px; font-size: 10px; font-weight: 800; text-align: left; width: 30%;">Item Name & Description</th>
                                 <th style="padding: 7px 6px; font-size: 10px; font-weight: 800; text-align: center; width: 10%;">HSN</th>
                                 <th style="padding: 7px 6px; font-size: 10px; font-weight: 800; text-align: center; width: 9%;">Qty</th>
                                 <th style="padding: 7px 8px; font-size: 10px; font-weight: 800; text-align: right; width: 13%;">Rate (${currSym})</th>
@@ -417,6 +417,8 @@ export const downloadOrderAcknowledgementJsPDF = ({ po, companyInfo }: OrderAckn
     // Items Table
     const tableBody = (po.items || []).map((item: any, idx: number) => {
         const pName = item.productName || item.fgItem?.name || "Product Item";
+        const itemDesc = item.description || item.fgItem?.description || item.fgItem?.descriptions || "";
+        const itemDisplayName = itemDesc ? `${pName}\n${itemDesc}` : pName;
         const qty = Number(item.quantity || 1);
         const unit = item.unit || "PCS";
         const rate = Number(item.rate || 0);
@@ -431,7 +433,7 @@ export const downloadOrderAcknowledgementJsPDF = ({ po, companyInfo }: OrderAckn
 
         return [
             idx + 1,
-            pName,
+            itemDisplayName,
             `${qty} ${unit}`,
             rateStr,
             `${taxRate}%`,
@@ -442,7 +444,7 @@ export const downloadOrderAcknowledgementJsPDF = ({ po, companyInfo }: OrderAckn
 
     autoTable(doc, {
         startY: yPos,
-        head: [["#", "Item Description", "Qty", `Rate (${currSym})`, "GST", "Committed Date", `Total Amount (${currSym})`]],
+        head: [["#", "Item Name & Description", "Qty", `Rate (${currSym})`, "GST", "Committed Date", `Total Amount (${currSym})`]],
         body: tableBody,
         theme: "striped",
         headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 8 },

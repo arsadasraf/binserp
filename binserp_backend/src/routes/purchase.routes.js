@@ -19,6 +19,7 @@ import {
   getAllPOs,
   updatePO,
   deletePO,
+  addPOFollowUp,
   getVendorPOBucket,
   getVendorActivePOs,
   createVendorPriceList,
@@ -184,6 +185,9 @@ router.route("/po")
 router.route("/po/:id")
   .put(updatePO)
   .delete(deletePO);
+
+router.route("/po/:id/follow-up")
+  .post(addPOFollowUp);
 
 // Vendor Price List Routes
 router.route("/price-list")

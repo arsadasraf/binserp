@@ -398,7 +398,7 @@ export const getAllSalesOrders = asyncHandler(async (req, res) => {
 
   const rawOrders = await SalesOrder.find({ company: companyId })
     .populate("customer", "name code email phone")
-    .populate("items.fgItem", "name code type description quantity allocatedQuantity unit")
+    .populate("items.fgItem", "name type description descriptions specification quantity allocatedQuantity unit")
     .populate("createdBy", "name")
     .sort({ createdAt: -1 })
     .lean();
@@ -442,7 +442,7 @@ export const getSalesOrderById = asyncHandler(async (req, res) => {
 
   const rawOrder = await SalesOrder.findOne({ _id: req.params.id, company: companyId })
     .populate("customer", "name code email phone")
-    .populate("items.fgItem", "name code type description quantity allocatedQuantity unit")
+    .populate("items.fgItem", "name type description descriptions specification quantity allocatedQuantity unit")
     .lean();
 
   if (!rawOrder) {

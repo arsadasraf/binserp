@@ -2909,7 +2909,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                             <table className="w-full text-xs text-left">
                                                 <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-300">
                                                     <tr>
-                                                        <th className="p-3">FG Item Name</th>
+                                                        <th className="p-3">Item Name & Description</th>
                                                         <th className="p-3 text-center">HSN</th>
                                                         <th className="p-3 text-center">Ordered Qty</th>
                                                         <th className="p-3 text-right">Unit Rate ({selectedPo.currency || 'INR'})</th>
@@ -2923,13 +2923,20 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                         const rate = Number(item.rate) || 0;
                                                         const tax = Number(item.taxRate != null ? item.taxRate : 18);
                                                         const lineTotal = item.amount ? Number(item.amount) : (qty * rate * (1 + tax / 100));
+                                                        const itemName = item.fgItem?.name || item.productName || 'FG Item';
+                                                        const itemDesc = item.description || item.fgItem?.description || item.fgItem?.descriptions || '';
 
                                                         return (
                                                             <tr key={idx}>
-                                                                <td className="p-3 font-bold">
-                                                                    {item.fgItem?.name || item.productName || 'FG Item'}
-                                                                    {item.fgItem?.code && <span className="text-[10px] text-slate-400 font-mono ml-1">[{item.fgItem.code}]</span>}
-                                                                    {item.description && <span className="block text-[10px] font-normal text-slate-400">{item.description}</span>}
+                                                                <td className="p-3">
+                                                                    <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100">
+                                                                        {itemName}
+                                                                    </div>
+                                                                    {itemDesc && (
+                                                                        <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                                                                            {itemDesc}
+                                                                        </div>
+                                                                    )}
                                                                 </td>
                                                                 <td className="p-3 text-center font-mono text-xs text-slate-600 dark:text-slate-400">{item.hsnCode || item.hsn || '-'}</td>
                                                                 <td className="p-3 text-center font-bold text-blue-600">{qty} {item.unit || 'PCS'}</td>
@@ -3061,8 +3068,11 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                             const fulfilledQty = Math.max(dcQty, invQty);
                                             const remainingQty = Math.max(0, ordQty - fulfilledQty);
 
+                                            const itemDesc = poItem.description || poItem.fgItem?.description || poItem.fgItem?.descriptions || '';
+
                                             return {
                                                 productName: poItem.productName || poItem.fgItem?.name || 'Product Item',
+                                                description: itemDesc,
                                                 unit: poItem.unit || 'PCS',
                                                 orderedQty: ordQty,
                                                 dcQty,
@@ -3102,7 +3112,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                         <table className="w-full text-xs text-left">
                                                             <thead className="bg-slate-50 dark:bg-slate-800 font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                                                 <tr>
-                                                                    <th className="p-3">Product Item</th>
+                                                                    <th className="p-3">Item Name & Description</th>
                                                                     <th className="p-3 text-center">Ordered Qty</th>
                                                                     <th className="p-3 text-center">DC Dispatched</th>
                                                                     <th className="p-3 text-center">Invoiced Qty</th>
@@ -3113,7 +3123,16 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                                                                 {itemFulfillmentList.map((row: any, idx: number) => (
                                                                     <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/50">
-                                                                        <td className="p-3 font-bold text-slate-800 dark:text-slate-200">{row.productName}</td>
+                                                                        <td className="p-3">
+                                                                            <div className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+                                                                                {row.productName}
+                                                                            </div>
+                                                                            {row.description && (
+                                                                                <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
+                                                                                    {row.description}
+                                                                                </div>
+                                                                            )}
+                                                                        </td>
                                                                         <td className="p-3 text-center font-bold text-slate-700 dark:text-slate-300">{row.orderedQty} {row.unit}</td>
                                                                         <td className="p-3 text-center font-mono text-slate-700 dark:text-slate-300">{row.dcQty} {row.unit}</td>
                                                                         <td className="p-3 text-center font-mono text-slate-700 dark:text-slate-300">{row.invQty} {row.unit}</td>

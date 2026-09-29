@@ -243,6 +243,7 @@ export const getAllPOs = asyncHandler(async (req, res) => {
     .populate("items.material", "name code unit category descriptions description specification")
     .populate("createdBy", "name username email")
     .populate("updatedBy", "name username email")
+    .populate("followUps.authorId", "name username email")
     .sort({ createdAt: -1 });
 
   // Fetch all GRNs linked to these POs
@@ -845,3 +846,41 @@ export const deletePO = asyncHandler(async (req, res) => {
     deletedAt: new Date()
   }, "PO deleted successfully"));
 });
+
+export const addPOFollowUp = asyncHandler(async (req, res) => {
+  const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
+  const companyId = getCompanyId(req);
+  const { id } = req.params;
+  const { comment, category = "General" } = req.body;
+
+  if (!comment || !String(comment).trim()) {
+    throw new ApiError(400, "Follow-up comment is required");
+  }
+
+  const existingPO = await PurchaseOrder.findOne({ _id: id, company: companyId });
+  if (!existingPO) {
+    throw new ApiError(404, "Purchase Order not found");
+  }
+
+  const userName = req.user?.name || req.user?.username || req.user?.email || "Authorized User";
+  const followUpEntry = {
+    comment: String(comment).trim(),
+    category: category || "General",
+    author: userName,
+    authorId: req.user?.id || req.user?._id,
+    createdAt: new Date(),
+  };
+
+  if (!Array.isArray(existingPO.followUps)) {
+    existingPO.followUps = [];
+  }
+  existingPO.followUps.push(followUpEntry);
+  await existingPO.save();
+
+  res.status(200).json(new ApiResponse(200, {
+    poId: existingPO._id,
+    followUps: existingPO.followUps,
+    newFollowUp: followUpEntry
+  }, "Follow-up note added successfully"));
+});
+

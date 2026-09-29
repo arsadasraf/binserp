@@ -1458,13 +1458,35 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
                               {/* FG Demand Summary */}
                               <td className="p-3.5">
-                                <div className="font-semibold text-slate-800 dark:text-slate-200">
-                                  {firstFG?.fgItemName || "Finished Good"}
-                                  {fgCount > 1 && <span className="text-slate-400 font-normal ml-1">+{fgCount - 1} more</span>}
+                                <div className="space-y-1">
+                                  {fgItems.slice(0, 2).map((fg: any, fgIdx: number) => {
+                                    const itemName = fg.fgItem?.name || fg.fgItemName || "FG Item";
+                                    const itemDesc = fg.fgItem?.description || fg.fgItem?.descriptions || fg.description;
+                                    return (
+                                      <div key={fgIdx} className="leading-tight">
+                                        <div className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+                                          {itemName}
+                                          <span className="text-[11px] font-normal text-slate-500 ml-1.5 font-mono">
+                                            ({fg.quantity} {fg.unit || 'PCS'})
+                                          </span>
+                                        </div>
+                                        {itemDesc && (
+                                          <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
+                                            {itemDesc}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                  {fgCount > 2 && (
+                                    <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-indigo-600 dark:text-indigo-400">
+                                      +{fgCount - 2} more finished goods
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-slate-400 block font-mono">
+                                    {fgCount} FG Item{fgCount > 1 ? 's' : ''} planned ({totalTarget} total units)
+                                  </span>
                                 </div>
-                                <span className="text-[10px] text-slate-400 block font-mono">
-                                  {fgCount} FG Item{fgCount > 1 ? 's' : ''} planned
-                                </span>
                               </td>
 
                               {/* Financials & Budget */}
@@ -1673,23 +1695,30 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                           </div>
 
                           {/* Primary FG Item and Technical Description (Strict rule compliance: AGENTS.md) */}
-                          <div className="bg-slate-50/80 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
-                            <div className="flex items-center justify-between">
-                              <div className="font-bold text-xs text-slate-900 dark:text-white">
-                                {firstFG?.fgItemName || "Finished Good"}
-                                {fgCount > 1 && <span className="text-indigo-600 dark:text-indigo-400 font-semibold ml-1">+{fgCount - 1} more</span>}
-                              </div>
-                              <span className="text-[10px] font-mono font-bold text-slate-500">
-                                {totalReceived} / {totalTarget} {firstFG?.unit || 'PCS'}
-                              </span>
-                            </div>
-                            {firstFG?.description && (
-                              <div className="text-[11px] text-slate-500 italic line-clamp-1">
-                                {firstFG.description}
-                              </div>
-                            )}
+                          <div className="bg-slate-50/80 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-2">
+                            {fgItems.map((fg: any, fgIdx: number) => {
+                              const itemName = fg.fgItem?.name || fg.fgItemName || "FG Item";
+                              const itemDesc = fg.fgItem?.description || fg.fgItem?.descriptions || fg.description;
+                              return (
+                                <div key={fgIdx} className="space-y-0.5 border-b border-slate-100 dark:border-slate-800/80 pb-1.5 last:border-b-0 last:pb-0">
+                                  <div className="flex items-center justify-between">
+                                    <div className="font-bold text-xs text-slate-900 dark:text-white">
+                                      {itemName}
+                                    </div>
+                                    <span className="text-[10px] font-mono font-bold text-slate-500">
+                                      {fg.receivedQuantity || 0} / {fg.quantity || 1} {fg.unit || 'PCS'}
+                                    </span>
+                                  </div>
+                                  {itemDesc && (
+                                    <div className="text-[11px] text-slate-500 italic line-clamp-2">
+                                      {itemDesc}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                             {/* Progress bar */}
-                            <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1.5">
+                            <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1">
                               <div 
                                 className={`h-full rounded-full transition-all ${
                                   progressPct >= 100 ? 'bg-emerald-500' : 'bg-indigo-600'
@@ -2221,7 +2250,9 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                             {/* FG Name & Description (Strict rule compliance: AGENTS.md) */}
                             <td className="p-3.5">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <strong className="text-slate-900 dark:text-white block text-sm">{fg.fgItemName}</strong>
+                                <strong className="text-slate-900 dark:text-white block text-sm">
+                                  {fg.fgItem?.name || fg.fgItemName || "FG Item"}
+                                </strong>
                                 {fg.sourceBreakdown && fg.sourceBreakdown.length > 1 ? (
                                   <div className="flex items-center gap-1 flex-wrap">
                                     {fg.sourceBreakdown.map((b: any, bIdx: number) => (
@@ -2239,7 +2270,11 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                   <span className="text-[10px] text-slate-400 font-medium">({fg.customerName})</span>
                                 )}
                               </div>
-                              {fg.description && <span className="text-xs text-slate-500 italic block mt-0.5">{fg.description}</span>}
+                              {(fg.fgItem?.description || fg.fgItem?.descriptions || fg.description) && (
+                                <span className="text-xs text-slate-500 italic block mt-0.5">
+                                  {fg.fgItem?.description || fg.fgItem?.descriptions || fg.description}
+                                </span>
+                              )}
                             </td>
 
                             {/* BOM Number */}
@@ -2368,15 +2403,15 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                         <div className="space-y-0.5">
                           <div className="flex items-start justify-between gap-2">
                             <strong className="text-slate-900 dark:text-white text-sm font-bold block">
-                              {fg.fgItemName}
+                              {fg.fgItem?.name || fg.fgItemName || "FG Item"}
                             </strong>
                             <span className="font-mono text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg shrink-0">
                               {fg.bomNumber || "BOM-Active"}
                             </span>
                           </div>
-                          {fg.description && (
+                          {(fg.fgItem?.description || fg.fgItem?.descriptions || fg.description) && (
                             <span className="text-[11px] text-slate-500 italic block line-clamp-2">
-                              {fg.description}
+                              {fg.fgItem?.description || fg.fgItem?.descriptions || fg.description}
                             </span>
                           )}
                         </div>

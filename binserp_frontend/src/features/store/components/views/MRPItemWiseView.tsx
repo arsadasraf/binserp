@@ -175,8 +175,9 @@ export default function MRPItemWiseView({
         }
 
         const fgObj = it.fgItem && typeof it.fgItem === 'object' ? it.fgItem : null;
-        const fgId = fgObj?._id?.toString() || (typeof it.fgItem === 'string' && it.fgItem ? it.fgItem : null);
-        const rawName = (it.fgItemName || fgObj?.name || it.name || it.productName || 'Finished Good').trim();
+        const fgId = (fgObj?._id || (typeof it.fgItem === 'string' ? it.fgItem : null) || it._id || '')?.toString();
+        const isPlaceholder = (n: string) => !n || n.toLowerCase().trim() === 'finished good' || n.toLowerCase().trim() === 'finish goods' || n.toLowerCase().trim() === 'finished goods';
+        const rawName = (fgObj?.name || (!isPlaceholder(it.fgItemName) ? it.fgItemName : '') || it.name || it.productName || fgObj?.code || 'FG Item').trim();
         const key = fgId || `name_${rawName.toLowerCase()}`;
 
         const desc = it.description || it.descriptions || fgObj?.description || fgObj?.descriptions || '';
