@@ -66,7 +66,7 @@ const MODULE_DEFINITIONS: ModuleSchema[] = [
     icon: Package,
     color: "from-blue-600 to-cyan-600",
     tabs: [
-      { id: "inventory", label: "Inventory", description: "RM & BO Stock, In-House Stock, GRN & FG GRN History", route: "/dashboard/store/inventory/rm-bo-stock" },
+      { id: "inventory", label: "Inventory", description: "RM & BO Stock, In-House Stock, GRN & FG GRN History", route: "/dashboard/store/inventory/rm-stock" },
       { id: "wip", label: "WIP", description: "WIP Material Requests, Job Work & Material Issue History", route: "/dashboard/store/wip/requests" },
       { id: "sales", label: "Sales", description: "Sales Orders, Quotations, Invoices, Delivery Challans, Price List, RFQ", route: "/dashboard/store/sales/orders" },
       { id: "mrp", label: "MRP Planning", description: "Demand Plans, Bill of Materials Explosion, Shortages & Procurement Workbench", route: "/dashboard/store/mrp" },

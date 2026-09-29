@@ -70,7 +70,7 @@ export const mrpPlanSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "FGItem",
         },
-        fgItemName: { type: String, required: true },
+        fgItemName: { type: String, required: true, default: "Finished Good" },
         fgItemCode: { type: String, default: "" },
         description: { type: String, default: "" },
         quantity: { type: Number, required: true },

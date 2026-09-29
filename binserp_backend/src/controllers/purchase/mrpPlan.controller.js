@@ -175,20 +175,78 @@ export const createMRPPlan = async (req, res) => {
     const subAssemblyMap = new Map();
     const consumableMap = new Map();
 
-    // Cache inventory, RM/BO items, BOMs, FG items, vendor price lists, and contributing Customer POs
-    const allInventories = await Inventory.find({ company: companyId });
-    const allRmBoItems = await RmBoItem.find({ company: companyId }).populate("categoryId");
-    const allRawMaterials = await RawMaterial.find({ company: companyId }).populate("categoryId");
-    const allBoughtOuts = await BoughtOut.find({ company: companyId }).populate("categoryId");
-    const allBOMs = await BOM.find({ company: companyId });
-    const allFGItems = await FGItem.find({ company: companyId });
-
+    // Parallel fetch cached collections for company with lean() for maximum speed & minimal memory footprint
     const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
     req.getModel("Vendor", vendorSchema);
-    const allPriceLists = await VendorPriceList.find({ company: companyId }).populate("vendor", "name code").lean().catch(() => []);
-
     const PriceList = req.getModel("PriceList", priceListSchema);
-    const allSalesPriceLists = await PriceList.find({ company: companyId }).populate("fgItem", "name code").lean().catch(() => []);
+
+    const [
+      allInventories,
+      allRmBoItems,
+      allRawMaterials,
+      allBoughtOuts,
+      allBOMs,
+      allFGItems,
+      allPriceLists,
+      allSalesPriceLists
+    ] = await Promise.all([
+      Inventory.find({ company: companyId }).lean(),
+      RmBoItem.find({ company: companyId }).populate("categoryId").lean(),
+      RawMaterial.find({ company: companyId }).populate("categoryId").lean(),
+      BoughtOut.find({ company: companyId }).populate("categoryId").lean(),
+      BOM.find({ company: companyId }).lean(),
+      FGItem.find({ company: companyId }).lean(),
+      VendorPriceList.find({ company: companyId }).populate("vendor", "name code").lean().catch(() => []),
+      PriceList.find({ company: companyId }).populate("fgItem", "name code").lean().catch(() => [])
+    ]);
+
+    // O(1) Fast lookup indices
+    const invByCode = new Map();
+    const invByName = new Map();
+    (allInventories || []).forEach(i => {
+      if (i.materialCode) invByCode.set(i.materialCode.toLowerCase().trim(), i);
+      if (i.materialName) invByName.set(i.materialName.toLowerCase().trim(), i);
+    });
+
+    const bomById = new Map();
+    const bomByName = new Map();
+    const bomByCode = new Map();
+    (allBOMs || []).forEach(b => {
+      if (b._id) bomById.set(b._id.toString(), b);
+      if (b.bomNumber) bomById.set(b.bomNumber.toString().toLowerCase().trim(), b);
+      if (b.productName) bomByName.set(b.productName.toLowerCase().trim(), b);
+      if (b.productCode) bomByCode.set(b.productCode.toLowerCase().trim(), b);
+    });
+
+    const fgById = new Map();
+    const fgByName = new Map();
+    const fgByCode = new Map();
+    (allFGItems || []).forEach(f => {
+      if (f._id) fgById.set(f._id.toString(), f);
+      if (f.name) fgByName.set(f.name.toLowerCase().trim(), f);
+      if (f.code) fgByCode.set(f.code.toLowerCase().trim(), f);
+    });
+
+    const rmByCode = new Map();
+    const rmByName = new Map();
+    (allRawMaterials || []).forEach(r => {
+      if (r.code) rmByCode.set(r.code.toLowerCase().trim(), r);
+      if (r.name) rmByName.set(r.name.toLowerCase().trim(), r);
+    });
+
+    const boByCode = new Map();
+    const boByName = new Map();
+    (allBoughtOuts || []).forEach(b => {
+      if (b.code) boByCode.set(b.code.toLowerCase().trim(), b);
+      if (b.name) boByName.set(b.name.toLowerCase().trim(), b);
+    });
+
+    const rmBoByCode = new Map();
+    const rmBoByName = new Map();
+    (allRmBoItems || []).forEach(r => {
+      if (r.code) rmBoByCode.set(r.code.toLowerCase().trim(), r);
+      if (r.name) rmByName.set(r.name.toLowerCase().trim(), r);
+    });
 
     // Build Fast Sales Price List Map (Sales Price List is authoritative for internal FG pricing)
     const salesPriceMap = new Map();
@@ -313,13 +371,9 @@ export const createMRPPlan = async (req, res) => {
             preferredVendorName: chosen.vendorName
           };
         }
-      }
-
-      const inv = allInventories.find(
-        (i) =>
-          (code && i.materialCode && i.materialCode.toLowerCase() === code.toLowerCase()) ||
-          (name && i.materialName && i.materialName.toLowerCase() === name.toLowerCase())
-      );
+      }      const inv = (code && invByCode.get(code.toLowerCase().trim())) ||
+                  (name && invByName.get(name.toLowerCase().trim())) ||
+                  null;
 
       const invRate = Number(inv?.unitPrice || 0);
       const baseRate = Number(rmBoObj?.baseRate || 0);
@@ -428,11 +482,10 @@ export const createMRPPlan = async (req, res) => {
         }
       }
 
-      const matchedMaster = allFGItems.find((f) =>
-        (fgId && String(f._id) === String(fgId)) ||
-        (fgName && f.name && cleanStr(f.name) === cleanStr(fgName)) ||
-        (fgCode && f.code && cleanStr(f.code) === cleanStr(fgCode))
-      );
+      const matchedMaster = (fgId && fgById.get(String(fgId))) ||
+                            (fgName && fgByName.get(cleanStr(fgName))) ||
+                            (fgCode && fgByCode.get(cleanStr(fgCode))) ||
+                            null;
 
       if (matchedMaster && Number(matchedMaster.sellingPrice) > 0) {
         const mCurr = (matchedMaster.currency || "INR").trim().toUpperCase();
@@ -452,20 +505,17 @@ export const createMRPPlan = async (req, res) => {
 
     const enrichedFgItems = [];
 
-    // Helper to find BOM for a product (from BOM collection OR FGItem embedded BOM)
+    // Helper to find BOM for a product (from BOM collection OR FGItem embedded BOM) using O(1) Map lookups
     const findBOM = (pName, pCode, bId, fgId) => {
       // 1. Direct BOM ID match
       if (bId) {
-        const found = allBOMs.find((b) => b._id && b._id.toString() === bId.toString());
+        const found = bomById.get(bId.toString()) || bomById.get(bId.toString().toLowerCase().trim());
         if (found && Array.isArray(found.items) && found.items.length > 0) return found;
-
-        const foundByNum = allBOMs.find((b) => b.bomNumber && b.bomNumber.toString().toLowerCase() === bId.toString().toLowerCase());
-        if (foundByNum && Array.isArray(foundByNum.items) && foundByNum.items.length > 0) return foundByNum;
       }
 
       // 2. Direct FG Item ID match with embedded BOM
       if (fgId) {
-        const foundFG = allFGItems.find((f) => f._id && f._id.toString() === fgId.toString());
+        const foundFG = fgById.get(fgId.toString());
         if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
           return {
             _id: foundFG._id,
@@ -486,14 +536,10 @@ export const createMRPPlan = async (req, res) => {
       // 3. Match by Product Name
       if (pName) {
         const cleanPName = pName.trim().toLowerCase();
-        const found = allBOMs.find(
-          (b) => b.productName && b.productName.trim().toLowerCase() === cleanPName
-        );
+        const found = bomByName.get(cleanPName);
         if (found && Array.isArray(found.items) && found.items.length > 0) return found;
 
-        const foundFG = allFGItems.find(
-          (f) => f.name && f.name.trim().toLowerCase() === cleanPName
-        );
+        const foundFG = fgByName.get(cleanPName);
         if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
           return {
             _id: foundFG._id,
@@ -514,14 +560,10 @@ export const createMRPPlan = async (req, res) => {
       // 4. Match by Product Code
       if (pCode) {
         const cleanPCode = pCode.trim().toLowerCase();
-        const found = allBOMs.find(
-          (b) => b.productCode && b.productCode.trim().toLowerCase() === cleanPCode
-        );
+        const found = bomByCode.get(cleanPCode);
         if (found && Array.isArray(found.items) && found.items.length > 0) return found;
 
-        const foundFG = allFGItems.find(
-          (f) => f.code && f.code.trim().toLowerCase() === cleanPCode
-        );
+        const foundFG = fgByCode.get(cleanPCode);
         if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
           return {
             _id: foundFG._id,
@@ -553,38 +595,28 @@ export const createMRPPlan = async (req, res) => {
           const grossQty = perQty * multiplierQty;
           const unit = subItem.unit || "PCS";
 
-          // Stock lookup
-          const inv = allInventories.find(
-            (i) =>
-              (sCode && i.materialCode && i.materialCode.toLowerCase() === sCode.toLowerCase()) ||
-              (i.materialName && i.materialName.toLowerCase() === sName.toLowerCase())
-          );
+          // Fast O(1) Stock lookup
+          const inv = (sCode && invByCode.get(sCode.toLowerCase())) ||
+                      (sName && invByName.get(sName.toLowerCase())) ||
+                      null;
           const currentStock = inv ? Number(inv.currentStock || 0) : 0;
           const shortage = Math.max(0, grossQty - currentStock);
 
-          // RM/BO lookup
-          const rmBo = allRmBoItems.find(
-            (r) =>
-              (sCode && r.code && r.code.toLowerCase() === sCode.toLowerCase()) ||
-              (r.name && r.name.toLowerCase() === sName.toLowerCase())
-          );
-          const rawMat = allRawMaterials.find(
-            (r) =>
-              (sCode && r.code && r.code.toLowerCase() === sCode.toLowerCase()) ||
-              (r.name && r.name.toLowerCase() === sName.toLowerCase())
-          );
-          const boughtOut = allBoughtOuts.find(
-            (r) =>
-              (sCode && r.code && r.code.toLowerCase() === sCode.toLowerCase()) ||
-              (r.name && r.name.toLowerCase() === sName.toLowerCase())
-          );
+          // Fast O(1) RM/BO lookup
+          const rmBo = (sCode && rmBoByCode.get(sCode.toLowerCase())) ||
+                       (sName && rmBoByName.get(sName.toLowerCase())) ||
+                       null;
+          const rawMat = (sCode && rmByCode.get(sCode.toLowerCase())) ||
+                         (sName && rmByName.get(sName.toLowerCase())) ||
+                         null;
+          const boughtOut = (sCode && boByCode.get(sCode.toLowerCase())) ||
+                            (sName && boByName.get(sName.toLowerCase())) ||
+                            null;
 
-          // Check if this subItem itself is an FGItem / sub-assembly
-          const matchedFG = allFGItems.find(
-            (f) =>
-              (sCode && f.code && f.code.toLowerCase() === sCode.toLowerCase()) ||
-              (f.name && f.name.toLowerCase() === sName.toLowerCase())
-          );
+          // Check if this subItem itself is an FGItem / sub-assembly via fast lookup
+          const matchedFG = (sCode && fgByCode.get(sCode.toLowerCase())) ||
+                            (sName && fgByName.get(sName.toLowerCase())) ||
+                            null;
           const nestedSubBOM = findBOM(sName, sCode);
           const fgType = matchedFG?.type || subItem.fgType || subItem.itemClassification;
           const isSubAssembly = fgType === "Sub Assembly" || Boolean(nestedSubBOM);
@@ -691,9 +723,13 @@ export const createMRPPlan = async (req, res) => {
 
     for (const fg of fgItems) {
       const rawQty = Number(fg.quantity) || 1;
-      const fgName = (fg.fgItemName || fg.name || "").trim();
-      const fgCode = (fg.fgItemCode || fg.code || "").trim();
+      const rawName = (fg.fgItemName || fg.name || fg.productName || fg.itemName || fg.description || "").trim();
+      const fgCode = (fg.fgItemCode || fg.code || fg.productCode || "").trim();
       const fgId = fg.fgItem || fg._id;
+      const freshFG = (fgId && fgById.get(String(fgId))) ||
+                      (rawName && fgByName.get(cleanStr(rawName))) ||
+                      (fgCode && fgByCode.get(cleanStr(fgCode)));
+      const fgName = (freshFG?.name || rawName || (fgCode ? `Item ${fgCode}` : "") || "Finished Good").trim();
       const itemKey = fgId ? String(fgId) : (fgCode || fgName).toLowerCase();
       if (!itemKey) continue;
 
@@ -1065,20 +1101,22 @@ export const getAllMRPPlans = async (req, res) => {
     }
     if (search) {
       const s = search.trim();
+      const escapedS = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.$or = [
-        { mrpNumber: { $regex: s, $options: "i" } },
-        { customerPoNumber: { $regex: s, $options: "i" } },
-        { customerName: { $regex: s, $options: "i" } },
-        { "customerPOs.customerPoNumber": { $regex: s, $options: "i" } },
-        { "customerPOs.customerName": { $regex: s, $options: "i" } },
-        { "fgItems.fgItemName": { $regex: s, $options: "i" } },
+        { mrpNumber: { $regex: escapedS, $options: "i" } },
+        { customerPoNumber: { $regex: escapedS, $options: "i" } },
+        { customerName: { $regex: escapedS, $options: "i" } },
+        { "customerPOs.customerPoNumber": { $regex: escapedS, $options: "i" } },
+        { "customerPOs.customerName": { $regex: escapedS, $options: "i" } },
+        { "fgItems.fgItemName": { $regex: escapedS, $options: "i" } },
       ];
     }
 
     const mrpPlans = await MRPPlan.find(query)
       .populate("createdBy", "name username email")
       .populate("updatedBy", "name username email")
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     const planIds = mrpPlans.map(p => p._id);
     const planNumbers = mrpPlans.map(p => p.mrpNumber).filter(Boolean);
@@ -1111,13 +1149,13 @@ export const getAllMRPPlans = async (req, res) => {
 
     // Resolve company time-lock policy for mrpPlan
     const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
-    const prefixDoc = await StorePrefix.findOne();
+    const prefixDoc = await StorePrefix.findOne({ company: companyId }).lean() || await StorePrefix.findOne().lean();
     const policyHours = prefixDoc?.timeLockPolicies?.mrpPlan !== undefined && prefixDoc?.timeLockPolicies?.mrpPlan !== null
       ? Number(prefixDoc.timeLockPolicies.mrpPlan)
       : 24;
 
     const enrichedPlans = mrpPlans.map(p => {
-      const planObj = p.toObject ? p.toObject() : p;
+      const planObj = p;
       const poCount = (poPlanIdMap.get(String(p._id)) || 0) + (poPlanNumMap.get(p.mrpNumber) || 0);
       const liveCommitted = Math.round(((poCommittedAmountMap.get(String(p._id)) || 0) + (poCommittedAmountMap.get(p.mrpNumber) || 0)) * 100) / 100;
       const targetExpense = Number(p.targetExpense || 0);
@@ -2146,8 +2184,9 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
   const consumableMap = new Map();
 
   const PriceList = req.getModel("PriceList", priceListSchema);
+  const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
 
-  // Cache inventory, RM/BO items, BOMs, FG items, vendor price lists, and sales price lists
+  // Cache inventory, RM/BO items, BOMs, FG items, vendor price lists, sales price lists, and prefixSettings
   const [
     allInventories,
     allRmBoItems,
@@ -2157,22 +2196,73 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     allFGItems,
     allPriceLists,
     allSalesPriceLists,
-    openPOs
+    openPOs,
+    prefixSettings
   ] = await Promise.all([
-    Inventory.find({ company: companyId }),
-    RmBoItem.find({ company: companyId }).populate("categoryId"),
-    RawMaterial.find({ company: companyId }).populate("categoryId"),
-    BoughtOut.find({ company: companyId }).populate("categoryId"),
-    BOM.find({ company: companyId, status: { $ne: "Inactive" } }),
-    FGItem.find({ company: companyId }),
+    Inventory.find({ company: companyId }).lean(),
+    RmBoItem.find({ company: companyId }).populate("categoryId").lean(),
+    RawMaterial.find({ company: companyId }).populate("categoryId").lean(),
+    BoughtOut.find({ company: companyId }).populate("categoryId").lean(),
+    BOM.find({ company: companyId, status: { $ne: "Inactive" } }).lean(),
+    FGItem.find({ company: companyId }).lean(),
     VendorPriceList.find({ company: companyId }).populate("vendor", "name code").lean().catch(() => []),
     PriceList.find({ company: companyId }).populate("fgItem", "name code").lean().catch(() => []),
     PurchaseOrder.find({
       company: companyId,
       $or: [{ mrpPlanId: plan._id }, { mrpNumber: plan.mrpNumber }],
       status: { $nin: ["Cancelled"] }
-    }).lean().catch(() => [])
+    }).lean().catch(() => []),
+    StorePrefix.findOne({ company: companyId }).lean().catch(() => null)
+      .then(p => p || StorePrefix.findOne().lean().catch(() => null))
   ]);
+
+  // Fast O(1) Map lookups for recalculateMRPWithLatestBOM
+  const invByCode = new Map();
+  const invByName = new Map();
+  (allInventories || []).forEach(i => {
+    if (i.materialCode) invByCode.set(i.materialCode.toLowerCase().trim(), i);
+    if (i.materialName) invByName.set(i.materialName.toLowerCase().trim(), i);
+  });
+
+  const bomById = new Map();
+  const bomByName = new Map();
+  const bomByCode = new Map();
+  (allBOMs || []).forEach(b => {
+    if (b._id) bomById.set(b._id.toString(), b);
+    if (b.bomNumber) bomById.set(b.bomNumber.toString().toLowerCase().trim(), b);
+    if (b.productName) bomByName.set(b.productName.toLowerCase().trim(), b);
+    if (b.productCode) bomByCode.set(b.productCode.toLowerCase().trim(), b);
+  });
+
+  const fgById = new Map();
+  const fgByName = new Map();
+  const fgByCode = new Map();
+  (allFGItems || []).forEach(f => {
+    if (f._id) fgById.set(f._id.toString(), f);
+    if (f.name) fgByName.set(f.name.toLowerCase().trim(), f);
+    if (f.code) fgByCode.set(f.code.toLowerCase().trim(), f);
+  });
+
+  const rmByCode = new Map();
+  const rmByName = new Map();
+  (allRawMaterials || []).forEach(r => {
+    if (r.code) rmByCode.set(r.code.toLowerCase().trim(), r);
+    if (r.name) rmByName.set(r.name.toLowerCase().trim(), r);
+  });
+
+  const boByCode = new Map();
+  const boByName = new Map();
+  (allBoughtOuts || []).forEach(b => {
+    if (b.code) boByCode.set(b.code.toLowerCase().trim(), b);
+    if (b.name) boByName.set(b.name.toLowerCase().trim(), b);
+  });
+
+  const rmBoByCode = new Map();
+  const rmBoByName = new Map();
+  (allRmBoItems || []).forEach(r => {
+    if (r.code) rmBoByCode.set(r.code.toLowerCase().trim(), r);
+    if (r.name) rmByName.set(r.name.toLowerCase().trim(), r);
+  });
 
   // Build Fast Sales Price List Map (Sales Price List is authoritative for internal FG pricing)
   const salesPriceMap = new Map();
@@ -2318,11 +2408,9 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
       }
     }
 
-    const inv = allInventories.find(
-      (i) =>
-        (code && i.materialCode && i.materialCode.toLowerCase() === code.toLowerCase()) ||
-        (name && i.materialName && i.materialName.toLowerCase() === name.toLowerCase())
-    );
+    const inv = (code && invByCode.get(code.toLowerCase().trim())) ||
+                (name && invByName.get(name.toLowerCase().trim())) ||
+                null;
 
     const invRate = Number(inv?.unitPrice || 0);
     const baseRate = Number(rmBoObj?.baseRate || 0);
@@ -2336,11 +2424,11 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     };
   };
 
-  // Helper to find the absolute latest BOM for an FG
+  // Helper to find the absolute latest BOM for an FG using O(1) Map lookups
   const findBOM = (pName, pCode, bId, fgId) => {
     // 1. Direct FG Item ID match with embedded BOM (LATEST)
     if (fgId) {
-      const foundFG = allFGItems.find((f) => f._id && f._id.toString() === fgId.toString());
+      const foundFG = fgById.get(fgId.toString());
       if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
         return {
           _id: foundFG._id,
@@ -2364,7 +2452,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     // 2. Match by Product Name on FGItem embedded BOM
     if (pName) {
       const cleanPName = cleanStr(pName);
-      const foundFG = allFGItems.find((f) => f.name && cleanStr(f.name) === cleanPName);
+      const foundFG = fgByName.get(cleanPName);
       if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
         return {
           _id: foundFG._id,
@@ -2388,7 +2476,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     // 3. Match by Product Code on FGItem embedded BOM
     if (pCode) {
       const cleanPCode = cleanStr(pCode);
-      const foundFG = allFGItems.find((f) => f.code && cleanStr(f.code) === cleanPCode);
+      const foundFG = fgByCode.get(cleanPCode);
       if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
         return {
           _id: foundFG._id,
@@ -2411,22 +2499,19 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
 
     // 4. Match in separate BOM collection
     if (bId) {
-      const found = allBOMs.find((b) => b._id && b._id.toString() === bId.toString());
+      const found = bomById.get(bId.toString()) || bomById.get(bId.toString().toLowerCase().trim());
       if (found && Array.isArray(found.items) && found.items.length > 0) return found;
-
-      const foundByNum = allBOMs.find((b) => b.bomNumber && b.bomNumber.toString().toLowerCase() === bId.toString().toLowerCase());
-      if (foundByNum && Array.isArray(foundByNum.items) && foundByNum.items.length > 0) return foundByNum;
     }
 
     if (pName) {
       const cleanPName = cleanStr(pName);
-      const found = allBOMs.find((b) => b.productName && cleanStr(b.productName) === cleanPName);
+      const found = bomByName.get(cleanPName);
       if (found && Array.isArray(found.items) && found.items.length > 0) return found;
     }
 
     if (pCode) {
       const cleanPCode = cleanStr(pCode);
-      const found = allBOMs.find((b) => b.productCode && cleanStr(b.productCode) === cleanPCode);
+      const found = bomByCode.get(cleanPCode);
       if (found && Array.isArray(found.items) && found.items.length > 0) return found;
     }
 
@@ -2461,38 +2546,28 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
         const grossQty = perQty * multiplierQty;
         const unit = subItem.unit || "PCS";
 
-        // Stock lookup
-        const inv = allInventories.find(
-          (i) =>
-            (sCode && i.materialCode && i.materialCode.toLowerCase() === sCode.toLowerCase()) ||
-            (i.materialName && i.materialName.toLowerCase() === sName.toLowerCase())
-        );
+        // Fast Stock lookup
+        const inv = (sCode && invByCode.get(sCode.toLowerCase())) ||
+                    (sName && invByName.get(sName.toLowerCase())) ||
+                    null;
         const currentStock = inv ? Number(inv.currentStock || 0) : 0;
         const shortage = Math.max(0, grossQty - currentStock);
 
-        // RM/BO lookup
-        const rmBo = allRmBoItems.find(
-          (r) =>
-            (sCode && r.code && r.code.toLowerCase() === sCode.toLowerCase()) ||
-            (r.name && r.name.toLowerCase() === sName.toLowerCase())
-        );
-        const rawMat = allRawMaterials.find(
-          (r) =>
-            (sCode && r.code && r.code.toLowerCase() === sCode.toLowerCase()) ||
-            (r.name && r.name.toLowerCase() === sName.toLowerCase())
-        );
-        const boughtOut = allBoughtOuts.find(
-          (r) =>
-            (sCode && r.code && r.code.toLowerCase() === sCode.toLowerCase()) ||
-            (r.name && r.name.toLowerCase() === sName.toLowerCase())
-        );
+        // Fast RM/BO lookup
+        const rmBo = (sCode && rmBoByCode.get(sCode.toLowerCase())) ||
+                     (sName && rmBoByName.get(sName.toLowerCase())) ||
+                     null;
+        const rawMat = (sCode && rmByCode.get(sCode.toLowerCase())) ||
+                       (sName && rmByName.get(sName.toLowerCase())) ||
+                       null;
+        const boughtOut = (sCode && boByCode.get(sCode.toLowerCase())) ||
+                          (sName && boByName.get(sName.toLowerCase())) ||
+                          null;
 
-        // Check if this subItem itself is an FGItem / sub-assembly
-        const matchedFG = allFGItems.find(
-          (f) =>
-            (sCode && f.code && f.code.toLowerCase() === sCode.toLowerCase()) ||
-            (f.name && f.name.toLowerCase() === sName.toLowerCase())
-        );
+        // Check if this subItem itself is an FGItem / sub-assembly via fast lookup
+        const matchedFG = (sCode && fgByCode.get(sCode.toLowerCase())) ||
+                          (sName && fgByName.get(sName.toLowerCase())) ||
+                          null;
         const nestedSubBOM = findBOM(sName, sCode, undefined, matchedFG?._id);
         const fgType = matchedFG?.type || subItem.fgType || subItem.itemClassification;
         const isSubAssembly = fgType === "Sub Assembly" || Boolean(nestedSubBOM);
@@ -2593,10 +2668,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     }
   };
 
-  // Fetch Store Prefix settings and linked Incoming POs to recover exact Customer PO unit prices in INR
-  const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
-  const prefixSettings = await StorePrefix.findOne().catch(() => null);
-
+  // Fetch linked Incoming POs to recover exact Customer PO unit prices in INR
   const IncomingPO = req.getModel("IncomingPO", incomingPOSchema);
   const poDocIds = [];
   if (plan.customerPo) poDocIds.push(plan.customerPo);
@@ -2704,9 +2776,10 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
 
         if (primaryKey) {
           if (!livePoItemMap.has(primaryKey)) {
+            const rawItemName = (item.productName || item.name || item.itemName || item.description || (item.productCode || item.code ? `Item ${item.productCode || item.code}` : "Finished Good")).trim();
             livePoItemMap.set(primaryKey, {
               fgItem: item.fgItem,
-              fgItemName: item.productName || item.name || item.itemName || "",
+              fgItemName: rawItemName,
               fgItemCode: item.productCode || item.code || item.itemCode || "",
               description: item.description || item.descriptions || "",
               unit: item.unit || "PCS",
@@ -2821,18 +2894,21 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
 
   for (const fg of workingFgItems) {
     const fgQty = Number(fg.quantity) || 1;
-    const fgName = (fg.fgItemName || fg.name || "").trim();
-    const fgCode = (fg.fgItemCode || fg.code || "").trim();
+    const rawName = (fg.fgItemName || fg.name || fg.productName || fg.itemName || fg.description || "").trim();
+    const fgCode = (fg.fgItemCode || fg.code || fg.productCode || "").trim();
     const fgId = fg.fgItem?._id || fg.fgItem || fg._id;
 
     // Refresh FG details from latest master catalog
-    const freshFG = allFGItems.find(
-      (f) => (fgId && f._id.toString() === fgId.toString()) ||
-             (fgName && f.name && cleanStr(f.name) === cleanStr(fgName)) ||
-             (fgCode && f.code && cleanStr(f.code) === cleanStr(fgCode))
-    );
+    const freshFG = (fgId && fgById.get(String(fgId))) ||
+                    (rawName && fgByName.get(cleanStr(rawName))) ||
+                    (fgCode && fgByCode.get(cleanStr(fgCode))) ||
+                    allFGItems.find(
+                      (f) => (fgId && f._id && f._id.toString() === fgId.toString()) ||
+                             (rawName && f.name && cleanStr(f.name) === cleanStr(rawName)) ||
+                             (fgCode && f.code && cleanStr(f.code) === cleanStr(fgCode))
+                    );
 
-    const resolvedFGName = freshFG?.name || fgName;
+    const resolvedFGName = (freshFG?.name || rawName || (fgCode ? `Item ${fgCode}` : "") || "Finished Good").trim();
     const resolvedFGCode = freshFG?.code || fgCode;
     const resolvedFGId = freshFG?._id || fgId;
     const resolvedDesc = freshFG?.description || freshFG?.descriptions || fg.description || "";

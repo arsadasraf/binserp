@@ -45,7 +45,7 @@ function getPrimaryLandingPage(userType: string | null, roles: any[], department
       return "/dashboard/hr?tab=home";
     }
     if (allowedModules.has("STORE")) {
-      return "/dashboard/store/inventory/rm-bo-stock";
+      return "/dashboard/store/inventory/rm-stock";
     }
     if (allowedModules.has("PPC")) {
       return "/dashboard/ppc/overview";
@@ -76,7 +76,7 @@ function getPrimaryLandingPage(userType: string | null, roles: any[], department
     return "/dashboard/hr?tab=home";
   }
   if (upperDept.includes("STORE")) {
-    return "/dashboard/store/inventory/rm-bo-stock";
+    return "/dashboard/store/inventory/rm-stock";
   }
   if (upperDept.includes("PPC")) {
     return "/dashboard/ppc/overview";

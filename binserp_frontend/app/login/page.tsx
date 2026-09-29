@@ -124,7 +124,7 @@ export default function LoginPage() {
                 return;
               }
               if (allowedModules.has("STORE")) {
-                router.push("/dashboard/store/inventory/rm-bo-stock");
+                router.push("/dashboard/store/inventory/rm-stock");
                 return;
               }
               if (allowedModules.has("PPC")) {
@@ -163,7 +163,7 @@ export default function LoginPage() {
             } else if (department.includes("HR")) {
               router.push("/dashboard/hr?tab=home");
             } else if (department.includes("STORE")) {
-              router.push("/dashboard/store/inventory/rm-bo-stock");
+              router.push("/dashboard/store/inventory/rm-stock");
             } else if (department.includes("PPC")) {
               router.push("/dashboard/ppc/overview");
             } else if (department.includes("ACCOUNTS")) {

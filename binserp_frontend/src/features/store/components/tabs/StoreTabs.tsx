@@ -20,7 +20,7 @@ export default function StoreTabs() {
   const isHomeActive = pathname.startsWith("/dashboard/store/inventory") || pathname === "/dashboard/store";
 
   const allTabs = [
-    { id: "inventory", key: "inventory", label: "Inventory", icon: Package, href: "/dashboard/store/inventory/rm-bo-stock", isActive: isHomeActive },
+    { id: "inventory", key: "inventory", label: "Inventory", icon: Package, href: "/dashboard/store/inventory/rm-stock", isActive: isHomeActive },
     { id: "wip", key: "wip", label: "WIP", icon: ClipboardList, href: "/dashboard/store/wip/requests", isActive: isWipActive },
     { id: "sales", key: "sales", label: "Sales", icon: IndianRupee, href: "/dashboard/store/sales/orders", isActive: isSalesActive },
     { id: "mrp", key: "mrp", label: "MRP", icon: CalendarClock, href: "/dashboard/store/mrp", isActive: isMrpActive },

@@ -92,7 +92,7 @@ export const getInventory = async (req, res) => {
         }
     }
 
-    // Fetch current month's GRNs for real-time inward calculation
+    // Fetch current month's GRNs for real-time inward calculation (selective projection for speed)
     const currentMonthGrns = await GRN.find({
       company: companyId,
       status: { $in: ["Received", "Accepted"] },
@@ -100,9 +100,9 @@ export const getInventory = async (req, res) => {
         { date: { $gte: startOfMonth, $lte: endOfMonth } },
         { createdAt: { $gte: startOfMonth, $lte: endOfMonth } }
       ]
-    }).lean();
+    }).select("items.material items.consumable items.fgItem items.component items.materialName items.quantity items.receivedQuantity").lean();
 
-    // Fetch current month's Material Issues for real-time outward calculation
+    // Fetch current month's Material Issues for real-time outward calculation (selective projection for speed)
     const currentMonthIssues = await MaterialIssue.find({
       company: companyId,
       status: "Issued",
@@ -110,7 +110,7 @@ export const getInventory = async (req, res) => {
         { date: { $gte: startOfMonth, $lte: endOfMonth } },
         { createdAt: { $gte: startOfMonth, $lte: endOfMonth } }
       ]
-    }).lean();
+    }).select("items.material items.consumable items.fgItem items.component items.materialName items.quantity").lean();
 
     const grnInwardMap = new Map();
     for (const grn of currentMonthGrns) {
@@ -161,7 +161,7 @@ export const getInventory = async (req, res) => {
     const currentMonthTx = await StockTransaction.find({
       company: companyId,
       timestamp: { $gte: startOfMonth, $lte: endOfMonth }
-    }).lean();
+    }).select("item movementType quantity").lean();
 
     const txInwardMap = new Map();
     const txOutwardMap = new Map();

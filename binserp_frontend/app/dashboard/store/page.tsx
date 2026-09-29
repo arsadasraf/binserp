@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { usePermission } from "@/src/hooks/usePermission";
 
 const STORE_TAB_ROUTES = [
-  { id: "inventory", href: "/dashboard/store/inventory/rm-bo-stock" },
+  { id: "inventory", href: "/dashboard/store/inventory/rm-stock" },
   { id: "wip", href: "/dashboard/store/wip/requests" },
   { id: "sales", href: "/dashboard/store/sales/orders" },
   { id: "mrp", href: "/dashboard/store/mrp" },
@@ -44,7 +44,7 @@ function StoreRedirectContent() {
         return;
       }
       if (tabParam === "inventory" && (isFullAdmin || hasTabAccess("Store", "inventory"))) {
-        router.replace("/dashboard/store/inventory/rm-bo-stock");
+        router.replace("/dashboard/store/inventory/rm-stock");
         return;
       }
     }
@@ -54,7 +54,7 @@ function StoreRedirectContent() {
     if (firstAllowed) {
       router.replace(firstAllowed.href);
     } else {
-      router.replace("/dashboard/store/inventory/rm-bo-stock");
+      router.replace("/dashboard/store/inventory/rm-stock");
     }
   }, [router, searchParams, hasTabAccess, userType]);
 

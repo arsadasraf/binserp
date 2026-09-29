@@ -156,15 +156,32 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
       });
 
       if (inventory) {
+        const fallbackInc = {};
         if (isPending) {
-          inventory.qcPendingStock = Math.max(0, (inventory.qcPendingStock || 0) + quantity);
+          fallbackInc.qcPendingStock = quantity;
         } else if (isQCRelease) {
-          inventory.currentStock = Math.max(0, (inventory.currentStock || 0) + quantity);
-          inventory.qcPendingStock = Math.max(0, (inventory.qcPendingStock || 0) - inspectedQuantity);
+          fallbackInc.currentStock = quantity;
+          fallbackInc.qcPendingStock = -inspectedQuantity;
         } else {
-          inventory.currentStock = Math.max(0, (inventory.currentStock || 0) + quantity);
+          fallbackInc.currentStock = quantity;
         }
-        await inventory.save();
+
+        const updated = await Inventory.findOneAndUpdate(
+          { _id: inventory._id },
+          { $inc: fallbackInc },
+          { new: true }
+        );
+        if (updated) {
+          if (updated.currentStock < 0) {
+            await Inventory.updateOne({ _id: inventory._id }, { $set: { currentStock: 0 } });
+            updated.currentStock = 0;
+          }
+          if (updated.qcPendingStock < 0) {
+            await Inventory.updateOne({ _id: inventory._id }, { $set: { qcPendingStock: 0 } });
+            updated.qcPendingStock = 0;
+          }
+          return updated;
+        }
         return inventory;
       }
       return null;
@@ -223,50 +240,76 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
     } else {
       previousStock = inventory.currentStock || 0;
 
+      const incFields = {};
+      const setFields = {};
+
       if (isPending) {
-        inventory.qcPendingStock = Math.max(0, (inventory.qcPendingStock || 0) + quantity);
-        newStock = inventory.currentStock || 0;
+        incFields.qcPendingStock = quantity;
+        newStock = previousStock;
       } else if (isQCRelease) {
-        inventory.currentStock = Math.max(0, (inventory.currentStock || 0) + quantity);
-        inventory.qcPendingStock = Math.max(0, (inventory.qcPendingStock || 0) - inspectedQuantity);
-        newStock = inventory.currentStock;
+        incFields.currentStock = quantity;
+        incFields.qcPendingStock = -inspectedQuantity;
+        newStock = Math.max(0, previousStock + quantity);
       } else {
-        inventory.currentStock = Math.max(0, (inventory.currentStock || 0) + quantity);
-        newStock = inventory.currentStock;
+        incFields.currentStock = quantity;
+        newStock = Math.max(0, previousStock + quantity);
       }
 
       if (!inventory.materialId) {
-        inventory.materialId = actualMatId;
+        setFields.materialId = actualMatId;
       }
       if (resolvedLocId) {
-        inventory.locationId = resolvedLocId;
+        setFields.locationId = resolvedLocId;
         const location = await Location.findById(resolvedLocId);
-        if (location) inventory.location = location.name;
+        if (location) setFields.location = location.name;
       }
       if (categoryId) {
-        inventory.categoryId = categoryId;
+        setFields.categoryId = categoryId;
       }
 
       // Keep secondary unit properties synchronized on the Inventory document
       if (hasSecondaryUnit !== undefined) {
-        inventory.hasSecondaryUnit = Boolean(hasSecondaryUnit);
+        setFields.hasSecondaryUnit = Boolean(hasSecondaryUnit);
       } else if (material?.hasSecondaryUnit !== undefined) {
-        inventory.hasSecondaryUnit = Boolean(material.hasSecondaryUnit);
+        setFields.hasSecondaryUnit = Boolean(material.hasSecondaryUnit);
       }
 
       if (secondaryUnit !== undefined) {
-        inventory.secondaryUnit = secondaryUnit;
+        setFields.secondaryUnit = secondaryUnit;
       } else if (material?.secondaryUnit) {
-        inventory.secondaryUnit = material.secondaryUnit;
+        setFields.secondaryUnit = material.secondaryUnit;
       }
 
       if (options.conversionFactor !== undefined) {
-        inventory.conversionFactor = Number(options.conversionFactor);
+        setFields.conversionFactor = Number(options.conversionFactor);
       } else if (material?.conversionFactor) {
-        inventory.conversionFactor = Number(material.conversionFactor);
+        setFields.conversionFactor = Number(material.conversionFactor);
       }
 
-      await inventory.save();
+      const updateOps = {};
+      if (Object.keys(incFields).length > 0) updateOps.$inc = incFields;
+      if (Object.keys(setFields).length > 0) updateOps.$set = setFields;
+
+      // Atomic update eliminates concurrent race conditions
+      const updatedInv = await Inventory.findOneAndUpdate(
+        { _id: inventory._id },
+        updateOps,
+        { new: true }
+      );
+
+      if (updatedInv) {
+        // Guard against negative stock clamping without losing history
+        if (updatedInv.currentStock < 0) {
+          await Inventory.updateOne({ _id: inventory._id }, { $set: { currentStock: 0 } });
+          updatedInv.currentStock = 0;
+        }
+        if (updatedInv.qcPendingStock < 0) {
+          await Inventory.updateOne({ _id: inventory._id }, { $set: { qcPendingStock: 0 } });
+          updatedInv.qcPendingStock = 0;
+        }
+        inventory = updatedInv;
+        newStock = updatedInv.currentStock;
+      }
     }
 
     // Direct synchronization on Master model so master tables reflect actual current stock

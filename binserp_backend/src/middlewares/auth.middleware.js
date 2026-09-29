@@ -8,6 +8,44 @@ import { SaasAdmin } from "../models/saasadmin/index.js";
 import { getTenantConnection, getTenantModel } from "../db/tenant.js";
 
 
+// High-performance In-Memory Company Context Cache (5-minute TTL)
+const companyAuthCache = new Map();
+const COMPANY_CACHE_TTL = 5 * 60 * 1000;
+
+export const getCachedCompanyByCompanyId = async (companyId) => {
+  if (!companyId) return null;
+  const now = Date.now();
+  const cached = companyAuthCache.get(`cid_${companyId}`);
+  if (cached && cached.expiresAt > now) {
+    return cached.company;
+  }
+  const company = await Company.findOne({ companyId });
+  if (company) {
+    companyAuthCache.set(`cid_${companyId}`, { company, expiresAt: now + COMPANY_CACHE_TTL });
+  }
+  return company;
+};
+
+export const getCachedCompanyById = async (id) => {
+  if (!id) return null;
+  const now = Date.now();
+  const cached = companyAuthCache.get(`id_${id}`);
+  if (cached && cached.expiresAt > now) {
+    return cached.company;
+  }
+  const company = await Company.findById(id).select("-password");
+  if (company) {
+    companyAuthCache.set(`id_${id}`, { company, expiresAt: now + COMPANY_CACHE_TTL });
+  }
+  return company;
+};
+
+// Clear cache helper when company updates
+export const clearCachedCompany = (companyId, id) => {
+  if (companyId) companyAuthCache.delete(`cid_${companyId}`);
+  if (id) companyAuthCache.delete(`id_${id}`);
+};
+
 // ✅ Verify JWT Middleware (for Company Admin)
 export const verifyJWT = asyncHandler(async (req, res, next) => {
   const token =
@@ -27,7 +65,7 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
     if (decoded.type === "user") {
       let company;
       if (decoded.companyId) {
-        company = await Company.findOne({ companyId: decoded.companyId });
+        company = await getCachedCompanyByCompanyId(decoded.companyId);
       } else {
         throw new ApiError(401, "Invalid token: missing company context");
       }
@@ -83,7 +121,7 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
       // --- EMPLOYEE TOKEN ---
       let company;
       if (decoded.companyId) {
-        company = await Company.findOne({ companyId: decoded.companyId });
+        company = await getCachedCompanyByCompanyId(decoded.companyId);
       } else {
         throw new ApiError(401, "Invalid token: missing company context");
       }
@@ -137,7 +175,7 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
 
     } else {
       // Company token
-      const company = await Company.findById(decoded.id).select("-password");
+      const company = await getCachedCompanyById(decoded.id);
       if (!company) {
         throw new ApiError(404, "Company not found");
       }

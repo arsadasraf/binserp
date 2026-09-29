@@ -235,27 +235,16 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
   const token = propToken || (typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '');
 
-  const fetchData = async () => {
+  const fetchSecondaryDependencies = async () => {
     if (!token) return;
-    setLoading(true);
     try {
-      const [mrpRes, venRes, rmRes, boRes, fgRes, plRes] = await Promise.all([
-        apiGet('/api/purchase/mrp/plans', token).catch(() => ({ mrpPlans: [] })),
+      const [venRes, rmRes, boRes, fgRes, plRes] = await Promise.all([
         apiGet('/api/store/vendor', token).catch(() => []),
         apiGet('/api/store/raw-material', token).catch(() => []),
         apiGet('/api/store/bought-out', token).catch(() => []),
         apiGet('/api/store/fg-item', token).catch(() => []),
         apiGet('/api/purchase/price-list', token).catch(() => ({ data: [] }))
       ]);
-
-      const plans = mrpRes.mrpPlans || [];
-      setMrpPlans(plans);
-
-      // Keep selectedDemandPlan in sync if open
-      if (selectedDemandPlan) {
-        const found = plans.find((p: any) => p._id === selectedDemandPlan._id);
-        if (found) setSelectedDemandPlan(found);
-      }
 
       const vList = Array.isArray(venRes?.vendors) ? venRes.vendors : (Array.isArray(venRes) ? venRes : []);
       setVendors(vList);
@@ -266,11 +255,34 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
       setAllMaterials([...rmList, ...boList, ...fgList]);
       setInHouseItems(fgList);
       setPriceLists(plList);
+    } catch (e) {
+      console.warn('Background fetch of PO modal dependencies failed:', e);
+    }
+  };
+
+  const fetchData = async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const mrpRes = await apiGet('/api/purchase/mrp/plans', token).catch(() => ({ mrpPlans: [] }));
+
+      const plans = mrpRes.mrpPlans || [];
+      setMrpPlans(plans);
+
+      // Keep selectedDemandPlan in sync if open
+      if (selectedDemandPlan) {
+        const found = plans.find((p: any) => p._id === selectedDemandPlan._id);
+        if (found) setSelectedDemandPlan(found);
+      }
     } catch (err: any) {
       console.error('Failed to fetch MRP data:', err);
       if (onError) onError(err.message || 'Failed to fetch MRP plans');
     } finally {
       setLoading(false);
+      // Non-blocking background fetch for PO modal dependencies if not yet loaded
+      if (allMaterials.length === 0) {
+        fetchSecondaryDependencies();
+      }
     }
   };
 

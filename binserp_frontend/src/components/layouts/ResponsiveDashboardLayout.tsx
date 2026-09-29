@@ -62,7 +62,7 @@ const departmentNavMap: Record<string, NavItem> = {
     priority: 2,
   },
   Store: {
-    href: "/dashboard/store/inventory/rm-bo-stock",
+    href: "/dashboard/store/inventory/rm-stock",
     label: "Store",
     icon: Store,
     priority: 3,
