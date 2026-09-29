@@ -19,6 +19,11 @@ function AuthSuccessContent() {
       try {
         const decodedData = JSON.parse(atob(encodedData));
 
+        // Clear sensitive query params from browser URL and history
+        if (typeof window !== "undefined") {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
         persistSession({
           token,
           userType: userType as any,

@@ -31,7 +31,7 @@ import {
   getEmployeeJobs,
   updateEmployeeJobStatus,
 } from "../controllers/hr/index.js";
-import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
+import { verifyJWT, restrictExecutive, requirePermission } from "../middlewares/auth.middleware.js";
 import { resolveTenant } from "../middlewares/tenant.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import { trainFace, markAttendance, checkPythonHealth } from "../controllers/hr/index.js";
@@ -47,7 +47,7 @@ router.use(verifyJWT);
 router.use(resolveTenant);
 
 // Master Bulk Import Route
-router.post("/masters/bulk-import", bulkImportHrMasters);
+router.post("/masters/bulk-import", requirePermission("HR", "masters", "create"), bulkImportHrMasters);
 
 
 // Restrict Master routes for Executives
@@ -102,18 +102,18 @@ router.post("/face-data", upload.array("files", 5), trainFace);
 router.post("/mark-attendance", upload.single("file"), markAttendance);
 router.get("/python-health", checkPythonHealth);
 
-// Salary Routes
-router.post("/salary", createSalarySlip);
-router.get("/salary", getSalaries);
-router.get("/salary/stats", getSalaryGenerationStats);
+// Salary Routes (Strictly protected)
+router.post("/salary", requirePermission("HR", "salaries", "create"), createSalarySlip);
+router.get("/salary", requirePermission("HR", "salaries", "read"), getSalaries);
+router.get("/salary/stats", requirePermission("HR", "salaries", "read"), getSalaryGenerationStats);
+router.put("/salary/:id", requirePermission("HR", "salaries", "update"), updateSalary);
+router.delete("/salary/:id", requirePermission("HR", "salaries", "delete"), deleteSalary);
 
 // Holiday Routes
-router.post("/holiday", createHoliday);
+router.post("/holiday", requirePermission("HR", "masters", "create"), createHoliday);
 router.get("/holiday", getAllHolidays);
-router.put("/holiday/:id", updateHoliday);
-router.delete("/holiday/:id", deleteHoliday);
-router.put("/salary/:id", updateSalary);
-router.delete("/salary/:id", deleteSalary);
+router.put("/holiday/:id", requirePermission("HR", "masters", "update"), updateHoliday);
+router.delete("/holiday/:id", requirePermission("HR", "masters", "delete"), deleteHoliday);
 
 export default router;
 

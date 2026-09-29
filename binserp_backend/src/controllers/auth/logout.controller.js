@@ -32,6 +32,7 @@ export const logout = async (req, res, next) => {
 
           if (userInstance) {
             userInstance.refreshToken = null;
+            userInstance.tokenVersion = (userInstance.tokenVersion || 0) + 1;
             await userInstance.save({ validateBeforeSave: false });
 
             // Track Logout History for tenant users

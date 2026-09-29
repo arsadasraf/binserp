@@ -1,5 +1,5 @@
 import express from "express";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, requirePermission } from "../middlewares/auth.middleware.js";
 import {
   getOverviewStats,
   getTransactions,
@@ -9,8 +9,9 @@ import {
 
 const router = express.Router();
 
-// All routes require authentication
+// All routes require authentication and Accounts permissions
 router.use(verifyJWT);
+router.use(requirePermission("Accounts", "overview"));
 
 // Stats Route
 router.get("/stats", getOverviewStats);

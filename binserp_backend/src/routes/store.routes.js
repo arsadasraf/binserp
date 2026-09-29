@@ -88,7 +88,7 @@ import {
   updateRMPlanPO,
   sendMRPToPPC
 } from "../controllers/store/storeFulfillment.controller.js";
-import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
+import { verifyJWT, restrictExecutive, requirePermission } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
 
 const router = express.Router();
@@ -96,8 +96,17 @@ const router = express.Router();
 // All routes require authentication
 router.use(verifyJWT);
 
-// Restrict Master routes for Executives
-router.use(["/vendor", "/job-work-supplier", "/customer", "/location", "/category", "/rm-bo-item", "/raw-material", "/bought-out", "/consumable-item", "/consumables", "/company-info", "/fg-item", "/masters/bulk-import", "/masters/check-duplicates"], restrictExecutive);
+// RBAC Guards for Store sub-modules
+router.use(["/inventory", "/grn", "/transactions", "/bom"], requirePermission("Store", "inventory"));
+router.use(["/material-issue", "/material-request", "/job-work"], requirePermission("Store", "wip"));
+
+// Master routes: GET is open to authenticated store users for lookups/dropdowns; mutations require Store:masters permission
+const masterPaths = ["/vendor", "/job-work-supplier", "/customer", "/location", "/category", "/rm-bo-item", "/raw-material", "/bought-out", "/consumable-item", "/consumables", "/company-info", "/fg-item", "/masters/bulk-import", "/masters/check-duplicates"];
+router.use(masterPaths, restrictExecutive);
+router.use(masterPaths, (req, res, next) => {
+    if (req.method === 'GET') return next();
+    return requirePermission("Store", "masters")(req, res, next);
+});
 
 router.post("/masters/bulk-import", bulkImportMasters);
 router.post("/masters/check-duplicates", checkMasterDuplicates);

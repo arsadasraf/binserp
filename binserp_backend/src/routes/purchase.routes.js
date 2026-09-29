@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, requirePermission } from "../middlewares/auth.middleware.js";
 
 import {
   createPurchaseRFQ,
@@ -55,8 +55,9 @@ import {
 
 const router = Router();
 
-// Apply auth middleware to all purchase routes
+// Apply auth and RBAC middleware to all purchase routes
 router.use(verifyJWT);
+router.use(requirePermission("Store", "purchase"));
 
 // Vendor Bucket & Active PO Routes
 router.route("/vendor-bucket")

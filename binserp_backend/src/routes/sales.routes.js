@@ -1,5 +1,5 @@
 import express from "express";
-import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
+import { verifyJWT, restrictExecutive, requirePermission } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import {
   createQuotation,
@@ -42,8 +42,9 @@ import {
 
 const router = express.Router();
 
-// All routes require authentication
+// All routes require authentication and Sales permissions
 router.use(verifyJWT);
+router.use(requirePermission("Store", "sales"));
 
 // Incoming RFQ routes
 router.post("/incoming-rfq", createIncomingRFQ);

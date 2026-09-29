@@ -1,8 +1,11 @@
 import express from 'express';
 import { generatePDF } from '../utils/documentGenerator/pdfGenerator.js';
 import { generateExcel } from '../utils/documentGenerator/excelGenerator.js';
+import { verifyJWT } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
+
+router.use(verifyJWT);
 
 router.post('/pdf/:type', async (req, res) => {
     try {

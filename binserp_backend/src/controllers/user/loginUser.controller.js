@@ -182,10 +182,8 @@ export const loginUser = async (req, res) => {
         if (!isMatch && password.includes("-")) {
           isMatch = await employee.comparePassword(password.replace(/-/g, ""));
         }
-      }
-
-      // Legacy joining date fallback (YYYY-MM-DD or YYYYMMDD)
-      if (!isMatch && employee.joiningDate) {
+      } else if (employee.joiningDate) {
+        // Initial first-time onboarding default: only allowed if employee has not yet set a password
         const joiningDateHyphen = new Date(employee.joiningDate).toISOString().split("T")[0]; // 2024-05-15
         const joiningDateNoHyphen = joiningDateHyphen.replace(/-/g, ""); // 20240515
         const inputPasswordNoHyphen = password.replace(/[\s-]/g, "");

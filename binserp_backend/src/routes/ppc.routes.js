@@ -95,15 +95,20 @@ import {
 } from "../controllers/ppc/index.js";
 import { moveProductionToManufacturing, getAllManufacturingOrders } from "../controllers/ppc/moveToManufacturing.controller.js";
 import { getMRPPPCIntakeBucket } from "../controllers/purchase/index.js";
-import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
+import { verifyJWT, restrictExecutive, requirePermission } from "../middlewares/auth.middleware.js";
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(verifyJWT);
 
-// Restrict Master routes for Executives
-router.use(["/machine", "/process", "/machine-category", "/machine-location", "/manpower-master", "/skill", "/shift"], restrictExecutive);
+// Restrict Master routes for Executives and require PPC:masters permission for changes
+const ppcMasterPaths = ["/machine", "/process", "/machine-category", "/machine-location", "/manpower-master", "/skill", "/shift", "/masters/bulk-import"];
+router.use(ppcMasterPaths, restrictExecutive);
+router.use(ppcMasterPaths, (req, res, next) => {
+    if (req.method === 'GET') return next();
+    return requirePermission("PPC", "masters")(req, res, next);
+});
 
 // Upload Attachment for Routing Steps (PDF drawings/SOPs and Photos)
 router.post("/routing/upload-attachment", upload.single("file"), uploadRoutingAttachment);

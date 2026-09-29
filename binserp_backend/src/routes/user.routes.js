@@ -14,7 +14,7 @@ import {
   getActiveSessions,
   getSessionHistory,
 } from "../controllers/user/index.js";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, requirePermission } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/upload.middleware.js";
 
 const router = express.Router();
@@ -28,14 +28,14 @@ router.post("/reset-password", resetPassword);
 router.put("/profile", verifyJWT, updateUserProfile);
 router.post("/upload-photo", verifyJWT, upload.single("photo"), uploadUserPhoto);
 
-// Admin routes (protected)
-router.get("/active-sessions", verifyJWT, getActiveSessions);
-router.get("/session-history/:userId", verifyJWT, getSessionHistory);
-router.post("/create", verifyJWT, createUser);
-router.get("/all", verifyJWT, getAllUsers);
-router.get("/:id", verifyJWT, getUserById);
-router.put("/:id", verifyJWT, updateUser);
-router.put("/toggle-status/:id", verifyJWT, toggleUserStatus);
-router.delete("/:id", verifyJWT, deleteUser);
+// Admin routes (strictly protected by Admin:users permission)
+router.get("/active-sessions", verifyJWT, requirePermission("Admin", "users"), getActiveSessions);
+router.get("/session-history/:userId", verifyJWT, requirePermission("Admin", "users"), getSessionHistory);
+router.post("/create", verifyJWT, requirePermission("Admin", "users", "create"), createUser);
+router.get("/all", verifyJWT, requirePermission("Admin", "users", "read"), getAllUsers);
+router.get("/:id", verifyJWT, requirePermission("Admin", "users", "read"), getUserById);
+router.put("/:id", verifyJWT, requirePermission("Admin", "users", "update"), updateUser);
+router.put("/toggle-status/:id", verifyJWT, requirePermission("Admin", "users", "update"), toggleUserStatus);
+router.delete("/:id", verifyJWT, requirePermission("Admin", "users", "delete"), deleteUser);
 
 export default router;

@@ -23,7 +23,7 @@ app.use(
 
             // Allow configured frontend URL, any binserp.com subdomain, or any local network IP for development
             if (origin === frontendUrl ||
-                (origin && origin.includes('binserp.com')) ||
+                (origin && /^https?:\/\/([a-zA-Z0-9-]+\.)?binserp\.com(:\d+)?$/.test(origin)) ||
                 origin.startsWith("http://localhost:") ||
                 origin.startsWith("http://127.0.0.1:") ||
                 origin.startsWith("http://192.168.") ||
@@ -77,7 +77,12 @@ const authLimiter = rateLimit({
 
 app.use("/api/", apiLimiter);
 app.use("/api/user/login", authLimiter);
+app.use("/api/company/login", authLimiter);
 app.use("/api/auth/login", authLimiter);
+app.use("/api/user/forgot-password", authLimiter);
+app.use("/api/company/forgot-password", authLimiter);
+app.use("/api/user/reset-password", authLimiter);
+app.use("/api/company/reset-password", authLimiter);
 
 // Passport Initialization
 configurePassport();

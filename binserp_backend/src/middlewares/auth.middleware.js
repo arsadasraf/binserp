@@ -302,23 +302,23 @@ export const buildPermissionMap = (roles = []) => {
     if (!role || role.isActive === false || !Array.isArray(role.policies)) continue;
     for (const policy of role.policies) {
       if (!policy.module || !Array.isArray(policy.tabs)) continue;
+      const mod = String(policy.module).toLowerCase();
       for (const tab of policy.tabs) {
         if (typeof tab === "string") {
-          // Simplified Tab Permission Model
-          map[`${policy.module}:${tab}`] = true;
-          map[`${policy.module}:${tab}:read`] = true;
-          map[`${policy.module}:${tab}:create`] = true;
-          map[`${policy.module}:${tab}:update`] = true;
-          map[`${policy.module}:${tab}:delete`] = true;
-          map[`${policy.module}:${tab}:all`] = true;
+          const t = tab.toLowerCase();
+          map[`${mod}:${t}`] = true;
+          map[`${mod}:${t}:read`] = true;
+          map[`${mod}:${t}:create`] = true;
+          map[`${mod}:${t}:update`] = true;
+          map[`${mod}:${t}:delete`] = true;
+          map[`${mod}:${t}:all`] = true;
         } else if (tab && typeof tab === "object") {
-          // Legacy object format
-          const tabName = tab.name;
+          const tabName = tab.name ? String(tab.name).toLowerCase() : "";
           if (tabName) {
-            map[`${policy.module}:${tabName}`] = true;
+            map[`${mod}:${tabName}`] = true;
             if (Array.isArray(tab.actions)) {
               for (const action of tab.actions) {
-                map[`${policy.module}:${tabName}:${action}`] = true;
+                map[`${mod}:${tabName}:${String(action).toLowerCase()}`] = true;
               }
             }
           }
@@ -330,7 +330,7 @@ export const buildPermissionMap = (roles = []) => {
 };
 
 // ✅ IAM-Style Authorization Middleware with O(1) performance lookup
-export const requirePermission = (moduleName, tabName, action) => {
+export const requirePermission = (moduleName, tabName, action = "") => {
   return asyncHandler(async (req, res, next) => {
     // 1. SaaS Admin has full system access
     if (req.userType === "saasadmin") {
@@ -339,7 +339,7 @@ export const requirePermission = (moduleName, tabName, action) => {
 
     // 2. Company Admin (Owner) is restricted strictly to Admin module (Overview, User Management, Roles)
     if (req.userType === "company") {
-      if (moduleName === "Admin") {
+      if (moduleName.toLowerCase() === "admin") {
         return next();
       }
       throw new ApiError(403, "Access denied. Company Admin accounts are restricted to Overview, User Management, and Roles.");
@@ -350,6 +350,14 @@ export const requirePermission = (moduleName, tabName, action) => {
     if (user?.role) rolesToCheck.push(user.role);
     if (Array.isArray(user?.roles)) rolesToCheck.push(...user.roles);
 
+    // 3. Full-access roles (GM, Company Management, Admin Default Role)
+    for (const r of rolesToCheck) {
+      const rName = (r?.name || "").trim();
+      if (rName === "GM" || rName === "Admin Default Role" || rName === "Company Management") {
+        return next();
+      }
+    }
+
     if (rolesToCheck.length === 0) {
       throw new ApiError(403, "Access denied. No roles assigned.");
     }
@@ -359,10 +367,14 @@ export const requirePermission = (moduleName, tabName, action) => {
       req.permissionMap = buildPermissionMap(rolesToCheck);
     }
 
+    const mod = String(moduleName).toLowerCase();
+    const tab = String(tabName).toLowerCase();
+    const act = action ? String(action).toLowerCase() : "";
+
     if (
-      req.permissionMap[`${moduleName}:${tabName}`] ||
-      req.permissionMap[`${moduleName}:${tabName}:${action}`] ||
-      req.permissionMap[`${moduleName}:${tabName}:all`]
+      req.permissionMap[`${mod}:${tab}`] ||
+      (act && req.permissionMap[`${mod}:${tab}:${act}`]) ||
+      req.permissionMap[`${mod}:${tab}:all`]
     ) {
       return next();
     }
