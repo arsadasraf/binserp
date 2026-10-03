@@ -5,9 +5,11 @@ import {
     Plus, Search, Filter, RefreshCw, LayoutGrid, List, Flame, Sun, Snowflake, 
     Phone, Mail, MapPin, Tag, ArrowRight, UserCheck, Trash2, Edit2, X, Check, 
     Building2, Calendar, FileText, FileSpreadsheet, Download, Upload, 
-    ChevronDown, AlertCircle, CheckCircle2, DollarSign, Package, Sparkles, Zap, ExternalLink
+    ChevronDown, AlertCircle, CheckCircle2, DollarSign, Package, Sparkles, Zap, ExternalLink,
+    MessageSquare, Mic, Paperclip, Clock, Image as ImageIcon
 } from "lucide-react";
 import { apiRequest, apiGet, apiPost, apiPut, apiDelete } from "@/src/lib/api";
+import LeadFollowUpModal from "./LeadFollowUpModal";
 
 interface MasterProduct {
     _id: string;
@@ -52,6 +54,21 @@ interface Lead {
     convertedToCustomer?: any;
     assignedTo?: any;
     createdAt?: string;
+    latestFollowUp?: {
+        type?: "Call" | "WhatsApp" | "Meeting" | "Email" | "Note" | "Site Visit" | "Demo";
+        text?: string;
+        voiceUrl?: string;
+        voiceDuration?: number;
+        hasVoice?: boolean;
+        photos?: string[];
+        photosCount?: number;
+        attachments?: Array<{ name: string; url: string; size?: number; mimeType?: string }>;
+        attachmentsCount?: number;
+        nextFollowUpDate?: string;
+        createdByName?: string;
+        createdAt?: string;
+    };
+    followUps?: any[];
 }
 
 const DEFAULT_STAGES = [
@@ -108,6 +125,10 @@ export default function LeadKanban() {
     const [sourceFilter, setSourceFilter] = useState("All");
     const [warmthFilter, setWarmthFilter] = useState("All");
     const [statusFilter, setStatusFilter] = useState("All");
+    const [followUpFilter, setFollowUpFilter] = useState("All");
+
+    // Lead Follow-Up Modal State
+    const [followUpLead, setFollowUpLead] = useState<Lead | null>(null);
 
     // Excel Actions Dropdown
     const [isExcelMenuOpen, setIsExcelMenuOpen] = useState(false);
@@ -188,6 +209,7 @@ export default function LeadKanban() {
             if (sourceFilter !== "All") url += `&source=${encodeURIComponent(sourceFilter)}`;
             if (warmthFilter !== "All") url += `&warmth=${encodeURIComponent(warmthFilter)}`;
             if (statusFilter !== "All") url += `&status=${encodeURIComponent(statusFilter)}`;
+            if (followUpFilter !== "All") url += `&followUpFilter=${encodeURIComponent(followUpFilter)}`;
 
             const res = await apiGet(url, token);
             setLeads(res.data || []);
@@ -204,7 +226,7 @@ export default function LeadKanban() {
 
     useEffect(() => {
         fetchLeads();
-    }, [sourceFilter, warmthFilter, statusFilter]);
+    }, [sourceFilter, warmthFilter, statusFilter, followUpFilter]);
 
     // Download Excel Template
     const handleDownloadTemplate = async () => {
@@ -495,6 +517,21 @@ export default function LeadKanban() {
                         ))}
                     </select>
 
+                    {/* Follow-Up Quick Filter */}
+                    <select
+                        value={followUpFilter}
+                        onChange={(e) => setFollowUpFilter(e.target.value)}
+                        className="px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 outline-none cursor-pointer"
+                    >
+                        <option value="All">All Follow-ups</option>
+                        <option value="overdue">⚠️ Overdue Follow-ups</option>
+                        <option value="today">⚡ Due Today</option>
+                        <option value="tomorrow">⏰ Due Tomorrow</option>
+                        <option value="this_week">📅 Due This Week</option>
+                        <option value="pending">⏳ All Upcoming</option>
+                        <option value="none">❓ No Follow-up Set</option>
+                    </select>
+
                     <button
                         onClick={fetchLeads}
                         className="p-2 text-slate-500 hover:text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors"
@@ -690,6 +727,76 @@ export default function LeadKanban() {
                                                 </p>
                                             )}
 
+                                            {/* Top Message / Latest Follow-up Preview on Card */}
+                                            {lead.latestFollowUp?.text ? (
+                                                <div 
+                                                    onClick={() => setFollowUpLead(lead)}
+                                                    className="p-2 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/50 cursor-pointer hover:bg-blue-100/60 dark:hover:bg-blue-900/50 transition-colors space-y-1.5 group"
+                                                >
+                                                    <div className="flex items-center justify-between text-[9px] font-bold text-blue-700 dark:text-blue-300">
+                                                        <span className="flex items-center gap-1">
+                                                            <MessageSquare size={10} />
+                                                            <span>{lead.latestFollowUp.type || "Follow-up"}:</span>
+                                                        </span>
+                                                        <span className="text-slate-400 font-normal">
+                                                            {lead.latestFollowUp.createdByName ? `by ${lead.latestFollowUp.createdByName}` : ""}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-[10px] text-slate-700 dark:text-slate-200 line-clamp-2 italic font-medium leading-tight">
+                                                        "{lead.latestFollowUp.text}"
+                                                    </p>
+                                                    <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                                                        {lead.latestFollowUp.hasVoice && (
+                                                            <span className="text-[8px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                                                                <Mic size={8} /> Voice
+                                                            </span>
+                                                        )}
+                                                        {(lead.latestFollowUp.photosCount ?? 0) > 0 && (
+                                                            <span className="text-[8px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                                                                <ImageIcon size={8} /> {lead.latestFollowUp.photosCount}
+                                                            </span>
+                                                        )}
+                                                        {(lead.latestFollowUp.attachmentsCount ?? 0) > 0 && (
+                                                            <span className="text-[8px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                                                                <Paperclip size={8} /> {lead.latestFollowUp.attachmentsCount}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <button
+                                                    onClick={() => setFollowUpLead(lead)}
+                                                    className="w-full py-1.5 px-2 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-400 text-slate-400 hover:text-blue-600 text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
+                                                >
+                                                    <Plus size={11} /> Add Follow-up Note
+                                                </button>
+                                            )}
+
+                                            {/* Next Follow-Up Schedule Pill on Card */}
+                                            {lead.latestFollowUp?.nextFollowUpDate && (() => {
+                                                const nextDate = new Date(lead.latestFollowUp.nextFollowUpDate);
+                                                const now = new Date();
+                                                const isPast = nextDate.getTime() < now.getTime();
+                                                const isToday = nextDate.toDateString() === now.toDateString();
+                                                return (
+                                                    <div className={`flex items-center justify-between text-[9px] font-bold px-2 py-1 rounded-lg border ${
+                                                        isPast 
+                                                            ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-900"
+                                                            : isToday
+                                                            ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-900"
+                                                            : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-900"
+                                                    }`}>
+                                                        <span className="flex items-center gap-1">
+                                                            <Clock size={10} />
+                                                            {isPast ? "⚠️ Overdue:" : isToday ? "⚡ Due Today:" : "⏰ Next Follow-up:"}
+                                                        </span>
+                                                        <span className="font-mono">
+                                                            {nextDate.toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()}
+
                                             {/* Estimated Value / Budget & Actions */}
                                             <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between">
                                                 <div>
@@ -704,6 +811,14 @@ export default function LeadKanban() {
                                                 </div>
 
                                                 <div className="flex items-center gap-1">
+                                                    <button
+                                                        onClick={() => setFollowUpLead(lead)}
+                                                        className="p-1 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 rounded-md transition-colors flex items-center gap-0.5 text-[10px] font-bold px-1.5"
+                                                        title="Follow-Up Notes & Voice"
+                                                    >
+                                                        <MessageSquare size={11} />
+                                                        <span>{lead.followUps?.length || (lead.latestFollowUp?.text ? 1 : 0)}</span>
+                                                    </button>
                                                     {!lead.isConverted && (
                                                         <button
                                                             onClick={() => handleOpenConvert(lead)}
@@ -760,6 +875,7 @@ export default function LeadKanban() {
                                     <th className="p-3.5">Source</th>
                                     <th className="p-3.5">Warmth</th>
                                     <th className="p-3.5">Pipeline Stage</th>
+                                    <th className="p-3.5">Latest Follow-up & Next Action</th>
                                     <th className="p-3.5 text-right">Budget / Est. Value</th>
                                     <th className="p-3.5 text-right">Actions</th>
                                 </tr>
@@ -767,14 +883,14 @@ export default function LeadKanban() {
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={8} className="p-12 text-center text-slate-400">
+                                        <td colSpan={9} className="p-12 text-center text-slate-400">
                                             <RefreshCw size={24} className="animate-spin mx-auto mb-2 text-blue-600" />
                                             Loading leads pipeline...
                                         </td>
                                     </tr>
                                 ) : leads.length === 0 ? (
                                     <tr>
-                                        <td colSpan={8} className="p-12 text-center text-slate-400">
+                                        <td colSpan={9} className="p-12 text-center text-slate-400">
                                             No leads found matching your criteria. Click <strong>Add Lead</strong> or use <strong>Bulk Import</strong>.
                                         </td>
                                     </tr>
@@ -854,6 +970,60 @@ export default function LeadKanban() {
                                                 </span>
                                             </td>
 
+                                            {/* Dedicated Table Column: Latest Follow-up & Next Action */}
+                                            <td className="p-3.5 max-w-xs">
+                                                {lead.latestFollowUp?.text ? (
+                                                    <div 
+                                                        onClick={() => setFollowUpLead(lead)}
+                                                        className="cursor-pointer group space-y-1"
+                                                    >
+                                                        <p className="text-[11px] text-slate-800 dark:text-slate-200 font-medium line-clamp-2 group-hover:text-blue-600 transition-colors">
+                                                            "{lead.latestFollowUp.text}"
+                                                        </p>
+                                                        <div className="flex flex-wrap items-center gap-1">
+                                                            <span className="text-[9px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.2 rounded">
+                                                                {lead.latestFollowUp.type || "Call"}
+                                                            </span>
+                                                            {lead.latestFollowUp.hasVoice && (
+                                                                <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 px-1 py-0.2 rounded flex items-center gap-0.5">
+                                                                    <Mic size={9} /> Voice
+                                                                </span>
+                                                            )}
+                                                            {(lead.latestFollowUp.photosCount ?? 0) > 0 && (
+                                                                <span className="text-[9px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/60 px-1 py-0.2 rounded flex items-center gap-0.5">
+                                                                    <ImageIcon size={9} /> {lead.latestFollowUp.photosCount}
+                                                                </span>
+                                                            )}
+                                                            {(lead.latestFollowUp.attachmentsCount ?? 0) > 0 && (
+                                                                <span className="text-[9px] font-bold text-purple-600 bg-purple-50 dark:bg-purple-950/60 px-1 py-0.2 rounded flex items-center gap-0.5">
+                                                                    <Paperclip size={9} /> {lead.latestFollowUp.attachmentsCount}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {lead.latestFollowUp.nextFollowUpDate && (() => {
+                                                            const nextDate = new Date(lead.latestFollowUp.nextFollowUpDate);
+                                                            const now = new Date();
+                                                            const isPast = nextDate.getTime() < now.getTime();
+                                                            return (
+                                                                <span className={`inline-block text-[9px] font-bold font-mono px-1.5 py-0.2 rounded ${
+                                                                    isPast ? "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300" : "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
+                                                                }`}>
+                                                                    {isPast ? "⚠️ Overdue: " : "⏰ Due: "}
+                                                                    {nextDate.toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                                                                </span>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => setFollowUpLead(lead)}
+                                                        className="text-[10px] font-bold text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1"
+                                                    >
+                                                        <Plus size={11} /> Add Follow-up
+                                                    </button>
+                                                )}
+                                            </td>
+
                                             <td className="p-3.5 text-right">
                                                 <div className="font-mono font-bold text-slate-900 dark:text-white">
                                                     {lead.estimatedValue ? `₹${Number(lead.estimatedValue).toLocaleString()}` : "-"}
@@ -867,6 +1037,14 @@ export default function LeadKanban() {
 
                                             <td className="p-3.5 text-right">
                                                 <div className="flex items-center justify-end gap-1.5">
+                                                    <button
+                                                        onClick={() => setFollowUpLead(lead)}
+                                                        className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-bold"
+                                                        title="View / Add Follow-up Notes"
+                                                    >
+                                                        <MessageSquare size={13} />
+                                                        <span>{lead.followUps?.length || (lead.latestFollowUp?.text ? 1 : 0)}</span>
+                                                    </button>
                                                     {!lead.isConverted && (
                                                         <button
                                                             onClick={() => handleOpenConvert(lead)}
@@ -1521,6 +1699,20 @@ export default function LeadKanban() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Lead Follow-Up Modal */}
+            {followUpLead && (
+                <LeadFollowUpModal
+                    isOpen={Boolean(followUpLead)}
+                    onClose={() => setFollowUpLead(null)}
+                    lead={followUpLead}
+                    onFollowUpAdded={(updatedLead) => {
+                        setLeads(prev => prev.map(l => l._id === updatedLead._id ? updatedLead : l));
+                        setFollowUpLead(null);
+                    }}
+                    masterStages={masterStages}
+                />
             )}
 
         </div>

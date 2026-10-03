@@ -4,6 +4,7 @@ export { getLeads } from "./getLeads.controller.js";
 export { updateLead } from "./updateLead.controller.js";
 export { deleteLead } from "./deleteLead.controller.js";
 export { convertLeadToCustomer } from "./convertLeadToCustomer.controller.js";
+export { addLeadFollowUp, getLeadFollowUps, deleteLeadFollowUp } from "./leadFollowUp.controller.js";
 
 // Deals
 export { getDeals, createDeal, updateDeal, deleteDeal } from "./deal.controller.js";

@@ -94,6 +94,64 @@ export const leadSchema = new mongoose.Schema(
         tags: [{ type: String, trim: true }],
         notes: { type: String },
 
+        // Multi-modal Follow-up History & Latest Message Preview
+        latestFollowUp: {
+            type: { 
+                type: String, 
+                enum: ["Call", "WhatsApp", "Meeting", "Email", "Note", "Site Visit", "Demo"],
+                default: "Call" 
+            },
+            text: { type: String, default: "" },
+            voiceUrl: { type: String },
+            voiceDuration: { type: Number, default: 0 },
+            hasVoice: { type: Boolean, default: false },
+            photos: [{ type: String }],
+            photosCount: { type: Number, default: 0 },
+            attachments: [
+                {
+                    name: String,
+                    url: String,
+                    size: Number,
+                    mimeType: String
+                }
+            ],
+            attachmentsCount: { type: Number, default: 0 },
+            nextFollowUpDate: { type: Date },
+            createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+            createdByName: { type: String, trim: true },
+            createdAt: { type: Date }
+        },
+
+        followUps: [
+            {
+                type: { 
+                    type: String, 
+                    enum: ["Call", "WhatsApp", "Meeting", "Email", "Note", "Site Visit", "Demo"],
+                    default: "Call" 
+                },
+                text: { type: String, required: true, trim: true },
+                voiceUrl: { type: String },
+                voiceDuration: { type: Number, default: 0 },
+                photos: [{ type: String }],
+                attachments: [
+                    {
+                        name: String,
+                        url: String,
+                        size: Number,
+                        mimeType: String
+                    }
+                ],
+                nextFollowUpDate: { type: Date },
+                stageChange: {
+                    fromStage: String,
+                    toStage: String
+                },
+                createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+                createdByName: { type: String, trim: true },
+                createdAt: { type: Date, default: Date.now }
+            }
+        ],
+
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
@@ -112,3 +170,4 @@ leadSchema.index({ company: 1, phone: 1 });
 leadSchema.index({ company: 1, email: 1 });
 leadSchema.index({ company: 1, sourceId: 1 });
 leadSchema.index({ company: 1, status: 1 });
+leadSchema.index({ company: 1, "latestFollowUp.nextFollowUpDate": 1 });

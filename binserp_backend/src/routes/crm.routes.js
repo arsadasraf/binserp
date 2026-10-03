@@ -1,5 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
+import fs from "fs";
+import path from "path";
 import { verifyJWT, requirePermission } from "../middlewares/auth.middleware.js";
 import {
     createLead,
@@ -7,6 +9,9 @@ import {
     updateLead,
     deleteLead,
     convertLeadToCustomer,
+    addLeadFollowUp,
+    getLeadFollowUps,
+    deleteLeadFollowUp,
     getDeals,
     createDeal,
     updateDeal,
@@ -57,6 +62,30 @@ import {
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
+// Multi-part disk storage for follow-up notes (voice recordings, photos, and documents)
+const followUpStorage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const tempDir = path.join(process.cwd(), "public", "temp");
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+        }
+        cb(null, tempDir);
+    },
+    filename: function (req, file, cb) {
+        const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+        cb(null, uniqueSuffix + "-" + file.originalname);
+    }
+});
+
+const followUpUpload = multer({
+    storage: followUpStorage,
+    limits: { fileSize: 30 * 1024 * 1024 }
+}).fields([
+    { name: "voice", maxCount: 1 },
+    { name: "photos", maxCount: 6 },
+    { name: "files", maxCount: 6 }
+]);
+
 // ==========================================
 // PUBLIC INBOUND WEBHOOK & TEMPLATE ENDPOINTS (NO JWT REQUIRED)
 // ==========================================
@@ -80,6 +109,13 @@ router.use(["/leads", "/excel/import/leads", "/excel/export/leads"], requirePerm
 router.route("/leads")
     .get(getLeads)
     .post(createLead);
+
+// Follow-up notes & interactions (voice, photos, files, schedule)
+router.route("/leads/:id/follow-ups")
+    .get(getLeadFollowUps)
+    .post(followUpUpload, addLeadFollowUp);
+
+router.delete("/leads/:id/follow-ups/:followUpId", deleteLeadFollowUp);
 
 router.route("/leads/:id")
     .put(updateLead)
