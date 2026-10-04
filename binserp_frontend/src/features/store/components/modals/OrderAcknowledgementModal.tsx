@@ -9,6 +9,7 @@ import {
     downloadOrderAcknowledgementJsPDF 
 } from "@/src/utils/generateOrderAcknowledgementPDF";
 import { getCurrencySymbol } from "@/src/utils/currencyHelper";
+import { getPoOaNumber } from "@/src/utils/oaHelper";
 
 interface OrderAcknowledgementModalProps {
     isOpen: boolean;
@@ -100,10 +101,13 @@ export default function OrderAcknowledgementModal({
                 };
             });
 
+            const oaNum = getPoOaNumber(po);
+
             const payload = {
                 committedDispatchDate: globalDispatchDate,
                 acknowledgementRemarks: acknowledgementRemarks,
-                items: updatedItems
+                items: updatedItems,
+                acknowledgementNumber: oaNum
             };
 
             const res = await apiPost(`/api/sales/incoming-po/${po._id}/acknowledge`, payload, token);
@@ -125,9 +129,10 @@ export default function OrderAcknowledgementModal({
     };
 
     const handleDirectPrintPreview = () => {
-        // Construct preview PO with active modal dates
+        // Construct preview PO with active modal dates and modern OA number
         const previewPo = {
             ...po,
+            acknowledgementNumber: getPoOaNumber(po),
             committedDispatchDate: globalDispatchDate,
             acknowledgementRemarks: acknowledgementRemarks,
             acknowledgementDate: po.acknowledgementDate || new Date(),
@@ -161,7 +166,7 @@ export default function OrderAcknowledgementModal({
                                 </span>
                             </div>
                             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                                Customer PO: <strong className="font-mono text-indigo-600 dark:text-indigo-400">{po.poNumber}</strong> &nbsp;|&nbsp; Buyer: <strong className="text-slate-800 dark:text-slate-200">{po.customerName || po.customer?.name || 'Customer'}</strong>
+                                Customer PO: <strong className="font-mono text-indigo-600 dark:text-indigo-400">{po.poNumber}</strong> &nbsp;|&nbsp; Buyer: <strong className="text-slate-800 dark:text-slate-200">{po.customerName || po.customer?.name || 'Customer'}</strong> &nbsp;|&nbsp; OA #: <strong className="font-mono text-emerald-600 dark:text-emerald-400">{getPoOaNumber(po)}</strong>
                             </p>
                         </div>
                     </div>

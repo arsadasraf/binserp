@@ -1,7 +1,8 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, rmInventoryMonthlySchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, rmInventoryMonthlySchema, stockTransactionSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
+import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
@@ -95,8 +96,16 @@ export const createJobWorkChallan = async (req, res) => {
       }
     }
 
-    // Helper to check valid Mongoose ObjectId
-    const isValidObjectId = (val) => val && mongoose.Types.ObjectId.isValid(val);
+    // Helper to check valid Mongoose ObjectId after stripping compound prefixes
+    const cleanId = (val) => {
+      if (!val) return null;
+      const s = String(val).trim();
+      return s.includes('_') ? s.split('_').slice(1).join('_') : s;
+    };
+    const isValidObjectId = (val) => {
+      const c = cleanId(val);
+      return c && mongoose.Types.ObjectId.isValid(c) ? c : null;
+    };
 
     // Process Items, Check Stock & Validate Availability
     const processedItems = [];
@@ -118,7 +127,7 @@ export const createJobWorkChallan = async (req, res) => {
 
       // 1. Validate Stock & Fetch Sent Item Name
       let itemName = item.itemName || "";
-      let validItemId = isValidObjectId(itemId) ? itemId : null;
+      let validItemId = isValidObjectId(itemId);
       
       if ((itemType === "bo" || itemType === "rm") && validItemId) {
         const materialDoc = await Material.findById(validItemId);
@@ -126,8 +135,12 @@ export const createJobWorkChallan = async (req, res) => {
       } else if (itemType === "custom") {
         itemName = item.itemName || "Custom Item";
         validItemId = null;
-      } else if ((itemType === "inhouse" || itemType === "fg") && validItemId) {
-        const fgDoc = await FGItem.findById(validItemId);
+      } else if ((itemType === "inhouse" || itemType === "fg" || itemType === "component" || itemType === "subassembly" || itemType === "assembly") && validItemId) {
+        const Component = req.getModel("Component", componentSchema);
+        let fgDoc = await FGItem.findById(validItemId);
+        if (!fgDoc) {
+          fgDoc = await Component.findById(validItemId);
+        }
         if (fgDoc) itemName = fgDoc.name || fgDoc.componentName;
       }
 
@@ -176,10 +189,10 @@ export const createJobWorkChallan = async (req, res) => {
         const JobWork = req.getModel("JobWorkChallan", jobWorkSchema);
         let availWipStock = 0;
 
-        // 1. Check Component collection
+        // 1. Check Component & FGItem collection
         if (validItemId || itemName) {
           const searchConditions = [];
-          if (mongoose.Types.ObjectId.isValid(validItemId)) {
+          if (validItemId) {
             searchConditions.push({ _id: validItemId });
           }
           if (itemName && itemName.trim()) {
@@ -195,7 +208,57 @@ export const createJobWorkChallan = async (req, res) => {
             if (compDoc) {
               availWipStock = Math.max(availWipStock, Number(compDoc.quantity || 0));
             }
+
+            const fgDoc = await FGItem.findOne({
+              company: companyId,
+              $or: searchConditions
+            });
+            if (fgDoc) {
+              availWipStock = Math.max(availWipStock, Number(fgDoc.quantity || 0));
+            }
           }
+        }
+
+        // 1b. Check In-house WIP Conversions from StockTransaction
+        try {
+          const StockTransaction = req.getModel("StockTransaction", stockTransactionSchema);
+          const convTxList = await StockTransaction.find({
+            company: companyId,
+            transactionCategory: "WIP_COMPONENT_CONVERT_INWARD",
+            $or: [
+              ...(validItemId ? [{ item: validItemId }] : []),
+              ...(itemName && itemName.trim() ? [{ itemName: new RegExp(`^${itemName.trim()}$`, "i") }] : [])
+            ]
+          }).lean();
+
+          if (convTxList && convTxList.length > 0) {
+            const totalConvertedInward = convTxList.reduce((acc, tx) => acc + (Number(tx.quantity) || 0), 0);
+            
+            const existingJobWorks = await JobWork.find({
+              company: companyId,
+              jobWorkType: "wip-to-wip",
+              status: { $ne: "Cancelled" }
+            }).lean();
+
+            let totalDispatched = 0;
+            let totalReturned = 0;
+            const nameRegex = itemName && itemName.trim() ? new RegExp(`^${itemName.trim()}$`, "i") : null;
+            existingJobWorks.forEach(jw => {
+              (jw.items || []).forEach(it => {
+                const itMatchesId = validItemId && String(it.item) === String(validItemId);
+                const itMatchesName = nameRegex && it.itemName && nameRegex.test(it.itemName);
+                if (itMatchesId || itMatchesName) {
+                  totalDispatched += Number(it.quantitySent || 0);
+                  totalReturned += Number(it.quantityReceived || 0);
+                }
+              });
+            });
+
+            const netConvAvail = Math.max(0, totalConvertedInward - totalDispatched + totalReturned);
+            availWipStock = Math.max(availWipStock, netConvAvail);
+          }
+        } catch (stErr) {
+          console.warn("WIP conversion stock check error in createJobWorkChallan:", stErr);
         }
 
         // 2. Also check Store Material Issues issued to shopfloor
@@ -311,11 +374,11 @@ export const createJobWorkChallan = async (req, res) => {
           if (retFg) finalReceivedItemName = retFg.name || retFg.componentName;
         }
 
-        const retHasSec = Boolean(retItem.hasSecondaryUnit);
-        const retSecUnit = retItem.secondaryUnit || "";
-        const retConvFactor = Number(retItem.conversionFactor) || 1;
+        const retHasSec = Boolean(item.hasSecondaryUnit);
+        const retSecUnit = item.secondaryUnit || "";
+        const retConvFactor = Number(item.conversionFactor) || 1;
         const retQtyPri = Number(quantityToBeReceived) || Number(quantitySent) || 1;
-        const retQtySec = Number(retItem.secondaryQuantityToBeReceived) || (retHasSec ? (retQtyPri * retConvFactor) : 0);
+        const retQtySec = Number(item.secondaryQuantityToBeReceived) || (retHasSec ? (retQtyPri * retConvFactor) : 0);
 
         const retDoc = {
           receivedItemName: finalReceivedItemName || itemName || "Returning Material",
@@ -328,7 +391,7 @@ export const createJobWorkChallan = async (req, res) => {
           conversionFactor: retConvFactor,
           secondaryQuantityToBeReceived: retQtySec,
           secondaryQuantityReceived: 0,
-          selectedUnit: retItem.selectedUnit || receivingUnit || unit || "PCS",
+          selectedUnit: item.selectedUnit || receivingUnit || unit || "PCS",
           status: "Sent"
         };
 
@@ -612,14 +675,33 @@ export const createJobWorkChallan = async (req, res) => {
         } catch (monthlyErr) {
           console.error("Error updating RM monthly outward quantity for Job Work:", monthlyErr);
         }
-      } else if (jobWorkType === "wip-to-wip" && item.item) {
-        // Decrease WIP FG Component stock
+      } else if (jobWorkType === "wip-to-wip") {
+        // Record WIP outward stock transaction for Shopfloor WIP deduction audit
         try {
-          await Component.findByIdAndUpdate(item.item, {
-            $inc: { quantity: -Number(item.quantitySent) }
+          const sentQtyNum = Number(item.quantitySent) || 0;
+          await recordStockTransaction(req, {
+            itemType: (item.itemType === "fg" || item.itemType === "inhouse" || item.itemType === "Component" || item.itemType === "component" || item.itemType === "SubAssembly" || item.itemType === "Assembly") ? "FGItem" : "RawMaterial",
+            item: item.item && mongoose.Types.ObjectId.isValid(item.item) ? item.item : jobWork._id,
+            itemName: item.itemName,
+            unit: item.unit || "PCS",
+            movementType: "OUTWARD",
+            transactionCategory: "WIP_JOB_WORK_OUTWARD",
+            quantity: sentQtyNum,
+            previousStock: 0,
+            newStock: 0,
+            referenceDocType: "JobWorkChallan",
+            referenceDocId: jobWork._id,
+            referenceDocNumber: challanNumber,
+            recipientOrSource: vendorName,
+            purpose: item.processType || `WIP-to-WIP Subcontractor Dispatch to ${vendorName} (Challan #${challanNumber})`,
+            performedBy: req.user?.id || req.user?._id,
+            hasSecondaryUnit: item.hasSecondaryUnit || false,
+            secondaryUnit: item.secondaryUnit || "",
+            secondaryQuantity: item.hasSecondaryUnit ? -Number(item.secondaryQuantitySent || (sentQtyNum * (item.conversionFactor || 1))) : 0,
+            conversionFactor: item.conversionFactor || 1,
           });
-        } catch (compErr) {
-          console.error("Error updating Component stock for WIP-to-WIP challan:", compErr);
+        } catch (stErr) {
+          console.error("Error recording WIP_JOB_WORK_OUTWARD StockTransaction:", stErr);
         }
       }
     }

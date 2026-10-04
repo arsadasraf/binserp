@@ -1055,19 +1055,19 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                 </div>
             ) : (
                 <>
-                    {/* Desktop Table View */}
-                    <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="border-b border-gray-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-[11px] uppercase font-bold text-gray-500 dark:text-slate-400 tracking-wider">
-                                    <th className="px-6 py-3.5">PO Details</th>
-                                    <th className="px-4 py-3.5 w-36">Material Type</th>
-                                    <th className="px-6 py-3.5">Vendor / Supplier</th>
-                                    <th className="px-6 py-3.5">Items & Piece Count</th>
-                                    <th className="px-5 py-3.5 w-72">Follow-Up / Remarks</th>
-                                    <th className="px-6 py-3.5 text-right">Total Value</th>
-                                    <th className="px-6 py-3.5 text-center">Status</th>
-                                    <th className="px-6 py-3.5 text-right">Actions</th>
+                    {/* Desktop Table View - Scrollable with Sticky Header */}
+                    <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm overflow-x-auto overflow-y-auto max-h-[calc(100vh-230px)] min-h-[350px]">
+                        <table className="w-full text-left border-collapse relative">
+                            <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 shadow-2xs">
+                                <tr className="border-b border-gray-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-[11px] uppercase font-bold text-gray-500 dark:text-slate-400 tracking-wider">
+                                    <th className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800">PO Details</th>
+                                    <th className="px-4 py-3.5 w-36 bg-slate-50 dark:bg-slate-800">Material Type</th>
+                                    <th className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800">Vendor / Supplier</th>
+                                    <th className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800">Items & Piece Count</th>
+                                    <th className="px-5 py-3.5 w-72 bg-slate-50 dark:bg-slate-800">Follow-Up / Remarks</th>
+                                    <th className="px-6 py-3.5 text-right bg-slate-50 dark:bg-slate-800">Total Value</th>
+                                    <th className="px-6 py-3.5 text-center bg-slate-50 dark:bg-slate-800">Status</th>
+                                    <th className="px-6 py-3.5 text-right bg-slate-50 dark:bg-slate-800">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100 dark:divide-slate-800 text-sm">
@@ -1343,9 +1343,9 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                 })}
                             </tbody>
                             {/* Sticky Table Footer Summary Row */}
-                            <tfoot className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-800/90 font-bold text-xs text-slate-700 dark:text-slate-200">
-                                <tr>
-                                    <td className="px-6 py-3.5 text-slate-900 dark:text-white" colSpan={3}>
+                            <tfoot className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-xs text-slate-700 dark:text-slate-200 sticky bottom-0 z-10 shadow-2xs">
+                                <tr className="bg-slate-50 dark:bg-slate-800">
+                                    <td className="px-6 py-3.5 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800" colSpan={3}>
                                         <div className="flex items-center gap-2">
                                             <span>Summary Total:</span>
                                             <span className="font-mono bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full text-[11px]">
@@ -1353,7 +1353,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                             </span>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-3.5">
+                                    <td className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800">
                                         <div className="flex items-center gap-2">
                                             {metrics.totalPiecesCount > 0 && (
                                                 <span className="font-mono text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded font-bold">
@@ -1363,17 +1363,17 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                             <span>• {metrics.totalQuantity.toLocaleString()} Total Qty ({metrics.totalItemsCount} items)</span>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-3.5 text-right font-black font-mono text-purple-700 dark:text-purple-300 text-sm">
+                                    <td className="px-6 py-3.5 text-right font-black font-mono text-purple-700 dark:text-purple-300 text-sm bg-slate-50 dark:bg-slate-800">
                                         ₹{metrics.totalPOValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </td>
-                                    <td className="px-6 py-3.5" colSpan={2}></td>
+                                    <td className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800" colSpan={2}></td>
                                 </tr>
                             </tfoot>
                         </table>
                     </div>
 
                     {/* Mobile Card View */}
-                    <div className="block md:hidden space-y-3 pb-28 sm:pb-20">
+                    <div className="block md:hidden space-y-3 pb-28 sm:pb-20 overflow-y-auto max-h-[calc(100vh-240px)]">
                         {filteredData.map((item) => {
                             const vendorName = getVendorNameStr(item);
                             const materialName = getMaterialNameStr(item);

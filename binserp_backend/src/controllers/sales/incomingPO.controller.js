@@ -5,6 +5,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { generateOrderNumber } from "./salesOrder.controller.js";
 import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
+import { generateUniqueOANumber } from "../../utils/oaNumberGenerator.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -83,8 +84,16 @@ export const createIncomingPO = asyncHandler(async (req, res) => {
   const userId = req.user?.id || req.user?._id;
   const initialStatus = req.body.status || "Received";
 
+  const acknowledgementNumber = await generateUniqueOANumber({
+    poNumber: req.body.poNumber,
+    date: req.body.date || new Date(),
+    companyId,
+    IncomingPO,
+  });
+
   const incomingPO = await IncomingPO.create({
     ...req.body,
+    acknowledgementNumber,
     photos: photoUrls,
     pdf: pdfUrl,
     company: companyId,
@@ -244,6 +253,25 @@ export const getAllIncomingPOs = asyncHandler(async (req, res) => {
     }
   }
 
+  // Auto-backfill unique OA numbers for any existing PO missing it or in legacy format
+  for (const po of pos) {
+    if (!po.acknowledgementNumber || !/^OA-\d{6}/.test(po.acknowledgementNumber)) {
+      try {
+        const oaNum = await generateUniqueOANumber({
+          poNumber: po.poNumber,
+          date: po.date || po.createdAt || new Date(),
+          companyId,
+          IncomingPO,
+          excludeId: po._id,
+        });
+        po.acknowledgementNumber = oaNum;
+        await IncomingPO.updateOne({ _id: po._id }, { acknowledgementNumber: oaNum });
+      } catch (oaErr) {
+        console.error("Auto backfill OA number error:", oaErr);
+      }
+    }
+  }
+
   const filteredPos = req.query.openOnly === "true"
     ? pos.filter(po => po.status !== "Completed" && po.status !== "Cancelled")
     : pos;
@@ -336,6 +364,16 @@ export const updateIncomingPO = asyncHandler(async (req, res) => {
   req.body.photos = photoUrls;
   const userId = req.user?.id || req.user?._id;
   req.body.updatedBy = userId;
+
+  if (!existingPO.acknowledgementNumber || !/^OA-\d{6}/.test(existingPO.acknowledgementNumber)) {
+    req.body.acknowledgementNumber = await generateUniqueOANumber({
+      poNumber: req.body.poNumber || existingPO.poNumber,
+      date: req.body.date || existingPO.date || existingPO.createdAt,
+      companyId,
+      IncomingPO,
+      excludeId: existingPO._id,
+    });
+  }
 
   if (req.body.status && req.body.status !== existingPO.status) {
     req.body.$push = {
@@ -461,8 +499,17 @@ export const acknowledgeIncomingPO = asyncHandler(async (req, res) => {
   }
 
   // 2. Acknowledgement Metadata
-  const cleanPoNo = (incomingPO.poNumber || "PO").replace(/[^a-zA-Z0-9-]/g, "");
-  incomingPO.acknowledgementNumber = incomingPO.acknowledgementNumber || `OA-${cleanPoNo}`;
+  if (req.body.acknowledgementNumber && /^OA-\d{6}/.test(req.body.acknowledgementNumber)) {
+    incomingPO.acknowledgementNumber = req.body.acknowledgementNumber;
+  } else if (!incomingPO.acknowledgementNumber || !/^OA-\d{6}/.test(incomingPO.acknowledgementNumber)) {
+    incomingPO.acknowledgementNumber = await generateUniqueOANumber({
+      poNumber: incomingPO.poNumber,
+      date: incomingPO.date || incomingPO.createdAt || new Date(),
+      companyId,
+      IncomingPO,
+      excludeId: incomingPO._id,
+    });
+  }
   incomingPO.acknowledgementDate = new Date();
   if (committedDispatchDate) {
     incomingPO.committedDispatchDate = new Date(committedDispatchDate);
@@ -501,6 +548,40 @@ export const acknowledgeIncomingPO = asyncHandler(async (req, res) => {
   res.status(200).json({
     message: "Order Acknowledgement & Commitment saved successfully",
     incomingPO: populated,
+  });
+});
+
+export const backfillOANumbers = asyncHandler(async (req, res) => {
+  const IncomingPO = req.getModel("IncomingPO", incomingPOSchema);
+  const companyId = getCompanyId(req);
+
+  const pos = await IncomingPO.find({
+    company: companyId,
+    $or: [
+      { acknowledgementNumber: { $exists: false } },
+      { acknowledgementNumber: null },
+      { acknowledgementNumber: "" },
+      { acknowledgementNumber: { $not: /^OA-\d{6}/ } },
+    ],
+  });
+
+  let updatedCount = 0;
+  for (const po of pos) {
+    const oaNum = await generateUniqueOANumber({
+      poNumber: po.poNumber,
+      date: po.date || po.createdAt || new Date(),
+      companyId,
+      IncomingPO,
+      excludeId: po._id,
+    });
+    po.acknowledgementNumber = oaNum;
+    await IncomingPO.updateOne({ _id: po._id }, { acknowledgementNumber: oaNum });
+    updatedCount++;
+  }
+
+  res.status(200).json({
+    message: `Backfilled OA numbers for ${updatedCount} customer PO(s)`,
+    updatedCount,
   });
 });
 

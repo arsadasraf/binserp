@@ -361,21 +361,21 @@ export default function OutwardPOItemWiseView({
           </div>
         ) : (
           <>
-            {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-gray-200 dark:border-slate-700">
-                  <tr>
-                    <th className="px-4 py-3.5 text-center w-12">#</th>
-                    <th className="px-4 py-3.5">Material Name & Description</th>
-                    <th className="px-4 py-3.5 text-center">Type</th>
-                    <th className="px-4 py-3.5 text-center">Unit</th>
-                    <th className="px-4 py-3.5 text-right">Total Ordered</th>
-                    <th className="px-4 py-3.5 text-right">Received</th>
-                    <th className="px-4 py-3.5 text-right">Pending</th>
-                    <th className="px-4 py-3.5 text-center">In POs</th>
-                    <th className="px-4 py-3.5 text-center">Status</th>
-                    <th className="px-4 py-3.5 text-right">Action</th>
+            {/* Desktop Table View - Scrollable with Sticky Header */}
+            <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-230px)] min-h-[350px]">
+              <table className="w-full text-sm text-left border-collapse relative">
+                <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 shadow-2xs text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-gray-200 dark:border-slate-700">
+                  <tr className="bg-slate-100 dark:bg-slate-800">
+                    <th className="px-4 py-3.5 text-center w-12 bg-slate-100 dark:bg-slate-800">#</th>
+                    <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-800">Material Name & Description</th>
+                    <th className="px-4 py-3.5 text-center bg-slate-100 dark:bg-slate-800">Type</th>
+                    <th className="px-4 py-3.5 text-center bg-slate-100 dark:bg-slate-800">Unit</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-100 dark:bg-slate-800">Total Ordered</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-100 dark:bg-slate-800">Received</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-100 dark:bg-slate-800">Pending</th>
+                    <th className="px-4 py-3.5 text-center bg-slate-100 dark:bg-slate-800">In POs</th>
+                    <th className="px-4 py-3.5 text-center bg-slate-100 dark:bg-slate-800">Status</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-100 dark:bg-slate-800">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-slate-800">
@@ -472,7 +472,7 @@ export default function OutwardPOItemWiseView({
             </div>
 
             {/* Mobile Cards View */}
-            <div className="md:hidden divide-y divide-gray-200 dark:divide-slate-800">
+            <div className="md:hidden divide-y divide-gray-200 dark:divide-slate-800 overflow-y-auto max-h-[calc(100vh-240px)]">
               {filteredMaterials.map((item) => (
                 <div
                   key={`mob-${item.id}`}

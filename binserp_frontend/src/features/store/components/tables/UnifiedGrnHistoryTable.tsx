@@ -26,6 +26,7 @@ import {
   Lock,
   LayoutGrid,
   ChevronDown,
+  ChevronUp,
   X,
   CheckSquare,
   ShieldCheck
@@ -516,39 +517,8 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
 
   return (
     <div className="space-y-4">
-      {/* Metric Cards Row / Executive KPI Dashboard */}
-      {!showDashboard ? (
-        /* Collapsed Single-Line Summary Bar */
-        <div className="bg-white dark:bg-gray-900 px-3.5 py-2.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-2xs flex items-center justify-between gap-3 text-xs">
-          <div className="flex items-center flex-wrap gap-2.5 sm:gap-4 text-gray-600 dark:text-gray-300">
-            <span className="font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
-              <Layers size={14} className="text-blue-600" />
-              Total GRNs: <strong className="text-blue-600 font-mono">{filteredGrns.length}</strong>
-            </span>
-            <span className="text-gray-300 dark:text-gray-600">|</span>
-            <span>
-              Received Units: <strong className="text-emerald-600 font-mono">{totalReceivedQty.toLocaleString()}</strong>
-            </span>
-            <span className="text-gray-300 dark:text-gray-600">|</span>
-            <span>
-              Pending QC: <strong className="text-amber-600 font-mono">{pendingQcCount}</strong>
-            </span>
-            <span className="text-gray-300 dark:text-gray-600">|</span>
-            <span>
-              Cleared / Accepted: <strong className="text-teal-600 font-mono">{acceptedCount}</strong>
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowDashboard(true)}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 shrink-0 cursor-pointer"
-          >
-            <span>Show Dashboard</span>
-            <ChevronDown size={14} />
-          </button>
-        </div>
-      ) : (
-        /* Expanded 4 KPI Cards */
+      {/* Metric Cards Row / Executive KPI Dashboard (Shown only on demand) */}
+      {showDashboard && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           {/* Card 1: Total GRNs */}
           <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-2xs relative overflow-hidden">
@@ -618,15 +588,26 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
             </div>
             <div className="mt-2 flex items-center justify-between pt-1 border-t border-teal-100/60 dark:border-teal-900/40">
               <span className="text-[11px] text-slate-500">Export GRNs</span>
-              <button
-                type="button"
-                onClick={handleExportExcel}
-                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
-                title="Download Excel Spreadsheet"
-              >
-                <FileSpreadsheet size={12} />
-                <span>Excel</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
+                  title="Download Excel Spreadsheet"
+                >
+                  <FileSpreadsheet size={12} />
+                  <span>Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDashboard(false)}
+                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer"
+                  title="Hide Dashboard"
+                >
+                  <span>Hide</span>
+                  <ChevronUp size={12} />
+                </button>
+              </div>
             </div>
           </div>
         </div>

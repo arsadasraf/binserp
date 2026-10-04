@@ -73,7 +73,8 @@ import {
   checkMasterDuplicates,
   searchStoreItems,
   returnWipToStore,
-  recordWipScrap
+  recordWipScrap,
+  convertWipMaterialToComponent
 } from "../controllers/store/index.js";
 
 import {
@@ -219,6 +220,7 @@ router.delete("/jobwork/delete/:id", deleteJobWorkChallan);
 router.get("/wip/inventory", getWipInventory);
 router.post("/wip/return-to-store", returnWipToStore);
 router.post("/wip/scrap", recordWipScrap);
+router.post("/wip/convert-to-component", convertWipMaterialToComponent);
 
 // Store Fulfillment & MRP routes
 router.get("/fulfillment", getFulfillments);

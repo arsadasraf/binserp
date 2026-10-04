@@ -246,6 +246,92 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         });
     };
 
+    // Helper: Consolidate FG rows by canonical item key, merging quantities, earliest dates, and source breakdowns
+    const consolidateFGRows = (rawRows: FGRow[]): FGRow[] => {
+        if (!rawRows || rawRows.length === 0) return [];
+        const itemMap = new Map<string, FGRow>();
+
+        rawRows.forEach((row) => {
+            const itemKey = (row.fgItem || row.fgItemCode || row.fgItemName).toLowerCase().trim();
+            if (!itemKey) return;
+
+            const breakdownEntry = {
+                customerPo: row.customerPo,
+                customerPoNumber: row.customerPoNumber || '',
+                customerName: row.customerName || '',
+                quantity: row.quantity,
+                currency: row.currency || 'INR',
+                originalRate: row.originalSellingPrice || row.sellingPrice || 0,
+                exchangeRate: row.exchangeRate || 1,
+                rateInINR: row.sellingPrice || 0,
+                amountInINR: Math.round(row.quantity * (row.sellingPrice || 0) * 100) / 100
+            };
+
+            if (!itemMap.has(itemKey)) {
+                itemMap.set(itemKey, {
+                    ...row,
+                    sourceBreakdown: row.sourceBreakdown?.length ? row.sourceBreakdown : [breakdownEntry],
+                    sourceCustomerPOs: row.sourceCustomerPOs?.length ? row.sourceCustomerPOs : (row.customerPoNumber ? [row.customerPoNumber] : [])
+                });
+            } else {
+                const existing = itemMap.get(itemKey)!;
+                existing.quantity += row.quantity;
+                if (!existing.description && row.description) existing.description = row.description;
+                if (!existing.bomId && row.bomId) {
+                    existing.bomId = row.bomId;
+                    existing.bomNumber = row.bomNumber;
+                }
+
+                // Keep earliest targetDate & poDeliveryDate
+                if (row.targetDate && (!existing.targetDate || row.targetDate < existing.targetDate)) {
+                    existing.targetDate = row.targetDate;
+                }
+                if (row.poDeliveryDate && (!existing.poDeliveryDate || row.poDeliveryDate < existing.poDeliveryDate)) {
+                    existing.poDeliveryDate = row.poDeliveryDate;
+                }
+
+                // Track source breakdown
+                if (!existing.sourceBreakdown) existing.sourceBreakdown = [];
+                existing.sourceBreakdown.push(breakdownEntry);
+
+                if (!existing.sourceCustomerPOs) existing.sourceCustomerPOs = [];
+                if (row.customerPoNumber && !existing.sourceCustomerPOs.includes(row.customerPoNumber)) {
+                    existing.sourceCustomerPOs.push(row.customerPoNumber);
+                }
+
+                // Recompute weighted average sellingPrice & totalPrice in INR across all sources
+                const totalAmountINR = existing.sourceBreakdown.reduce((s, b) => s + (b.amountInINR || 0), 0);
+                const totalQty = existing.quantity || 1;
+                existing.sellingPrice = Math.round((totalAmountINR / totalQty) * 100) / 100;
+                existing.totalPrice = Math.round(totalAmountINR * 100) / 100;
+
+                const uniqueCurrs = [...new Set(existing.sourceBreakdown.map(b => b.currency).filter(Boolean))];
+                if (uniqueCurrs.length === 1 && uniqueCurrs[0] !== 'INR') {
+                    existing.currency = uniqueCurrs[0];
+                    existing.originalSellingPrice = existing.sourceBreakdown[0].originalRate;
+                    existing.exchangeRate = existing.sourceBreakdown[0].exchangeRate;
+                    existing.priceSource = `Customer PO (${uniqueCurrs[0]} @ ₹${existing.sourceBreakdown[0].exchangeRate})`;
+                } else if (uniqueCurrs.length > 1) {
+                    existing.currency = 'MIXED';
+                    existing.priceSource = `Customer PO (Consolidated: ${uniqueCurrs.join(', ')})`;
+                } else {
+                    existing.currency = 'INR';
+                    existing.originalSellingPrice = existing.sellingPrice;
+                    existing.exchangeRate = 1;
+                    existing.priceSource = 'Customer PO';
+                }
+
+                // Update combined PO & Customer labels
+                existing.customerPoNumber = existing.sourceCustomerPOs.join(', ');
+                if (row.customerName && existing.customerName && !existing.customerName.includes(row.customerName)) {
+                    existing.customerName = `${existing.customerName}, ${row.customerName}`;
+                }
+            }
+        });
+
+        return Array.from(itemMap.values());
+    };
+
     // Helper: Sync multi-PO selected items into FG table without duplicating line items
     const syncMultiPORows = (poIds: string[], posList = incomingPOs, fgs = fgItemList, boms = bomsList) => {
         if (poIds.length === 0) {
@@ -257,90 +343,14 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             return;
         }
 
-        const itemMap = new Map<string, FGRow>();
+        const rawRows: FGRow[] = [];
         let earliestDate = '';
 
         poIds.forEach((id) => {
             const po = posList.find((p) => String(p._id || p.id) === String(id));
             if (po) {
                 const rows = extractFGRowsFromPO(po, fgs, boms);
-                rows.forEach((row) => {
-                    const itemKey = (row.fgItem || row.fgItemCode || row.fgItemName).toLowerCase().trim();
-                    if (!itemKey) return;
-
-                    const breakdownEntry = {
-                        customerPo: row.customerPo,
-                        customerPoNumber: row.customerPoNumber || '',
-                        customerName: row.customerName || '',
-                        quantity: row.quantity,
-                        currency: row.currency || 'INR',
-                        originalRate: row.originalSellingPrice || row.sellingPrice || 0,
-                        exchangeRate: row.exchangeRate || 1,
-                        rateInINR: row.sellingPrice || 0,
-                        amountInINR: Math.round(row.quantity * (row.sellingPrice || 0) * 100) / 100
-                    };
-
-                    if (!itemMap.has(itemKey)) {
-                        itemMap.set(itemKey, {
-                            ...row,
-                            sourceBreakdown: [breakdownEntry],
-                            sourceCustomerPOs: row.customerPoNumber ? [row.customerPoNumber] : []
-                        });
-                    } else {
-                        const existing = itemMap.get(itemKey)!;
-                        existing.quantity += row.quantity;
-                        if (!existing.description && row.description) existing.description = row.description;
-                        if (!existing.bomId && row.bomId) {
-                            existing.bomId = row.bomId;
-                            existing.bomNumber = row.bomNumber;
-                        }
-
-                        // Keep earliest targetDate & poDeliveryDate
-                        if (row.targetDate && (!existing.targetDate || row.targetDate < existing.targetDate)) {
-                            existing.targetDate = row.targetDate;
-                        }
-                        if (row.poDeliveryDate && (!existing.poDeliveryDate || row.poDeliveryDate < existing.poDeliveryDate)) {
-                            existing.poDeliveryDate = row.poDeliveryDate;
-                        }
-
-                        // Track source breakdown
-                        if (!existing.sourceBreakdown) existing.sourceBreakdown = [];
-                        existing.sourceBreakdown.push(breakdownEntry);
-
-                        if (!existing.sourceCustomerPOs) existing.sourceCustomerPOs = [];
-                        if (row.customerPoNumber && !existing.sourceCustomerPOs.includes(row.customerPoNumber)) {
-                            existing.sourceCustomerPOs.push(row.customerPoNumber);
-                        }
-
-                        // Recompute weighted average sellingPrice & totalPrice in INR across all sources
-                        const totalAmountINR = existing.sourceBreakdown.reduce((s, b) => s + (b.amountInINR || 0), 0);
-                        const totalQty = existing.quantity || 1;
-                        existing.sellingPrice = Math.round((totalAmountINR / totalQty) * 100) / 100;
-                        existing.totalPrice = Math.round(totalAmountINR * 100) / 100;
-
-                        const uniqueCurrs = [...new Set(existing.sourceBreakdown.map(b => b.currency).filter(Boolean))];
-                        if (uniqueCurrs.length === 1 && uniqueCurrs[0] !== 'INR') {
-                            existing.currency = uniqueCurrs[0];
-                            existing.originalSellingPrice = existing.sourceBreakdown[0].originalRate;
-                            existing.exchangeRate = existing.sourceBreakdown[0].exchangeRate;
-                            existing.priceSource = `Customer PO (${uniqueCurrs[0]} @ ₹${existing.sourceBreakdown[0].exchangeRate})`;
-                        } else if (uniqueCurrs.length > 1) {
-                            existing.currency = 'MIXED';
-                            existing.priceSource = `Customer PO (Consolidated: ${uniqueCurrs.join(', ')})`;
-                        } else {
-                            existing.currency = 'INR';
-                            existing.originalSellingPrice = existing.sellingPrice;
-                            existing.exchangeRate = 1;
-                            existing.priceSource = 'Customer PO';
-                        }
-
-                        // Update combined PO & Customer labels
-                        existing.customerPoNumber = existing.sourceCustomerPOs.join(', ');
-                        if (row.customerName && existing.customerName && !existing.customerName.includes(row.customerName)) {
-                            existing.customerName = `${existing.customerName}, ${row.customerName}`;
-                        }
-                    }
-                });
+                rows.forEach((r) => rawRows.push(r));
 
                 const cDate = po.committedDispatchDate || po.deliveryDate || po.date;
                 if (cDate) {
@@ -352,7 +362,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             }
         });
 
-        const mergedRows = Array.from(itemMap.values());
+        const mergedRows = consolidateFGRows(rawRows);
         if (mergedRows.length > 0) {
             setFgRows(mergedRows);
         }
@@ -788,8 +798,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         }
 
         const rows = extractFGRowsFromPO(po, fgItemList, bomsList);
-        if (rows.length > 0) {
-            setFgRows(rows);
+        const consolidated = consolidateFGRows(rows);
+        if (consolidated.length > 0) {
+            setFgRows(consolidated);
         }
     };
 
@@ -830,6 +841,15 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
     const handleSelectFGForRow = (index: number, selected: any) => {
         if (!selected) return;
 
+        // Check if this finished good is already selected on another row to prevent duplicate lines
+        const existingIdx = fgRows.findIndex((r, idx) =>
+            idx !== index && (
+                (r.fgItem && selected._id && String(r.fgItem) === String(selected._id)) ||
+                (r.fgItemCode && selected.code && r.fgItemCode.toLowerCase() === selected.code.toLowerCase()) ||
+                (r.fgItemName && selected.name && r.fgItemName.toLowerCase() === selected.name.toLowerCase())
+            )
+        );
+
         const matchedBom = bomsList.find(
             (b) =>
                 (selected &&
@@ -846,6 +866,30 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         const inrPrice = Math.round(rawPrice * exRate * 100) / 100;
         const qty = Number(fgRows[index]?.quantity) || 1;
         const resolvedSource = selected.priceSource || (rawPrice > 0 ? (selected.salesPriceListPrice ? 'Sales Price List' : 'Master Catalog') : 'Unset');
+
+        if (existingIdx !== -1) {
+            // Already in list: merge quantity into existing row and remove this duplicate row
+            const updated = [...fgRows];
+            updated[existingIdx].quantity += qty;
+            updated[existingIdx].totalPrice = Math.round(updated[existingIdx].quantity * (updated[existingIdx].sellingPrice || inrPrice) * 100) / 100;
+            updated.splice(index, 1);
+            if (updated.length === 0) {
+                updated.push({ fgItem: '', fgItemName: '', fgItemCode: '', description: '', quantity: 1, unit: 'PCS', poDeliveryDate: '', targetDate });
+            }
+            setFgRows(updated);
+            setActiveFGSearchIdx(null);
+            setFgSearchQuery('');
+            Swal.fire({
+                icon: 'info',
+                title: 'Item Consolidated',
+                text: `"${selected.name}" is already in the plan. Increased quantity by +${qty} to keep a clean list.`,
+                timer: 2000,
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false
+            });
+            return;
+        }
 
         const updated = [...fgRows];
         updated[index] = {

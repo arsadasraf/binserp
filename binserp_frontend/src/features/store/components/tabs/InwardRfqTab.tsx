@@ -549,47 +549,10 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
 
     return (
         <div className="space-y-4 animate-in fade-in duration-300">
-            {/* 1. EXECUTIVE INWARD RFQ DASHBOARD - CONVERTED PIPELINE VALUATIONS & METRICS */}
-            <div className="space-y-3">
-                {!showDashboard ? (
-                    <div className="hidden sm:flex bg-white dark:bg-slate-900 p-2.5 sm:px-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs items-center justify-between gap-3 text-xs">
-                        <div className="flex items-center gap-3 sm:gap-6 flex-wrap">
-                            <div className="flex items-center gap-1.5">
-                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pipeline Value:</span>
-                                <span className="font-mono font-bold text-slate-900 dark:text-white">{overallRfqFinancials.formattedTotalInr}</span>
-                                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-extrabold">({filteredRfqs.length} RFQs)</span>
-                                {hasActiveFilters && (
-                                    <span className="px-1.5 py-0.2 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 rounded text-[9px] font-bold border border-indigo-200 dark:border-indigo-800">
-                                        Filtered
-                                    </span>
-                                )}
-                            </div>
-                            <div className="hidden sm:flex items-center gap-1.5">
-                                <span className="text-[11px] font-bold text-slate-500">Open RFQs:</span>
-                                <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{overallRfqFinancials.openCount} ({overallRfqFinancials.formattedOpenInr})</span>
-                            </div>
-                            <div className="hidden md:flex items-center gap-1.5">
-                                <span className="text-[11px] font-bold text-slate-500">Quoted:</span>
-                                <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{overallRfqFinancials.quotedCount} ({overallRfqFinancials.formattedQuotedInr})</span>
-                            </div>
-                            <div className="hidden md:flex items-center gap-1.5">
-                                <span className="text-[11px] font-bold text-slate-500">Closed:</span>
-                                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{overallRfqFinancials.closedCount}</span>
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowDashboard(true)}
-                            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-900/50 cursor-pointer shrink-0 transition-colors"
-                            title="Show Executive KPI Dashboard"
-                        >
-                            <span>Show Dashboard</span>
-                            <ChevronDown size={14} />
-                        </button>
-                    </div>
-                ) : (
-                    <>
-                        {/* Top Dashboard Header with Title and Accessible Hide / Collapse Button */}
+            {/* 1. EXECUTIVE INWARD RFQ DASHBOARD - CONVERTED PIPELINE VALUATIONS & METRICS (Shown only on demand) */}
+            {showDashboard && (
+                <div className="space-y-3">
+                    {/* Top Dashboard Header with Title and Accessible Hide / Collapse Button */}
                         <div className="flex items-center justify-between pb-1 px-1">
                             <div className="flex items-center gap-2">
                                 <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">Executive RFQ Dashboard</span>
@@ -748,9 +711,8 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                 })}
                             </div>
                         )}
-                    </>
-                )}
-            </div>
+                </div>
+            )}
             
             {/* Search, Filter & Action Toolbar */}
             <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-2.5">

@@ -595,39 +595,8 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
 
   return (
     <div className="space-y-2.5 font-sans">
-      {/* Executive KPI Dashboard */}
-      {!showDashboard ? (
-        /* Collapsed Single-Line Summary Bar */
-        <div className="bg-white px-3.5 py-2.5 rounded-xl border border-slate-200/90 shadow-2xs flex items-center justify-between gap-3 text-xs">
-          <div className="flex items-center flex-wrap gap-2.5 sm:gap-4 text-slate-600">
-            <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-              <ShieldAlert size={14} className="text-rose-600" />
-              Total Rejected: <strong className="text-rose-600 font-mono">{rejectionKpis.totalRejectedTickets}</strong>
-            </span>
-            <span className="text-slate-300">|</span>
-            <span>
-              Pending Action: <strong className="text-amber-600 font-mono">{rejectionKpis.pendingActionCount}</strong>
-            </span>
-            <span className="text-slate-300">|</span>
-            <span>
-              RTV & Replacement: <strong className="text-blue-600 font-mono">{rejectionKpis.rtvAndReplacementCount}</strong>
-            </span>
-            <span className="text-slate-300">|</span>
-            <span>
-              Scrapped / Written Off: <strong className="text-slate-700 font-mono">{rejectionKpis.scrapAndWriteOffCount}</strong>
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowDashboard(true)}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 shrink-0 cursor-pointer"
-          >
-            <span>Show Dashboard</span>
-            <ChevronDown size={14} />
-          </button>
-        </div>
-      ) : (
-        /* Expanded 4 KPI Cards */
+      {/* Executive KPI Dashboard (Shown only on demand) */}
+      {showDashboard && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* Card 1: Total Rejections */}
           <div className="bg-gradient-to-br from-rose-50/90 via-white to-slate-50 p-3.5 rounded-2xl border border-rose-100 shadow-2xs relative overflow-hidden">
@@ -694,8 +663,16 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
               {rejectionKpis.scrapAndWriteOffCount} <span className="text-xs font-semibold text-slate-500 font-sans">Tickets</span>
             </div>
             <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
-              <span>Scrap Ledger Status</span>
               <span className="font-bold text-slate-700 font-mono">Written Off</span>
+              <button
+                type="button"
+                onClick={() => setShowDashboard(false)}
+                className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer"
+                title="Hide Dashboard"
+              >
+                <span>Hide</span>
+                <ChevronUp size={11} />
+              </button>
             </div>
           </div>
         </div>

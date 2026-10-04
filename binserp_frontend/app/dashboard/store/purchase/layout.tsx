@@ -56,7 +56,7 @@ export default function PurchaseLayout({ children }: { children: React.ReactNode
         </div>
 
         {/* Page Content */}
-        <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">
+        <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-y-auto">
           {children}
         </div>
       </div>

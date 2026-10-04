@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getCurrencySymbol, convertAmountToWords } from "./currencyHelper";
+import { getPoOaNumber } from "./oaHelper";
 
 export interface OrderAcknowledgementData {
     po: any;
@@ -44,7 +45,7 @@ export const generateFrontendOrderAcknowledgementPDF = ({ po, companyInfo }: Ord
     const custEmail = cust.email || "";
 
     // 3. Document Identification
-    const oaNum = po.acknowledgementNumber || `OA-${po.poNumber || 'CPO'}`;
+    const oaNum = getPoOaNumber(po);
     const oaDate = formatDate(po.acknowledgementDate || new Date());
     const poNum = po.poNumber || "N/A";
     const poDate = formatDate(po.date || po.createdAt);
@@ -367,7 +368,7 @@ export const downloadOrderAcknowledgementJsPDF = ({ po, companyInfo }: OrderAckn
     const cust = po.customer || {};
     const custName = po.customerName || cust.name || "Customer";
     const custAddress = cust.address || cust.billingAddress || "";
-    const oaNum = po.acknowledgementNumber || `OA-${po.poNumber || 'PO'}`;
+    const oaNum = getPoOaNumber(po);
     const oaDate = formatDate(po.acknowledgementDate || new Date());
     const poNum = po.poNumber || "N/A";
     const poDate = formatDate(po.date || po.createdAt);

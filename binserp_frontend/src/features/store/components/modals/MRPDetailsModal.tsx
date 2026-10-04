@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, Layers, Calendar, User, FileText, CheckCircle2, 
   Package, Clock, Check, Building2, Truck, ShieldCheck,
@@ -107,15 +107,56 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
 
   if (!isOpen || !currentPlan) return null;
 
-  const fgItems = currentPlan.fgItems || [];
+  const deduplicateReqs = (list: any[]) => {
+    const map = new Map<string, any>();
+    (list || []).forEach(item => {
+      const key = (item.material ? String(item.material) : '') ||
+                  (item.materialCode ? item.materialCode.toLowerCase().trim() : '') ||
+                  (item.materialName || item.name || '').toLowerCase().trim();
+      if (!key) return;
+      if (!map.has(key)) {
+        map.set(key, { ...item });
+      } else {
+        const existing = map.get(key)!;
+        existing.requiredQuantity = (Number(existing.requiredQuantity || existing.quantity || 0)) + (Number(item.requiredQuantity || item.quantity || 0));
+        existing.shortage = Math.max(0, (Number(existing.requiredQuantity || 0)) - (Number(existing.stockQuantity || existing.currentStock || 0)));
+        if (!existing.description && (item.description || item.descriptions)) {
+          existing.description = item.description || item.descriptions;
+        }
+      }
+    });
+    return Array.from(map.values());
+  };
+
+  const fgItems = useMemo(() => {
+    const raw = currentPlan.fgItems || [];
+    const map = new Map<string, any>();
+    raw.forEach((fg: any) => {
+      const key = (fg.fgItem?._id || fg.fgItem || fg.fgItemCode || fg.fgItemName || '').toString().toLowerCase().trim();
+      if (!key) return;
+      if (!map.has(key)) {
+        map.set(key, { ...fg });
+      } else {
+        const existing = map.get(key);
+        existing.quantity = (Number(existing.quantity) || 0) + (Number(fg.quantity) || 0);
+        existing.receivedQuantity = (Number(existing.receivedQuantity) || 0) + (Number(fg.receivedQuantity) || 0);
+        if (Array.isArray(fg.sourceBreakdown)) {
+          if (!existing.sourceBreakdown) existing.sourceBreakdown = [];
+          fg.sourceBreakdown.forEach((b: any) => existing.sourceBreakdown.push(b));
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [currentPlan.fgItems]);
+
   const totalFGTarget = fgItems.reduce((sum: number, f: any) => sum + (Number(f.quantity) || 0), 0);
   const totalFGReceived = fgItems.reduce((sum: number, f: any) => sum + (Number(f.receivedQuantity) || 0), 0);
   const totalFGBalance = Math.max(0, totalFGTarget - totalFGReceived);
   const overallPercent = totalFGTarget > 0 ? Math.min(100, Math.round((totalFGReceived / totalFGTarget) * 100)) : 0;
 
-  const rmRequirements = currentPlan.rmRequirements || [];
-  const boRequirements = currentPlan.boRequirements || [];
-  const allChildMats = [...rmRequirements, ...boRequirements];
+  const rmRequirements = useMemo(() => deduplicateReqs(currentPlan.rmRequirements || []), [currentPlan.rmRequirements]);
+  const boRequirements = useMemo(() => deduplicateReqs(currentPlan.boRequirements || []), [currentPlan.boRequirements]);
+  const allChildMats = useMemo(() => deduplicateReqs([...(currentPlan.rmRequirements || []), ...(currentPlan.boRequirements || [])]), [currentPlan.rmRequirements, currentPlan.boRequirements]);
   const hasShortages = allChildMats.some((m: any) => (m.shortage || 0) > 0);
   const isProcurementFulfilled = !hasShortages;
 

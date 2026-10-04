@@ -22,6 +22,7 @@ import {
   LayoutGrid,
   Eye,
   ChevronDown,
+  ChevronUp,
   X,
   TrendingUp
 } from "lucide-react";
@@ -309,39 +310,8 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
 
   return (
     <div className="space-y-4">
-      {/* Top Metrics / Executive KPI Cards */}
-      {!showDashboard ? (
-        /* Collapsed Single-Line Summary Bar */
-        <div className="bg-white dark:bg-gray-900 px-3.5 py-2.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-2xs flex items-center justify-between gap-3 text-xs">
-          <div className="flex items-center flex-wrap gap-2.5 sm:gap-4 text-gray-600 dark:text-gray-300">
-            <span className="font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
-              <Boxes size={14} className="text-blue-600" />
-              Total Entries: <strong className="text-blue-600 font-mono">{totalCount}</strong>
-            </span>
-            <span className="text-gray-300 dark:text-gray-600">|</span>
-            <span>
-              Net Inward: <strong className="text-emerald-600 font-mono">+{totalInwardQty.toLocaleString()}</strong>
-            </span>
-            <span className="text-gray-300 dark:text-gray-600">|</span>
-            <span>
-              Net Outward: <strong className="text-rose-600 font-mono">-{totalOutwardQty.toLocaleString()}</strong>
-            </span>
-            <span className="text-gray-300 dark:text-gray-600">|</span>
-            <span>
-              Unique Items: <strong className="text-purple-600 font-mono">{uniqueItemsCount}</strong>
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowDashboard(true)}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 shrink-0 cursor-pointer"
-          >
-            <span>Show Dashboard</span>
-            <ChevronDown size={14} />
-          </button>
-        </div>
-      ) : (
-        /* Expanded 4 KPI Cards */
+      {/* Top Metrics / Executive KPI Cards (Shown only on demand) */}
+      {showDashboard && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           {/* Card 1: Total Entries */}
           <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-2xs relative overflow-hidden">
@@ -409,15 +379,26 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
             </div>
             <div className="mt-2 flex items-center justify-between pt-1 border-t border-purple-100/60 dark:border-purple-900/40">
               <span className="text-[11px] text-slate-500">Export Ledger</span>
-              <button
-                type="button"
-                onClick={exportToExcel}
-                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
-                title="Download Excel Spreadsheet"
-              >
-                <Download size={12} />
-                <span>Excel</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={exportToExcel}
+                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
+                  title="Download Excel Spreadsheet"
+                >
+                  <Download size={12} />
+                  <span>Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDashboard(false)}
+                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer"
+                  title="Hide Dashboard"
+                >
+                  <span>Hide</span>
+                  <ChevronUp size={12} />
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -53,7 +53,15 @@ export const updateJobWorkChallan = async (req, res) => {
       req.body.routeCardRef = undefined;
     }
 
-    const isValidObjectId = (val) => val && mongoose.Types.ObjectId.isValid(val);
+    const cleanId = (val) => {
+      if (!val) return null;
+      const s = String(val).trim();
+      return s.includes('_') ? s.split('_').slice(1).join('_') : s;
+    };
+    const isValidObjectId = (val) => {
+      const c = cleanId(val);
+      return c && mongoose.Types.ObjectId.isValid(c) ? c : null;
+    };
 
     // 4. Reconcile Stock Adjustments if items were edited
     const newItems = req.body.items;
@@ -93,7 +101,7 @@ export const updateJobWorkChallan = async (req, res) => {
       const processedItems = [];
       for (const item of newItems) {
         let itemName = item.itemName || "";
-        let validItemId = isValidObjectId(item.item) ? item.item : null;
+        let validItemId = isValidObjectId(item.item);
 
         if ((item.itemType === "bo" || item.itemType === "rm") && validItemId) {
           const materialDoc = await Material.findById(validItemId);
@@ -125,6 +133,13 @@ export const updateJobWorkChallan = async (req, res) => {
               });
             }
           }
+        } else if ((item.itemType === "inhouse" || item.itemType === "fg" || item.itemType === "component" || item.itemType === "subassembly" || item.itemType === "assembly") && validItemId) {
+          const Component = req.getModel("Component", componentSchema);
+          let fgDoc = await FGItem.findById(validItemId);
+          if (!fgDoc) {
+            fgDoc = await Component.findById(validItemId);
+          }
+          if (fgDoc) itemName = fgDoc.name || fgDoc.componentName;
         }
 
         // Process returning items
@@ -139,8 +154,9 @@ export const updateJobWorkChallan = async (req, res) => {
               receivingUnit: ret.receivingUnit || "PCS",
               status: ret.status || "Sent"
             };
-            if (isValidObjectId(ret.receivedItem)) {
-              retDoc.receivedItem = ret.receivedItem;
+            const validRetId = isValidObjectId(ret.receivedItem);
+            if (validRetId) {
+              retDoc.receivedItem = validRetId;
             }
             processedReturningItems.push(retDoc);
           }

@@ -429,18 +429,18 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
             ) : (
                 /* Table & Mobile Card Views */
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                    {/* Desktop Table View */}
-                    <div className="hidden md:block overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                                <tr>
-                                    <th className="px-4 py-3.5">RFQ Number</th>
-                                    <th className="px-4 py-3.5">Target Items</th>
-                                    <th className="px-4 py-3.5 text-center">Due Date</th>
-                                    <th className="px-4 py-3.5 text-center">Vendors</th>
-                                    <th className="px-4 py-3.5 text-center">Status</th>
-                                    <th className="px-4 py-3.5 text-center">Created By</th>
-                                    <th className="px-4 py-3.5 text-right">Actions</th>
+                    {/* Desktop Table View - Scrollable with Sticky Header */}
+                    <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-230px)] min-h-[350px]">
+                        <table className="w-full text-sm text-left border-collapse relative">
+                            <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 shadow-2xs text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                                <tr className="bg-slate-100 dark:bg-slate-800">
+                                    <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-800">RFQ Number</th>
+                                    <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-800">Target Items</th>
+                                    <th className="px-4 py-3.5 text-center bg-slate-100 dark:bg-slate-800">Due Date</th>
+                                    <th className="px-4 py-3.5 text-center bg-slate-100 dark:bg-slate-800">Vendors</th>
+                                    <th className="px-4 py-3.5 text-center bg-slate-100 dark:bg-slate-800">Status</th>
+                                    <th className="px-4 py-3.5 text-center bg-slate-100 dark:bg-slate-800">Created By</th>
+                                    <th className="px-4 py-3.5 text-right bg-slate-100 dark:bg-slate-800">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -542,7 +542,7 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
                     </div>
 
                     {/* Mobile Card View */}
-                    <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40">
+                    <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40 overflow-y-auto max-h-[calc(100vh-240px)]">
                         {filteredRfqs.map((rfq) => (
                             <div key={rfq._id || rfq.rfqNumber} className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
                                 <div className="flex justify-between items-start">

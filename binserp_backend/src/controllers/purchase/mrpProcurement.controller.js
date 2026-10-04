@@ -480,7 +480,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       category: catName,
       priority: 5 // Live Physical Store Stock
     };
-    setStockEntry([cleanStr(code), cleanStr(name), cleanKey(code), cleanKey(name)], info);
+    setStockEntry([info.materialId ? String(info.materialId) : null, cleanStr(code), cleanStr(name), cleanKey(code), cleanKey(name)].filter(Boolean), info);
   });
 
   // Material master lookup map for VendorPriceList resolution
@@ -617,12 +617,14 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
   };
 
   // Helper to process material item with LIVE stock lookup
-  const processMaterialInfo = (name, code, reqQty, unit, rawItemType, rawCategory, parentMRP, level, planRmKeys, planBoKeys, existingStatus, rawDescription, poNumber = "", rfqNumber = "", planId = null) => {
+  const processMaterialInfo = (name, code, reqQty, unit, rawItemType, rawCategory, parentMRP, level, planRmKeys, planBoKeys, existingStatus, rawDescription, poNumber = "", rfqNumber = "", planId = null, materialId = null) => {
     const nKey = cleanStr(name);
     const cKey = cleanStr(code);
+    const mIdKey = materialId ? String(materialId) : null;
 
     // Retrieve Live Stock from Master Inventory
     const stockInfo = 
+      (mIdKey && stockMap.get(mIdKey)) ||
       stockMap.get(cKey) || 
       stockMap.get(nKey) || 
       stockMap.get(cleanKey(cKey)) || 
@@ -633,10 +635,11 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       };
 
     // In-Transit POs: strictly scoped to this plan + general inventory replenishment
-    const inTransitInfo = getInTransitForPlan([cKey, nKey, cleanKey(cKey), cleanKey(nKey)], planId, parentMRP);
+    const inTransitInfo = getInTransitForPlan([mIdKey, cKey, nKey, cleanKey(cKey), cleanKey(nKey)].filter(Boolean), planId, parentMRP);
 
     // Best Vendor Quote
     const vendorQuotes = 
+      (mIdKey && priceListMap.get(mIdKey)) ||
       priceListMap.get(cKey) || 
       priceListMap.get(nKey) || 
       priceListMap.get(cleanKey(cKey)) || 
@@ -676,9 +679,14 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       (rawCategory && rawCategory !== "Raw Material" && rawCategory !== "Bought Out" && rawCategory !== "RM/BO" && rawCategory !== "Material" ? rawCategory : "") ||
       (classification.itemType === "RM" ? "Raw Material" : classification.itemType === "BO" ? "Bought Out" : classification.category);
 
+    const resolvedMaterialId = stockInfo.materialId || materialId || undefined;
+    const canonicalKey = resolvedMaterialId
+      ? String(resolvedMaterialId)
+      : (cKey ? `code_${cKey}` : `name_${cleanKey(name)}`);
+
     return {
-      materialId: stockInfo.materialId || undefined,
-      materialKey: cKey || nKey || cleanKey(name) || (stockInfo.materialId ? String(stockInfo.materialId) : "") || `mat_${Math.random().toString(36).substring(2, 9)}`,
+      materialId: resolvedMaterialId,
+      materialKey: canonicalKey,
       materialName: name,
       materialCode: code || stockInfo.code || "",
       description: rawDescription || stockInfo.description || "",
@@ -976,7 +984,8 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         fg.description || fgDoc?.description || fgDoc?.descriptions || "",
         validFGPo,
         fg.rfqNumber || "",
-        plan._id
+        plan._id,
+        fg.fgItem?._id || fg.fgItem
       );
 
       let fgTargetMap = assemblyMap;
@@ -995,16 +1004,21 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         fgEntry.secondaryGrossRequired = Math.round(fgEntry.grossRequired * fgEntry.conversionFactor * 1000) / 1000;
         fgEntry.secondaryNetShortage = Math.round(fgEntry.netShortage * fgEntry.conversionFactor * 1000) / 1000;
       }
-      fgEntry.mrpSources.push({
-        mrpId: plan._id,
-        mrpNumber: plan.mrpNumber,
-        customerPoNumber: fg.customerPoNumber || plan.customerPoNumber || "",
-        customerName: fg.customerName || plan.customerName || "",
-        targetDate: fg.targetDate || plan.targetDate,
-        planDate: plan.poDate || plan.date || plan.createdAt,
-        createdAt: plan.createdAt,
-        requiredQty: fgQty
-      });
+      const existingFgSrc = fgEntry.mrpSources.find(s => String(s.mrpId) === String(plan._id));
+      if (existingFgSrc) {
+        existingFgSrc.requiredQty = (existingFgSrc.requiredQty || 0) + fgQty;
+      } else {
+        fgEntry.mrpSources.push({
+          mrpId: plan._id,
+          mrpNumber: plan.mrpNumber,
+          customerPoNumber: fg.customerPoNumber || plan.customerPoNumber || "",
+          customerName: fg.customerName || plan.customerName || "",
+          targetDate: fg.targetDate || plan.targetDate,
+          planDate: plan.poDate || plan.date || plan.createdAt,
+          createdAt: plan.createdAt,
+          requiredQty: fgQty
+        });
+      }
 
       // Group nested materials by level and parent
       const nestedList = (fg.nestedMaterials || []).map(nMat => {
@@ -1054,7 +1068,8 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
           nMat.description,
           matPoNumber,
           matRfqNumber,
-          plan._id
+          plan._id,
+          nMat.material || nMat.materialId
         );
 
         if (processed.netShortage > 0) planTotalShortages += processed.netShortage;
@@ -1081,6 +1096,12 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         entry.grossRequired += nQty;
         entry.netShortage = Math.max(0, entry.grossRequired - entry.currentPhysicalStock - entry.totalInTransitPO);
         entry.estimatedValue = entry.netShortage * (entry.bestVendor?.rate || entry.estimatedRate || 0);
+        if (processed.description && !entry.description) {
+          entry.description = processed.description;
+        }
+        if (processed.materialCode && !entry.materialCode) {
+          entry.materialCode = processed.materialCode;
+        }
         if (processed.status && processed.status !== "Pending") {
           entry.status = processed.status;
         }
@@ -1096,16 +1117,21 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
           entry.secondaryGrossRequired = Math.round(entry.grossRequired * entry.conversionFactor * 1000) / 1000;
           entry.secondaryNetShortage = Math.round(entry.netShortage * entry.conversionFactor * 1000) / 1000;
         }
-        entry.mrpSources.push({
-          mrpId: plan._id,
-          mrpNumber: plan.mrpNumber,
-          customerPoNumber: fg.customerPoNumber || plan.customerPoNumber || "",
-          customerName: fg.customerName || plan.customerName || "",
-          targetDate: fg.targetDate || plan.targetDate,
-          planDate: plan.poDate || plan.date || plan.createdAt,
-          createdAt: plan.createdAt,
-          requiredQty: nQty
-        });
+        const existingSrc = entry.mrpSources.find(s => String(s.mrpId) === String(plan._id));
+        if (existingSrc) {
+          existingSrc.requiredQty = (existingSrc.requiredQty || 0) + nQty;
+        } else {
+          entry.mrpSources.push({
+            mrpId: plan._id,
+            mrpNumber: plan.mrpNumber,
+            customerPoNumber: fg.customerPoNumber || plan.customerPoNumber || "",
+            customerName: fg.customerName || plan.customerName || "",
+            targetDate: fg.targetDate || plan.targetDate,
+            planDate: plan.poDate || plan.date || plan.createdAt,
+            createdAt: plan.createdAt,
+            requiredQty: nQty
+          });
+        }
 
         const qtyPerFG = Number(nMat.quantityPerFG) || 1;
         const secondaryQuantityPerFG = processed.hasSecondaryUnit
@@ -1387,8 +1413,26 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         isPlanSpecific: Boolean(b.isPlanSpecific),
         mrpPlanId: b.mrpPlanId || null
       };
-      entry.mappedItems.push(cutSizeData);
-      entry.sourceCutSizes.push(cutSizeData);
+
+      // Check if this cut size was already added to the bucket to avoid duplicates
+      const existingCutSize = entry.sourceCutSizes.find(cs =>
+        (cs.materialId && item.materialId && String(cs.materialId) === String(item.materialId)) ||
+        (cs.materialKey && cs.materialKey === item.materialKey) ||
+        (cleanStr(cs.sourceItemName) === cleanStr(item.materialName))
+      );
+      if (existingCutSize) {
+        existingCutSize.grossRequired += item.grossRequired;
+        existingCutSize.convertedGrossRequired += convertedGross;
+        existingCutSize.netShortage = Math.max(0, existingCutSize.grossRequired - existingCutSize.currentPhysicalStock - existingCutSize.totalInTransitPO);
+        (item.mrpSources || []).forEach(src => {
+          if (!existingCutSize.mrpSources.some(s => s.mrpNumber === src.mrpNumber)) {
+            existingCutSize.mrpSources.push(src);
+          }
+        });
+      } else {
+        entry.mappedItems.push(cutSizeData);
+        entry.sourceCutSizes.push(cutSizeData);
+      }
     });
 
     return Array.from(bucketMap.values()).map(b => {

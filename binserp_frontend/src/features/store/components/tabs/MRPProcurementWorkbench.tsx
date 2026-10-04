@@ -351,16 +351,53 @@ export default function MRPProcurementWorkbench({
     selectedCustomerFilter, selectedPlanningStatuses, onlyShortages
   ]);
 
-  // Active items for classification view inside selected MRP
+  // Active items for classification view inside selected MRP with robust canonical deduplication
   const currentTypeList = useMemo(() => {
+    let rawList: any[] = [];
     switch (activeTypeTab) {
-      case 'rm': return classifiedLists.rmList || [];
-      case 'bo': return classifiedLists.boList || [];
-      case 'component': return classifiedLists.componentList || [];
-      case 'subassembly': return classifiedLists.subAssemblyList || [];
-      case 'assembly': return classifiedLists.assemblyList || [];
-      default: return classifiedLists.rmList || [];
+      case 'rm': rawList = classifiedLists.rmList || []; break;
+      case 'bo': rawList = classifiedLists.boList || []; break;
+      case 'component': rawList = classifiedLists.componentList || []; break;
+      case 'subassembly': rawList = classifiedLists.subAssemblyList || []; break;
+      case 'assembly': rawList = classifiedLists.assemblyList || []; break;
+      default: rawList = classifiedLists.rmList || []; break;
     }
+
+    const map = new Map<string, any>();
+    rawList.forEach((item: any) => {
+      const canonicalKey = (item.materialId ? String(item.materialId) : '') ||
+                           (item.materialKey ? String(item.materialKey) : '') ||
+                           (item.materialCode ? item.materialCode.toLowerCase().trim() : '') ||
+                           (item.materialName ? item.materialName.toLowerCase().trim() : '');
+      if (!canonicalKey) return;
+
+      if (!map.has(canonicalKey)) {
+        map.set(canonicalKey, {
+          ...item,
+          mrpSources: Array.isArray(item.mrpSources) ? [...item.mrpSources] : []
+        });
+      } else {
+        const existing = map.get(canonicalKey)!;
+        existing.grossRequired = (Number(existing.grossRequired) || 0) + (Number(item.grossRequired) || 0);
+        existing.requiredQuantity = (Number(existing.requiredQuantity) || 0) + (Number(item.requiredQuantity) || 0);
+        existing.netShortage = Math.max(0, (Number(existing.grossRequired) || 0) - (Number(existing.currentPhysicalStock) || 0) - (Number(existing.totalInTransitPO) || 0));
+        existing.estimatedValue = (Number(existing.netShortage) || 0) * (existing.bestVendor?.rate || existing.estimatedRate || 0);
+        if (!existing.description && item.description) existing.description = item.description;
+        if (!existing.materialCode && item.materialCode) existing.materialCode = item.materialCode;
+        if (Array.isArray(item.mrpSources)) {
+          item.mrpSources.forEach((src: any) => {
+            const foundSrc = existing.mrpSources.find((s: any) => s.mrpNumber === src.mrpNumber || String(s.mrpId) === String(src.mrpId));
+            if (foundSrc) {
+              foundSrc.requiredQty = (Number(foundSrc.requiredQty) || 0) + (Number(src.requiredQty) || 0);
+            } else {
+              existing.mrpSources.push(src);
+            }
+          });
+        }
+      }
+    });
+
+    return Array.from(map.values());
   }, [classifiedLists, activeTypeTab]);
 
   // Available categories for active type tab

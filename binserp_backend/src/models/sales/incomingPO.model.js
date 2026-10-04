@@ -136,3 +136,5 @@ export const incomingPOSchema = new mongoose.Schema(
 
 // Indexes
 incomingPOSchema.index({ company: 1, poNumber: 1, customer: 1 }, { unique: true });
+incomingPOSchema.index({ company: 1, acknowledgementNumber: 1 });
+

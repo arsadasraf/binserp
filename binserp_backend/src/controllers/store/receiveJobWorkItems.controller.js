@@ -48,6 +48,12 @@ export const receiveJobWorkItems = async (req, res) => {
     const isStoreConversion = jobWork.jobWorkType === "store-conversion" || jobWork.jobWorkType === "inventory-conversion" || !jobWork.jobWorkType;
     const isWipWorkflow = jobWork.jobWorkType === "store-to-wip" || jobWork.jobWorkType === "wip-to-wip";
 
+    const cleanId = (val) => {
+      if (!val) return "";
+      const s = String(val).trim();
+      return s.includes('_') ? s.split('_').slice(1).join('_') : s;
+    };
+
     for (const recItem of receivedItems || []) {
       const { 
         itemId, 
@@ -63,6 +69,11 @@ export const receiveJobWorkItems = async (req, res) => {
       const qtyNum = Number(quantity) || 0;
       if (qtyNum <= 0) continue;
 
+      const rawItemId = itemId ? String(itemId).trim() : "";
+      const rawRetId = returningItemId ? String(returningItemId).trim() : "";
+      const cItemId = cleanId(itemId);
+      const cRetId = cleanId(returningItemId);
+
       let matchedItemName = "Returned Item";
       let targetItemDoc = null;
       let targetItemType = "fg";
@@ -72,9 +83,12 @@ export const receiveJobWorkItems = async (req, res) => {
         let matchedGrp = null;
         if (Array.isArray(jobWork.assemblyGroups) && jobWork.assemblyGroups.length > 0) {
           matchedGrp = jobWork.assemblyGroups.find(g => 
-            String(g._id) === String(returningItemId || itemId) ||
-            String(g.assemblyOutputItem?._id) === String(returningItemId || itemId) ||
-            String(g.assemblyOutputItem?.item) === String(returningItemId || itemId)
+            String(g._id) === String(cRetId || cItemId) ||
+            String(g.assemblyOutputItem?._id) === String(cRetId || cItemId) ||
+            String(g.assemblyOutputItem?.item) === String(cRetId || cItemId) ||
+            String(g._id) === String(rawRetId || rawItemId) ||
+            String(g.assemblyOutputItem?._id) === String(rawRetId || rawItemId) ||
+            String(g.assemblyOutputItem?.item) === String(rawRetId || rawItemId)
           );
         }
 
@@ -132,7 +146,17 @@ export const receiveJobWorkItems = async (req, res) => {
       } else {
         for (const jwItem of jobWork.items) {
           if (jwItem.returningItems && jwItem.returningItems.length > 0) {
-            const retDoc = jwItem.returningItems.id(returningItemId || itemId);
+            let retDoc = (cRetId || cItemId) && mongoose.Types.ObjectId.isValid(cRetId || cItemId) 
+              ? jwItem.returningItems.id(cRetId || cItemId) 
+              : null;
+            if (!retDoc) {
+              retDoc = jwItem.returningItems.find(r => 
+                String(r._id) === String(cRetId || cItemId) ||
+                String(r.receivedItem) === String(cRetId || cItemId) ||
+                String(r._id) === String(rawRetId || rawItemId) ||
+                String(r.receivedItem) === String(rawRetId || rawItemId)
+              );
+            }
             if (retDoc) {
               matchedItemName = retDoc.receivedItemName || jwItem.itemName || matchedItemName;
               targetItemDoc = retDoc.receivedItem;
@@ -154,7 +178,7 @@ export const receiveJobWorkItems = async (req, res) => {
             }
           }
 
-          if (String(jwItem._id) === String(itemId)) {
+          if (String(jwItem._id) === String(cItemId) || String(jwItem.item) === String(cItemId) || String(jwItem._id) === String(rawItemId) || String(jwItem.item) === String(rawItemId)) {
             matchedItemName = jwItem.itemName || matchedItemName;
             targetItemDoc = jwItem.receivedItem || jwItem.item;
             targetItemType = (jwItem.receivedItemType || jwItem.itemType || "fg").toLowerCase();

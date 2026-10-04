@@ -14,7 +14,6 @@ import {
   CheckCircle2, 
   Clock, 
   ArrowUpRight, 
-  ArrowDownLeft,
   FileText,
   Filter,
   Warehouse,
@@ -32,7 +31,6 @@ import * as XLSX from 'xlsx';
 import { apiGet } from '@/src/lib/api';
 import WipLedgerDrawer from '../modals/WipLedgerDrawer';
 import WipActionModal from '../modals/WipActionModal';
-import { Trash2 } from 'lucide-react';
 
 export type WipSubTabType = 'rm' | 'bo' | 'fg' | 'mrp' | 'ledger' | 'mrp-buckets';
 
@@ -90,9 +88,9 @@ export default function WipInventoryTab({
     const [selectedWipItem, setSelectedWipItem] = useState<any | null>(null);
     const [isLedgerOpen, setIsLedgerOpen] = useState(false);
 
-    // WIP Return & Scrap Action Modal State
+    // WIP Return, Scrap & Conversion Action Modal State
     const [actionModalItem, setActionModalItem] = useState<any | null>(null);
-    const [actionModalMode, setActionModalMode] = useState<'return' | 'scrap'>('return');
+    const [actionModalMode, setActionModalMode] = useState<'return' | 'scrap' | 'convert'>('return');
     const [isActionModalOpen, setIsActionModalOpen] = useState(false);
 
     // Dashboard & Focus State
@@ -551,7 +549,7 @@ export default function WipInventoryTab({
         };
     }, [wipItems, wipType, vendorPriceMap, salesPriceMap, focusedItem]);
 
-    const handleOpenActionModal = (item: any, mode: 'return' | 'scrap') => {
+    const handleOpenActionModal = (item: any, mode: 'return' | 'scrap' | 'convert') => {
         setActionModalItem(item);
         setActionModalMode(mode);
         setIsActionModalOpen(true);
@@ -767,67 +765,9 @@ export default function WipInventoryTab({
     return (
         <div className="space-y-4 animate-in fade-in duration-300">
             
-            {/* Executive WIP Pricing & Valuation Dashboard Header & Cards */}
-            <div className="border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl p-3 sm:p-4 shadow-xs">
-                {!showDashboard ? (
-                    /* Collapsed Single-Line Summary Bar */
-                    <div className="bg-slate-50 dark:bg-slate-800/80 px-3.5 py-2.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3 text-xs">
-                        <div className="flex items-center flex-wrap gap-2.5 sm:gap-4 text-slate-600 dark:text-slate-300">
-                            {wipKpis.isFocused ? (
-                                <>
-                                    <span className="font-semibold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
-                                        <Crosshair size={14} className="text-indigo-600" />
-                                        Focused: <strong className="font-mono text-slate-900 dark:text-white">{wipKpis.itemName}</strong>
-                                    </span>
-                                    <span className="text-slate-300 dark:text-slate-600">|</span>
-                                    <span>
-                                        Total WIP: <strong className="text-slate-900 dark:text-white font-mono">{wipKpis.formattedTotalWipQty}</strong>
-                                    </span>
-                                    <span className="text-slate-300 dark:text-slate-600">|</span>
-                                    <span>
-                                        Valuation: <strong className="text-emerald-600 font-mono">{wipKpis.formattedTotalWipValuation}</strong>
-                                    </span>
-                                    <span className="text-slate-300 dark:text-slate-600">|</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => setFocusedItemId(null)}
-                                        className="text-[11px] font-bold text-rose-600 hover:text-rose-700 underline cursor-pointer"
-                                    >
-                                        Reset Focus
-                                    </button>
-                                </>
-                            ) : (
-                                <>
-                                    <span className="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-                                        <Boxes size={14} className="text-indigo-600" />
-                                        {wipKpis.tabTitle}: <strong className="text-indigo-600 font-mono">{wipKpis.totalItems} Items</strong>
-                                    </span>
-                                    <span className="text-slate-300 dark:text-slate-600">|</span>
-                                    <span>
-                                        Active WIP Units: <strong className="text-slate-900 dark:text-white font-mono">{wipKpis.formattedTotalWipQty}</strong>
-                                    </span>
-                                    <span className="text-slate-300 dark:text-slate-600">|</span>
-                                    <span>
-                                        Total WIP Valuation: <strong className="text-emerald-600 font-mono">{wipKpis.formattedTotalWipValuation}</strong>
-                                    </span>
-                                    <span className="text-slate-300 dark:text-slate-600">|</span>
-                                    <span>
-                                        Priced via Price List: <strong className="text-indigo-600 font-mono">{wipKpis.pricedItemsCount}</strong>
-                                    </span>
-                                </>
-                            )}
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowDashboard(true)}
-                            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 shrink-0 cursor-pointer"
-                        >
-                            <span>Show Dashboard</span>
-                            <ChevronDown size={14} />
-                        </button>
-                    </div>
-                ) : (
-                    /* Expanded Dashboard with Header Filter Bar & 4 KPI Cards */
+            {/* Executive WIP Pricing & Valuation Dashboard Header & Cards (Shown only on demand) */}
+            {showDashboard && (
+                <div className="border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl p-3 sm:p-4 shadow-xs">
                     <div className="space-y-3.5">
                         {/* Dynamic Dashboard Control Bar (Item Focus Selector & Mode Badges) */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-100 dark:border-slate-800">
@@ -1027,8 +967,8 @@ export default function WipInventoryTab({
                             </div>
                         </div>
                     </div>
-                )}
-            </div>
+                </div>
+            )}
 
             {/* Filter & Action Toolbar */}
             <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col gap-2.5">
@@ -1528,22 +1468,13 @@ export default function WipInventoryTab({
                                                             <span>{isFocusedRow ? "Focused" : "Focus"}</span>
                                                         </button>
                                                         {item.shopfloorWipQty > 0 && (
-                                                            <>
-                                                                <button
-                                                                    onClick={() => handleOpenActionModal(item, 'return')}
-                                                                    className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:hover:bg-emerald-900 dark:text-emerald-300 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 border border-emerald-200 dark:border-emerald-800 cursor-pointer"
-                                                                    title="Return back to Main Store"
-                                                                >
-                                                                    <ArrowDownLeft size={13} /> Return
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => handleOpenActionModal(item, 'scrap')}
-                                                                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950 dark:hover:bg-rose-900 dark:text-rose-300 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 border border-rose-200 dark:border-rose-800 cursor-pointer"
-                                                                    title="Record Process Scrap"
-                                                                >
-                                                                    <Trash2 size={13} /> Scrap
-                                                                </button>
-                                                            </>
+                                                            <button
+                                                                onClick={() => handleOpenActionModal(item, 'convert')}
+                                                                className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 border border-indigo-200 dark:border-indigo-800 cursor-pointer"
+                                                                title="Convert to In-house FG Component for WIP-to-WIP DC"
+                                                            >
+                                                                <Factory size={13} /> Convert
+                                                            </button>
                                                         )}
                                                         <button
                                                             onClick={() => openLedger(item)}
@@ -1678,24 +1609,15 @@ export default function WipInventoryTab({
                                         </button>
                                     </div>
 
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-wrap gap-2">
                                         {item.shopfloorWipQty > 0 && (
-                                            <>
-                                                <button
-                                                    onClick={() => handleOpenActionModal(item, 'return')}
-                                                    className="flex-1 py-1.5 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-xl border border-emerald-200 flex items-center justify-center gap-1 cursor-pointer"
-                                                    title="Return back to Main Store"
-                                                >
-                                                    <ArrowDownLeft size={13} /> Return
-                                                </button>
-                                                <button
-                                                    onClick={() => handleOpenActionModal(item, 'scrap')}
-                                                    className="flex-1 py-1.5 bg-rose-50 text-rose-700 text-xs font-bold rounded-xl border border-rose-200 flex items-center justify-center gap-1 cursor-pointer"
-                                                    title="Report Process Scrap"
-                                                >
-                                                    <Trash2 size={13} /> Scrap
-                                                </button>
-                                            </>
+                                            <button
+                                                onClick={() => handleOpenActionModal(item, 'convert')}
+                                                className="flex-1 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 flex items-center justify-center gap-1 cursor-pointer"
+                                                title="Convert to In-house FG Component for WIP-to-WIP DC"
+                                            >
+                                                <Factory size={13} /> Convert
+                                            </button>
                                         )}
                                         <button
                                             onClick={() => openLedger(item)}

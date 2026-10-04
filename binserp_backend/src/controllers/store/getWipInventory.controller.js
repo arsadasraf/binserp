@@ -82,15 +82,28 @@ export const getWipInventory = async (req, res) => {
     // 2. Load FG GRNs, in-house receipts, BOMs, MRP Plans, and WIP adjustments
     const StockTransaction = req.getModel("StockTransaction", stockTransactionSchema);
     const [allFGGRNs, allInHouseGRNs, allBOMs, allMRPPlans, materialIssues, challans, wipAdjustments] = await Promise.all([
-      FGGRN.find({ company: companyId, status: { $in: ["Received", "Accepted"] } }).lean(),
+      FGGRN.find({ 
+        company: companyId, 
+        $or: [
+          { status: { $in: ["Received", "Accepted", "Completed"] } },
+          { qcStatus: { $in: ["Completed", "Skipped", "Partial"] } }
+        ] 
+      }).lean(),
       GRN.find({ company: companyId, type: { $in: ["inhouse", "fg"] }, status: { $in: ["Received", "Accepted"] } }).lean(),
       BOM.find({ company: companyId }).lean(),
       MRPPlan.find({ company: companyId }).lean(),
-      MaterialIssue.find({ company: companyId }).populate("issuedTo", "name userId department").sort({ date: -1 }).lean(),
-      JobWorkChallan.find({ company: companyId }).populate("vendor").sort({ date: -1 }).lean(),
+      MaterialIssue.find({ company: companyId, status: "Issued" }).populate("issuedTo", "name userId department").sort({ date: -1 }).lean(),
+      JobWorkChallan.find({ company: companyId, status: { $ne: "Cancelled" } }).populate("vendor").sort({ date: -1 }).lean(),
       StockTransaction.find({
         company: companyId,
-        transactionCategory: { $in: ["WIP_RETURN_TO_STORE", "WIP_SCRAP_WRITEOFF"] }
+        transactionCategory: { 
+          $in: [
+            "WIP_RETURN_TO_STORE", 
+            "WIP_SCRAP_WRITEOFF", 
+            "WIP_RM_CONVERT_OUTWARD", 
+            "WIP_COMPONENT_CONVERT_INWARD"
+          ] 
+        }
       }).sort({ date: -1 }).lean()
     ]);
 
@@ -252,19 +265,29 @@ export const getWipInventory = async (req, res) => {
 
     // Helper to find existing master item in WIP registry
     const findWipEntry = (rawId, name, code, type) => {
-      const idStr = rawId ? rawId.toString() : "";
-      if (idStr && masterWipMap.has(`${type}_${idStr}`)) {
+      let idStr = rawId ? rawId.toString() : "";
+      if (idStr.includes('_')) {
+        idStr = idStr.split('_').slice(1).join('_');
+      }
+      if (idStr && type && masterWipMap.has(`${type}_${idStr}`)) {
         return masterWipMap.get(`${type}_${idStr}`);
       }
+      // 1. Try matching with exact itemType
       for (const entry of masterWipMap.values()) {
-        if (entry.itemType === type) {
-          if (idStr && entry.materialId === idStr) return entry;
+        if (!type || entry.itemType === type) {
+          if (idStr && (entry.materialId === idStr || entry.id === idStr || entry.id === `${entry.itemType}_${idStr}`)) return entry;
           if (code && entry.materialCode && entry.materialCode.trim().toLowerCase() === code.trim().toLowerCase()) return entry;
           if (name && entry.materialName && entry.materialName.trim().toLowerCase() === name.trim().toLowerCase()) return entry;
         }
       }
+      // 2. Cross-check other item types (e.g., issued as RM but categorized as BO or vice-versa)
+      for (const entry of masterWipMap.values()) {
+        if (idStr && (entry.materialId === idStr || entry.id === idStr || entry.id === `${entry.itemType}_${idStr}`)) return entry;
+        if (code && entry.materialCode && entry.materialCode.trim().toLowerCase() === code.trim().toLowerCase()) return entry;
+        if (name && entry.materialName && entry.materialName.trim().toLowerCase() === name.trim().toLowerCase()) return entry;
+      }
       // If not found, dynamically create entry
-      const dynamicKey = registerMasterItem({ _id: idStr, name, code, unit: 'PCS' }, type);
+      const dynamicKey = registerMasterItem({ _id: idStr, name, code, unit: 'PCS' }, type || 'rm');
       return masterWipMap.get(dynamicKey);
     };
 
@@ -387,7 +410,10 @@ export const getWipInventory = async (req, res) => {
       const challanDate = challan.date || challan.createdAt;
       const docNo = challan.challanNumber;
       const mrpNumber = challan.mrpNumber || "";
-      const jwType = challan.jobWorkType || "store-conversion";
+      const rawJwType = (challan.jobWorkType || "store-conversion").toLowerCase().trim().replace(/[\s_]/g, "-");
+      const isWipToWip = rawJwType === "wip-to-wip";
+      const isStoreToWip = rawJwType === "store-to-wip";
+      const jwType = isWipToWip ? "wip-to-wip" : (isStoreToWip ? "store-to-wip" : "store-conversion");
 
       // Check if this is an Assembly / Many-to-One consolidation challan
       const hasAssemblyGroups = challan.operationMode === "assembly" && Array.isArray(challan.assemblyGroups) && challan.assemblyGroups.length > 0;
@@ -398,8 +424,17 @@ export const getWipInventory = async (req, res) => {
         const sentQty = Number(sentItem.quantitySent) || 0;
         const processType = sentItem.processType || "Job Work";
         const unit = sentItem.unit || "PCS";
-        const sentRawType = (sentItem.itemType || (jwType === "wip-to-wip" ? "fg" : "rm")).toLowerCase();
-        const sentTargetType = (sentRawType === "bo" || sentRawType === "bought out") ? "bo" : (sentRawType === "fg" || sentRawType === "inhouse" || sentRawType === "component" || jwType === "wip-to-wip") ? "fg" : "rm";
+        const sentRawType = (sentItem.itemType || "").trim().toLowerCase();
+        let sentTargetType;
+        if (sentRawType === "bo" || sentRawType === "bought out" || sentRawType === "boughtout") {
+          sentTargetType = "bo";
+        } else if (sentRawType === "rm" || sentRawType === "raw material" || sentRawType === "rawmaterial") {
+          sentTargetType = "rm";
+        } else if (sentRawType === "fg" || sentRawType === "inhouse" || sentRawType === "component" || sentRawType === "subassembly" || sentRawType === "assembly") {
+          sentTargetType = "fg";
+        } else {
+          sentTargetType = isWipToWip ? "fg" : "rm";
+        }
 
         let retList = [];
         if (hasAssemblyGroups) {
@@ -448,10 +483,12 @@ export const getWipInventory = async (req, res) => {
           entry.totalJobWorkReturnedQty += receivedQty;
           entry.jobWorkWipQty += netJobWorkPending;
 
-          // For WIP-to-WIP: Dispatched item was taken out from Shopfloor WIP
-          if (jwType === "wip-to-wip") {
+          // For WIP-to-WIP or any FG/Component dispatched from Shopfloor WIP:
+          // Dispatched item is taken out from Shopfloor WIP
+          if (isWipToWip || sentTargetType === "fg") {
             entry.shopfloorWipQty = Math.max(0, entry.shopfloorWipQty - sentQty);
           }
+          entry.pendingWipQty = entry.shopfloorWipQty + entry.jobWorkWipQty;
 
           if (new Date(challanDate) > new Date(entry.lastMovementDate)) {
             entry.lastMovementDate = challanDate;
@@ -459,7 +496,7 @@ export const getWipInventory = async (req, res) => {
 
           const txOut = {
             date: challanDate,
-            type: jwType === "wip-to-wip" ? "WIP-to-WIP Subcontractor Dispatch" : (jwType === "store-to-wip" ? "Store-to-WIP Subcontractor Dispatch" : "RM Conversion Subcontractor Dispatch"),
+            type: isWipToWip ? "WIP-to-WIP Subcontractor Dispatch" : (isStoreToWip ? "Store-to-WIP Subcontractor Dispatch" : "RM Conversion Subcontractor Dispatch"),
             docNumber: docNo,
             mrpNumber: mrpNumber,
             ewayBillNo: challan.ewayBillNo || "",
@@ -482,7 +519,7 @@ export const getWipInventory = async (req, res) => {
         }
 
         // For Store-to-WIP & WIP-to-WIP: QC-governed return back to Shopfloor WIP
-        if (jwType === "store-to-wip" || jwType === "wip-to-wip") {
+        if (isStoreToWip || isWipToWip) {
           // For assembly challan, only process the assembled return entry once per challan
           if (isAssemblyChallan && challan.__assemblyProcessed) return;
           if (isAssemblyChallan) challan.__assemblyProcessed = true;
@@ -576,42 +613,99 @@ export const getWipInventory = async (req, res) => {
       });
     });
 
-    // 5.1. Process WIP Return to Store & Shopfloor Scrap Adjustments
+    // 5.1. Process WIP Return to Store, Shopfloor Scrap, and In-house WIP Conversions
     (wipAdjustments || []).forEach(adj => {
       const adjName = adj.itemName || "Material";
       const adjQty = Number(adj.quantity) || 0;
       const adjDate = adj.date || adj.createdAt;
-      const isReturn = adj.transactionCategory === "WIP_RETURN_TO_STORE";
+      const cat = adj.transactionCategory;
+      const isReturn = cat === "WIP_RETURN_TO_STORE";
+      const isScrap = cat === "WIP_SCRAP_WRITEOFF";
+      const isConvertOutward = cat === "WIP_RM_CONVERT_OUTWARD";
+      const isConvertInward = cat === "WIP_COMPONENT_CONVERT_INWARD";
+
       const rawType = (adj.itemType || "").toLowerCase();
-      const targetType = (rawType === "boughtout" || rawType === "bo") ? "bo" : (rawType === "component" || rawType === "fg") ? "fg" : "rm";
+      const targetType = (rawType === "boughtout" || rawType === "bo") 
+        ? "bo" 
+        : (rawType === "component" || rawType === "fg" || isConvertInward) 
+          ? "fg" 
+          : "rm";
 
       const entry = findWipEntry(adj.item, adjName, null, targetType);
       if (entry) {
-        entry.shopfloorWipQty = Math.max(0, entry.shopfloorWipQty - adjQty);
-        if (isReturn) {
-          entry.totalReturnedQty += adjQty;
-        }
+        if (isConvertInward) {
+          // Inward component addition into Shopfloor WIP
+          entry.shopfloorWipQty += adjQty;
+          entry.pendingWipQty = entry.shopfloorWipQty + entry.jobWorkWipQty;
 
-        const tx = {
-          date: adjDate,
-          type: isReturn ? "WIP Returned to Main Store" : "Shopfloor Scrap Write-off",
-          docNumber: adj.referenceDocNumber || "ADJ",
-          mrpNumber: "",
-          sentQty: adjQty,
-          receivedQty: 0,
-          unit: adj.unit || entry.unit || "PCS",
-          processType: adj.purpose || (isReturn ? "Return to Main Store" : "Shopfloor Scrap Write-off"),
-          vendorName: isReturn ? "Main Store" : "Shopfloor Scrap",
-          status: "Completed"
-        };
-        entry.transactions.push(tx);
-        allTransactionsLedger.push({
-          ...tx,
-          materialName: entry.materialName,
-          materialCode: entry.materialCode,
-          itemType: entry.itemType,
-          categoryType: entry.categoryType
-        });
+          if (new Date(adjDate) > new Date(entry.lastMovementDate)) {
+            entry.lastMovementDate = adjDate;
+          }
+
+          const tx = {
+            date: adjDate,
+            type: "WIP Component Produced (In-house Blank/Part)",
+            docNumber: adj.referenceDocNumber || "CONV-IN",
+            mrpNumber: "",
+            sentQty: 0,
+            receivedQty: adjQty,
+            unit: adj.unit || entry.unit || "PCS",
+            processType: adj.purpose || "Shopfloor In-house Blank / Part Production",
+            vendorName: "Shopfloor Assembly",
+            status: "Completed"
+          };
+          entry.transactions.push(tx);
+          allTransactionsLedger.push({
+            ...tx,
+            materialName: entry.materialName,
+            materialCode: entry.materialCode,
+            itemType: entry.itemType,
+            categoryType: entry.categoryType
+          });
+        } else {
+          // Outward reduction from Shopfloor WIP (Return, Scrap, or RM Conversion)
+          entry.shopfloorWipQty = Math.max(0, entry.shopfloorWipQty - adjQty);
+          entry.pendingWipQty = entry.shopfloorWipQty + entry.jobWorkWipQty;
+
+          if (isReturn) {
+            entry.totalReturnedQty += adjQty;
+          }
+
+          if (new Date(adjDate) > new Date(entry.lastMovementDate)) {
+            entry.lastMovementDate = adjDate;
+          }
+
+          let txType = "Shopfloor Scrap Write-off";
+          let vendorName = "Shopfloor Scrap";
+          if (isReturn) {
+            txType = "WIP Returned to Main Store";
+            vendorName = "Main Store";
+          } else if (isConvertOutward) {
+            txType = "WIP Consumed for Component Production";
+            vendorName = "In-house Shopfloor Production";
+          }
+
+          const tx = {
+            date: adjDate,
+            type: txType,
+            docNumber: adj.referenceDocNumber || "ADJ",
+            mrpNumber: "",
+            sentQty: adjQty,
+            receivedQty: 0,
+            unit: adj.unit || entry.unit || "PCS",
+            processType: adj.purpose || (isReturn ? "Return to Main Store" : (isConvertOutward ? "Converted to In-house Component" : "Shopfloor Scrap Write-off")),
+            vendorName: vendorName,
+            status: "Completed"
+          };
+          entry.transactions.push(tx);
+          allTransactionsLedger.push({
+            ...tx,
+            materialName: entry.materialName,
+            materialCode: entry.materialCode,
+            itemType: entry.itemType,
+            categoryType: entry.categoryType
+          });
+        }
       }
     });
 
@@ -619,18 +713,20 @@ export const getWipInventory = async (req, res) => {
     const allProductionReceipts = [
       ...allFGGRNs.map(g => ({
         grnNumber: g.grnNumber,
+        mrpPlan: g.mrpPlan,
         mrpNumber: g.mrpNumber || "",
         date: g.date || g.createdAt,
         items: g.items || []
       })),
       ...allInHouseGRNs.map(g => ({
         grnNumber: g.grnNumber,
+        mrpPlan: g.mrpPlan,
         mrpNumber: g.poNumber || g.poReference || "",
         date: g.date || g.createdAt,
         items: (g.items || []).map(it => ({
           fgItem: it.materialId,
           itemName: it.materialName,
-          quantity: it.receivedQuantity || it.quantity,
+          quantity: it.acceptedQuantity || it.receivedQuantity || it.quantity,
           unit: it.unit
         }))
       }))
@@ -642,23 +738,75 @@ export const getWipInventory = async (req, res) => {
 
       (grn.items || []).forEach(fgRec => {
         const fgName = fgRec.itemName || "";
-        const fgQty = Number(fgRec.quantity || fgRec.receivedQuantity) || 0;
+        const fgQty = Number(fgRec.acceptedQuantity || fgRec.quantity || fgRec.receivedQuantity) || 0;
+        if (fgQty <= 0) return;
 
-        // Find Bill of Materials (BOM) for this Finished Good
+        const normFgName = fgName.trim().toLowerCase();
+        const normFgItem = fgRec.fgItem ? fgRec.fgItem.toString() : '';
+
+        // 1. Resolve Bill of Materials from standalone BOMs
         const bom = allBOMs.find(b => 
-          (b.productName && b.productName.trim().toLowerCase() === fgName.trim().toLowerCase()) ||
-          (b.finishedGoods && b.finishedGoods.toString() === (fgRec.fgItem?.toString() || ''))
+          (b.finishedGoods && normFgItem && b.finishedGoods.toString() === normFgItem) ||
+          (b.productName && normFgName && b.productName.trim().toLowerCase() === normFgName) ||
+          (b.productCode && fgRec.materialCode && b.productCode.trim().toLowerCase() === fgRec.materialCode.trim().toLowerCase())
         );
 
-        if (bom && Array.isArray(bom.items)) {
-          bom.items.forEach(bomMat => {
-            const rawMatName = bomMat.materialName || bomMat.name || "";
-            const rawMatCode = bomMat.materialCode || bomMat.code || "";
+        // 2. Resolve from MRP Plan nestedMaterials if linked
+        const mrpPlan = allMRPPlans.find(p => 
+          (grn.mrpPlan && p._id.toString() === grn.mrpPlan.toString()) ||
+          (mrpNum && p.mrpNumber && p.mrpNumber.trim().toLowerCase() === mrpNum.trim().toLowerCase())
+        );
+        const matchedMrpFg = mrpPlan?.fgItems?.find(f => 
+          (normFgItem && f.fgItem?.toString() === normFgItem) ||
+          (f.fgItemName && f.fgItemName.trim().toLowerCase() === normFgName)
+        );
+
+        // 3. Resolve from FGItem master embedded BOM
+        const fgDoc = fgItemsList.find(f => 
+          (normFgItem && f._id.toString() === normFgItem) ||
+          (f.name && f.name.trim().toLowerCase() === normFgName)
+        );
+
+        // Build unified ingredient list
+        let bomIngredients = [];
+        if (bom && Array.isArray(bom.items) && bom.items.length > 0) {
+          bomIngredients = bom.items.map(it => ({
+            material: it.material || it.component || it.item || it._id,
+            materialName: it.materialName || it.name || "",
+            materialCode: it.materialCode || it.code || "",
+            quantity: Number(it.quantity) || 1,
+            unit: it.unit || "PCS",
+            itemType: it.type || it.itemType || ""
+          }));
+        } else if (matchedMrpFg && Array.isArray(matchedMrpFg.nestedMaterials) && matchedMrpFg.nestedMaterials.length > 0) {
+          bomIngredients = matchedMrpFg.nestedMaterials.map(it => ({
+            material: it.material || it.materialId || it._id,
+            materialName: it.materialName || it.name || "",
+            materialCode: it.materialCode || it.code || "",
+            quantity: Number(it.quantityPerFG || it.quantity) || 1,
+            unit: it.unit || "PCS",
+            itemType: it.itemType || it.category || ""
+          }));
+        } else if (fgDoc && Array.isArray(fgDoc.bom) && fgDoc.bom.length > 0) {
+          bomIngredients = fgDoc.bom.map(it => ({
+            material: it.item || it._id,
+            materialName: it.itemName || it.name || "",
+            materialCode: it.code || it.itemCode || "",
+            quantity: Number(it.quantity) || 1,
+            unit: it.unit || "PCS",
+            itemType: it.itemType || it.fgType || ""
+          }));
+        }
+
+        if (bomIngredients.length > 0) {
+          bomIngredients.forEach(bomMat => {
+            const rawMatName = bomMat.materialName || "";
+            const rawMatCode = bomMat.materialCode || "";
             const bomRatio = Number(bomMat.quantity) || 1;
             const consumedRequired = fgQty * bomRatio;
 
             // Determine if ingredient is RM, BO, or Sub-Assembly Component
-            const matTypeStr = (bomMat.type || bomMat.itemType || '').toLowerCase();
+            const matTypeStr = (bomMat.itemType || '').toLowerCase();
             let ingType = 'rm';
             if (matTypeStr === 'bo' || matTypeStr === 'bought out' || (rawMatCode || '').toUpperCase().startsWith('BO-')) {
               ingType = 'bo';
@@ -666,7 +814,8 @@ export const getWipInventory = async (req, res) => {
               ingType = 'fg'; // WIP-to-WIP consumption!
             }
 
-            const ingEntry = findWipEntry(bomMat.material, rawMatName, rawMatCode, ingType);
+            const rawId = bomMat.material;
+            const ingEntry = findWipEntry(rawId, rawMatName, rawMatCode, ingType);
             if (ingEntry) {
               const consumed = Math.min(ingEntry.shopfloorWipQty, consumedRequired);
               if (consumed > 0) {
@@ -677,7 +826,7 @@ export const getWipInventory = async (req, res) => {
 
                 const tx = {
                   date: grnDate,
-                  type: ingType === 'fg' ? "WIP-to-WIP Subassembly Consumed" : "FG GRN Receipt (WIP Consumed)",
+                  type: ingEntry.itemType === 'fg' ? "WIP-to-WIP Subassembly Consumed" : "FG GRN Receipt (WIP Consumed)",
                   docNumber: grn.grnNumber,
                   mrpNumber: mrpNum,
                   sentQty: 0,
@@ -710,13 +859,12 @@ export const getWipInventory = async (req, res) => {
 
             bucket.itemsInWip.forEach(itemRecord => {
               let consumedRatio = 1;
-              if (bom && Array.isArray(bom.items)) {
-                const bomMat = bom.items.find(bi => 
-                  (bi.materialName && bi.materialName.toLowerCase() === itemRecord.materialName.toLowerCase()) ||
-                  (bi.materialCode && bi.materialCode.toLowerCase() === itemRecord.materialCode?.toLowerCase())
-                );
-                if (bomMat) consumedRatio = Number(bomMat.quantity) || 1;
-              }
+              const matchedIng = bomIngredients.find(bi => 
+                (bi.materialName && bi.materialName.toLowerCase() === itemRecord.materialName.toLowerCase()) ||
+                (bi.materialCode && bi.materialCode.toLowerCase() === itemRecord.materialCode?.toLowerCase())
+              );
+              if (matchedIng) consumedRatio = Number(matchedIng.quantity) || 1;
+
               const consumed = Math.min(itemRecord.pendingQty, fgQty * consumedRatio);
               itemRecord.consumedQty += consumed;
               itemRecord.pendingQty = Math.max(0, itemRecord.issuedQty - itemRecord.consumedQty);

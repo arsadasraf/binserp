@@ -17,6 +17,7 @@ import MRPDetailsModal from '../modals/MRPDetailsModal';
 import CustomerPOItemWiseView from '../views/CustomerPOItemWiseView';
 import { generateFrontendOrderAcknowledgementPDF } from '@/src/utils/generateOrderAcknowledgementPDF';
 import { getCurrencySymbol, CURRENCY_OPTIONS, normalizeCurrencyCode } from '@/src/utils/currencyHelper';
+import { getPoOaNumber } from '@/src/utils/oaHelper';
 import { useExchangeRates } from '@/src/hooks/useExchangeRates';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 
@@ -659,6 +660,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                 (p.customerName && p.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (p.customer?.name && p.customer.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (p.quotationReference && p.quotationReference.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (p.acknowledgementNumber && p.acknowledgementNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (getPoOaNumber(p).toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (p.items && p.items.some((i: any) => (i.productName || i.description || i.fgItem?.name || '').toLowerCase().includes(searchTerm.toLowerCase())));
 
             const matchStatus = filterStatus === 'All' || p.status === filterStatus;
@@ -716,6 +719,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                 (po.poNumber && po.poNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (po.customerName && po.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (po.quotationReference && po.quotationReference.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (po.acknowledgementNumber && po.acknowledgementNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (getPoOaNumber(po).toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (po.items && po.items.some((i: any) => (i.productName || i.description || i.fgItem?.name || '').toLowerCase().includes(searchTerm.toLowerCase())));
 
             let matchCustomer = true;
@@ -928,49 +933,11 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     };
 
     return (
-        <div className="space-y-4 animate-in fade-in duration-300">
-            {/* 1. EXECUTIVE CUSTOMER PO DASHBOARD - CONVERTED VALUATIONS & METRICS */}
-            <div className="space-y-3">
-                {!showDashboard ? (
-                    <div className="hidden sm:flex bg-white dark:bg-slate-900 p-2.5 sm:px-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs items-center justify-between gap-3 text-xs">
-                        <div className="flex items-center gap-3 sm:gap-6 flex-wrap">
-                            <div className="flex items-center gap-1.5">
-                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Order Book:</span>
-                                <span className="font-mono font-bold text-slate-900 dark:text-white">{overallFinancials.formattedTotalInr}</span>
-                                <span className="text-[10px] text-blue-600 dark:text-blue-400 font-extrabold">({filteredPoList.length} POs)</span>
-                                {hasActiveFilters && (
-                                    <span className="px-1.5 py-0.2 bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 rounded text-[9px] font-bold border border-blue-200 dark:border-blue-800">
-                                        Filtered
-                                    </span>
-                                )}
-                            </div>
-                            <div className="hidden sm:flex items-center gap-1.5">
-                                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Ready for MRP:</span>
-                                <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{overallFinancials.readyForMrpCount} POs</span>
-                            </div>
-                            <div className="hidden md:flex items-center gap-1.5">
-                                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">In Progress:</span>
-                                <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{overallFinancials.inProgressCount} POs</span>
-                            </div>
-                            <div className="hidden md:flex items-center gap-1.5">
-                                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Completed:</span>
-                                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{overallFinancials.completedCount} POs</span>
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowDashboard(true)}
-                            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900/50 cursor-pointer shrink-0 transition-colors"
-                            title="Show Executive KPI Dashboard"
-                        >
-                            <span className="hidden sm:inline">Show Dashboard</span>
-                            <span className="sm:hidden text-[11px]">Stats</span>
-                            <ChevronDown size={14} />
-                        </button>
-                    </div>
-                ) : (
-                    <>
-                        {/* Top Dashboard Header with Title and Accessible Hide / Collapse Button */}
+        <div className="space-y-4 pb-20 sm:pb-16 animate-in fade-in duration-300">
+            {/* 1. EXECUTIVE CUSTOMER PO DASHBOARD - CONVERTED VALUATIONS & METRICS (Shown only on demand) */}
+            {showDashboard && (
+                <div className="space-y-3">
+                    {/* Top Dashboard Header with Title and Accessible Hide / Collapse Button */}
                         <div className="flex items-center justify-between pb-1 px-1">
                             <div className="flex items-center gap-2">
                                 <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">Executive Customer PO Dashboard</span>
@@ -1135,8 +1102,10 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                 })}
                             </div>
                         )}
-                    </>
-                )}
+                </div>
+            )}
+
+            <div className="space-y-3">
 
                 {/* Dynamic Selection Summary Banner (when 1+ POs selected) */}
                 {selectedPoIds.length > 0 && (
@@ -1615,7 +1584,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
                         {/* Desktop Table View - Scrollable with Sticky Header */}
-                        <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] min-h-[350px]">
+                        <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-240px)] min-h-[350px] pb-4">
                         <table className="w-full text-sm text-left relative">
                             <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 shadow-2xs">
                                 <tr>
@@ -1711,6 +1680,37 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                         )}
                                                     </div>
                                                 )}
+                                                {/* OA Number Badge */}
+                                                {(() => {
+                                                    const oaNo = getPoOaNumber(po);
+                                                    return (
+                                                        <div className="mt-1 flex items-center gap-1 flex-wrap">
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setAcknowledgingPo(po);
+                                                                }}
+                                                                title="Click to view / schedule Order Acknowledgement (OA)"
+                                                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer"
+                                                            >
+                                                                <FileCheck size={10} />
+                                                                <span>OA: {oaNo}</span>
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    generateFrontendOrderAcknowledgementPDF({ po, companyInfo });
+                                                                }}
+                                                                title="Print / View OA PDF"
+                                                                className="inline-flex items-center p-0.5 rounded text-[10px] text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/40 transition-colors cursor-pointer"
+                                                            >
+                                                                <Printer size={10} />
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
 
                                             <td className="px-4 py-3.5 font-bold text-slate-800 dark:text-slate-200 text-xs">
@@ -1757,11 +1757,6 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                                 )
                                                             ) : null}
                                                         </div>
-                                                        {po.acknowledgementNumber && (
-                                                            <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500" title="Order Acknowledgement Number">
-                                                                {po.acknowledgementNumber}
-                                                            </span>
-                                                        )}
                                                     </div>
                                                 ) : (
                                                     <button
@@ -1904,12 +1899,16 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         </tr>
                                     );
                                 })}
+                                {/* Bottom spacer row to ensure the last row is completely visible and never clipped by horizontal scrollbars or bottom borders */}
+                                <tr aria-hidden="true" className="border-none pointer-events-none select-none">
+                                    <td colSpan={9} className="h-20 p-0 border-none bg-transparent" />
+                                </tr>
                             </tbody>
                         </table>
                     </div>
 
                     {/* Mobile Card View - Scrollable */}
-                    <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40 max-h-[calc(100vh-270px)] overflow-y-auto">
+                    <div className="block md:hidden p-3 space-y-3 pb-36 sm:pb-28 bg-gray-50/50 dark:bg-slate-900/40 max-h-[calc(100vh-240px)] overflow-y-auto">
                         {filteredPoList.map((po) => {
                             const total = Number(po.totalAmount || po.subtotal || 0);
                             const remainingSecs = getRemainingEditSeconds(po.createdAt || po.date);
@@ -2000,6 +1999,37 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                     )}
                                                 </div>
                                             )}
+                                            {/* OA Number Badge (Mobile) */}
+                                            {(() => {
+                                                const oaNo = getPoOaNumber(po);
+                                                return (
+                                                    <div className="mt-1 flex items-center gap-1 flex-wrap">
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setAcknowledgingPo(po);
+                                                            }}
+                                                            title="Click to view / schedule Order Acknowledgement (OA)"
+                                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer"
+                                                        >
+                                                            <FileCheck size={10} />
+                                                            <span>OA: {oaNo}</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                generateFrontendOrderAcknowledgementPDF({ po, companyInfo });
+                                                            }}
+                                                            title="Print / View OA PDF"
+                                                            className="inline-flex items-center p-0.5 rounded text-[10px] text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/40 transition-colors cursor-pointer"
+                                                        >
+                                                            <Printer size={10} />
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
                                     <select

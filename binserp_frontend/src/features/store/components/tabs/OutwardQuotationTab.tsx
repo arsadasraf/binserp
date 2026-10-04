@@ -759,50 +759,10 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
     return (
         <div className="space-y-4 animate-in fade-in duration-300">
             
-            {/* Executive KPI Overview (Collapsible) */}
-            <div className="space-y-3">
-                {!showDashboard ? (
-                    /* Collapsed Compact State */
-                    <div className="hidden sm:flex bg-slate-100/90 dark:bg-slate-800/80 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700/60 items-center justify-between gap-3 text-xs">
-                        <div className="flex items-center gap-3 overflow-x-auto py-0.5">
-                            <span className="font-extrabold uppercase tracking-wider text-[11px] text-slate-500 dark:text-slate-400 shrink-0 flex items-center gap-1.5">
-                                <IndianRupee size={13} className="text-indigo-600" /> Quotation Summary:
-                            </span>
-                            <span className="font-bold text-slate-700 dark:text-slate-200 shrink-0">
-                                Pipeline: <strong className="text-indigo-600 font-mono">{overallQuoteFinancials.formattedTotalPipelineInr}</strong> ({filteredQuotations.length})
-                            </span>
-                            {isFiltered && (
-                                <span className="px-1.5 py-0.2 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 rounded text-[9px] font-bold border border-indigo-200 dark:border-indigo-800 shrink-0">
-                                    Filtered
-                                </span>
-                            )}
-                            <span className="text-slate-300 dark:text-slate-600">|</span>
-                            <span className="text-slate-600 dark:text-slate-300 shrink-0">
-                                Sent/Active: <strong className="text-blue-600 font-mono">{overallQuoteFinancials.formattedSentActiveInr}</strong> ({overallQuoteFinancials.sentActiveCount})
-                            </span>
-                            <span className="text-slate-300 dark:text-slate-600">|</span>
-                            <span className="text-slate-600 dark:text-slate-300 shrink-0">
-                                Pending Approval: <strong className="text-amber-600 font-mono">{overallQuoteFinancials.formattedPendingApprovalInr}</strong> ({overallQuoteFinancials.pendingApprovalCount})
-                            </span>
-                            <span className="text-slate-300 dark:text-slate-600">|</span>
-                            <span className="text-slate-600 dark:text-slate-300 shrink-0">
-                                Approved: <strong className="text-emerald-600 font-mono">{overallQuoteFinancials.formattedApprovedInr}</strong> ({overallQuoteFinancials.approvedCount})
-                            </span>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowDashboard(true)}
-                            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 shrink-0 cursor-pointer px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors"
-                            title="Show Executive KPI Dashboard"
-                        >
-                            <span>Show Dashboard</span>
-                            <ChevronDown size={14} />
-                        </button>
-                    </div>
-                ) : (
-                    /* Expanded 4 KPI Cards */
-                    <>
-                        {/* Top Dashboard Header with Title and Accessible Hide / Collapse Button */}
+            {/* Executive KPI Overview (Shown only on demand) */}
+            {showDashboard && (
+                <div className="space-y-3">
+                    {/* Top Dashboard Header with Title and Accessible Hide / Collapse Button */}
                         <div className="flex items-center justify-between pb-1 px-1">
                             <div className="flex items-center gap-2">
                                 <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">Executive Quotation Dashboard</span>
@@ -948,9 +908,8 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                 })}
                             </div>
                         )}
-                    </>
-                )}
-            </div>
+                </div>
+            )}
             
             {/* Search, Filter & Action Toolbar */}
             <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-2.5">

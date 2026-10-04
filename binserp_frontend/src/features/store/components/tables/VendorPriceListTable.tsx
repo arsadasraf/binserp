@@ -186,7 +186,7 @@ export default function VendorPriceListTable({
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden space-y-0">
+    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 flex flex-col flex-1 min-h-0 overflow-hidden space-y-0">
       
       {/* Category Segmented Tabs Bar */}
       <div className="p-3 bg-gray-50/70 dark:bg-gray-800/40 border-b border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-2">
@@ -346,17 +346,17 @@ export default function VendorPriceListTable({
         </div>
       )}
 
-      {/* Desktop Table View */}
-      <div className="hidden md:block overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-gray-50/75 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider border-b border-gray-100 dark:border-gray-800">
-              <th className="p-3.5 font-bold first:pl-6 w-16">Photo</th>
-              <th className="p-3.5 font-bold">Item Name & Description</th>
-              <th className="p-3.5 font-bold w-28">Category</th>
+      {/* Desktop Table View - Scrollable with Sticky Header */}
+      <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-230px)] min-h-[350px]">
+        <table className="w-full text-left border-collapse relative">
+          <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 shadow-2xs">
+            <tr className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
+              <th className="p-3.5 font-bold first:pl-6 w-16 bg-gray-50 dark:bg-gray-800">Photo</th>
+              <th className="p-3.5 font-bold bg-gray-50 dark:bg-gray-800">Item Name & Description</th>
+              <th className="p-3.5 font-bold w-28 bg-gray-50 dark:bg-gray-800">Category</th>
               
               {/* Supplier / Vendor Column with Filter Dropdown */}
-              <th className="p-3.5 font-bold w-48 relative">
+              <th className="p-3.5 font-bold w-48 relative bg-gray-50 dark:bg-gray-800">
                 <div className="flex items-center justify-between gap-1.5">
                   <span className="truncate">Supplier / Vendor</span>
                   <div className="relative" ref={vendorFilterRef}>
@@ -467,9 +467,9 @@ export default function VendorPriceListTable({
                 </div>
               </th>
 
-              <th className="p-3.5 font-bold text-right w-36">Price (₹)</th>
-              <th className="p-3.5 font-bold text-center w-24">Tax Rate</th>
-              <th className="p-3.5 font-bold text-right last:pr-6 w-44">Actions</th>
+              <th className="p-3.5 font-bold text-right w-36 bg-gray-50 dark:bg-gray-800">Price (₹)</th>
+              <th className="p-3.5 font-bold text-center w-24 bg-gray-50 dark:bg-gray-800">Tax Rate</th>
+              <th className="p-3.5 font-bold text-right last:pr-6 w-44 bg-gray-50 dark:bg-gray-800">Actions</th>
             </tr>
           </thead>
           <tbody className="text-sm divide-y divide-gray-100 dark:divide-gray-800">
@@ -612,7 +612,7 @@ export default function VendorPriceListTable({
       </div>
 
       {/* Mobile Cards View */}
-      <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-gray-900/40">
+      <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-gray-900/40 overflow-y-auto max-h-[calc(100vh-240px)]">
         {filteredItems.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             <Tag className="w-8 h-8 text-gray-300 mx-auto mb-2" />

@@ -7,7 +7,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { InventoryItem } from "@/src/features/store/types/store.types";
 import { 
-    Package, Factory, Download, Search, FileSpreadsheet, ChevronDown, 
+    Package, Factory, Download, Search, FileSpreadsheet, ChevronDown, ChevronUp,
     ChevronLeft, ChevronRight, FileDown, RotateCcw, RefreshCw,
     TrendingUp, IndianRupee, AlertTriangle, ArrowUpDown, LayoutGrid,
     Eye, Boxes, Layers, X, Calendar, Crosshair, Sparkles, CheckCircle2,
@@ -789,67 +789,9 @@ export default function InventoryTable({
 
     return (
         <div className="w-full h-full bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200/80 dark:border-slate-800 flex flex-col overflow-hidden">
-            {/* Executive KPI Dashboard Header & Cards (Desktop Only) */}
-            <div className="hidden md:block p-3 sm:p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
-                {!showDashboard ? (
-                    /* Collapsed Single-Line Summary Bar */
-                    <div className="bg-white dark:bg-slate-800/90 px-3.5 py-2 rounded-xl border border-slate-200/90 dark:border-slate-700 shadow-2xs flex items-center justify-between gap-3 text-xs">
-                        <div className="flex items-center flex-wrap gap-2.5 sm:gap-4 text-slate-600 dark:text-slate-300">
-                            {inventoryKpis.isFocused ? (
-                                <>
-                                    <span className="font-semibold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
-                                        <Crosshair size={14} className="text-indigo-600" />
-                                        Focused: <strong className="font-mono">{inventoryKpis.itemName}</strong>
-                                    </span>
-                                    <span className="text-slate-300 dark:text-slate-600">|</span>
-                                    <span>
-                                        In-Stock: <strong className="text-slate-900 dark:text-white font-mono">{inventoryKpis.formattedTotalStockUnits}</strong>
-                                    </span>
-                                    <span className="text-slate-300 dark:text-slate-600">|</span>
-                                    <span>
-                                        Valuation: <strong className="text-emerald-600 font-mono">{inventoryKpis.formattedTotalValuation}</strong>
-                                    </span>
-                                    <span className="text-slate-300 dark:text-slate-600">|</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => setFocusedItemId(null)}
-                                        className="text-[11px] font-bold text-rose-600 hover:text-rose-700 underline cursor-pointer"
-                                    >
-                                        Reset Focus
-                                    </button>
-                                </>
-                            ) : (
-                                <>
-                                    <span className="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-                                        <Boxes size={14} className="text-indigo-600" />
-                                        {inventoryKpis.tabTitle}: <strong className="text-indigo-600 font-mono">{inventoryKpis.totalItems} Items</strong>
-                                    </span>
-                                    <span className="text-slate-300 dark:text-slate-600">|</span>
-                                    <span>
-                                        In-Stock Units: <strong className="text-slate-900 dark:text-white font-mono">{inventoryKpis.formattedTotalStockUnits}</strong>
-                                    </span>
-                                    <span className="text-slate-300 dark:text-slate-600">|</span>
-                                    <span>
-                                        Total Valuation: <strong className="text-emerald-600 font-mono">{inventoryKpis.formattedTotalValuation}</strong>
-                                    </span>
-                                    <span className="text-slate-300 dark:text-slate-600">|</span>
-                                    <span>
-                                        Reorder Alerts: <strong className="text-amber-600 font-mono">{inventoryKpis.lowStockCount}</strong>
-                                    </span>
-                                </>
-                            )}
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowDashboard(true)}
-                            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 shrink-0 cursor-pointer"
-                        >
-                            <span>Show Dashboard</span>
-                            <ChevronDown size={14} />
-                        </button>
-                    </div>
-                ) : (
-                    /* Expanded Dashboard with Header Filter Bar & 4 KPI Cards */
+            {/* Executive KPI Dashboard Header & Cards (Desktop Only, shown only on demand) */}
+            {showDashboard && (
+                <div className="hidden md:block p-3 sm:p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
                     <div className="space-y-3">
                         {/* Dynamic Dashboard Control Bar (Item Focus Selector & Mode Badges) */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1 border-b border-slate-200/60 dark:border-slate-800/60">
@@ -914,6 +856,15 @@ export default function InventoryTable({
                                         <span>Reset</span>
                                     </button>
                                 )}
+                                <button
+                                    type="button"
+                                    onClick={() => setShowDashboard(false)}
+                                    className="text-xs font-bold px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                    title="Hide Dashboard and maximize table view"
+                                >
+                                    <span>Hide</span>
+                                    <ChevronUp size={13} />
+                                </button>
                             </div>
                         </div>
 
@@ -1044,8 +995,8 @@ export default function InventoryTable({
                             </div>
                         </div>
                     </div>
-                )}
-            </div>
+                </div>
+            )}
 
             {/* Top Toolbar (Desktop Only) */}
             <div className="hidden md:flex px-3.5 py-2.5 sm:px-4 border-b border-slate-200 dark:border-slate-800 flex-col xl:flex-row justify-between items-stretch xl:items-center gap-2.5 bg-slate-50/60 dark:bg-slate-900/50 shrink-0">

@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { stockTransactionSchema } from "../models/store/index.js";
 
 const getCompanyId = (req) => {
@@ -35,10 +36,12 @@ export const recordStockTransaction = async (req, params) => {
     const userId = performedBy || req.user?.id || req.user?._id;
     const userName = performedByName || req.user?.name || req.user?.username || "System";
 
+    const cleanItem = (item && mongoose.Types.ObjectId.isValid(item.toString())) ? item : undefined;
+
     const transaction = await StockTransaction.create({
       company: companyId,
       itemType,
-      item,
+      item: cleanItem,
       itemCode,
       itemName,
       unit,
@@ -62,8 +65,7 @@ export const recordStockTransaction = async (req, params) => {
 
     return transaction;
   } catch (error) {
-    console.error("Error recording stock transaction:", error);
-    // Return null instead of crashing caller, but log error
-    return null;
+    console.error("Error recording stock transaction:", error.message, error);
+    throw error;
   }
 };

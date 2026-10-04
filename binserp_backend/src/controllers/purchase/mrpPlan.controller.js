@@ -681,8 +681,13 @@ export const createMRPPlan = async (req, res) => {
             level: level,
           });
 
-          // Consolidate into specific maps
-          const itemKey = (sCode || sName).toLowerCase();
+          // Consolidate into specific maps using canonical material key
+          const resolvedMat = rmBo || rawMat || boughtOut || matchedFG;
+          const resolvedMatId = resolvedMat?._id || inv?.materialId || inv?._id;
+          const itemKey = resolvedMatId
+            ? String(resolvedMatId)
+            : (cleanStr(sCode) ? `code_${cleanStr(sCode)}` : `name_${cleanKey(sName)}`);
+
           let targetMap = rmMap;
           if (isSubAssembly) targetMap = subAssemblyMap;
           else if (isBO) targetMap = boMap;
@@ -690,7 +695,7 @@ export const createMRPPlan = async (req, res) => {
 
           if (!targetMap.has(itemKey)) {
             targetMap.set(itemKey, {
-              material: rmBo?._id || rawMat?._id || boughtOut?._id,
+              material: resolvedMatId || rmBo?._id || rawMat?._id || boughtOut?._id,
               materialName: sName,
               materialCode: sCode,
               description: sDesc,
@@ -707,6 +712,12 @@ export const createMRPPlan = async (req, res) => {
             });
           }
           const existing = targetMap.get(itemKey);
+          if (!existing.material && resolvedMatId) {
+            existing.material = resolvedMatId;
+          }
+          if (!existing.materialCode && sCode) {
+            existing.materialCode = sCode;
+          }
           if (!existing.description && sDesc) {
             existing.description = sDesc;
           }
@@ -2699,8 +2710,13 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
           level: level,
         });
 
-        // Consolidate into specific maps
-        const itemKey = (sCode || sName).toLowerCase();
+        // Consolidate into specific maps using canonical material key
+        const resolvedMat = rmBo || rawMat || boughtOut || matchedFG;
+        const resolvedMatId = resolvedMat?._id || inv?.materialId || inv?._id;
+        const itemKey = resolvedMatId
+          ? String(resolvedMatId)
+          : (cleanStr(sCode) ? `code_${cleanStr(sCode)}` : `name_${cleanKey(sName)}`);
+
         let targetMap = rmMap;
         if (isSubAssembly) targetMap = subAssemblyMap;
         else if (isBO) targetMap = boMap;
@@ -2708,7 +2724,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
 
         if (!targetMap.has(itemKey)) {
           targetMap.set(itemKey, {
-            material: rmBo?._id || rawMat?._id || boughtOut?._id,
+            material: resolvedMatId || rmBo?._id || rawMat?._id || boughtOut?._id,
             materialName: sName,
             materialCode: sCode,
             description: sDesc,
@@ -2725,6 +2741,12 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
           });
         }
         const existing = targetMap.get(itemKey);
+        if (!existing.material && resolvedMatId) {
+          existing.material = resolvedMatId;
+        }
+        if (!existing.materialCode && sCode) {
+          existing.materialCode = sCode;
+        }
         if (!existing.description && sDesc) {
           existing.description = sDesc;
         }
@@ -2970,15 +2992,71 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     workingFgItems = syncedList;
   }
 
+  // Deduplicate and aggregate Finished Goods line items before BOM explosion
+  const mergedWorkingFgMap = new Map();
+  for (const fg of workingFgItems) {
+    const rawQty = Number(fg.quantity) || 1;
+    const rawName = (
+      (!isGenericPlaceholder(fg.fgItemName) ? fg.fgItemName : "") ||
+      (typeof fg.fgItem === 'object' && fg.fgItem !== null ? fg.fgItem.name : '') ||
+      fg.name ||
+      fg.productName ||
+      fg.itemName ||
+      ""
+    ).trim();
+    const fgCode = (
+      fg.fgItemCode ||
+      (typeof fg.fgItem === 'object' && fg.fgItem !== null ? fg.fgItem.code : '') ||
+      fg.code ||
+      fg.productCode ||
+      ""
+    ).trim();
+    const fgId = typeof fg.fgItem === 'object' && fg.fgItem !== null ? fg.fgItem._id : (fg.fgItem || fg._id);
+
+    const freshFG = (fgId && fgById.get(String(fgId))) ||
+                    (rawName && fgByName.get(cleanStr(rawName))) ||
+                    (fgCode && fgByCode.get(cleanStr(fgCode)));
+
+    const resolvedFGId = freshFG?._id || fgId;
+    const itemKey = resolvedFGId ? String(resolvedFGId) : (cleanStr(fgCode) ? `code_${cleanStr(fgCode)}` : `name_${cleanKey(rawName)}`);
+    if (!itemKey) continue;
+
+    if (!mergedWorkingFgMap.has(itemKey)) {
+      mergedWorkingFgMap.set(itemKey, {
+        ...fg,
+        fgItem: resolvedFGId,
+        fgItemName: freshFG?.name || fg.fgItemName || rawName,
+        fgItemCode: freshFG?.code || fg.fgItemCode || fgCode,
+        quantity: 0,
+        sourceBreakdown: [],
+        sourceCustomerPOs: []
+      });
+    }
+    const existing = mergedWorkingFgMap.get(itemKey);
+    existing.quantity += rawQty;
+    if (!existing.description && (fg.description || freshFG?.description)) {
+      existing.description = fg.description || freshFG?.description || freshFG?.descriptions || "";
+    }
+    if (fg.targetDate && (!existing.targetDate || new Date(fg.targetDate) < new Date(existing.targetDate))) {
+      existing.targetDate = fg.targetDate;
+    }
+    if (fg.poDeliveryDate && (!existing.poDeliveryDate || new Date(fg.poDeliveryDate) < new Date(existing.poDeliveryDate))) {
+      existing.poDeliveryDate = fg.poDeliveryDate;
+    }
+    if (Array.isArray(fg.sourceBreakdown)) {
+      fg.sourceBreakdown.forEach(b => existing.sourceBreakdown.push(b));
+    }
+    if (Array.isArray(fg.sourceCustomerPOs)) {
+      fg.sourceCustomerPOs.forEach(p => { if (p && !existing.sourceCustomerPOs.includes(p)) existing.sourceCustomerPOs.push(p); });
+    }
+  }
+
+  const consolidatedWorkingFgItems = Array.from(mergedWorkingFgMap.values());
+
   // Re-explode all FG items in this plan with their latest BOM
   const enrichedFgItems = [];
 
-  const isGenericPlaceholder = (name) => {
-    const s = (name || "").toLowerCase().trim();
-    return !s || s === "finished good" || s === "finish goods" || s === "finished goods" || s === "unspecified fg item";
-  };
-
-  for (const fg of workingFgItems) {
+  for (const fg of consolidatedWorkingFgItems) {
     const fgQty = Number(fg.quantity) || 1;
     let rawName = (
       (!isGenericPlaceholder(fg.fgItemName) ? fg.fgItemName : "") ||
