@@ -244,14 +244,29 @@ export const createJobWorkChallan = async (req, res) => {
             let totalReturned = 0;
             const nameRegex = itemName && itemName.trim() ? new RegExp(`^${itemName.trim()}$`, "i") : null;
             existingJobWorks.forEach(jw => {
+              let jwDispatched = 0;
+              let jwReturned = 0;
               (jw.items || []).forEach(it => {
                 const itMatchesId = validItemId && String(it.item) === String(validItemId);
                 const itMatchesName = nameRegex && it.itemName && nameRegex.test(it.itemName);
                 if (itMatchesId || itMatchesName) {
-                  totalDispatched += Number(it.quantitySent || 0);
-                  totalReturned += Number(it.quantityReceived || 0);
+                  jwDispatched += Number(it.quantitySent || 0);
+                  jwReturned += Number(it.quantityReceived || 0);
                 }
               });
+              if (Array.isArray(jw.receiveHistory) && jw.receiveHistory.length > 0) {
+                let histSum = 0;
+                jw.receiveHistory.forEach(rh => {
+                  const rhMatches = (validItemId && (String(rh.masterItemId) === String(validItemId) || String(rh.itemId) === String(validItemId))) ||
+                    (nameRegex && rh.itemName && nameRegex.test(rh.itemName));
+                  if (rhMatches && (rh.qcStatus === "Passed" || rh.qcStatus === "Accepted" || rh.qcStatus === "Skipped" || !rh.qcRequired)) {
+                    histSum += Number(rh.acceptedQuantity !== undefined ? rh.acceptedQuantity : rh.quantity) || 0;
+                  }
+                });
+                jwReturned = Math.max(jwReturned, histSum);
+              }
+              totalDispatched += jwDispatched;
+              totalReturned += jwReturned;
             });
 
             const netConvAvail = Math.max(0, totalConvertedInward - totalDispatched + totalReturned);

@@ -40,12 +40,16 @@ export const getMRP360WipTracker = asyncHandler(async (req, res) => {
   const mrpNumber = mrpPlan.mrpNumber;
   const custPoNumber = mrpPlan.customerPoNumber;
 
+  const mrpPlanIdStr = mrpPlan._id.toString();
+
   // Search filter across related records by mrpNumber or Customer PO
   const mrpQueryFilter = {
     company: companyId,
     $or: [
       { mrpNumber: mrpNumber },
+      { mrpNumber: { $regex: new RegExp(`^${mrpNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
       { mrpPlan: mrpPlan._id },
+      { mrpPlan: mrpPlanIdStr },
       ...(custPoNumber ? [{ customerPoNumber: custPoNumber }, { poReference: custPoNumber }] : [])
     ]
   };

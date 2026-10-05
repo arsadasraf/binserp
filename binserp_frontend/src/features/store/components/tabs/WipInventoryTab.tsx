@@ -31,6 +31,7 @@ import * as XLSX from 'xlsx';
 import { apiGet } from '@/src/lib/api';
 import WipLedgerDrawer from '../modals/WipLedgerDrawer';
 import WipActionModal from '../modals/WipActionModal';
+import WipMultiItemConvertModal from '../modals/WipMultiItemConvertModal';
 
 export type WipSubTabType = 'rm' | 'bo' | 'fg' | 'mrp' | 'ledger' | 'mrp-buckets';
 
@@ -92,6 +93,7 @@ export default function WipInventoryTab({
     const [actionModalItem, setActionModalItem] = useState<any | null>(null);
     const [actionModalMode, setActionModalMode] = useState<'return' | 'scrap' | 'convert'>('return');
     const [isActionModalOpen, setIsActionModalOpen] = useState(false);
+    const [isMultiConvertOpen, setIsMultiConvertOpen] = useState(false);
 
     // Dashboard & Focus State
     const [showDashboard, setShowDashboard] = useState<boolean>(false);
@@ -569,7 +571,7 @@ export default function WipInventoryTab({
             const res = await apiGet(`/api/store/wip/inventory?type=${backendType}`, token);
             setWipItems(res.wipItems || []);
             setMrpBuckets(res.mrpBuckets || []);
-            setLedgerTransactions(res.transactionsLedger || []);
+            setLedgerTransactions(res.transactionsLedger || res.ledger || []);
             if (res.summary) {
                 setSummary(res.summary);
             }
@@ -1029,6 +1031,16 @@ export default function WipInventoryTab({
                     </div>
 
                     <div className="flex items-center gap-2">
+                        {/* Assemble / Convert to WIP FG Button */}
+                        <button
+                            onClick={() => setIsMultiConvertOpen(true)}
+                            className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-700 hover:to-purple-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+                            title="Assemble / Convert multiple RM & BO items into In-house WIP FG"
+                        >
+                            <Factory size={13} />
+                            <span>Assemble WIP FG</span>
+                        </button>
+
                         {/* Refresh Data Button */}
                         <button
                             onClick={fetchWipInventory}
@@ -1661,6 +1673,17 @@ export default function WipInventoryTab({
                     onError={onError}
                 />
             )}
+
+            {/* Multi-Item RM & BO to WIP FG Assembly Modal */}
+            <WipMultiItemConvertModal
+                isOpen={isMultiConvertOpen}
+                onClose={() => setIsMultiConvertOpen(false)}
+                onSuccess={(msg) => {
+                    onSuccess(msg || "WIP Assembly completed successfully");
+                    fetchWipInventory();
+                }}
+                onError={onError}
+            />
         </div>
     );
 }

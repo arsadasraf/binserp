@@ -38,9 +38,32 @@ export const recordStockTransaction = async (req, params) => {
 
     const cleanItem = (item && mongoose.Types.ObjectId.isValid(item.toString())) ? item : undefined;
 
+    // Intelligent normalization for itemType
+    let resolvedItemType = itemType || params.category || params.itemCategory || "RawMaterial";
+    const cleanType = String(resolvedItemType).trim().toLowerCase();
+    if (cleanType.includes("bought") || cleanType === "bo" || cleanType === "boughtout") {
+      resolvedItemType = "BoughtOut";
+    } else if (cleanType.includes("consumable")) {
+      resolvedItemType = "ConsumableItem";
+    } else if (cleanType.includes("component") || cleanType.includes("subassembly") || cleanType.includes("assembly")) {
+      resolvedItemType = "Component";
+    } else if (cleanType.includes("fg") || cleanType.includes("finish")) {
+      resolvedItemType = "FGItem";
+    } else if (cleanType.includes("rmbo") || cleanType === "rm_bo") {
+      resolvedItemType = "RmBo";
+    } else if (cleanType === "wip") {
+      resolvedItemType = "Component";
+    } else {
+      resolvedItemType = "RawMaterial";
+    }
+
+    const resolvedMovementType = movementType || (Number(quantity) >= 0 ? "INWARD" : "OUTWARD");
+    const resolvedRefDocType = referenceDocType || "StockAdjustment";
+    const resolvedTxCategory = transactionCategory || (resolvedMovementType === "INWARD" ? "STOCK_ADJUSTMENT_INWARD" : "STOCK_ADJUSTMENT");
+
     const transaction = await StockTransaction.create({
       company: companyId,
-      itemType,
+      itemType: resolvedItemType,
       item: cleanItem,
       itemCode,
       itemName,
@@ -48,12 +71,12 @@ export const recordStockTransaction = async (req, params) => {
       hasSecondaryUnit,
       secondaryUnit,
       secondaryQuantity,
-      movementType,
-      transactionCategory,
+      movementType: resolvedMovementType,
+      transactionCategory: resolvedTxCategory,
       quantity: Math.abs(quantity),
       previousStock,
       newStock,
-      referenceDocType,
+      referenceDocType: resolvedRefDocType,
       referenceDocId,
       referenceDocNumber,
       recipientOrSource,

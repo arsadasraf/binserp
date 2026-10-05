@@ -29,7 +29,8 @@ import {
   ChevronUp,
   X,
   CheckSquare,
-  ShieldCheck
+  ShieldCheck,
+  RotateCcw
 } from "lucide-react";
 import { useTimeLockPolicy } from "@/src/hooks/useTimeLockPolicy";
 import { useGetStoreDataQuery, useDeleteStoreRecordMutation } from "@/src/store/services/storeService";
@@ -515,11 +516,88 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
 
   const isLoading = isLoadingGrn || isLoadingFgGrn;
 
+  const isGrnFiltered = Boolean(
+    typeFilter !== "all" ||
+    qcStatusFilter !== "all" ||
+    receivedByFilter !== "all" ||
+    search.trim() !== "" ||
+    (dateMode === "preset" && activePreset !== "all") ||
+    (dateMode === "day" && singleDate) ||
+    (dateMode === "month" && selectedMonth) ||
+    (dateMode === "range" && (startDate || endDate))
+  );
+
   return (
     <div className="space-y-4">
       {/* Metric Cards Row / Executive KPI Dashboard (Shown only on demand) */}
       {showDashboard && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="space-y-2.5">
+          {/* Filter Status Bar in Dashboard */}
+          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200/80 dark:border-slate-800 text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              {isGrnFiltered ? (
+                <>
+                  <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-200 border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                    <Filter size={11} />
+                    <span>Filtered Scope</span>
+                  </span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200">
+                    Showing metrics for {filteredGrns.length} of {allNormalizedGrns.length} GRN records
+                  </span>
+                  {typeFilter !== "all" && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                      Type: {typeFilter}
+                    </span>
+                  )}
+                  {qcStatusFilter !== "all" && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                      QC: {qcStatusFilter.toUpperCase()}
+                    </span>
+                  )}
+                  {receivedByFilter !== "all" && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Received By: {receivedByFilter}
+                    </span>
+                  )}
+                  {search.trim() && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-sky-50 text-sky-700 border border-sky-200">
+                      Search: &quot;{search}&quot;
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleResetFilters}
+                    className="text-[11px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 ml-1 cursor-pointer"
+                    title="Clear all GRN history filters"
+                  >
+                    <RotateCcw size={11} />
+                    <span>Clear Filters</span>
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 uppercase tracking-wide">
+                    <LayoutGrid size={14} className="text-blue-600 dark:text-blue-400" />
+                    <span>GRN Inward History Executive Overview</span>
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    (All {allNormalizedGrns.length} Inward Records)
+                  </span>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowDashboard(false)}
+              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center gap-1 text-[11px] font-bold cursor-pointer shrink-0"
+              title="Hide Dashboard"
+            >
+              <span>Hide</span>
+              <ChevronUp size={12} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           {/* Card 1: Total GRNs */}
           <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-2xs relative overflow-hidden">
             <div className="flex items-center justify-between text-blue-600 dark:text-blue-400 mb-1.5">
@@ -611,6 +689,7 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
             </div>
           </div>
         </div>
+      </div>
       )}
 
       {/* Filter & Control Bar */}

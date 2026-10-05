@@ -28,9 +28,24 @@ export const globalErrorHandler = (err, req, res, next) => {
 
   // Handle Mongoose validation or cast errors
   if (err.name === "ValidationError") {
+    const formattedMessages = Object.values(err.errors || {}).map((e) => {
+      let msg = e.message || "Invalid input";
+      // Convert "Path `itemType` is required." -> "Item Type is required."
+      msg = msg.replace(/Path `(\w+)` is required\./gi, (_match, p1) => {
+        const readable = p1.replace(/([A-Z])/g, ' $1').trim().toLowerCase();
+        return `${readable.charAt(0).toUpperCase() + readable.slice(1)} is required.`;
+      });
+      // Convert "`XYZ` is not a valid enum value for path `abc`." -> "XYZ is not a valid option for abc."
+      msg = msg.replace(/`([^`]+)` is not a valid enum value for path `(\w+)`\./gi, (_match, val, path) => {
+        const readable = path.replace(/([A-Z])/g, ' $1').trim().toLowerCase();
+        return `"${val}" is not a valid option for ${readable}.`;
+      });
+      return msg;
+    });
+
     return res.status(400).json({
       success: false,
-      message: Object.values(err.errors).map((e) => e.message).join(", "),
+      message: formattedMessages.join("; ") || "Validation failed. Please verify input fields.",
     });
   }
 

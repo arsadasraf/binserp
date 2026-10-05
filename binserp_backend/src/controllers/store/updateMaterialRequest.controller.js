@@ -1,6 +1,7 @@
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import mongoose from "mongoose";
 import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -79,24 +80,46 @@ export const updateMaterialRequest = async (req, res) => {
         const { userId: currentUserId, userName: currentUserName } = getUserAudit(req);
         const issueNumber = `ISS-${Date.now()}`;
 
-        const issueItems = (materialRequest.items || []).map(it => ({
-          material: it.material,
-          consumable: it.consumable,
-          fgItem: it.fgItem,
-          component: it.component,
-          itemType: it.itemType || 'Raw Material',
-          materialCode: it.materialCode || '',
-          materialName: it.materialName,
-          quantity: it.quantity,
-          unit: it.unit || "PCS",
-          hasSecondaryUnit: it.hasSecondaryUnit || false,
-          secondaryUnit: it.secondaryUnit || "",
-          conversionFactor: it.conversionFactor || 1,
-          secondaryQuantity: it.secondaryQuantity || 0,
-          materialRequestItemId: it._id,
-          requestedQuantity: it.quantity,
-          purpose: it.purpose || materialRequest.remarks || `Issued against Request #${materialRequest.requestNumber}`
-        }));
+        let issueMrpPlan = materialRequest.mrpPlan;
+        let issueMrpNumber = materialRequest.mrpNumber;
+        if (issueMrpPlan && !issueMrpNumber) {
+          try {
+            const MRPPlan = req.getModel('MRPPlan', mrpPlanSchema);
+            const plan = await MRPPlan.findById(issueMrpPlan);
+            if (plan && plan.mrpNumber) issueMrpNumber = plan.mrpNumber;
+          } catch(e) {}
+        } else if (issueMrpNumber && !issueMrpPlan) {
+          try {
+            const MRPPlan = req.getModel('MRPPlan', mrpPlanSchema);
+            const plan = await MRPPlan.findOne({ company: companyId, mrpNumber: issueMrpNumber.trim() });
+            if (plan) issueMrpPlan = plan._id;
+          } catch(e) {}
+        }
+
+        const issueItems = (materialRequest.items || []).map(it => {
+          let itType = it.itemType;
+          if (!itType) {
+            itType = (it.component || it.fgItem) ? 'FG Item' : (it.consumable ? 'Consumable' : ((it.materialCode || '').toUpperCase().startsWith('BO-') ? 'Bought Out' : 'Raw Material'));
+          }
+          return {
+            material: it.material,
+            consumable: it.consumable,
+            fgItem: it.fgItem,
+            component: it.component,
+            itemType: itType,
+            materialCode: it.materialCode || '',
+            materialName: it.materialName,
+            quantity: it.quantity,
+            unit: it.unit || "PCS",
+            hasSecondaryUnit: it.hasSecondaryUnit || false,
+            secondaryUnit: it.secondaryUnit || "",
+            conversionFactor: it.conversionFactor || 1,
+            secondaryQuantity: it.secondaryQuantity || 0,
+            materialRequestItemId: it._id,
+            requestedQuantity: it.quantity,
+            purpose: it.purpose || materialRequest.remarks || `Issued against Request #${materialRequest.requestNumber}`
+          };
+        });
 
         const newIssue = await MaterialIssue.create({
           company: companyId,
@@ -105,8 +128,8 @@ export const updateMaterialRequest = async (req, res) => {
           date: new Date(),
           department: materialRequest.department || "General Store",
           issuedTo: materialRequest.requestedBy,
-          mrpPlan: materialRequest.mrpPlan,
-          mrpNumber: materialRequest.mrpNumber,
+          mrpPlan: issueMrpPlan,
+          mrpNumber: issueMrpNumber,
           materialRequest: materialRequest._id,
           requestNumber: materialRequest.requestNumber,
           items: issueItems,

@@ -82,7 +82,13 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
         if (Array.isArray(jwDoc.receiveHistory)) {
           const histItem = receiveHistoryId 
             ? jwDoc.receiveHistory.id(receiveHistoryId)
-            : jwDoc.receiveHistory.find(h => (h.grnNumber && h.grnNumber === grnNumber) || (h.itemId && h.itemId.toString() === itemId?.toString()));
+            : jwDoc.receiveHistory.find(h => 
+                (h.grnNumber && h.grnNumber === grnNumber) || 
+                (h.masterItemId && itemId && h.masterItemId.toString() === itemId?.toString()) ||
+                (h.itemId && itemId && h.itemId.toString() === itemId?.toString()) ||
+                (h.returningItemId && itemId && h.returningItemId.toString() === itemId?.toString()) ||
+                (h.itemName && itemName && h.itemName.trim().toLowerCase() === itemName.trim().toLowerCase())
+              );
 
           if (histItem) {
             histItem.acceptedQuantity = (histItem.acceptedQuantity || 0) + acceptedQtyNum;
@@ -233,14 +239,7 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
           }
         }
       } else if (isWipWorkflow) {
-        // Store-to-WIP or WIP-to-WIP: Always goes to WIP FG Inventory (Component), never Main FG Store
-        try {
-          const compUpdated = await Component.findByIdAndUpdate(itemId, { $inc: { quantity: acceptedQtyNum } });
-          if (!compUpdated) {
-            await FGItem.findByIdAndUpdate(itemId, { $inc: { quantity: acceptedQtyNum } });
-          }
-        } catch (e) { }
-
+        // Store-to-WIP or WIP-to-WIP: Always goes back into Shopfloor Active WIP, never Main FG Store
         await recordStockTransaction(req, {
           itemType: "Component",
           item: itemId,
@@ -254,8 +253,8 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
           referenceDocType: "JobWorkChallan",
           referenceDocId: jobWorkChallanId,
           referenceDocNumber: challanNumber,
-          recipientOrSource: `WIP FG Store (${vendorName})`,
-          purpose: remarks || `Job Work QC Release to WIP FG (${processType})`,
+          recipientOrSource: "Shopfloor Active WIP",
+          purpose: remarks || `Job Work QC Release to Shopfloor Active WIP (${processType})`,
           performedBy: req.user?._id || req.user?.id
         });
       } else if (isRouteCard && resolvedRouteCardRef?.job) {

@@ -4,6 +4,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { Company } from "../models/company/index.js";
 import { userSchema, roleSchema } from "../models/user/index.js";
 import { employeeSchema } from "../models/hr/index.js";
+import { bomSchema, fgItemSchema } from "../models/store/index.js";
 import { SaasAdmin } from "../models/saasadmin/index.js";
 import { getTenantConnection, getTenantModel } from "../db/tenant.js";
 
@@ -89,6 +90,8 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
       req.getModel("User", userSchema);
       req.getModel("Employee", employeeSchema);
       req.getModel("Role", roleSchema);
+      req.getModel("BOM", bomSchema);
+      req.getModel("FGItem", fgItemSchema);
 
       // 3. Find User
       const UserModel = req.getModel("User", userSchema);
@@ -199,6 +202,8 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
         req.getModel("User", userSchema);
         req.getModel("Employee", employeeSchema);
         req.getModel("Role", roleSchema);
+        req.getModel("BOM", bomSchema);
+        req.getModel("FGItem", fgItemSchema);
         req.company = company;
       }
 

@@ -324,6 +324,7 @@ export const jobWorkSchema = new mongoose.Schema(
         vehicleNo: String,
         itemId: mongoose.Schema.Types.ObjectId,
         returningItemId: mongoose.Schema.Types.ObjectId,
+        masterItemId: mongoose.Schema.Types.ObjectId,
         itemName: String,
         quantity: Number,
         qcRequired: { type: Boolean, default: true },

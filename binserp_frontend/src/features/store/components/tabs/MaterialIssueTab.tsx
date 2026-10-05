@@ -278,7 +278,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                 type: rType,
                 issuedTo: issuedToId || undefined,
                 mrpPlan: typeof request.mrpPlan === 'object' ? request.mrpPlan?._id : request.mrpPlan || undefined,
-                mrpNumber: request.mrpNumber || undefined,
+                mrpNumber: request.mrpNumber || (typeof request.mrpPlan === 'object' ? request.mrpPlan?.mrpNumber : undefined) || undefined,
                 materialRequest: request._id,
                 requestNumber: request.requestNumber,
                 items: (request.items || []).map((item: any) => {
@@ -288,12 +288,14 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                     const convFactor = Number(item.conversionFactor) || 0;
                     const priQty = Number(item.quantity) || 1;
                     const secQty = hasSec ? Number(item.secondaryQuantity || (priQty * convFactor)) : 0;
+                    const itType = item.itemType || (isInhouse ? 'FG Item' : isConsumable ? 'Consumable' : (rType === 'bo' ? 'Bought Out' : ((item.materialCode || '').toUpperCase().startsWith('BO-') ? 'Bought Out' : 'Raw Material')));
 
                     return {
                         material: !isInhouse && !isConsumable ? masterId : undefined,
                         consumable: isConsumable ? masterId : undefined,
                         component: isInhouse ? masterId : undefined,
                         fgItem: isInhouse ? masterId : undefined,
+                        itemType: itType,
                         materialRequestItemId: item._id,
                         requestedQuantity: priQty,
                         materialName: item.materialName || item.name || '',

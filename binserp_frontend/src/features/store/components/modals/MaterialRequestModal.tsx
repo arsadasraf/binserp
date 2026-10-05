@@ -64,6 +64,7 @@ export default function MaterialRequestModal({
         mrpNumber: "",
         items: [{
             material: "",
+            itemType: undefined as string | undefined,
             materialName: "",
             materialCode: "",
             materialDescription: "" as string | undefined,
@@ -103,6 +104,7 @@ export default function MaterialRequestModal({
                 mrpNumber: "",
                 items: [{
                     material: "",
+                    itemType: undefined,
                     materialName: "",
                     materialCode: "",
                     materialDescription: "" as string | undefined,
@@ -203,6 +205,7 @@ export default function MaterialRequestModal({
                 const secQty = hasSec && convFactor ? parseFloat((qty * convFactor).toFixed(4)) : 0;
                 return {
                     material: comp?._id || f.fgItem || '',
+                    itemType: 'FG Item',
                     materialName: f.fgItemName,
                     materialCode: f.fgItemCode || '',
                     quantity: qty,
@@ -230,6 +233,7 @@ export default function MaterialRequestModal({
                 const secQty = hasSec && convFactor ? parseFloat((qty * convFactor).toFixed(4)) : 0;
                 return {
                     material: mat?._id || r.material || '',
+                    itemType: formData.type === 'bo' ? 'Bought Out' : 'Raw Material',
                     materialName: r.materialName,
                     materialCode: r.materialCode || '',
                     quantity: qty,
@@ -342,6 +346,7 @@ export default function MaterialRequestModal({
         newItems[index] = {
             ...newItems[index],
             material: materialId,
+            itemType: formData.type === 'bo' ? 'Bought Out' : (formData.type === 'fg' ? 'FG Item' : (formData.type === 'consumable' ? 'Consumable' : 'Raw Material')),
             materialName: selectedItem?.name || selectedItem?.componentName || "",
             materialCode: selectedItem?.code || selectedItem?.componentCode || "",
             materialDescription: materialDesc,
@@ -368,6 +373,7 @@ export default function MaterialRequestModal({
     const addItem = (insertAfterIndex?: number) => {
         const newItem = {
             material: "",
+            itemType: undefined as string | undefined,
             materialName: "",
             materialCode: "",
             materialDescription: "",
@@ -408,6 +414,7 @@ export default function MaterialRequestModal({
             type: newType,
             items: [{
                 material: "",
+                itemType: undefined as string | undefined,
                 materialName: "",
                 materialCode: "",
                 materialDescription: "",

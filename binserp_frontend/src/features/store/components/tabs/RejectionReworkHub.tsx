@@ -86,9 +86,20 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
 
   // Sub-payload form fields
   const [rtvPayload, setRtvPayload] = useState<any>({ challanNumber: '', debitNoteNumber: '', vehicleNumber: '', taxRate: 18 });
+  const [replacementPayload, setReplacementPayload] = useState<any>({ expectedDate: '', vehicleNumber: '' });
   const [reworkPayload, setReworkPayload] = useState<any>({ assignedWorkstation: 'Shop Floor Bench 1', assignedToUser: '', reworkInstructions: '' });
   const [scrapPayload, setScrapPayload] = useState<any>({ scrapLocation: 'Scrap Yard Bay A', salvageRatePerKg: 0 });
   const [concessionPayload, setConcessionPayload] = useState<any>({ deviationRefNumber: '', concessionReason: '', usageConditions: 'Use As Is' });
+
+  // Receive Replacement Modal State (Adding vendor replacement delivery to main stock)
+  const [receiveReplacementTicket, setReceiveReplacementTicket] = useState<any | null>(null);
+  const [receiveReplacementForm, setReceiveReplacementForm] = useState({
+    vendorDcNumber: '',
+    vendorDcDate: new Date().toISOString().slice(0, 10),
+    receivedQuantity: 0,
+    vehicleNumber: '',
+    remarks: '',
+  });
 
   // Rework Complete Modal State
   const [reworkModalTicket, setReworkModalTicket] = useState<any | null>(null);
@@ -101,7 +112,20 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
     remarks: '',
   });
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const [token, setToken] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string; title?: string } | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setToken(localStorage.getItem('token'));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!notification) return;
+    const timer = setTimeout(() => setNotification(null), 6000);
+    return () => clearTimeout(timer);
+  }, [notification]);
 
   const fetchHubData = async () => {
     setLoading(true);
@@ -303,6 +327,7 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
     let pendingActionCount = 0;
     let rtvAndReplacementCount = 0;
     let scrapAndWriteOffCount = 0;
+    let deviationCount = 0;
 
     currentList.forEach((item: any) => {
       const isPending = !item.dispositionAction || item.dispositionAction === 'Pending' || item.status === 'Pending Disposition';
@@ -310,6 +335,8 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
         pendingActionCount++;
       } else if (item.dispositionAction === 'Return to Vendor' || item.dispositionAction === 'Vendor Replacement') {
         rtvAndReplacementCount++;
+      } else if (item.dispositionAction === 'Accept on Deviation') {
+        deviationCount++;
       } else if (item.dispositionAction === 'Scrap & Write-Off' || (item.reworkDetails?.reworkScrappedQuantity || 0) > 0) {
         scrapAndWriteOffCount++;
       }
@@ -319,14 +346,15 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
       totalRejectedTickets,
       pendingActionCount,
       rtvAndReplacementCount,
-      scrapAndWriteOffCount
+      scrapAndWriteOffCount,
+      deviationCount
     };
   }, [currentList]);
 
   // Open Disposition Modal with presets based on QC type
   const handleOpenActionModal = (ticket: any) => {
     setSelectedTicket(ticket);
-    const defaultAction = ticket.sourceType === 'IncomingQC' 
+    const defaultAction = context === 'store' || ticket.sourceType === 'IncomingQC' 
       ? 'Return to Vendor' 
       : (ticket.sourceType === 'JobWorkQC' ? 'External Rework' : 'Internal Rework');
     
@@ -337,6 +365,10 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
       debitNoteNumber: `DN-${Date.now().toString().slice(-4)}`,
       vehicleNumber: '',
       taxRate: 18,
+    });
+    setReplacementPayload({
+      expectedDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+      vehicleNumber: '',
     });
     setReworkPayload({
       assignedWorkstation: ticket.workstation || 'Shop Floor Bench 1',
@@ -407,16 +439,27 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
         dispositionAction: actionType,
         actionNotes,
         rtvPayload,
+        replacementPayload,
         reworkPayload,
         scrapPayload,
         concessionPayload,
       };
 
-      await axios.post(`${API_BASE_URL}/api/store/mrb/disposition`, payload, config);
+      const res = await axios.post(`${API_BASE_URL}/api/store/mrb/disposition`, payload, config);
       setSelectedTicket(null);
+      setNotification({
+        type: 'success',
+        title: 'Action Processed Successfully',
+        message: res.data?.message || `Disposition action "${actionType}" executed successfully.`
+      });
       await fetchHubData();
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to submit disposition action');
+      const errMsg = err.response?.data?.message || err.message || 'Failed to submit disposition action. Please check the inputs.';
+      setNotification({
+        type: 'error',
+        title: 'Action Could Not Be Completed',
+        message: errMsg
+      });
     } finally {
       setSubmittingAction(false);
     }
@@ -439,11 +482,21 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
         concessionPayload,
       };
 
-      await axios.put(`${API_BASE_URL}/api/store/mrb/disposition/${editTicket._id}`, payload, config);
+      const res = await axios.put(`${API_BASE_URL}/api/store/mrb/disposition/${editTicket._id}`, payload, config);
       setEditTicket(null);
+      setNotification({
+        type: 'success',
+        title: 'Updated Successfully',
+        message: res.data?.message || 'Disposition parameters updated successfully.'
+      });
       await fetchHubData();
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to update disposition');
+      const errMsg = err.response?.data?.message || err.message || 'Failed to update disposition';
+      setNotification({
+        type: 'error',
+        title: 'Update Failed',
+        message: errMsg
+      });
     } finally {
       setSubmittingAction(false);
     }
@@ -480,11 +533,72 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
         remarks: reworkCompleteForm.remarks,
       };
 
-      await axios.post(`${API_BASE_URL}/api/store/mrb/complete-rework`, payload, config);
+      const res = await axios.post(`${API_BASE_URL}/api/store/mrb/complete-rework`, payload, config);
       setReworkModalTicket(null);
+      setNotification({
+        type: 'success',
+        title: 'Rework Completed',
+        message: res.data?.message || 'Rework inspection and stock clearance completed successfully.'
+      });
       await fetchHubData();
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to complete rework');
+      const errMsg = err.response?.data?.message || err.message || 'Failed to complete rework';
+      setNotification({
+        type: 'error',
+        title: 'Rework Completion Failed',
+        message: errMsg
+      });
+    } finally {
+      setSubmittingAction(false);
+    }
+  };
+
+  // Open Receive Replacement Modal (When vendor delivers replacement with DC)
+  const handleOpenReceiveReplacement = (ticket: any) => {
+    setReceiveReplacementTicket(ticket);
+    const alreadyRec = Number(ticket.replacementDetails?.replacementQuantityReceived || 0);
+    const remQty = Math.max(0, Number(ticket.rejectedQuantity || 1) - alreadyRec);
+    setReceiveReplacementForm({
+      vendorDcNumber: '',
+      vendorDcDate: new Date().toISOString().slice(0, 10),
+      receivedQuantity: remQty,
+      vehicleNumber: '',
+      remarks: `Replacement received against RPL-DC #${ticket.documentNumber || ticket.ticketNumber}`,
+    });
+  };
+
+  // Submit Receive Replacement Goods (Adds directly to main inventory stock)
+  const handleSubmitReceiveReplacement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!receiveReplacementTicket) return;
+
+    setSubmittingAction(true);
+    try {
+      const config = { headers: { Authorization: `Bearer ${token}` } };
+      const payload = {
+        ticketId: receiveReplacementTicket._id,
+        vendorDcNumber: receiveReplacementForm.vendorDcNumber,
+        vendorDcDate: receiveReplacementForm.vendorDcDate,
+        receivedQuantity: Number(receiveReplacementForm.receivedQuantity),
+        vehicleNumber: receiveReplacementForm.vehicleNumber,
+        remarks: receiveReplacementForm.remarks,
+      };
+
+      const res = await axios.post(`${API_BASE_URL}/api/store/mrb/receive-replacement`, payload, config);
+      setReceiveReplacementTicket(null);
+      setNotification({
+        type: 'success',
+        title: 'Replacement Restocked into Main Inventory',
+        message: res.data?.message || `Successfully received ${payload.receivedQuantity} ${receiveReplacementTicket.unit} and added to main inventory stock!`
+      });
+      await fetchHubData();
+    } catch (err: any) {
+      const errMsg = err.response?.data?.message || err.message || 'Failed to record replacement delivery';
+      setNotification({
+        type: 'error',
+        title: 'Replacement Intake Failed',
+        message: errMsg
+      });
     } finally {
       setSubmittingAction(false);
     }
@@ -521,13 +635,16 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
       case 'Return to Vendor':
         return (
           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-rose-50 text-rose-800 border border-rose-200 block w-fit">
-            🔵 Return to Vendor (Debit Note)
+            🔵 RTV Debit Note ({item.rtvDetails?.debitNoteNumber || item.documentNumber || 'Issued'})
           </span>
         );
       case 'Vendor Replacement':
+        const isFullyReplaced = item.replacementDetails?.isFullyReplaced || item.status === 'Completed';
         return (
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-blue-50 text-blue-800 border border-blue-200 block w-fit">
-            🟣 Replacement DC
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border block w-fit ${
+            isFullyReplaced ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-blue-50 text-blue-800 border-blue-200'
+          }`}>
+            🟣 {isFullyReplaced ? `Replacement Restocked (DC #${item.replacementDetails?.replacementGRNNumber || 'Received'})` : `Replacement DC (${item.documentNumber || 'Dispatched'})`}
           </span>
         );
       case 'External Rework':
@@ -548,7 +665,7 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
       case 'Accept on Deviation':
         return (
           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-emerald-50 text-emerald-800 border border-emerald-200 block w-fit">
-            🟢 Approved on Deviation
+            🟢 Approved on Deviation & Restocked
           </span>
         );
       default:
@@ -594,85 +711,203 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
   };
 
   return (
-    <div className="space-y-2.5 font-sans">
-      {/* Executive KPI Dashboard (Shown only on demand) */}
-      {showDashboard && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Card 1: Total Rejections */}
-          <div className="bg-gradient-to-br from-rose-50/90 via-white to-slate-50 p-3.5 rounded-2xl border border-rose-100 shadow-2xs relative overflow-hidden">
-            <div className="flex items-center justify-between text-rose-600 mb-1.5">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Total Rejected Records</span>
-              <div className="w-7 h-7 rounded-xl bg-rose-100 flex items-center justify-center">
-                <ShieldAlert size={15} />
+    <div className="space-y-2.5 font-sans relative">
+      {/* Toast Feedback Notification Banner */}
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999] max-w-lg w-full px-4"
+          >
+            <div
+              className={`p-4 rounded-2xl shadow-2xl border backdrop-blur-md flex items-start gap-3.5 ${
+                notification.type === 'error'
+                  ? 'bg-rose-50/95 dark:bg-rose-950/95 border-rose-300 dark:border-rose-800 text-rose-950 dark:text-rose-100'
+                  : 'bg-emerald-50/95 dark:bg-emerald-950/95 border-emerald-300 dark:border-emerald-800 text-emerald-950 dark:text-emerald-100'
+              }`}
+            >
+              <div
+                className={`p-2 rounded-xl shrink-0 ${
+                  notification.type === 'error'
+                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300'
+                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
+                }`}
+              >
+                {notification.type === 'error' ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
               </div>
-            </div>
-            <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
-              {rejectionKpis.totalRejectedTickets} <span className="text-xs font-semibold text-slate-500 font-sans">Tickets</span>
-            </div>
-            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
-              <span>MRB Store Queue</span>
-              <span className="font-bold text-rose-600 font-mono">Defect Items</span>
-            </div>
-          </div>
-
-          {/* Card 2: Pending Disposition */}
-          <div className="bg-gradient-to-br from-amber-50/90 via-white to-slate-50 p-3.5 rounded-2xl border border-amber-100 shadow-2xs relative overflow-hidden">
-            <div className="flex items-center justify-between text-amber-600 mb-1.5">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Pending Action</span>
-              <div className="w-7 h-7 rounded-xl bg-amber-100 flex items-center justify-center">
-                <Clock size={15} />
+              <div className="flex-1 min-w-0 pt-0.5">
+                {notification.title && (
+                  <h4 className="text-xs font-black uppercase tracking-wider mb-0.5">
+                    {notification.title}
+                  </h4>
+                )}
+                <p className="text-xs leading-relaxed font-medium">
+                  {notification.message}
+                </p>
               </div>
-            </div>
-            <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
-              {rejectionKpis.pendingActionCount} <span className="text-xs font-semibold text-slate-500 font-sans">Awaiting</span>
-            </div>
-            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
-              <span>Awaiting Disposition</span>
-              <span className="font-bold text-amber-600 font-mono">
-                {rejectionKpis.pendingActionCount > 0 ? "Action Required" : "Queue Clear"}
-              </span>
-            </div>
-          </div>
-
-          {/* Card 3: RTV & Replacement */}
-          <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 p-3.5 rounded-2xl border border-blue-100 shadow-2xs relative overflow-hidden">
-            <div className="flex items-center justify-between text-blue-600 mb-1.5">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">RTV & Replacement</span>
-              <div className="w-7 h-7 rounded-xl bg-blue-100 flex items-center justify-center">
-                <Truck size={15} />
-              </div>
-            </div>
-            <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
-              {rejectionKpis.rtvAndReplacementCount} <span className="text-xs font-semibold text-slate-500 font-sans">Vendor Returns</span>
-            </div>
-            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
-              <span>Debit Notes / Replacement DCs</span>
-              <span className="font-bold text-blue-600 font-mono">Dispatched</span>
-            </div>
-          </div>
-
-          {/* Card 4: Scrapped / Written Off */}
-          <div className="bg-gradient-to-br from-slate-100/90 via-white to-slate-50 p-3.5 rounded-2xl border border-slate-200 shadow-2xs relative overflow-hidden">
-            <div className="flex items-center justify-between text-slate-700 mb-1.5">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Scrap & Write-Off</span>
-              <div className="w-7 h-7 rounded-xl bg-slate-100 flex items-center justify-center">
-                <Trash2 size={15} />
-              </div>
-            </div>
-            <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
-              {rejectionKpis.scrapAndWriteOffCount} <span className="text-xs font-semibold text-slate-500 font-sans">Tickets</span>
-            </div>
-            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
-              <span className="font-bold text-slate-700 font-mono">Written Off</span>
               <button
                 type="button"
-                onClick={() => setShowDashboard(false)}
-                className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer"
-                title="Hide Dashboard"
+                onClick={() => setNotification(null)}
+                className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
               >
-                <span>Hide</span>
-                <ChevronUp size={11} />
+                <X size={16} />
               </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Executive KPI Dashboard (Shown only on demand) */}
+      {showDashboard && (
+        <div className="space-y-2.5">
+          {/* Filter Status Bar in Dashboard */}
+          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200/80 dark:border-slate-800 text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              {(statusFilter !== 'all' || defectFilter !== 'all' || searchTerm.trim() !== '' || storeCategory !== 'all' || supplierFilter !== 'all' || (dateFilterMode !== 'all' && (dateFilter || monthFilter))) ? (
+                <>
+                  <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-200 border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                    <Filter size={11} />
+                    <span>Filtered Scope</span>
+                  </span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200">
+                    Showing {rejectionKpis.totalRejectedTickets} of {contextScopedTickets.length} records matching filters
+                  </span>
+                  {statusFilter !== 'all' && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                      Status: {statusFilter.toUpperCase()}
+                    </span>
+                  )}
+                  {storeCategory !== 'all' && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                      Category: {storeCategory.toUpperCase()}
+                    </span>
+                  )}
+                  {defectFilter !== 'all' && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-rose-50 text-rose-700 border border-rose-200">
+                      Defect: {defectFilter}
+                    </span>
+                  )}
+                  {searchTerm.trim() && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-sky-50 text-sky-700 border border-sky-200">
+                      Search: &quot;{searchTerm}&quot;
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="text-[11px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 ml-1 cursor-pointer"
+                    title="Clear all rejection bin filters"
+                  >
+                    <RotateCcw size={11} />
+                    <span>Clear Filters</span>
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 uppercase tracking-wide">
+                    <LayoutGrid size={14} className="text-rose-600 dark:text-rose-400" />
+                    <span>{context === 'store' ? 'GRN Rejection Bin' : 'MRB Quality Hub'} Executive Overview</span>
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    (All {contextScopedTickets.length} Records)
+                  </span>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowDashboard(false)}
+              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center gap-1 text-[11px] font-bold cursor-pointer shrink-0"
+              title="Hide Dashboard"
+            >
+              <span>Hide</span>
+              <ChevronUp size={12} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Card 1: Total Rejections */}
+            <div className="bg-gradient-to-br from-rose-50/90 via-white to-slate-50 p-3.5 rounded-2xl border border-rose-100 shadow-2xs relative overflow-hidden">
+              <div className="flex items-center justify-between text-rose-600 mb-1.5">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Total Rejected Records</span>
+                <div className="w-7 h-7 rounded-xl bg-rose-100 flex items-center justify-center">
+                  <ShieldAlert size={15} />
+                </div>
+              </div>
+              <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
+                {rejectionKpis.totalRejectedTickets} <span className="text-xs font-semibold text-slate-500 font-sans">Tickets</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                <span>MRB Store Queue</span>
+                <span className="font-bold text-rose-600 font-mono">Defect Items</span>
+              </div>
+            </div>
+
+            {/* Card 2: Pending Disposition */}
+            <div className="bg-gradient-to-br from-amber-50/90 via-white to-slate-50 p-3.5 rounded-2xl border border-amber-100 shadow-2xs relative overflow-hidden">
+              <div className="flex items-center justify-between text-amber-600 mb-1.5">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Pending Action</span>
+                <div className="w-7 h-7 rounded-xl bg-amber-100 flex items-center justify-center">
+                  <Clock size={15} />
+                </div>
+              </div>
+              <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
+                {rejectionKpis.pendingActionCount} <span className="text-xs font-semibold text-slate-500 font-sans">Awaiting</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                <span>Awaiting Disposition</span>
+                <span className="font-bold text-amber-600 font-mono">
+                  {rejectionKpis.pendingActionCount > 0 ? "Action Required" : "Queue Clear"}
+                </span>
+              </div>
+            </div>
+
+            {/* Card 3: RTV & Replacement */}
+            <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 p-3.5 rounded-2xl border border-blue-100 shadow-2xs relative overflow-hidden">
+              <div className="flex items-center justify-between text-blue-600 mb-1.5">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">RTV & Replacement</span>
+                <div className="w-7 h-7 rounded-xl bg-blue-100 flex items-center justify-center">
+                  <Truck size={15} />
+                </div>
+              </div>
+              <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
+                {rejectionKpis.rtvAndReplacementCount} <span className="text-xs font-semibold text-slate-500 font-sans">Vendor Returns</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                <span>Debit Notes / Replacement DCs</span>
+                <span className="font-bold text-blue-600 font-mono">Dispatched</span>
+              </div>
+            </div>
+
+            {/* Card 4: Scrapped / Deviation Restocked */}
+            <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 p-3.5 rounded-2xl border border-emerald-100 shadow-2xs relative overflow-hidden">
+              <div className="flex items-center justify-between text-emerald-700 mb-1.5">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                  {context === 'store' ? 'Approved on Deviation' : 'Scrap & Write-Off'}
+                </span>
+                <div className="w-7 h-7 rounded-xl bg-emerald-100 flex items-center justify-center">
+                  {context === 'store' ? <CheckCircle2 size={15} /> : <Trash2 size={15} />}
+                </div>
+              </div>
+              <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
+                {context === 'store' ? rejectionKpis.deviationCount : rejectionKpis.scrapAndWriteOffCount} <span className="text-xs font-semibold text-slate-500 font-sans">Tickets</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                <span className="font-bold text-emerald-700 font-mono">
+                  {context === 'store' ? 'Restocked to Main Inv' : 'Written Off'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowDashboard(false)}
+                  className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer"
+                  title="Hide Dashboard"
+                >
+                  <span>Hide</span>
+                  <ChevronUp size={11} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1329,6 +1564,15 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
                               <span>Action</span>
                               <ArrowRight size={12} />
                             </button>
+                          ) : item.dispositionAction === 'Vendor Replacement' && !item.replacementDetails?.isFullyReplaced && item.status !== 'Completed' ? (
+                            <button
+                              onClick={() => handleOpenReceiveReplacement(item)}
+                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-2xs transition-all cursor-pointer text-[11px] flex items-center gap-1 ml-auto"
+                              title="Receive replacement goods delivered with Vendor DC and add to main inventory stock"
+                            >
+                              <Truck size={12} />
+                              <span>Receive Replacement</span>
+                            </button>
                           ) : item.dispositionAction?.includes('Rework') && item.status === 'In Progress' ? (
                             <button
                               onClick={() => handleOpenReworkComplete(item)}
@@ -1556,6 +1800,14 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
                           <span>Action Pathway</span>
                           <ArrowRight size={13} />
                         </button>
+                      ) : item.dispositionAction === 'Vendor Replacement' && !item.replacementDetails?.isFullyReplaced && item.status !== 'Completed' ? (
+                        <button
+                          onClick={() => handleOpenReceiveReplacement(item)}
+                          className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-2xs transition-all cursor-pointer text-xs flex items-center justify-center gap-1.5"
+                        >
+                          <Truck size={13} />
+                          <span>Receive Replacement (Vendor DC)</span>
+                        </button>
                       ) : item.dispositionAction?.includes('Rework') && item.status === 'In Progress' ? (
                         <button
                           onClick={() => handleOpenReworkComplete(item)}
@@ -1694,15 +1946,22 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Select Action Pathway:
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {[
-                      { id: 'Return to Vendor', label: '1. Return Bill (RTV)', desc: 'Tax Return Bill + Debit Note', icon: Truck },
-                      { id: 'Vendor Replacement', label: '2. Replacement DC', desc: 'Warranty Replacement Challan', icon: RotateCcw },
-                      { id: 'External Rework', label: '3. Subcontractor Rework', desc: 'FOC Rework Delivery Challan', icon: Wrench },
-                      { id: 'Internal Rework', label: '4. Internal Rework', desc: 'Shopfloor Correction Routing', icon: ToolIcon },
-                      { id: 'Scrap & Write-Off', label: '5. Scrap Bin', desc: 'Scrap Yard Disposal & Write-Off', icon: Trash2 },
-                      { id: 'Accept on Deviation', label: '6. Deviation', desc: 'Quality Concession / Use As Is', icon: CheckCircle2 },
-                    ].map(act => {
+                  <div className={`grid gap-2 ${context === 'store' ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'}`}>
+                    {(context === 'store'
+                      ? [
+                          { id: 'Return to Vendor', label: '1. Return to Vendor (RTV)', desc: 'Tax Return Bill + Debit Note', icon: Truck },
+                          { id: 'Vendor Replacement', label: '2. Vendor Replacement', desc: 'Warranty Replacement Challan (DC)', icon: RotateCcw },
+                          { id: 'Accept on Deviation', label: '3. Accept on Deviation', desc: 'Concession Note & Add to Main Stock', icon: CheckCircle2 },
+                        ]
+                      : [
+                          { id: 'Return to Vendor', label: '1. Return Bill (RTV)', desc: 'Tax Return Bill + Debit Note', icon: Truck },
+                          { id: 'Vendor Replacement', label: '2. Replacement DC', desc: 'Warranty Replacement Challan', icon: RotateCcw },
+                          { id: 'External Rework', label: '3. Subcontractor Rework', desc: 'FOC Rework Delivery Challan', icon: Wrench },
+                          { id: 'Internal Rework', label: '4. Internal Rework', desc: 'Shopfloor Correction Routing', icon: ToolIcon },
+                          { id: 'Scrap & Write-Off', label: '5. Scrap Bin', desc: 'Scrap Yard Disposal & Write-Off', icon: Trash2 },
+                          { id: 'Accept on Deviation', label: '6. Deviation', desc: 'Quality Concession / Use As Is', icon: CheckCircle2 },
+                        ]
+                    ).map(act => {
                       const Icon = act.icon;
                       const isSel = actionType === act.id;
                       return (
@@ -1764,6 +2023,40 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
                           className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
                         />
                       </div>
+                    </div>
+                    <div className="p-2 bg-rose-100/70 rounded text-[11px] text-rose-900 font-medium">
+                      Submitting RTV will deduct {selectedTicket.rejectedQuantity} {selectedTicket.unit} from this rejection bin and generate an official Gate Pass Delivery Challan and GST Debit Note.
+                    </div>
+                  </div>
+                )}
+
+                {/* Vendor Replacement Subform */}
+                {actionType === 'Vendor Replacement' && (
+                  <div className="p-3 bg-blue-50/40 rounded-lg border border-blue-200 space-y-2">
+                    <h4 className="font-bold text-blue-900 text-xs">Warranty Replacement Delivery Challan Parameters</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Vehicle / Carrier #</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. MH-12-AB-1234"
+                          value={replacementPayload.vehicleNumber}
+                          onChange={e => setReplacementPayload({ ...replacementPayload, vehicleNumber: e.target.value })}
+                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Expected Delivery Date</label>
+                        <input
+                          type="date"
+                          value={replacementPayload.expectedDate}
+                          onChange={e => setReplacementPayload({ ...replacementPayload, expectedDate: e.target.value })}
+                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
+                        />
+                      </div>
+                    </div>
+                    <div className="p-2 bg-blue-100/70 rounded text-[11px] text-blue-900 font-medium">
+                      Generating this Replacement DC will reduce the rejected stock in this bin by {selectedTicket.rejectedQuantity} {selectedTicket.unit}. When the vendor delivers the replacement with their DC, you can click &quot;Receive Replacement&quot; to restock it directly into main inventory.
                     </div>
                   </div>
                 )}
@@ -1845,6 +2138,10 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
                           className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
                         />
                       </div>
+                    </div>
+                    <div className="p-2 bg-emerald-100/70 rounded text-[11px] text-emerald-900 font-medium flex items-center gap-1.5">
+                      <CheckCircle2 size={15} className="text-emerald-700 shrink-0" />
+                      <span>Approving this deviation will deduct {selectedTicket.rejectedQuantity} {selectedTicket.unit} from this rejection bin and add it directly into <strong>Main Inventory Available Stock</strong>.</span>
                     </div>
                   </div>
                 )}
@@ -2084,6 +2381,149 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
                   </button>
                   <button type="submit" disabled={submittingAction} className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer">
                     {submittingAction ? 'Saving...' : 'Confirm Clearance'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* 7. Receive Replacement Delivery Modal */}
+      <AnimatePresence>
+        {receiveReplacementTicket && (
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-2xs z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="bg-white w-full max-w-lg rounded-xl shadow-xl border border-slate-200 overflow-hidden my-auto max-h-[92vh] flex flex-col"
+            >
+              <div className="p-3.5 sm:p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
+                <div>
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    Vendor Warranty Replacement Intake
+                  </span>
+                  <h3 className="text-sm font-bold text-slate-900 mt-1">
+                    Receive Replacement: {receiveReplacementTicket.materialName}
+                  </h3>
+                  <div className="text-[11px] font-mono text-slate-500 mt-0.5">
+                    Against Outward Pass: <span className="font-bold text-blue-700">{receiveReplacementTicket.documentNumber}</span> | Vendor: {receiveReplacementTicket.vendorName || 'Supplier'}
+                  </div>
+                </div>
+                <button onClick={() => setReceiveReplacementTicket(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                  <XCircle size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitReceiveReplacement} className="p-3.5 sm:p-4 space-y-3.5 text-xs overflow-y-auto flex-1">
+                <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-200/80 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase text-slate-500 block">Total Dispatched on DC</span>
+                    <span className="font-mono font-bold text-slate-800 text-sm">
+                      {receiveReplacementTicket.rejectedQuantity} {receiveReplacementTicket.unit}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase text-slate-500 block">Previously Received</span>
+                    <span className="font-mono font-bold text-emerald-700 text-sm">
+                      {receiveReplacementTicket.replacementDetails?.replacementQuantityReceived || 0} {receiveReplacementTicket.unit}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase text-slate-500 block">Balance Pending</span>
+                    <span className="font-mono font-bold text-amber-700 text-sm">
+                      {Math.max(0, (receiveReplacementTicket.rejectedQuantity || 0) - (receiveReplacementTicket.replacementDetails?.replacementQuantityReceived || 0))} {receiveReplacementTicket.unit}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Vendor DC / Invoice # <span className="text-rose-600">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. DC-2026-908"
+                      value={receiveReplacementForm.vendorDcNumber}
+                      onChange={e => setReceiveReplacementForm({ ...receiveReplacementForm, vendorDcNumber: e.target.value })}
+                      className="w-full p-2 border border-slate-200 rounded-lg bg-white font-mono font-bold text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Vendor DC Date
+                    </label>
+                    <input
+                      type="date"
+                      value={receiveReplacementForm.vendorDcDate}
+                      onChange={e => setReceiveReplacementForm({ ...receiveReplacementForm, vendorDcDate: e.target.value })}
+                      className="w-full p-2 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Replacement Qty Received <span className="text-rose-600">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0.001"
+                        max={Math.max(0, (receiveReplacementTicket.rejectedQuantity || 0) - (receiveReplacementTicket.replacementDetails?.replacementQuantityReceived || 0))}
+                        step="any"
+                        required
+                        value={receiveReplacementForm.receivedQuantity}
+                        onChange={e => setReceiveReplacementForm({ ...receiveReplacementForm, receivedQuantity: Number(e.target.value) })}
+                        className="w-full p-2 pr-12 border border-slate-200 rounded-lg bg-white font-mono font-bold text-emerald-700 text-sm"
+                      />
+                      <span className="absolute right-3 top-2 text-slate-400 font-bold text-xs pointer-events-none">
+                        {receiveReplacementTicket.unit || 'PCS'}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Vehicle / Courier Tracking #
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Optional"
+                      value={receiveReplacementForm.vehicleNumber}
+                      onChange={e => setReceiveReplacementForm({ ...receiveReplacementForm, vehicleNumber: e.target.value })}
+                      className="w-full p-2 border border-slate-200 rounded-lg bg-white text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Inspection Remarks & Notes
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={receiveReplacementForm.remarks}
+                    onChange={e => setReceiveReplacementForm({ ...receiveReplacementForm, remarks: e.target.value })}
+                    placeholder="Physical condition verified, items restocked into store..."
+                    className="w-full p-2 border border-slate-200 rounded-lg bg-white text-slate-800"
+                  />
+                </div>
+
+                <div className="p-2.5 bg-emerald-50 rounded-lg border border-emerald-200 text-[11px] text-emerald-800 font-medium flex items-center gap-2">
+                  <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                  <span>Submitting will automatically credit this quantity directly into <strong>Main Inventory Available Stock</strong> and update the audit ledger.</span>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 shrink-0">
+                  <button type="button" onClick={() => setReceiveReplacementTicket(null)} className="px-3.5 py-1.5 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 font-semibold">
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={submittingAction} className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-2xs">
+                    <Truck size={14} />
+                    <span>{submittingAction ? 'Restocking...' : 'Receive & Add to Stock'}</span>
                   </button>
                 </div>
               </form>

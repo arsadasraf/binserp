@@ -347,3 +347,203 @@ export const convertWipMaterialToComponent = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * Convert Multiple Shopfloor RM & BO WIP Items into One In-house WIP FG / Component
+ * (Enables assembly, fabrication, and multi-component production directly on the shop floor)
+ */
+export const convertMultipleWipToFg = asyncHandler(async (req, res) => {
+  const companyId = getCompanyId(req);
+  const { userId, userName } = getUserAudit(req);
+  const {
+    targetItemId,
+    targetItemName,
+    targetItemCode,
+    targetDescription,
+    targetType = "Component",
+    targetQuantity,
+    targetUnit = "PCS",
+    targetHasSecondaryUnit,
+    targetSecondaryUnit,
+    targetSecondaryQuantity,
+    targetConversionFactor,
+    consumedItems = [],
+    remarks,
+    mrpNumber
+  } = req.body;
+
+  const producedQty = Number(targetQuantity);
+  if (!producedQty || producedQty <= 0) {
+    throw new ApiError(400, "Valid target quantity produced is required");
+  }
+
+  const cleanTargetName = (targetItemName || "").trim();
+  if (!cleanTargetName) {
+    throw new ApiError(400, "Target WIP FG / Component name is required");
+  }
+
+  if (!Array.isArray(consumedItems) || consumedItems.length === 0) {
+    throw new ApiError(400, "At least one RM or BO item must be selected to consume");
+  }
+
+  // Validate each consumed item
+  for (let i = 0; i < consumedItems.length; i++) {
+    const item = consumedItems[i];
+    const qty = Number(item.quantity);
+    if (!qty || qty <= 0) {
+      throw new ApiError(400, `Item #${i + 1} (${item.materialName || "Material"}): Valid consumed quantity greater than 0 is required`);
+    }
+  }
+
+  const RawMaterial = req.getModel("RawMaterial", rawMaterialSchema);
+  const BoughtOut = req.getModel("BoughtOut", boughtOutSchema);
+  const RmBoItem = req.getModel("RmBoItem", rmBoItemSchema);
+  const FGItem = req.getModel("FGItem", fgItemSchema);
+  const Component = req.getModel("Component", componentSchema);
+
+  // Resolve target item in FGItem or Component catalogs
+  let resolvedComponentId = null;
+  let resolvedItemType = "Component";
+
+  let cleanTargetId = targetItemId;
+  if (typeof cleanTargetId === 'string' && cleanTargetId.includes('_')) {
+    cleanTargetId = cleanTargetId.split('_').slice(1).join('_');
+  }
+
+  let existingTarget = null;
+  if (cleanTargetId && isValidObjectId(cleanTargetId.toString())) {
+    existingTarget = await FGItem.findOne({ _id: cleanTargetId, company: companyId })
+      || await Component.findOne({ _id: cleanTargetId, company: companyId });
+  }
+
+  if (!existingTarget) {
+    existingTarget = await FGItem.findOne({
+      company: companyId,
+      $or: [
+        { name: new RegExp(`^${cleanTargetName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") },
+        ...(targetItemCode ? [{ code: new RegExp(`^${targetItemCode.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") }] : [])
+      ]
+    });
+  }
+
+  if (!existingTarget) {
+    existingTarget = await Component.findOne({
+      company: companyId,
+      $or: [
+        { componentName: new RegExp(`^${cleanTargetName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") },
+        ...(targetItemCode ? [{ componentCode: new RegExp(`^${targetItemCode.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") }] : [])
+      ]
+    });
+  }
+
+  if (existingTarget) {
+    resolvedComponentId = existingTarget._id;
+    resolvedItemType = (existingTarget.name && !existingTarget.componentName) ? "FGItem" : "Component";
+    // NOTE: Conversion is an in-process Shopfloor WIP event. Do NOT mutate warehouse stock.
+  } else {
+    // Create new Component catalog reference with quantity: 0 (WIP only)
+    const compCode = targetItemCode?.trim() || `COMP-${Date.now().toString().slice(-6)}`;
+    const newComp = await Component.create({
+      company: companyId,
+      componentCode: compCode,
+      componentName: cleanTargetName,
+      description: targetDescription || `In-house WIP Component assembled from ${consumedItems.length} items`,
+      type: targetType || "Component",
+      unit: targetUnit || "PCS",
+      hasSecondaryUnit: Boolean(targetHasSecondaryUnit),
+      secondaryUnit: targetSecondaryUnit || "",
+      conversionFactor: Number(targetConversionFactor) || 1,
+      quantity: 0,
+      isInventoryItem: true
+    });
+    resolvedComponentId = newComp._id;
+    resolvedItemType = "Component";
+  }
+
+  const docNumber = `WIP-CONV-${Date.now()}`;
+  const recordedOutwardTransactions = [];
+
+  // 1. Log Outward RM & BO deductions from Shopfloor WIP
+  for (const item of consumedItems) {
+    const consumedQty = Number(item.quantity);
+    let cleanMatId = item.materialId;
+    if (typeof cleanMatId === 'string' && cleanMatId.includes('_')) {
+      cleanMatId = cleanMatId.split('_').slice(1).join('_');
+    }
+
+    if (!cleanMatId || !isValidObjectId(cleanMatId.toString())) {
+      const foundDoc = await RawMaterial.findOne({ company: companyId, name: item.materialName })
+        || await BoughtOut.findOne({ company: companyId, name: item.materialName })
+        || await RmBoItem.findOne({ company: companyId, name: item.materialName })
+        || await Component.findOne({ company: companyId, componentName: item.materialName })
+        || await FGItem.findOne({ company: companyId, name: item.materialName });
+      if (foundDoc) {
+        cleanMatId = foundDoc._id;
+      }
+    }
+
+    const normType = (item.itemType || "rm").toLowerCase();
+    let sourceCategory = "RawMaterial";
+    if (normType === "bo" || normType === "boughtout" || normType === "bought out") {
+      sourceCategory = "BoughtOut";
+    } else if (normType === "fg" || normType === "component" || normType === "subassembly") {
+      sourceCategory = "Component";
+    }
+
+    const tx = await recordStockTransaction(req, {
+      itemType: sourceCategory,
+      item: cleanMatId && isValidObjectId(cleanMatId.toString()) ? cleanMatId : undefined,
+      itemName: item.materialName || "Shopfloor Consumed Item",
+      unit: item.unit || "PCS",
+      movementType: "OUTWARD",
+      transactionCategory: "WIP_RM_CONVERT_OUTWARD",
+      quantity: consumedQty,
+      hasSecondaryUnit: Boolean(item.hasSecondaryUnit),
+      secondaryUnit: item.secondaryUnit || "",
+      secondaryQuantity: Number(item.secondaryQuantity) || 0,
+      conversionFactor: Number(item.conversionFactor) || 1,
+      referenceDocType: "WIPConversion",
+      referenceDocNumber: docNumber,
+      recipientOrSource: `Shopfloor Assembly (${cleanTargetName})`,
+      purpose: remarks || `Consumed ${consumedQty} ${item.unit || "PCS"} to produce ${producedQty} ${targetUnit} of ${cleanTargetName}${mrpNumber ? ` (MRP #${mrpNumber})` : ""}`,
+      performedBy: userId,
+      performedByName: userName
+    });
+    recordedOutwardTransactions.push(tx);
+  }
+
+  // 2. Log Inward WIP FG addition into Shopfloor WIP (Increases WIP Stock Only)
+  await recordStockTransaction(req, {
+    itemType: resolvedItemType,
+    item: resolvedComponentId,
+    itemName: cleanTargetName,
+    unit: targetUnit || "PCS",
+    movementType: "INWARD",
+    transactionCategory: "WIP_COMPONENT_CONVERT_INWARD",
+    quantity: producedQty,
+    hasSecondaryUnit: Boolean(targetHasSecondaryUnit),
+    secondaryUnit: targetSecondaryUnit,
+    secondaryQuantity: Number(targetSecondaryQuantity) || 0,
+    conversionFactor: Number(targetConversionFactor) || 1,
+    referenceDocType: "WIPConversion",
+    referenceDocNumber: docNumber,
+    recipientOrSource: `Shopfloor Assembly Line (${consumedItems.length} items)`,
+    purpose: remarks || `In-house WIP FG produced from ${consumedItems.length} RM/BO components${mrpNumber ? ` (MRP #${mrpNumber})` : ""}`,
+    performedBy: userId,
+    performedByName: userName
+  });
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        docNumber,
+        consumedCount: consumedItems.length,
+        producedQty,
+        targetComponentId: resolvedComponentId,
+        targetComponentName: cleanTargetName
+      },
+      `Successfully assembled ${producedQty} ${targetUnit} of ${cleanTargetName} from ${consumedItems.length} RM/BO items in Shopfloor WIP`
+    )
+  );
+});
+

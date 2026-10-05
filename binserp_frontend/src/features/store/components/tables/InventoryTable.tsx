@@ -11,7 +11,7 @@ import {
     ChevronLeft, ChevronRight, FileDown, RotateCcw, RefreshCw,
     TrendingUp, IndianRupee, AlertTriangle, ArrowUpDown, LayoutGrid,
     Eye, Boxes, Layers, X, Calendar, Crosshair, Sparkles, CheckCircle2,
-    SlidersHorizontal, BarChart3, Plus, Check
+    SlidersHorizontal, BarChart3, Plus, Check, Filter
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ColumnFilter from './ColumnFilter';
@@ -614,6 +614,8 @@ export default function InventoryTable({
         return currentDataset.find((i: any) => (i._id || i.id)?.toString() === focusedItemId) || null;
     }, [currentDataset, focusedItemId]);
 
+    const isAnyFilterActive = Object.keys(filters).length > 0 || searchQuery.trim() !== '' || stockStatusFilter !== 'all';
+
     const inventoryKpis = useMemo(() => {
         const isFg = activeSubTab === 'inhouse';
         const tabTitle = activeSubTab === 'bo' 
@@ -641,11 +643,14 @@ export default function InventoryTable({
 
             return {
                 isFocused: true,
+                isFiltered: false,
                 focusedItem,
                 itemName,
                 itemDesc,
                 tabTitle,
                 totalItems: 1,
+                totalDatasetCount: currentDataset.length,
+                filteredItemsCount: activeData.length,
                 pricedItemsCount: priceInfo.unitPrice > 0 ? 1 : 0,
                 stock,
                 formattedStock: `${formatQty(stock)} ${focusedItem.unit || 'PCS'}`,
@@ -676,7 +681,7 @@ export default function InventoryTable({
             };
         }
 
-        // 2. Aggregate Overview Mode (All items)
+        // 2. Aggregate Mode (Dynamically computed on activeData, responding in real-time to all filters)
         let totalValuation = 0;
         let totalStockUnits = 0;
         let lowStockCount = 0;
@@ -684,7 +689,7 @@ export default function InventoryTable({
         let totalOutward = 0;
         let pricedItemsCount = 0;
 
-        currentDataset.forEach((item: any) => {
+        activeData.forEach((item: any) => {
             const stock = Number(item.currentStock ?? item.quantity ?? 0);
             const priceInfo = getItemPriceDetails(item, isFg);
             const minStock = Number(item.reorderLevel ?? item.minimumStock ?? 0);
@@ -712,13 +717,16 @@ export default function InventoryTable({
 
         return {
             isFocused: false,
+            isFiltered: isAnyFilterActive,
             focusedItem: null,
             itemName: '',
             itemDesc: '',
             hasSec: false,
             secStock: 0,
             formattedSecStock: null,
-            totalItems: currentDataset.length,
+            totalItems: activeData.length,
+            totalDatasetCount: currentDataset.length,
+            filteredItemsCount: activeData.length,
             pricedItemsCount,
             tabTitle,
             totalStockUnits,
@@ -740,7 +748,7 @@ export default function InventoryTable({
             isLowStock: lowStockCount > 0,
             formattedMinStock: ''
         };
-    }, [currentDataset, activeSubTab, vendorPriceMap, salesPriceMap, focusedItem]);
+    }, [activeData, currentDataset, activeSubTab, vendorPriceMap, salesPriceMap, focusedItem, isAnyFilterActive]);
 
     const exportToExcel = () => {
         const currentData = activeSubTab !== 'inhouse' ? filteredData : filteredInHouseData;
@@ -798,14 +806,61 @@ export default function InventoryTable({
                             {/* Left: Mode Title */}
                             <div className="flex items-center gap-2 flex-wrap">
                                 {inventoryKpis.isFocused ? (
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                         <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5 border border-indigo-200 dark:border-indigo-800 shadow-2xs">
                                             <Crosshair size={13} className="text-indigo-600 dark:text-indigo-400 animate-pulse" />
-                                            <span>Single Item Analysis</span>
+                                            <span>Action Focus Analysis</span>
                                         </span>
                                         <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
                                             {inventoryKpis.itemName}
                                         </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setFocusedItemId(null)}
+                                            className="text-[11px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 px-2 py-0.5 rounded bg-rose-50 border border-rose-200 hover:bg-rose-100 transition-colors cursor-pointer"
+                                            title="Exit Single Item Focus and return to overview"
+                                        >
+                                            <X size={11} />
+                                            <span>Exit Focus</span>
+                                        </button>
+                                    </div>
+                                ) : inventoryKpis.isFiltered ? (
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 flex items-center gap-1.5 border border-amber-300 dark:border-amber-800 shadow-2xs">
+                                            <Filter size={13} className="text-amber-600 dark:text-amber-400" />
+                                            <span>Filtered Scope</span>
+                                        </span>
+                                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                            Showing {inventoryKpis.totalItems} of {inventoryKpis.totalDatasetCount} Items
+                                        </span>
+                                        <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 font-mono">
+                                            ({inventoryKpis.pricedItemsCount} Priced via Price List)
+                                        </span>
+                                        {/* Active Filter Chips */}
+                                        {searchQuery.trim() && (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                                Search: &quot;{searchQuery}&quot;
+                                            </span>
+                                        )}
+                                        {stockStatusFilter !== 'all' && (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                                                Status: {stockStatusFilter === 'low' ? 'Low Stock' : stockStatusFilter === 'out' ? 'Out of Stock' : 'Healthy'}
+                                            </span>
+                                        )}
+                                        {Object.entries(filters).map(([col, vals]) => (
+                                            <span key={col} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                                                {col}: {vals.join(', ')}
+                                            </span>
+                                        ))}
+                                        <button
+                                            type="button"
+                                            onClick={clearAllFilters}
+                                            className="text-[11px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 px-2 py-0.5 rounded bg-rose-50 border border-rose-200 hover:bg-rose-100 transition-colors cursor-pointer"
+                                            title="Clear all active filters"
+                                        >
+                                            <RotateCcw size={11} />
+                                            <span>Clear Filters</span>
+                                        </button>
                                     </div>
                                 ) : (
                                     <div className="flex items-center gap-2">
@@ -832,18 +887,49 @@ export default function InventoryTable({
                                     onChange={(e) => setFocusedItemId(e.target.value ? e.target.value : null)}
                                     className="text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 max-w-[210px] sm:max-w-[300px] truncate shadow-2xs cursor-pointer font-medium"
                                 >
-                                    <option value="">All Items (Overview Mode)</option>
-                                    {currentDataset.map((item: any) => {
-                                        const id = (item._id || item.id)?.toString();
-                                        const name = item.materialName || item.componentName || item.name || 'Unnamed Item';
-                                        const desc = item.descriptions || item.description;
-                                        const label = desc ? `${name} — ${desc}` : name;
-                                        return (
-                                            <option key={id} value={id}>
-                                                {label}
-                                            </option>
-                                        );
-                                    })}
+                                    <option value="">{inventoryKpis.isFiltered ? `Filtered Scope (${activeData.length} items)` : 'All Items (Overview Mode)'}</option>
+                                    {inventoryKpis.isFiltered ? (
+                                        <>
+                                            <optgroup label={`Matching Filtered Items (${activeData.length})`}>
+                                                {activeData.map((item: any) => {
+                                                    const id = (item._id || item.id)?.toString();
+                                                    const name = item.materialName || item.componentName || item.name || 'Unnamed Item';
+                                                    const desc = item.descriptions || item.description;
+                                                    const label = desc ? `${name} — ${desc}` : name;
+                                                    return (
+                                                        <option key={id} value={id}>
+                                                            {label}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </optgroup>
+                                            <optgroup label={`All Sub-Tab Items (${currentDataset.length})`}>
+                                                {currentDataset.map((item: any) => {
+                                                    const id = (item._id || item.id)?.toString();
+                                                    const name = item.materialName || item.componentName || item.name || 'Unnamed Item';
+                                                    const desc = item.descriptions || item.description;
+                                                    const label = desc ? `${name} — ${desc}` : name;
+                                                    return (
+                                                        <option key={id} value={id}>
+                                                            {label}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </optgroup>
+                                        </>
+                                    ) : (
+                                        currentDataset.map((item: any) => {
+                                            const id = (item._id || item.id)?.toString();
+                                            const name = item.materialName || item.componentName || item.name || 'Unnamed Item';
+                                            const desc = item.descriptions || item.description;
+                                            const label = desc ? `${name} — ${desc}` : name;
+                                            return (
+                                                <option key={id} value={id}>
+                                                    {label}
+                                                </option>
+                                            );
+                                        })
+                                    )}
                                 </select>
                                 {focusedItemId && (
                                     <button
@@ -2322,16 +2408,47 @@ export default function InventoryTable({
                                     onChange={(e) => setFocusedItemId(e.target.value ? e.target.value : null)}
                                     className="w-full text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
                                 >
-                                    <option value="">All Items (Executive Overview Mode)</option>
-                                    {currentDataset.map((item: any) => {
-                                        const id = (item._id || item.id)?.toString();
-                                        const name = item.materialName || item.componentName || item.name || 'Unnamed Item';
-                                        return (
-                                            <option key={id} value={id}>
-                                                {name}
-                                            </option>
-                                        );
-                                    })}
+                                    <option value="">{inventoryKpis.isFiltered ? `Filtered Scope (${activeData.length} items)` : 'All Items (Executive Overview Mode)'}</option>
+                                    {inventoryKpis.isFiltered ? (
+                                        <>
+                                            <optgroup label={`Matching Filtered Items (${activeData.length})`}>
+                                                {activeData.map((item: any) => {
+                                                    const id = (item._id || item.id)?.toString();
+                                                    const name = item.materialName || item.componentName || item.name || 'Unnamed Item';
+                                                    const desc = item.descriptions || item.description;
+                                                    const label = desc ? `${name} — ${desc}` : name;
+                                                    return (
+                                                        <option key={id} value={id}>
+                                                            {label}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </optgroup>
+                                            <optgroup label={`All Sub-Tab Items (${currentDataset.length})`}>
+                                                {currentDataset.map((item: any) => {
+                                                    const id = (item._id || item.id)?.toString();
+                                                    const name = item.materialName || item.componentName || item.name || 'Unnamed Item';
+                                                    const desc = item.descriptions || item.description;
+                                                    const label = desc ? `${name} — ${desc}` : name;
+                                                    return (
+                                                        <option key={id} value={id}>
+                                                            {label}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </optgroup>
+                                        </>
+                                    ) : (
+                                        currentDataset.map((item: any) => {
+                                            const id = (item._id || item.id)?.toString();
+                                            const name = item.materialName || item.componentName || item.name || 'Unnamed Item';
+                                            return (
+                                                <option key={id} value={id}>
+                                                    {name}
+                                                </option>
+                                            );
+                                        })
+                                    )}
                                 </select>
                             </div>
 

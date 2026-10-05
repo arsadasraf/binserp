@@ -74,7 +74,8 @@ import {
   searchStoreItems,
   returnWipToStore,
   recordWipScrap,
-  convertWipMaterialToComponent
+  convertWipMaterialToComponent,
+  convertMultipleWipToFg
 } from "../controllers/store/index.js";
 
 import {
@@ -221,6 +222,7 @@ router.get("/wip/inventory", getWipInventory);
 router.post("/wip/return-to-store", returnWipToStore);
 router.post("/wip/scrap", recordWipScrap);
 router.post("/wip/convert-to-component", convertWipMaterialToComponent);
+router.post("/wip/convert-multiple-to-fg", convertMultipleWipToFg);
 
 // Store Fulfillment & MRP routes
 router.get("/fulfillment", getFulfillments);
@@ -286,7 +288,8 @@ import {
   getMRBPendingQueue, 
   executeMRBDisposition, 
   updateMRBDisposition,
-  completeReworkInspection, 
+  completeReworkInspection,
+  receiveReplacementGoods, 
   getMRBHistory, 
   getScrapLedger 
 } from "../controllers/store/index.js";
@@ -295,6 +298,8 @@ router.get("/mrb/pending", getMRBPendingQueue);
 router.post("/mrb/disposition", executeMRBDisposition);
 router.put("/mrb/disposition/:id", updateMRBDisposition);
 router.post("/mrb/rework-complete", completeReworkInspection);
+router.post("/mrb/complete-rework", completeReworkInspection);
+router.post("/mrb/receive-replacement", receiveReplacementGoods);
 router.get("/mrb/history", getMRBHistory);
 router.get("/mrb/scrap-ledger", getScrapLedger);
 

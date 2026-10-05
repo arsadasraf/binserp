@@ -57,8 +57,14 @@ export const getMRBPendingQueue = asyncHandler(async (req, res) => {
     status: { $in: ["Pending Disposition", "In Progress"] }
   }).sort({ createdAt: -1 });
 
+  // Scan ALL tickets in system so actioned/completed tickets never respawn as pending virtuals
+  const allExistingTickets = await MRBDisposition.find(
+    { company: companyId, sourceDocId: { $exists: true, $ne: null } },
+    { sourceDocId: 1 }
+  ).lean();
+
   const existingSourceDocIds = new Set(
-    activeTickets.map(t => t.sourceDocId ? t.sourceDocId.toString() : null).filter(Boolean)
+    allExistingTickets.map(t => t.sourceDocId ? t.sourceDocId.toString() : null).filter(Boolean)
   );
 
   const virtualTickets = [];
@@ -521,23 +527,28 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
     };
 
     // Log Stock Transaction (OUTWARD / QC_REJECT)
-    await recordStockTransaction(req, {
-      item: ticket.materialId,
-      itemName: ticket.materialName,
-      itemCode: ticket.materialCode,
-      category: ticket.itemType === "Bought Out" ? "BO" : "RM",
-      movementType: "OUTWARD",
-      transactionCategory: "QC_REJECT",
-      quantity: ticket.rejectedQuantity,
-      unit: ticket.unit,
-      sourceLocation: "Rejection Bay",
-      destinationLocation: `Vendor: ${ticket.vendorName || 'Supplier'}`,
-      referenceDocType: "RETURN_INVOICE",
-      referenceDocNumber: ticket.documentNumber,
-      performedBy: req.user?._id,
-      performedByName: userName,
-      remarks: `Return to Vendor (Return Bill: ${ticket.documentNumber}): ${actionNotes || ticket.rejectionReason}`,
-    });
+    try {
+      await recordStockTransaction(req, {
+        itemType: (ticket.itemType === "Bought Out" || ticket.itemType === "BO") ? "BoughtOut" : ((ticket.itemType === "Consumable" || ticket.itemType === "ConsumableItem") ? "ConsumableItem" : ((ticket.itemType === "Component" || ticket.itemType === "inhouse") ? "Component" : "RawMaterial")),
+        item: ticket.materialId,
+        itemName: ticket.materialName,
+        itemCode: ticket.materialCode,
+        category: ticket.itemType === "Bought Out" ? "BO" : "RM",
+        movementType: "OUTWARD",
+        transactionCategory: "QC_REJECT",
+        quantity: ticket.rejectedQuantity,
+        unit: ticket.unit,
+        sourceLocation: "Rejection Bay",
+        destinationLocation: `Vendor: ${ticket.vendorName || 'Supplier'}`,
+        referenceDocType: "RETURN_INVOICE",
+        referenceDocNumber: ticket.documentNumber,
+        performedBy: req.user?._id,
+        performedByName: userName,
+        remarks: `Return to Vendor (Return Bill: ${ticket.documentNumber}): ${actionNotes || ticket.rejectionReason}`,
+      });
+    } catch (stErr) {
+      console.error("Error recording RTV StockTransaction:", stErr.message);
+    }
 
     // Generate Official Delivery Challan for Gate Out Security Pass
     try {
@@ -638,23 +649,28 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
     };
 
     // Log Stock Transaction for Warranty Delivery Challan
-    await recordStockTransaction(req, {
-      item: ticket.materialId,
-      itemName: ticket.materialName,
-      itemCode: ticket.materialCode,
-      category: ticket.itemType === "Bought Out" ? "BO" : "RM",
-      movementType: "OUTWARD",
-      transactionCategory: "REPLACEMENT_DISPATCH",
-      quantity: ticket.rejectedQuantity,
-      unit: ticket.unit,
-      sourceLocation: "Rejection Bay",
-      destinationLocation: `Vendor: ${ticket.vendorName || 'Supplier'}`,
-      referenceDocType: "REPLACEMENT_DC",
-      referenceDocNumber: ticket.documentNumber,
-      performedBy: req.user?._id,
-      performedByName: userName,
-      remarks: `Dispatched for FOC Replacement (${ticket.documentNumber})`,
-    });
+    try {
+      await recordStockTransaction(req, {
+        itemType: (ticket.itemType === "Bought Out" || ticket.itemType === "BO") ? "BoughtOut" : ((ticket.itemType === "Consumable" || ticket.itemType === "ConsumableItem") ? "ConsumableItem" : ((ticket.itemType === "Component" || ticket.itemType === "inhouse") ? "Component" : "RawMaterial")),
+        item: ticket.materialId,
+        itemName: ticket.materialName,
+        itemCode: ticket.materialCode,
+        category: ticket.itemType === "Bought Out" ? "BO" : "RM",
+        movementType: "OUTWARD",
+        transactionCategory: "REPLACEMENT_DISPATCH",
+        quantity: ticket.rejectedQuantity,
+        unit: ticket.unit,
+        sourceLocation: "Rejection Bay",
+        destinationLocation: `Vendor: ${ticket.vendorName || 'Supplier'}`,
+        referenceDocType: "REPLACEMENT_DC",
+        referenceDocNumber: ticket.documentNumber,
+        performedBy: req.user?._id,
+        performedByName: userName,
+        remarks: `Dispatched for FOC Replacement (${ticket.documentNumber})`,
+      });
+    } catch (stErr) {
+      console.error("Error recording Replacement StockTransaction:", stErr.message);
+    }
 
     // Generate Official Delivery Challan for Gate Out Replacement Pass
     try {
@@ -684,6 +700,19 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
       });
     } catch (dcErr) {
       console.warn("Could not create DeliveryChallan for MRB replacement:", dcErr);
+    }
+
+    // Decrement rejectedStock in Inventory because defective goods left the factory under Replacement DC
+    if (ticket.materialId) {
+      try {
+        const Inventory = req.getModel("Inventory", inventorySchema);
+        await Inventory.findOneAndUpdate(
+          { company: companyId, $or: [{ materialId: ticket.materialId }, { materialCode: ticket.materialCode }] },
+          { $inc: { rejectedStock: -ticket.rejectedQuantity } }
+        );
+      } catch (invErr) {
+        console.warn("Could not decrement rejectedStock on Replacement DC dispatch:", invErr.message);
+      }
     }
 
   } else if (dispositionAction === "Internal Rework" || dispositionAction === "External Rework") {
@@ -747,23 +776,28 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
     };
 
     // Log Scrap Stock Transaction
-    await recordStockTransaction(req, {
-      item: ticket.materialId,
-      itemName: ticket.materialName,
-      itemCode: ticket.materialCode,
-      category: ticket.itemType === "Bought Out" ? "BO" : "RM",
-      movementType: "OUTWARD",
-      transactionCategory: "SCRAP",
-      quantity: ticket.rejectedQuantity,
-      unit: ticket.unit,
-      sourceLocation: "Rejection Bay",
-      destinationLocation: ticket.scrapDetails.scrapLocation,
-      referenceDocType: "SCRAP_CERTIFICATE",
-      referenceDocNumber: ticket.documentNumber,
-      performedBy: req.user?._id,
-      performedByName: userName,
-      remarks: `Scrapped & Written Off (${ticket.documentNumber}): ${actionNotes || ticket.rejectionReason}`,
-    });
+    try {
+      await recordStockTransaction(req, {
+        itemType: (ticket.itemType === "Bought Out" || ticket.itemType === "BO") ? "BoughtOut" : ((ticket.itemType === "Consumable" || ticket.itemType === "ConsumableItem") ? "ConsumableItem" : ((ticket.itemType === "Component" || ticket.itemType === "inhouse") ? "Component" : "RawMaterial")),
+        item: ticket.materialId,
+        itemName: ticket.materialName,
+        itemCode: ticket.materialCode,
+        category: ticket.itemType === "Bought Out" ? "BO" : "RM",
+        movementType: "OUTWARD",
+        transactionCategory: "SCRAP",
+        quantity: ticket.rejectedQuantity,
+        unit: ticket.unit,
+        sourceLocation: "Rejection Bay",
+        destinationLocation: ticket.scrapDetails.scrapLocation,
+        referenceDocType: "SCRAP_CERTIFICATE",
+        referenceDocNumber: ticket.documentNumber,
+        performedBy: req.user?._id,
+        performedByName: userName,
+        remarks: `Scrapped & Written Off (${ticket.documentNumber}): ${actionNotes || ticket.rejectionReason}`,
+      });
+    } catch (stErr) {
+      console.error("Error recording Scrap StockTransaction:", stErr.message);
+    }
 
   } else if (dispositionAction === "Accept on Deviation") {
     ticket.status = "Completed";
@@ -778,25 +812,42 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
       usageConditions: concessionPayload?.usageConditions || "Use As Is",
     };
 
-    // Release stock into usable Inventory
+    // 1. Decrement rejectedStock in Inventory because deviation accepts item into good inventory
     if (ticket.materialId) {
-      await updateInventoryStock(
-        req,
-        ticket.materialId,
-        ticket.rejectedQuantity,
-        ticket.unit,
-        null,
-        {
-          isQCRelease: true,
-          inspectedQuantity: ticket.rejectedQuantity,
-          transactionCategory: "CONCESSION_RELEASE",
-          referenceDocType: "CONCESSION",
-          referenceDocNumber: ticket.documentNumber,
-          purpose: `Released to Stock on Deviation Concession (${ticket.documentNumber})`,
-          performedBy: req.user?._id,
-          performedByName: userName,
-        }
-      );
+      try {
+        const Inventory = req.getModel("Inventory", inventorySchema);
+        await Inventory.findOneAndUpdate(
+          { company: companyId, $or: [{ materialId: ticket.materialId }, { materialCode: ticket.materialCode }] },
+          { $inc: { rejectedStock: -ticket.rejectedQuantity } }
+        );
+      } catch (invDecErr) {
+        console.warn("Could not decrement rejectedStock on Deviation Concession:", invDecErr.message);
+      }
+    }
+
+    // 2. Add directly into Main Inventory Usable Stock (currentStock)
+    if (ticket.materialId) {
+      try {
+        await updateInventoryStock(
+          req,
+          ticket.materialId,
+          ticket.rejectedQuantity,
+          ticket.unit,
+          null,
+          {
+            isQCRelease: false,
+            itemType: (ticket.itemType === "Bought Out" || ticket.itemType === "BO") ? "BoughtOut" : ((ticket.itemType === "Consumable" || ticket.itemType === "ConsumableItem") ? "ConsumableItem" : ((ticket.itemType === "Component" || ticket.itemType === "inhouse") ? "Component" : "RawMaterial")),
+            transactionCategory: "CONCESSION_RELEASE",
+            referenceDocType: "CONCESSION",
+            referenceDocNumber: ticket.documentNumber,
+            purpose: `Released to Main Stock on Deviation Concession (${ticket.documentNumber})`,
+            performedBy: req.user?._id,
+            performedByName: userName,
+          }
+        );
+      } catch (invRelErr) {
+        console.error("Error releasing Concession stock into main inventory:", invRelErr.message);
+      }
     }
   }
 
@@ -916,44 +967,54 @@ export const completeReworkInspection = asyncHandler(async (req, res) => {
 
   // Release Passed items into Usable Stock
   if (passedQty > 0 && ticket.materialId) {
-    await updateInventoryStock(
-      req,
-      ticket.materialId,
-      passedQty,
-      ticket.unit,
-      null,
-      {
-        isQCRelease: true,
-        inspectedQuantity: passedQty,
-        transactionCategory: "REWORK_RETURN",
-        referenceDocType: "REWORK_JOB",
-        referenceDocNumber: ticket.reworkDetails.reworkJobNumber || ticket.ticketNumber,
-        purpose: `Rework Completed & QC Cleared (${ticket.ticketNumber})`,
-        performedBy: req.user?._id,
-        performedByName: userName,
-      }
-    );
+    try {
+      await updateInventoryStock(
+        req,
+        ticket.materialId,
+        passedQty,
+        ticket.unit,
+        null,
+        {
+          isQCRelease: true,
+          inspectedQuantity: passedQty,
+          itemType: (ticket.itemType === "Bought Out" || ticket.itemType === "BO") ? "BoughtOut" : ((ticket.itemType === "Consumable" || ticket.itemType === "ConsumableItem") ? "ConsumableItem" : ((ticket.itemType === "Component" || ticket.itemType === "inhouse") ? "Component" : "RawMaterial")),
+          transactionCategory: "REWORK_RETURN",
+          referenceDocType: "REWORK_JOB",
+          referenceDocNumber: ticket.reworkDetails.reworkJobNumber || ticket.ticketNumber,
+          purpose: `Rework Completed & QC Cleared (${ticket.ticketNumber})`,
+          performedBy: req.user?._id,
+          performedByName: userName,
+        }
+      );
+    } catch (rwkRelErr) {
+      console.error("Error releasing Rework stock:", rwkRelErr.message);
+    }
   }
 
   // Record Scrapped Portion if any
   if (scrappedQty > 0) {
-    await recordStockTransaction(req, {
-      item: ticket.materialId,
-      itemName: ticket.materialName,
-      itemCode: ticket.materialCode,
-      category: ticket.itemType === "Bought Out" ? "BO" : "RM",
-      movementType: "OUTWARD",
-      transactionCategory: "SCRAP",
-      quantity: scrappedQty,
-      unit: ticket.unit,
-      sourceLocation: "Rework Station",
-      destinationLocation: "Scrap Yard",
-      referenceDocType: "REWORK_SCRAP",
-      referenceDocNumber: ticket.ticketNumber,
-      performedBy: req.user?._id,
-      performedByName: userName,
-      remarks: `Rework Failed - Scrapped: ${remarks || 'Unsalvageable defect'}`,
-    });
+    try {
+      await recordStockTransaction(req, {
+        itemType: (ticket.itemType === "Bought Out" || ticket.itemType === "BO") ? "BoughtOut" : ((ticket.itemType === "Consumable" || ticket.itemType === "ConsumableItem") ? "ConsumableItem" : ((ticket.itemType === "Component" || ticket.itemType === "inhouse") ? "Component" : "RawMaterial")),
+        item: ticket.materialId,
+        itemName: ticket.materialName,
+        itemCode: ticket.materialCode,
+        category: ticket.itemType === "Bought Out" ? "BO" : "RM",
+        movementType: "OUTWARD",
+        transactionCategory: "SCRAP",
+        quantity: scrappedQty,
+        unit: ticket.unit,
+        sourceLocation: "Rework Station",
+        destinationLocation: "Scrap Yard",
+        referenceDocType: "REWORK_SCRAP",
+        referenceDocNumber: ticket.ticketNumber,
+        performedBy: req.user?._id,
+        performedByName: userName,
+        remarks: `Rework Failed - Scrapped: ${remarks || 'Unsalvageable defect'}`,
+      });
+    } catch (rwkScrapErr) {
+      console.error("Error recording Rework Scrap StockTransaction:", rwkScrapErr.message);
+    }
   }
 
   ticket.history.push({
@@ -1062,4 +1123,86 @@ export const getScrapLedger = asyncHandler(async (req, res) => {
       defectPareto
     }
   }, "Scrap Yard Ledger retrieved successfully"));
+});
+
+/**
+ * 6. Receive Vendor Replacement Goods against Replacement DC
+ * Adds received replacement goods directly into Main Inventory usable stock
+ */
+export const receiveReplacementGoods = asyncHandler(async (req, res) => {
+  const companyId = getCompanyId(req);
+  const MRBDisposition = req.getModel("MRBDisposition", mrbDispositionSchema);
+  const userName = req.user?.name || req.user?.username || req.user?.email || "Store Incharge";
+  const { ticketId, vendorDcNumber, vendorDcDate, receivedQuantity, vehicleNumber, remarks } = req.body;
+
+  if (!ticketId) {
+    throw new ApiError(400, "Ticket ID is required");
+  }
+  if (!vendorDcNumber) {
+    throw new ApiError(400, "Vendor Delivery Challan / Invoice number is required");
+  }
+  const qty = Number(receivedQuantity);
+  if (isNaN(qty) || qty <= 0) {
+    throw new ApiError(400, "Valid received quantity is required");
+  }
+
+  const ticket = await MRBDisposition.findOne({ _id: ticketId, company: companyId });
+  if (!ticket) {
+    throw new ApiError(404, "MRB Ticket not found");
+  }
+  if (ticket.dispositionAction !== "Vendor Replacement") {
+    throw new ApiError(400, "This ticket is not a Vendor Replacement ticket");
+  }
+
+  const alreadyReceived = Number(ticket.replacementDetails?.replacementQuantityReceived || 0);
+  const remainingQty = Math.max(0, ticket.rejectedQuantity - alreadyReceived);
+
+  if (qty > remainingQty) {
+    throw new ApiError(400, `Received quantity (${qty} ${ticket.unit}) cannot exceed remaining replacement quantity (${remainingQty} ${ticket.unit})`);
+  }
+
+  // 1. Add received replacement quantity directly into Main Inventory usable stock (currentStock)
+  if (ticket.materialId) {
+    await updateInventoryStock(
+      req,
+      ticket.materialId,
+      qty,
+      ticket.unit,
+      null,
+      {
+        isQCRelease: false,
+        itemType: (ticket.itemType === "Bought Out" || ticket.itemType === "BO") ? "BoughtOut" : ((ticket.itemType === "Consumable" || ticket.itemType === "ConsumableItem") ? "ConsumableItem" : ((ticket.itemType === "Component" || ticket.itemType === "inhouse") ? "Component" : "RawMaterial")),
+        transactionCategory: "REPLACEMENT_INWARD",
+        referenceDocType: "DeliveryChallan",
+        referenceDocNumber: vendorDcNumber,
+        recipientOrSource: `Vendor: ${ticket.vendorName || 'Supplier'}`,
+        purpose: `Replacement Received against RPL-DC #${ticket.documentNumber} via Vendor DC #${vendorDcNumber}`,
+        performedBy: req.user?._id,
+        performedByName: userName,
+      }
+    );
+  }
+
+  // 2. Update Ticket Replacement Details & Status
+  ticket.replacementDetails = ticket.replacementDetails || {};
+  const newTotalReceived = alreadyReceived + qty;
+  ticket.replacementDetails.replacementQuantityReceived = newTotalReceived;
+  ticket.replacementDetails.replacementGRNNumber = vendorDcNumber;
+  if (newTotalReceived >= ticket.rejectedQuantity) {
+    ticket.replacementDetails.isFullyReplaced = true;
+    ticket.status = "Completed";
+  } else {
+    ticket.status = "In Progress";
+  }
+
+  ticket.history.push({
+    action: `Received ${qty} ${ticket.unit} Replacement against Vendor DC #${vendorDcNumber}`,
+    performedBy: userName,
+    timestamp: new Date(),
+    notes: remarks || `Vendor DC Date: ${vendorDcDate || new Date().toISOString().slice(0, 10)}. Replaced items restocked into main inventory.`,
+  });
+
+  await ticket.save();
+
+  res.status(200).json(new ApiResponse(200, ticket, `Successfully received ${qty} ${ticket.unit} and added to main inventory stock (Vendor DC #${vendorDcNumber})`));
 });

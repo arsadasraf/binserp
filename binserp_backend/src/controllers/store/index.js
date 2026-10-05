@@ -66,10 +66,11 @@ export {
   getMRBPendingQueue, 
   executeMRBDisposition, 
   updateMRBDisposition,
-  completeReworkInspection, 
+  completeReworkInspection,
+  receiveReplacementGoods, 
   getMRBHistory, 
   getScrapLedger 
 } from './mrbDisposition.controller.js';
 export { searchStoreItems } from './itemSearch.controller.js';
-export { returnWipToStore, recordWipScrap, convertWipMaterialToComponent } from './wipTransactions.controller.js';
+export { returnWipToStore, recordWipScrap, convertWipMaterialToComponent, convertMultipleWipToFg } from './wipTransactions.controller.js';
 

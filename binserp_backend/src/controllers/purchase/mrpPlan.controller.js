@@ -1143,6 +1143,8 @@ export const getAllMRPPlans = async (req, res) => {
     const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
     const PurchaseOrder = req.getModel("PurchaseOrder", purchaseOrderSchema);
     req.getModel("User", userSchema);
+    req.getModel("BOM", bomSchema);
+    req.getModel("FGItem", fgItemSchema);
 
     const companyId = getCompanyId(req);
     const { status, search } = req.query;
@@ -1293,6 +1295,11 @@ export const getMRPPlanById = async (req, res) => {
     const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
     const PurchaseOrder = req.getModel("PurchaseOrder", purchaseOrderSchema);
     req.getModel("User", userSchema);
+    req.getModel("BOM", bomSchema);
+    req.getModel("FGItem", fgItemSchema);
+    req.getModel("RawMaterial", rawMaterialSchema);
+    req.getModel("BoughtOut", boughtOutSchema);
+    req.getModel("RmBoItem", rmBoItemSchema);
 
     const companyId = getCompanyId(req);
     const { id } = req.params;

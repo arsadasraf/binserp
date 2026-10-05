@@ -280,15 +280,9 @@ export const receiveJobWorkItems = async (req, res) => {
             }
           }
         } else if (isWipWorkflow) {
-          // Direct WIP Release
-          if (targetItemDoc && mongoose.Types.ObjectId.isValid(targetItemDoc)) {
-            try {
-              await Component.findByIdAndUpdate(targetItemDoc, { $inc: { quantity: directAcceptedQty } });
-            } catch (e) { }
-          }
-
+          // Direct WIP Release: Returns directly back into Shopfloor WIP (WIP stock is tracked in Shopfloor WIP without mutating warehouse stock)
           await recordStockTransaction(req, {
-            itemType: "Component",
+            itemType: targetItemType === "fg" ? "FGItem" : "Component",
             item: targetItemDoc || jobWork._id,
             itemName: matchedItemName,
             unit: "Nos",
@@ -300,8 +294,8 @@ export const receiveJobWorkItems = async (req, res) => {
             referenceDocType: "JobWorkChallan",
             referenceDocId: jobWork._id,
             referenceDocNumber: jobWork.challanNumber,
-            recipientOrSource: `WIP Return (${jobWork.mrpNumber || 'In-Process'})`,
-            purpose: `Returned to WIP under MRP ${jobWork.mrpNumber || 'Production'} from ${vendorName}`,
+            recipientOrSource: `Shopfloor Active WIP (${jobWork.mrpNumber || 'In-Process'})`,
+            purpose: `Returned to Shopfloor WIP under MRP ${jobWork.mrpNumber || 'Production'} from ${vendorName}`,
             performedBy: req.user?.id || req.user?._id,
           });
         } else if (isRouteCard) {
@@ -374,6 +368,7 @@ export const receiveJobWorkItems = async (req, res) => {
         vehicleNo: vehicleNo || "",
         itemId: itemId,
         returningItemId: returningItemId || undefined,
+        masterItemId: (targetItemDoc && mongoose.Types.ObjectId.isValid(targetItemDoc)) ? targetItemDoc : undefined,
         itemName: matchedItemName,
         quantity: qtyNum,
         acceptedQuantity: qcRequired ? 0 : qtyNum,

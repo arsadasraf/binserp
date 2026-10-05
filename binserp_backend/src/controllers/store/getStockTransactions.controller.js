@@ -101,18 +101,44 @@ export const getStockTransactions = async (req, res) => {
     const limitNum = parseInt(limit, 10) || 50;
     const skip = (pageNum - 1) * limitNum;
 
-    const [transactions, total] = await Promise.all([
+    const [transactions, total, summaryStats] = await Promise.all([
       StockTransaction.find(query)
         .populate("performedBy", "name userId email")
         .sort({ timestamp: -1, createdAt: -1 })
         .skip(skip)
         .limit(limitNum),
       StockTransaction.countDocuments(query),
+      StockTransaction.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            totalInwardQty: {
+              $sum: {
+                $cond: [{ $eq: ["$movementType", "INWARD"] }, "$quantity", 0]
+              }
+            },
+            totalOutwardQty: {
+              $sum: {
+                $cond: [{ $eq: ["$movementType", "OUTWARD"] }, "$quantity", 0]
+              }
+            },
+            distinctItems: { $addToSet: "$itemCode" }
+          }
+        }
+      ]),
     ]);
+
+    const stats = summaryStats[0] || { totalInwardQty: 0, totalOutwardQty: 0, distinctItems: [] };
 
     res.status(200).json({
       success: true,
       transactions,
+      stats: {
+        totalInwardQty: stats.totalInwardQty || 0,
+        totalOutwardQty: stats.totalOutwardQty || 0,
+        uniqueItemsCount: stats.distinctItems ? stats.distinctItems.length : 0,
+      },
       pagination: {
         total,
         page: pageNum,

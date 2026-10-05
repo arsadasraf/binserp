@@ -145,6 +145,38 @@ export const createMaterialIssue = async (req, res) => {
     // Auto-resolve recipient if missing
     const finalIssuedTo = (issuedTo && isValidObjectId(issuedTo.toString())) ? issuedTo.toString() : req.user.id;
 
+    // Inherit MRP Plan & Number from Material Request if linked and missing
+    if (materialRequest && (!mrpPlan || !mrpNumber)) {
+      try {
+        const MaterialRequest = req.getModel('MaterialRequest', materialRequestSchema);
+        const reqDoc = await MaterialRequest.findById(materialRequest);
+        if (reqDoc) {
+          if (!mrpPlan && reqDoc.mrpPlan) mrpPlan = reqDoc.mrpPlan;
+          if (!mrpNumber && reqDoc.mrpNumber) mrpNumber = reqDoc.mrpNumber;
+          if (!requestNumber && reqDoc.requestNumber) requestNumber = reqDoc.requestNumber;
+        }
+      } catch (err) {
+        console.warn("Could not populate MRP from materialRequest in createMaterialIssue:", err);
+      }
+    }
+
+    // Bidirectional MRP resolution between mrpPlan ObjectId and mrpNumber string
+    if (mrpPlan && !mrpNumber) {
+      try {
+        const plan = await MRPPlan.findById(mrpPlan);
+        if (plan && plan.mrpNumber) mrpNumber = plan.mrpNumber;
+      } catch (err) {
+        console.warn("Could not lookup mrpNumber from mrpPlan in createMaterialIssue:", err);
+      }
+    } else if (mrpNumber && !mrpPlan) {
+      try {
+        const plan = await MRPPlan.findOne({ company: companyId, mrpNumber: mrpNumber.trim() });
+        if (plan) mrpPlan = plan._id;
+      } catch (err) {
+        console.warn("Could not lookup mrpPlan from mrpNumber in createMaterialIssue:", err);
+      }
+    }
+
     // Normalize type
     const normalizedType = (type || 'rm').toLowerCase();
     const isInhouse = normalizedType === 'inhouse' || normalizedType === 'in-house' || normalizedType === 'fg';
@@ -199,6 +231,7 @@ export const createMaterialIssue = async (req, res) => {
           ...item,
           consumable: resolvedId,
           material: resolvedId,
+          itemType: 'Consumable',
           materialCode: consumableDoc?.code || item.materialCode || '',
           materialName: consumableDoc?.name || cleanName || 'Consumable Item',
           quantity: resolvedUnits.priQty,
@@ -245,6 +278,7 @@ export const createMaterialIssue = async (req, res) => {
           component: resolvedCompId,
           fgItem: resolvedCompId,
           material: resolvedCompId,
+          itemType: item.itemType || 'FG Item',
           materialCode: compDoc?.code || item.materialCode || '',
           materialName: compDoc?.name || cleanName || 'FG Item',
           quantity: resolvedUnits.priQty,
@@ -258,32 +292,50 @@ export const createMaterialIssue = async (req, res) => {
       } else {
         // Raw Material (RM) / Bought Out (BO) Logic
         let materialDoc = null;
+        let detectedType = '';
         if (validId) {
           materialDoc = await RawMaterial.findOne({ _id: validId, company: companyId });
-          if (!materialDoc) materialDoc = await BoughtOut.findOne({ _id: validId, company: companyId });
-          if (!materialDoc) materialDoc = await RmBoItem.findOne({ _id: validId, company: companyId });
+          if (materialDoc) detectedType = 'Raw Material';
+          if (!materialDoc) {
+            materialDoc = await BoughtOut.findOne({ _id: validId, company: companyId });
+            if (materialDoc) detectedType = 'Bought Out';
+          }
+          if (!materialDoc) {
+            materialDoc = await RmBoItem.findOne({ _id: validId, company: companyId });
+            if (materialDoc) detectedType = materialDoc.itemType || 'Raw Material';
+          }
         }
         if (!materialDoc && (item.materialCode || item.code)) {
           materialDoc = await RawMaterial.findOne({ company: companyId, code: item.materialCode || item.code });
-          if (!materialDoc) materialDoc = await BoughtOut.findOne({ company: companyId, code: item.materialCode || item.code });
-          if (!materialDoc) materialDoc = await RmBoItem.findOne({ company: companyId, code: item.materialCode || item.code });
+          if (materialDoc) detectedType = 'Raw Material';
+          if (!materialDoc) {
+            materialDoc = await BoughtOut.findOne({ company: companyId, code: item.materialCode || item.code });
+            if (materialDoc) detectedType = 'Bought Out';
+          }
+          if (!materialDoc) {
+            materialDoc = await RmBoItem.findOne({ company: companyId, code: item.materialCode || item.code });
+            if (materialDoc) detectedType = materialDoc.itemType || 'Raw Material';
+          }
         }
         if (!materialDoc && cleanName) {
           materialDoc = await RawMaterial.findOne({
             company: companyId,
             name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
           });
+          if (materialDoc) detectedType = 'Raw Material';
           if (!materialDoc) {
             materialDoc = await BoughtOut.findOne({
               company: companyId,
               name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
             });
+            if (materialDoc) detectedType = 'Bought Out';
           }
           if (!materialDoc) {
             materialDoc = await RmBoItem.findOne({
               company: companyId,
               name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
             });
+            if (materialDoc) detectedType = materialDoc.itemType || 'Raw Material';
           }
         }
 
@@ -294,9 +346,17 @@ export const createMaterialIssue = async (req, res) => {
 
         const resolvedUnits = resolveDualUnitQuantities(item, materialDoc, "PCS");
 
+        const rawTypeStr = (item.itemType || item.type || detectedType || '').toLowerCase();
+        const codeUpper = (item.materialCode || materialDoc?.code || '').toUpperCase();
+        let determinedItemType = 'Raw Material';
+        if (rawTypeStr.includes('bought') || rawTypeStr === 'bo' || codeUpper.startsWith('BO-')) {
+          determinedItemType = 'Bought Out';
+        }
+
         processedItems.push({
           ...item,
           material: resolvedMaterialId,
+          itemType: determinedItemType,
           materialCode: materialDoc?.code || item.materialCode || '',
           materialName: materialDoc?.name || cleanName || 'Material',
           quantity: resolvedUnits.priQty,
@@ -418,7 +478,12 @@ export const createMaterialIssue = async (req, res) => {
           });
         } else {
           const targetMatId = isConsumable ? (item.consumable || item.material) : item.material;
-          const issueItemType = isConsumable ? "Consumable" : (type === 'bo' || type === 'bought-out' ? "BoughtOut" : "RawMaterial");
+          const itemTypeStr = (item.itemType || '').toLowerCase();
+          const issueItemType = isConsumable 
+            ? "Consumable" 
+            : (itemTypeStr.includes('bought') || itemTypeStr === 'bo' || type === 'bo' || type === 'bought-out' 
+                ? "BoughtOut" 
+                : "RawMaterial");
 
           const issuePurpose = item.purpose 
             ? `Issue to Shop Floor - ${item.purpose}` 

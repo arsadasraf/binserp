@@ -44,4 +44,8 @@ export const bomSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Inventory Schema
+try {
+  if (!mongoose.models.BOM) {
+    mongoose.model("BOM", bomSchema);
+  }
+} catch (e) {}

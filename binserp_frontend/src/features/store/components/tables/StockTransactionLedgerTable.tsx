@@ -24,7 +24,8 @@ import {
   ChevronDown,
   ChevronUp,
   X,
-  TrendingUp
+  TrendingUp,
+  RotateCcw
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -81,6 +82,7 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [serverStats, setServerStats] = useState<{ totalInwardQty: number; totalOutwardQty: number; uniqueItemsCount: number } | null>(null);
 
   // Filter States
   const [search, setSearch] = useState<string>("");
@@ -199,6 +201,9 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
       setTransactions(data.transactions || []);
       setTotalPages(data.pagination?.pages || 1);
       setTotalCount(data.pagination?.total || 0);
+      if (data.stats) {
+        setServerStats(data.stats);
+      }
     } catch (err: any) {
       console.error("Error fetching transactions:", err);
       setError(err.message || "Error connecting to server");
@@ -223,6 +228,7 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
     setStartDate("");
     setEndDate("");
     setPage(1);
+    setServerStats(null);
   };
 
   const exportToExcel = () => {
@@ -308,96 +314,183 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
     return set.size;
   }, [transactions]);
 
+  const isLedgerFiltered = Boolean(
+    search.trim() ||
+    itemTypeFilter ||
+    movementFilter ||
+    categoryFilter ||
+    (dateMode === "preset" && activePreset !== "all") ||
+    (dateMode === "day" && singleDate) ||
+    (dateMode === "month" && selectedMonth) ||
+    (dateMode === "range" && (startDate || endDate))
+  );
+
+  const displayInwardQty = serverStats?.totalInwardQty !== undefined ? serverStats.totalInwardQty : totalInwardQty;
+  const displayOutwardQty = serverStats?.totalOutwardQty !== undefined ? serverStats.totalOutwardQty : totalOutwardQty;
+  const displayUniqueItems = serverStats?.uniqueItemsCount !== undefined ? serverStats.uniqueItemsCount : uniqueItemsCount;
+
   return (
     <div className="space-y-4">
       {/* Top Metrics / Executive KPI Cards (Shown only on demand) */}
       {showDashboard && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-          {/* Card 1: Total Entries */}
-          <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-2xs relative overflow-hidden">
-            <div className="flex items-center justify-between text-blue-600 dark:text-blue-400 mb-1.5">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Entries</span>
-              <div className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
-                <ArrowUpDown size={16} />
-              </div>
+        <div className="space-y-2.5">
+          {/* Filter Status Bar in Dashboard */}
+          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200/80 dark:border-slate-800 text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              {isLedgerFiltered ? (
+                <>
+                  <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-200 border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                    <Filter size={11} />
+                    <span>Filtered Scope</span>
+                  </span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200">
+                    Showing metrics for {totalCount} matching movements
+                  </span>
+                  {itemTypeFilter && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                      Type: {itemTypeFilter}
+                    </span>
+                  )}
+                  {movementFilter && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Movement: {movementFilter}
+                    </span>
+                  )}
+                  {categoryFilter && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                      Category: {CATEGORY_LABELS[categoryFilter]?.label || categoryFilter}
+                    </span>
+                  )}
+                  {search.trim() && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-sky-50 text-sky-700 border border-sky-200">
+                      Search: &quot;{search}&quot;
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleResetFilters}
+                    className="text-[11px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 ml-1 cursor-pointer"
+                    title="Reset all ledger filters"
+                  >
+                    <RotateCcw size={11} />
+                    <span>Clear Filters</span>
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 uppercase tracking-wide">
+                    <LayoutGrid size={14} className="text-indigo-600 dark:text-indigo-400" />
+                    <span>Stock Ledger Executive Overview</span>
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    (All {totalCount} Movements Recorded)
+                  </span>
+                </div>
+              )}
             </div>
-            <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
-              {totalCount} <span className="text-xs font-semibold text-slate-500 font-sans">Movements</span>
-            </div>
-            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-              <span>Audit Log Coverage</span>
-              <span className="font-bold text-blue-600 dark:text-blue-400 font-mono">Store Ledger</span>
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowDashboard(false)}
+              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center gap-1 text-[11px] font-bold cursor-pointer shrink-0"
+              title="Hide Dashboard"
+            >
+              <span>Hide</span>
+              <ChevronUp size={12} />
+            </button>
           </div>
 
-          {/* Card 2: Net Inward Movement */}
-          <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-2xs relative overflow-hidden">
-            <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 mb-1.5">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Page Inward Qty</span>
-              <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
-                <ArrowDownLeft size={16} />
-              </div>
-            </div>
-            <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
-              +{totalInwardQty.toLocaleString()}
-            </div>
-            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-              <span>Receipts / Inwards</span>
-              <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">Stock In</span>
-            </div>
-          </div>
-
-          {/* Card 3: Net Outward Movement */}
-          <div className="bg-gradient-to-br from-rose-50/90 via-white to-slate-50 dark:from-rose-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-rose-100 dark:border-rose-900/40 shadow-2xs relative overflow-hidden">
-            <div className="flex items-center justify-between text-rose-600 dark:text-rose-400 mb-1.5">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Page Outward Qty</span>
-              <div className="w-8 h-8 rounded-xl bg-rose-100 dark:bg-rose-900/50 flex items-center justify-center">
-                <ArrowUpRight size={16} />
-              </div>
-            </div>
-            <div className="text-xl sm:text-2xl font-black text-rose-600 dark:text-rose-400 font-mono tracking-tight">
-              -{totalOutwardQty.toLocaleString()}
-            </div>
-            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-              <span>Issues & Dispatches</span>
-              <span className="font-bold text-rose-600 dark:text-rose-400 font-mono">Stock Out</span>
-            </div>
-          </div>
-
-          {/* Card 4: Unique Items & Export */}
-          <div className="bg-gradient-to-br from-purple-50/90 via-white to-slate-50 dark:from-purple-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-purple-100 dark:border-purple-900/40 shadow-2xs relative overflow-hidden flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between text-purple-600 dark:text-purple-400 mb-1.5">
-                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Unique SKUs & Export</span>
-                <div className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center">
-                  <Boxes size={16} />
+          {/* 4 Dynamic Metric Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            {/* Card 1: Total Entries */}
+            <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-2xs relative overflow-hidden">
+              <div className="flex items-center justify-between text-blue-600 dark:text-blue-400 mb-1.5">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Entries</span>
+                <div className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                  <ArrowUpDown size={16} />
                 </div>
               </div>
               <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
-                {uniqueItemsCount} <span className="text-xs font-semibold text-slate-500 font-sans">Items</span>
+                {totalCount} <span className="text-xs font-semibold text-slate-500 font-sans">Movements</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                <span>{isLedgerFiltered ? "Filtered Audit Records" : "Audit Log Coverage"}</span>
+                <span className="font-bold text-blue-600 dark:text-blue-400 font-mono">Store Ledger</span>
               </div>
             </div>
-            <div className="mt-2 flex items-center justify-between pt-1 border-t border-purple-100/60 dark:border-purple-900/40">
-              <span className="text-[11px] text-slate-500">Export Ledger</span>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={exportToExcel}
-                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
-                  title="Download Excel Spreadsheet"
-                >
-                  <Download size={12} />
-                  <span>Excel</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowDashboard(false)}
-                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer"
-                  title="Hide Dashboard"
-                >
-                  <span>Hide</span>
-                  <ChevronUp size={12} />
-                </button>
+
+            {/* Card 2: Net Inward Movement */}
+            <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-2xs relative overflow-hidden">
+              <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 mb-1.5">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  {isLedgerFiltered ? "Filtered Inward Qty" : "Total Inward Qty"}
+                </span>
+                <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
+                  <ArrowDownLeft size={16} />
+                </div>
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
+                +{displayInwardQty.toLocaleString()}
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                <span>Receipts / Inwards</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">Stock In</span>
+              </div>
+            </div>
+
+            {/* Card 3: Net Outward Movement */}
+            <div className="bg-gradient-to-br from-rose-50/90 via-white to-slate-50 dark:from-rose-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-rose-100 dark:border-rose-900/40 shadow-2xs relative overflow-hidden">
+              <div className="flex items-center justify-between text-rose-600 dark:text-rose-400 mb-1.5">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  {isLedgerFiltered ? "Filtered Outward Qty" : "Total Outward Qty"}
+                </span>
+                <div className="w-8 h-8 rounded-xl bg-rose-100 dark:bg-rose-900/50 flex items-center justify-center">
+                  <ArrowUpRight size={16} />
+                </div>
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-rose-600 dark:text-rose-400 font-mono tracking-tight">
+                -{displayOutwardQty.toLocaleString()}
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                <span>Issues & Dispatches</span>
+                <span className="font-bold text-rose-600 dark:text-rose-400 font-mono">Stock Out</span>
+              </div>
+            </div>
+
+            {/* Card 4: Unique Items & Export */}
+            <div className="bg-gradient-to-br from-purple-50/90 via-white to-slate-50 dark:from-purple-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-purple-100 dark:border-purple-900/40 shadow-2xs relative overflow-hidden flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-purple-600 dark:text-purple-400 mb-1.5">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Unique SKUs & Export</span>
+                  <div className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center">
+                    <Boxes size={16} />
+                  </div>
+                </div>
+                <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
+                  {displayUniqueItems} <span className="text-xs font-semibold text-slate-500 font-sans">Items</span>
+                </div>
+              </div>
+              <div className="mt-2 flex items-center justify-between pt-1 border-t border-purple-100/60 dark:border-purple-900/40">
+                <span className="text-[11px] text-slate-500">Export Ledger</span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={exportToExcel}
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
+                    title="Download Excel Spreadsheet"
+                  >
+                    <Download size={12} />
+                    <span>Excel</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDashboard(false)}
+                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer"
+                    title="Hide Dashboard"
+                  >
+                    <span>Hide</span>
+                    <ChevronUp size={12} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>

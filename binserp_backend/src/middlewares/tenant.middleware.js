@@ -1,5 +1,6 @@
 import { Company } from "../models/company/index.js";
 import { userSchema } from "../models/user/index.js";
+import { bomSchema, fgItemSchema } from "../models/store/index.js";
 import { getTenantConnection, getTenantModel } from "../db/tenant.js";
 
 /**
@@ -51,6 +52,8 @@ export const resolveTenant = async (req, res, next) => {
         // Pre-register common models that are referenced in other schemas (e.g. for populate)
         if (req.getModel) {
             req.getModel("User", userSchema);
+            req.getModel("BOM", bomSchema);
+            req.getModel("FGItem", fgItemSchema);
         }
 
         // Also attach company info for convenience

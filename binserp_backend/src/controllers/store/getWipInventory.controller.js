@@ -17,6 +17,7 @@ import {
 } from "../../models/store/index.js";
 import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
+import { userSchema } from "../../models/user/index.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -41,6 +42,7 @@ export const getWipInventory = async (req, res) => {
     // Register referenced models
     req.getModel("Vendor", vendorSchema);
     req.getModel("JobWorkSupplier", jobWorkSupplierSchema);
+    req.getModel("User", userSchema);
 
     const companyId = getCompanyId(req);
     const requestedType = (req.query.type || "rm").toLowerCase(); // 'rm', 'bo', 'fg', 'mrp-buckets', 'ledger'
@@ -92,7 +94,7 @@ export const getWipInventory = async (req, res) => {
       GRN.find({ company: companyId, type: { $in: ["inhouse", "fg"] }, status: { $in: ["Received", "Accepted"] } }).lean(),
       BOM.find({ company: companyId }).lean(),
       MRPPlan.find({ company: companyId }).lean(),
-      MaterialIssue.find({ company: companyId, status: "Issued" }).populate("issuedTo", "name userId department").sort({ date: -1 }).lean(),
+      MaterialIssue.find({ company: companyId, status: { $in: ["Issued", "issued", "Completed", "completed", "Approved", "approved"] } }).populate("issuedTo", "name userId department").sort({ date: -1 }).lean(),
       JobWorkChallan.find({ company: companyId, status: { $ne: "Cancelled" } }).populate("vendor").sort({ date: -1 }).lean(),
       StockTransaction.find({
         company: companyId,
@@ -192,6 +194,7 @@ export const getWipInventory = async (req, res) => {
           pendingWipQty: 0,
           pendingWipSecondaryQty: 0,
           lastMovementDate: item.updatedAt || item.createdAt || new Date(),
+          wipBatches: [],
           transactions: []
         });
       } else {
@@ -239,27 +242,42 @@ export const getWipInventory = async (req, res) => {
       }, type);
     });
 
-    // 3. Pre-populate MRP WIP Buckets Map
+    // 3. Pre-populate MRP WIP Buckets Map & Bidirectional Lookup Maps
+    const mrpPlanById = new Map();
+    const mrpPlanByNum = new Map();
     const mrpBucketMap = new Map();
+
     allMRPPlans.forEach(plan => {
+      if (plan._id) mrpPlanById.set(plan._id.toString(), plan);
       const mrpNum = plan.mrpNumber || "";
       const mrpKey = mrpNum.trim().toLowerCase();
-      if (mrpKey && !mrpBucketMap.has(mrpKey)) {
-        mrpBucketMap.set(mrpKey, {
-          mrpNumber: mrpNum,
-          mrpPlanId: plan._id,
-          customerName: plan.customerName || plan.remarks || "General Production",
-          originalStatus: plan.status || "Planned",
-          status: plan.status || "Planned",
-          planDate: plan.date || plan.createdAt,
-          lastMovementDate: plan.date || plan.createdAt,
-          totalRmIssued: 0,
-          totalBoIssued: 0,
-          totalFgIssued: 0,
-          totalFgProduced: 0,
-          itemsInWip: new Map(),
-          transactions: []
-        });
+      if (mrpKey) {
+        mrpPlanByNum.set(mrpKey, plan);
+        if (!mrpBucketMap.has(mrpKey)) {
+          const firstFg = (plan.fgItems && plan.fgItems[0]) || {};
+          mrpBucketMap.set(mrpKey, {
+            mrpNumber: mrpNum,
+            mrpPlanId: plan._id,
+            productName: firstFg.fgItemName || plan.remarks || "Finished Goods",
+            orderQuantity: Number(firstFg.quantity) || 0,
+            unit: firstFg.unit || "PCS",
+            salesOrderNumber: plan.customerPoNumber || firstFg.customerPoNumber || "",
+            customerName: plan.customerName || firstFg.customerName || "General Production",
+            originalStatus: plan.status || "Planned",
+            status: plan.status || "Planned",
+            planDate: plan.date || plan.createdAt,
+            lastMovementDate: plan.date || plan.createdAt,
+            totalIssuedQty: 0,
+            totalConsumedQty: 0,
+            pendingWipQty: 0,
+            totalRmIssued: 0,
+            totalBoIssued: 0,
+            totalFgIssued: 0,
+            totalFgProduced: 0,
+            itemsInWip: new Map(),
+            transactions: []
+          });
+        }
       }
     });
 
@@ -296,16 +314,32 @@ export const getWipInventory = async (req, res) => {
       if (issue.type === "consumable") return; // Consumables excluded from WIP
 
       const issueDept = issue.department || issue.issuedTo?.department || "Shop Floor Assembly";
-      const mrpNumber = issue.mrpNumber || "";
+      let mrpNumber = issue.mrpNumber || "";
+      if (!mrpNumber && issue.mrpPlan) {
+        const linkedPlan = mrpPlanById.get(issue.mrpPlan.toString());
+        if (linkedPlan && linkedPlan.mrpNumber) mrpNumber = linkedPlan.mrpNumber;
+      }
       const issueDate = issue.date || issue.createdAt;
       const docNo = issue.issueNumber || `ISS-${issue._id.toString().slice(-6)}`;
 
       (issue.items || []).forEach((item) => {
-        const itemTypeStr = (issue.type || item.itemType || '').toLowerCase();
+        const rawItemType = (item.itemType || item.type || '').toLowerCase();
+        const issueType = (issue.type || '').toLowerCase();
         let targetType = 'rm';
-        if (itemTypeStr === 'bo' || itemTypeStr === 'bought out' || (item.materialCode || '').toUpperCase().startsWith('BO-')) {
+        if (
+          rawItemType.includes('bought') || 
+          rawItemType === 'bo' || 
+          (item.materialCode || '').toUpperCase().startsWith('BO-') ||
+          (!rawItemType && (issueType === 'bo' || issueType === 'bought out'))
+        ) {
           targetType = 'bo';
-        } else if (itemTypeStr === 'fg' || itemTypeStr === 'inhouse' || itemTypeStr === 'component') {
+        } else if (
+          rawItemType.includes('finish') || 
+          rawItemType === 'fg' || 
+          rawItemType.includes('component') || 
+          rawItemType === 'inhouse' ||
+          (!rawItemType && (issueType === 'fg' || issueType === 'inhouse' || issueType === 'component'))
+        ) {
           targetType = 'fg';
         }
 
@@ -318,8 +352,13 @@ export const getWipInventory = async (req, res) => {
         const entry = findWipEntry(rawId, matName, matCode, targetType);
         if (entry) {
           entry.totalIssuedQty += qty;
-          entry.shopfloorWipQty += qty;
-          entry.pendingWipQty = entry.shopfloorWipQty + entry.jobWorkWipQty;
+          entry.wipBatches.push({
+            issueNumber: docNo,
+            mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
+            date: new Date(issueDate),
+            quantity: qty,
+            remainingQty: qty
+          });
 
           if (new Date(issueDate) > new Date(entry.lastMovementDate)) {
             entry.lastMovementDate = issueDate;
@@ -352,13 +391,23 @@ export const getWipInventory = async (req, res) => {
         if (mrpNumber) {
           const mrpKey = mrpNumber.trim().toLowerCase();
           if (!mrpBucketMap.has(mrpKey)) {
+            const linkedPlan = mrpPlanByNum.get(mrpKey);
+            const firstFg = (linkedPlan?.fgItems && linkedPlan.fgItems[0]) || {};
             mrpBucketMap.set(mrpKey, {
               mrpNumber: mrpNumber,
-              customerName: "Production Order",
-              originalStatus: "In Production",
+              mrpPlanId: linkedPlan?._id || issue.mrpPlan || undefined,
+              productName: firstFg.fgItemName || linkedPlan?.remarks || "Production Order",
+              orderQuantity: Number(firstFg.quantity) || 0,
+              unit: firstFg.unit || "PCS",
+              salesOrderNumber: linkedPlan?.customerPoNumber || firstFg.customerPoNumber || "",
+              customerName: linkedPlan?.customerName || firstFg.customerName || "Production Order",
+              originalStatus: linkedPlan?.status || "In Production",
               status: "In Production",
               planDate: issueDate,
               lastMovementDate: issueDate,
+              totalIssuedQty: 0,
+              totalConsumedQty: 0,
+              pendingWipQty: 0,
               totalRmIssued: 0,
               totalBoIssued: 0,
               totalFgIssued: 0,
@@ -369,6 +418,7 @@ export const getWipInventory = async (req, res) => {
           }
 
           const bucket = mrpBucketMap.get(mrpKey);
+          bucket.totalIssuedQty = (bucket.totalIssuedQty || 0) + qty;
           if (targetType === 'rm') bucket.totalRmIssued += qty;
           else if (targetType === 'bo') bucket.totalBoIssued += qty;
           else if (targetType === 'fg') bucket.totalFgIssued += qty;
@@ -409,7 +459,11 @@ export const getWipInventory = async (req, res) => {
       const vendorName = vendorObj.name || "Subcontractor";
       const challanDate = challan.date || challan.createdAt;
       const docNo = challan.challanNumber;
-      const mrpNumber = challan.mrpNumber || "";
+      let mrpNumber = challan.mrpNumber || "";
+      if (!mrpNumber && challan.mrpPlan) {
+        const linkedPlan = mrpPlanById.get(challan.mrpPlan.toString());
+        if (linkedPlan && linkedPlan.mrpNumber) mrpNumber = linkedPlan.mrpNumber;
+      }
       const rawJwType = (challan.jobWorkType || "store-conversion").toLowerCase().trim().replace(/[\s_]/g, "-");
       const isWipToWip = rawJwType === "wip-to-wip";
       const isStoreToWip = rawJwType === "store-to-wip";
@@ -484,11 +538,16 @@ export const getWipInventory = async (req, res) => {
           entry.jobWorkWipQty += netJobWorkPending;
 
           // For WIP-to-WIP or any FG/Component dispatched from Shopfloor WIP:
-          // Dispatched item is taken out from Shopfloor WIP
+          // Dispatched item is taken out from Shopfloor WIP batches FIFO
           if (isWipToWip || sentTargetType === "fg") {
-            entry.shopfloorWipQty = Math.max(0, entry.shopfloorWipQty - sentQty);
+            let toDeduct = sentQty;
+            for (const b of entry.wipBatches) {
+              if (toDeduct <= 0) break;
+              const take = Math.min(b.remainingQty, toDeduct);
+              b.remainingQty -= take;
+              toDeduct -= take;
+            }
           }
-          entry.pendingWipQty = entry.shopfloorWipQty + entry.jobWorkWipQty;
 
           if (new Date(challanDate) > new Date(entry.lastMovementDate)) {
             entry.lastMovementDate = challanDate;
@@ -516,6 +575,23 @@ export const getWipInventory = async (req, res) => {
             itemType: entry.itemType,
             categoryType: entry.categoryType
           });
+
+          // Link outward job work dispatch to MRP Bucket
+          if (mrpNumber) {
+            const cMrpKey = mrpNumber.trim().toLowerCase();
+            if (mrpBucketMap.has(cMrpKey)) {
+              const cBucket = mrpBucketMap.get(cMrpKey);
+              cBucket.transactions.push({
+                date: challanDate,
+                type: isWipToWip ? "Job Work Dispatch (WIP-to-WIP)" : (isStoreToWip ? "Job Work Dispatch (Store-to-WIP)" : "Job Work Dispatch (RM Conversion)"),
+                docNumber: docNo,
+                materialName: sentName,
+                itemType: sentTargetType,
+                qty: sentQty,
+                unit: unit
+              });
+            }
+          }
         }
 
         // For Store-to-WIP & WIP-to-WIP: QC-governed return back to Shopfloor WIP
@@ -531,8 +607,14 @@ export const getWipInventory = async (req, res) => {
 
             if (Array.isArray(challan.receiveHistory) && challan.receiveHistory.length > 0) {
               const matchingHist = challan.receiveHistory.filter(h => 
-                (ret.receivedItem && (String(h.returningItemId) === String(ret.receivedItem) || String(h.itemId) === String(ret.receivedItem))) ||
-                (h.itemName && h.itemName.toLowerCase() === retName.toLowerCase())
+                (ret.receivedItem && (
+                  String(h.masterItemId) === String(ret.receivedItem) ||
+                  String(h.returningItemId) === String(ret.receivedItem) || 
+                  String(h.itemId) === String(ret.receivedItem) ||
+                  (ret._id && String(h.returningItemId) === String(ret._id))
+                )) ||
+                (sentItem._id && String(h.itemId) === String(sentItem._id)) ||
+                (h.itemName && retName && h.itemName.trim().toLowerCase() === retName.trim().toLowerCase())
               );
 
               if (matchingHist.length > 0) {
@@ -540,16 +622,41 @@ export const getWipInventory = async (req, res) => {
                   const isQcActive = h.qcRequired !== false && challan.qcRequired !== false;
                   if (!isQcActive) {
                     // QC skipped: directly accepted into Shopfloor WIP
-                    fgEntry.shopfloorWipQty += Number(h.quantity || 0);
+                    const passed = Number(h.quantity || 0);
+                    if (passed > 0) {
+                      fgEntry.wipBatches.push({
+                        issueNumber: h.grnNumber || docNo,
+                        mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
+                        date: new Date(h.date || challanDate),
+                        quantity: passed,
+                        remainingQty: passed
+                      });
+                    }
                   } else {
                     // QC enabled:
                     if (h.qcStatus === "Passed" || h.qcStatus === "Accepted") {
                       const passed = Number(h.acceptedQuantity !== undefined ? h.acceptedQuantity : h.quantity) || 0;
-                      fgEntry.shopfloorWipQty += passed;
+                      if (passed > 0) {
+                        fgEntry.wipBatches.push({
+                          issueNumber: h.grnNumber || docNo,
+                          mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
+                          date: new Date(h.date || challanDate),
+                          quantity: passed,
+                          remainingQty: passed
+                        });
+                      }
                     } else if (h.qcStatus === "Partial" || h.qcStatus === "Conditional") {
                       const passed = Number(h.acceptedQuantity || 0);
                       const inQc = Math.max(0, Number(h.quantity || 0) - passed - Number(h.rejectedQuantity || 0));
-                      fgEntry.shopfloorWipQty += passed;
+                      if (passed > 0) {
+                        fgEntry.wipBatches.push({
+                          issueNumber: h.grnNumber || docNo,
+                          mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
+                          date: new Date(h.date || challanDate),
+                          quantity: passed,
+                          remainingQty: passed
+                        });
+                      }
                       fgEntry.pendingQcQty = (fgEntry.pendingQcQty || 0) + inQc;
                     } else if (h.qcStatus === "Pending" || !h.qcStatus) {
                       // Awaiting QC: held in pendingQcQty (not added to shopfloorWipQty yet)
@@ -559,10 +666,28 @@ export const getWipInventory = async (req, res) => {
                   }
                 });
               } else {
-                fgEntry.shopfloorWipQty += Number(ret.quantityReceived) || 0;
+                const recQty = Number(ret.quantityReceived) || 0;
+                if (recQty > 0) {
+                  fgEntry.wipBatches.push({
+                    issueNumber: docNo,
+                    mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
+                    date: new Date(challanDate),
+                    quantity: recQty,
+                    remainingQty: recQty
+                  });
+                }
               }
             } else {
-              fgEntry.shopfloorWipQty += Number(ret.quantityReceived) || 0;
+              const recQty = Number(ret.quantityReceived) || 0;
+              if (recQty > 0) {
+                fgEntry.wipBatches.push({
+                  issueNumber: docNo,
+                  mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
+                  date: new Date(challanDate),
+                  quantity: recQty,
+                  remainingQty: recQty
+                });
+              }
             }
           });
         }
@@ -572,7 +697,7 @@ export const getWipInventory = async (req, res) => {
           challan.receiveHistory.forEach((hist) => {
             const histItemName = hist.itemName || sentName;
             const histTargetType = (jwType === "store-conversion") ? sentTargetType : "fg";
-            const histEntry = findWipEntry(hist.returningItemId || hist.itemId, histItemName, null, histTargetType);
+            const histEntry = findWipEntry(hist.masterItemId || hist.returningItemId || hist.itemId, histItemName, null, histTargetType);
 
             const rejCount = Number(hist.rejectedQuantity || (hist.qcStatus === "Rejected" ? hist.quantity : 0)) || 0;
             const isRejection = hist.qcStatus === "Rejected" || rejCount > 0;
@@ -608,6 +733,23 @@ export const getWipInventory = async (req, res) => {
               itemType: histTargetType,
               categoryType: histEntry?.categoryType || "FG / Component"
             });
+
+            // Link inward job work return to MRP Bucket
+            if (mrpNumber) {
+              const cMrpKey = mrpNumber.trim().toLowerCase();
+              if (mrpBucketMap.has(cMrpKey)) {
+                const cBucket = mrpBucketMap.get(cMrpKey);
+                cBucket.transactions.push({
+                  date: hist.date || challanDate,
+                  type: isRejection ? `Job Work QC Rejection` : "Job Work Return Received",
+                  docNumber: hist.grnNumber || docNo,
+                  materialName: histItemName,
+                  itemType: histTargetType,
+                  qty: isRejection ? rejCount : (acceptedCount || Number(hist.quantity) || 0),
+                  unit: unit
+                });
+              }
+            }
           });
         }
       });
@@ -634,9 +776,14 @@ export const getWipInventory = async (req, res) => {
       const entry = findWipEntry(adj.item, adjName, null, targetType);
       if (entry) {
         if (isConvertInward) {
-          // Inward component addition into Shopfloor WIP
-          entry.shopfloorWipQty += adjQty;
-          entry.pendingWipQty = entry.shopfloorWipQty + entry.jobWorkWipQty;
+          // Inward component addition into Shopfloor WIP batches
+          entry.wipBatches.push({
+            issueNumber: adj.referenceDocNumber || "CONV-IN",
+            mrpNumber: "",
+            date: new Date(adjDate),
+            quantity: adjQty,
+            remainingQty: adjQty
+          });
 
           if (new Date(adjDate) > new Date(entry.lastMovementDate)) {
             entry.lastMovementDate = adjDate;
@@ -663,9 +810,14 @@ export const getWipInventory = async (req, res) => {
             categoryType: entry.categoryType
           });
         } else {
-          // Outward reduction from Shopfloor WIP (Return, Scrap, or RM Conversion)
-          entry.shopfloorWipQty = Math.max(0, entry.shopfloorWipQty - adjQty);
-          entry.pendingWipQty = entry.shopfloorWipQty + entry.jobWorkWipQty;
+          // Outward reduction from Shopfloor WIP batches (Return, Scrap, or RM Conversion)
+          let toDeduct = adjQty;
+          for (const b of entry.wipBatches) {
+            if (toDeduct <= 0) break;
+            const take = Math.min(b.remainingQty, toDeduct);
+            b.remainingQty -= take;
+            toDeduct -= take;
+          }
 
           if (isReturn) {
             entry.totalReturnedQty += adjQty;
@@ -732,9 +884,17 @@ export const getWipInventory = async (req, res) => {
       }))
     ];
 
+    // Sort production receipts chronologically so older receipts consume older batches first
+    allProductionReceipts.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
     allProductionReceipts.forEach(grn => {
       const grnDate = grn.date;
-      const mrpNum = grn.mrpNumber || "";
+      let receiptMrpNum = grn.mrpNumber || "";
+      if (!receiptMrpNum && grn.mrpPlan) {
+        const linkedPlan = mrpPlanById.get(grn.mrpPlan.toString());
+        if (linkedPlan && linkedPlan.mrpNumber) receiptMrpNum = linkedPlan.mrpNumber;
+      }
+      const targetMrpKey = receiptMrpNum ? receiptMrpNum.trim().toLowerCase() : "";
 
       (grn.items || []).forEach(fgRec => {
         const fgName = fgRec.itemName || "";
@@ -754,7 +914,7 @@ export const getWipInventory = async (req, res) => {
         // 2. Resolve from MRP Plan nestedMaterials if linked
         const mrpPlan = allMRPPlans.find(p => 
           (grn.mrpPlan && p._id.toString() === grn.mrpPlan.toString()) ||
-          (mrpNum && p.mrpNumber && p.mrpNumber.trim().toLowerCase() === mrpNum.trim().toLowerCase())
+          (receiptMrpNum && p.mrpNumber && p.mrpNumber.trim().toLowerCase() === targetMrpKey)
         );
         const matchedMrpFg = mrpPlan?.fgItems?.find(f => 
           (normFgItem && f.fgItem?.toString() === normFgItem) ||
@@ -817,18 +977,36 @@ export const getWipInventory = async (req, res) => {
             const rawId = bomMat.material;
             const ingEntry = findWipEntry(rawId, rawMatName, rawMatCode, ingType);
             if (ingEntry) {
-              const consumed = Math.min(ingEntry.shopfloorWipQty, consumedRequired);
+              let needed = consumedRequired;
+              for (const batch of ingEntry.wipBatches) {
+                if (needed <= 0) break;
+                if (batch.remainingQty <= 0) continue;
+
+                // Scoped batch consumption:
+                if (targetMrpKey) {
+                  // If GRN is for a specific MRP order, only consume from that MRP order's batches!
+                  if (batch.mrpNumber !== targetMrpKey) continue;
+                } else {
+                  // If GRN is general, only consume from general batches issued on or before GRN date!
+                  if (batch.mrpNumber) continue;
+                  const endOfGrnDay = new Date(grnDate).setHours(23, 59, 59, 999);
+                  if (batch.date.getTime() > endOfGrnDay) continue;
+                }
+
+                const take = Math.min(batch.remainingQty, needed);
+                batch.remainingQty -= take;
+                needed -= take;
+              }
+
+              const consumed = consumedRequired - needed;
               if (consumed > 0) {
                 ingEntry.totalFgConsumedQty += consumed;
-                ingEntry.totalReturnedQty += consumed;
-                ingEntry.shopfloorWipQty = Math.max(0, ingEntry.shopfloorWipQty - consumed);
-                ingEntry.pendingWipQty = ingEntry.shopfloorWipQty + ingEntry.jobWorkWipQty;
 
                 const tx = {
                   date: grnDate,
                   type: ingEntry.itemType === 'fg' ? "WIP-to-WIP Subassembly Consumed" : "FG GRN Receipt (WIP Consumed)",
                   docNumber: grn.grnNumber,
-                  mrpNumber: mrpNum,
+                  mrpNumber: receiptMrpNum,
                   sentQty: 0,
                   receivedQty: consumed,
                   unit: ingEntry.unit,
@@ -851,11 +1029,12 @@ export const getWipInventory = async (req, res) => {
         }
 
         // Deduct from MRP WIP Bucket
-        if (mrpNum) {
-          const mrpKey = mrpNum.trim().toLowerCase();
+        if (receiptMrpNum) {
+          const mrpKey = receiptMrpNum.trim().toLowerCase();
           if (mrpBucketMap.has(mrpKey)) {
             const bucket = mrpBucketMap.get(mrpKey);
             bucket.totalFgProduced += fgQty;
+            bucket.totalConsumedQty = (bucket.totalConsumedQty || 0) + fgQty;
 
             bucket.itemsInWip.forEach(itemRecord => {
               let consumedRatio = 1;
@@ -886,6 +1065,7 @@ export const getWipInventory = async (req, res) => {
 
     // 7. Format Resulting Items
     masterWipMap.forEach(item => {
+      item.shopfloorWipQty = item.wipBatches.reduce((sum, b) => sum + (b.remainingQty || 0), 0);
       item.pendingWipQty = (item.shopfloorWipQty || 0) + (item.jobWorkWipQty || 0);
       const conv = Number(item.conversionFactor) || 1;
       if (item.hasSecondaryUnit && item.secondaryUnit) {
@@ -912,18 +1092,24 @@ export const getWipInventory = async (req, res) => {
 
     const mrpBuckets = Array.from(mrpBucketMap.values()).map(b => {
       const items = Array.from(b.itemsInWip.values());
+      const totalIssuedQty = b.totalIssuedQty || (b.totalRmIssued + b.totalBoIssued + b.totalFgIssued);
+      const totalConsumedQty = b.totalConsumedQty || b.totalFgProduced || 0;
+      const pendingWipQty = Math.max(0, totalIssuedQty - totalConsumedQty);
       const netPendingWipCount = items.reduce((sum, it) => sum + (it.pendingQty || 0), 0);
-      const isCompleted = b.originalStatus === "Completed" || (items.length > 0 && netPendingWipCount <= 0);
+      const isCompleted = b.originalStatus === "Completed" || (items.length > 0 && netPendingWipCount <= 0 && totalIssuedQty > 0);
 
       let finalStatus = b.originalStatus || "Planned";
       if (isCompleted) {
         finalStatus = "Completed";
-      } else if (items.length > 0 || b.totalRmIssued > 0 || b.totalBoIssued > 0 || b.totalFgIssued > 0) {
+      } else if (items.length > 0 || totalIssuedQty > 0) {
         finalStatus = "In Production";
       }
 
       return {
         ...b,
+        totalIssuedQty,
+        totalConsumedQty,
+        pendingWipQty,
         items,
         netPendingWipCount,
         status: finalStatus
@@ -949,6 +1135,7 @@ export const getWipInventory = async (req, res) => {
       wipItems: allItems,
       mrpBuckets: mrpBuckets,
       ledger: allTransactionsLedger,
+      transactionsLedger: allTransactionsLedger,
       summary
     });
   } catch (error) {
