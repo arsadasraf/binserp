@@ -3,6 +3,7 @@ import { companyInfoSchema } from "../../models/store/index.js";
 import { incomingPOSchema, deliveryChallanSchema } from "../../models/sales/index.js";
 import { validateSalesItemsStock, deductSalesItemsStock, reverseSalesItemsStock } from "./salesStockHelper.js";
 import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
+import { computeProfessionalTotalWithRoundOff } from "../../utils/roundingHelper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -194,6 +195,33 @@ export const updateDC = async (req, res) => {
     existingDC.vehicleNumber = req.body.vehicleNumber !== undefined ? req.body.vehicleNumber : existingDC.vehicleNumber;
     existingDC.packagingType = req.body.packagingType !== undefined ? req.body.packagingType : existingDC.packagingType;
     existingDC.packagingCharges = Number(req.body.packagingCharges !== undefined ? req.body.packagingCharges : existingDC.packagingCharges || 0);
+
+    const isRoundOffEnabled = req.body.isRoundOff !== undefined 
+      ? Boolean(req.body.isRoundOff) 
+      : (existingDC.isRoundOff !== undefined ? existingDC.isRoundOff : true);
+    const roundingMode = req.body.roundingMode || existingDC.roundingMode || (isRoundOffEnabled ? 'nearest' : 'none');
+    const itemsList = existingDC.items || [];
+    const subtotal = req.body.subtotal !== undefined 
+      ? Number(req.body.subtotal || 0) 
+      : itemsList.reduce((sum, it) => sum + (Number(it.amount) || (Number(it.quantity || 0) * Number(it.rate || 0))), 0);
+
+    const rounding = computeProfessionalTotalWithRoundOff({
+      subtotal,
+      totalTax: 0,
+      transportationCharges: existingDC.transportationCharges,
+      packagingCharges: existingDC.packagingCharges,
+      discount: existingDC.discount,
+      isRoundOffEnabled,
+      roundingMode
+    });
+
+    existingDC.subtotal = subtotal;
+    existingDC.preRoundTotal = rounding.preRoundTotal;
+    existingDC.isRoundOff = rounding.isRoundOffEnabled;
+    existingDC.roundOff = rounding.roundOff;
+    existingDC.roundingMode = rounding.roundingMode;
+    existingDC.totalAmount = rounding.roundedGrandTotal;
+
     if (req.body.bankDetails) existingDC.bankDetails = req.body.bankDetails;
     if (req.body.termsAndConditions !== undefined) existingDC.termsAndConditions = req.body.termsAndConditions;
     existingDC.otherDetails = req.body.otherDetails !== undefined ? req.body.otherDetails : existingDC.otherDetails;

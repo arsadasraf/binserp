@@ -135,6 +135,23 @@ export const grnSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    preRoundTotal: {
+      type: Number,
+      default: 0,
+    },
+    isRoundOff: {
+      type: Boolean,
+      default: true,
+    },
+    roundOff: {
+      type: Number,
+      default: 0,
+    },
+    roundingMode: {
+      type: String,
+      enum: ["nearest", "floor", "ceil", "none"],
+      default: "nearest",
+    },
     totalAmount: {
       type: Number,
       default: 0,

@@ -116,7 +116,10 @@ export default function InvoicePreviewModal({
     const packagingCharges = Number(invoice.packagingCharges || 0);
     const taxAmount = invoice.taxAmount || items.reduce((acc: number, i: any) => acc + ((Number(i.quantity || 0) * Number(i.rate || 0)) * (Number(i.taxRate || 0) / 100)), 0);
     const discount = Number(invoice.discount || 0);
-    const grandTotal = invoice.totalAmount || (subtotal + taxAmount + transportCharges + packagingCharges - discount);
+    const rawExactTotal = parseFloat((subtotal + taxAmount + transportCharges + packagingCharges - discount).toFixed(2));
+    const isRoundOffEnabled = invoice.isRoundOff !== undefined ? Boolean(invoice.isRoundOff) : true;
+    const roundOff = invoice.roundOff !== undefined ? Number(invoice.roundOff) : (isRoundOffEnabled ? parseFloat((Math.round(rawExactTotal) - rawExactTotal).toFixed(2)) : 0);
+    const grandTotal = invoice.totalAmount || (isRoundOffEnabled ? Math.round(rawExactTotal) : rawExactTotal);
 
     const handleDownloadPDF = () => {
         download4CopyPDF("invoice", { doc: invoice, companyInfo, copyType: selectedCopyType });
@@ -550,7 +553,7 @@ export default function InvoicePreviewModal({
 
                             {/* Financial Totals Summary Bar */}
                             <div className="bg-slate-50 dark:bg-slate-800/80 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs">
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
                                     <div>
                                         <span className="text-slate-400 block text-[10px]">Subtotal:</span>
                                         <span className="font-mono font-bold text-sm text-slate-900 dark:text-white">
@@ -570,6 +573,14 @@ export default function InvoicePreviewModal({
                                             <span className="text-slate-400 block text-[10px]">GST / Tax Amount:</span>
                                             <span className="font-mono font-bold text-sm text-emerald-600">
                                                 +{getCurrencySymbol(invoice.currency)}{taxAmount.toFixed(2)}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {roundOff !== 0 && (
+                                        <div>
+                                            <span className="text-slate-400 block text-[10px]">Round Off:</span>
+                                            <span className="font-mono font-bold text-sm text-amber-600 dark:text-amber-400">
+                                                {roundOff > 0 ? `+${roundOff.toFixed(2)}` : roundOff.toFixed(2)}
                                             </span>
                                         </div>
                                     )}
@@ -775,10 +786,28 @@ export default function InvoicePreviewModal({
                                                     <span className="font-mono">+{transportCharges.toFixed(2)}</span>
                                                 </div>
                                             )}
+                                            {packagingCharges > 0 && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-slate-600">Packaging:</span>
+                                                    <span className="font-mono">+{packagingCharges.toFixed(2)}</span>
+                                                </div>
+                                            )}
+                                            {discount > 0 && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-slate-600">Discount:</span>
+                                                    <span className="font-mono">-{discount.toFixed(2)}</span>
+                                                </div>
+                                            )}
                                             {taxAmount > 0 && (
                                                 <div className="flex justify-between">
                                                     <span className="text-slate-600">Tax Amount (GST):</span>
                                                     <span className="font-mono">+{taxAmount.toFixed(2)}</span>
+                                                </div>
+                                            )}
+                                            {roundOff !== 0 && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-slate-600">Round Off:</span>
+                                                    <span className="font-mono font-medium">{roundOff > 0 ? `+${roundOff.toFixed(2)}` : roundOff.toFixed(2)}</span>
                                                 </div>
                                             )}
                                             <div className="flex justify-between pt-1 border-t border-slate-900 font-extrabold text-xs">

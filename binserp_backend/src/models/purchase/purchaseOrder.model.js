@@ -75,6 +75,10 @@ export const purchaseOrderSchema = new mongoose.Schema(
     igstAmount: { type: Number, default: 0 },
     subtotal: Number,
     totalTax: Number,
+    preRoundTotal: Number,
+    isRoundOff: { type: Boolean, default: true },
+    roundOff: { type: Number, default: 0 },
+    roundingMode: { type: String, enum: ["nearest", "floor", "ceil", "none"], default: "nearest" },
     grandTotal: Number,
     remarks: String,
     items: [

@@ -21,6 +21,7 @@ import {
 import { BillingModalProps, RmBoItem, CompanyInfo } from "@/src/features/store/types/store.types";
 import SearchableSelect, { SearchableOption } from "../SearchableSelect";
 import { getCurrencySymbol, CURRENCY_OPTIONS, convertToINR } from "@/src/utils/currencyHelper";
+import { computeProfessionalTotalWithRoundOff, RoundingMode } from "@/src/utils/roundingHelper";
 import { apiRequest } from "@/src/lib/api";
 
 interface ExtendedBillingModalProps extends BillingModalProps {
@@ -88,6 +89,8 @@ export default function BillingModal({
     const [otherDetails, setOtherDetails] = useState("");
     const [status, setStatus] = useState("Draft");
     const [globalTaxRate, setGlobalTaxRate] = useState(18);
+    const [isRoundOffEnabled, setIsRoundOffEnabled] = useState<boolean>(true);
+    const [roundingMode, setRoundingMode] = useState<RoundingMode>('nearest');
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
     // Purchase Mode 3-Way Matching State (Unbilled GRNs & Job Work Returns)
@@ -595,6 +598,12 @@ export default function BillingModal({
             setPackagingType((initialData as any).packagingType || "Standard Packaging");
             setPackagingCharges((initialData as any).packagingCharges || 0);
             setDiscount(initialData.discount || 0);
+            if ((initialData as any).isRoundOff !== undefined) {
+                setIsRoundOffEnabled(Boolean((initialData as any).isRoundOff));
+            }
+            if ((initialData as any).roundingMode) {
+                setRoundingMode((initialData as any).roundingMode);
+            }
             setOtherDetails(initialData.otherDetails || (initialData as any).remarks || "");
             setStatus(initialData.status || "Draft");
 
@@ -797,9 +806,20 @@ export default function BillingModal({
         return items.reduce((acc, curr) => acc + (curr.taxAmount || 0), 0);
     }, [items]);
 
-    const totalAmount = useMemo(() => {
-        return Math.max(0, subtotal + totalTaxAmount + Number(transportationCharges || 0) + Number(packagingCharges || 0) - Number(discount || 0));
-    }, [subtotal, totalTaxAmount, transportationCharges, packagingCharges, discount]);
+    const rounding = useMemo(() => {
+        return computeProfessionalTotalWithRoundOff({
+            subtotal,
+            totalTax: totalTaxAmount,
+            transportationCharges: Number(transportationCharges || 0),
+            packagingCharges: Number(packagingCharges || 0),
+            discount: Number(discount || 0),
+            isRoundOffEnabled,
+            roundingMode,
+            currency
+        });
+    }, [subtotal, totalTaxAmount, transportationCharges, packagingCharges, discount, isRoundOffEnabled, roundingMode, currency]);
+
+    const totalAmount = rounding.roundedGrandTotal;
 
     // Live INR Conversion computation
     const inrConversion = useMemo(() => {
@@ -878,7 +898,11 @@ export default function BillingModal({
             subtotal,
             taxAmount: totalTaxAmount,
             discount,
-            totalAmount,
+            preRoundTotal: rounding.preRoundTotal,
+            isRoundOff: isRoundOffEnabled,
+            roundOff: rounding.roundOff,
+            roundingMode,
+            totalAmount: rounding.roundedGrandTotal,
             otherDetails,
             bankDetails,
             termsAndConditions,
@@ -1747,6 +1771,23 @@ export default function BillingModal({
                                     </span>
                                 </div>
                             )}
+
+                            <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
+                                <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 dark:text-slate-300">
+                                    <input
+                                        type="checkbox"
+                                        checked={isRoundOffEnabled}
+                                        onChange={(e) => setIsRoundOffEnabled(e.target.checked)}
+                                        className="w-3.5 h-3.5 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                    <span>Round Off Grand Total</span>
+                                </label>
+                                {isRoundOffEnabled && rounding.roundOff !== 0 && (
+                                    <span className={`font-mono font-bold ${rounding.roundOff >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                                        {rounding.roundOff > 0 ? '+' : ''}{getCurrencySymbol(currency)} {rounding.roundOff.toFixed(2)}
+                                    </span>
+                                )}
+                            </div>
 
                             <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between text-sm font-extrabold text-slate-900 dark:text-white">
                                 <span>Total Payable:</span>

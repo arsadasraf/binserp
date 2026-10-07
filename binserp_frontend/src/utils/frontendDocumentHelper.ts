@@ -372,7 +372,10 @@ function drawRupeeSymbol(pdf: jsPDF, x: number, y: number, size: number = 2.4) {
       const packagingCharges = Number(doc.packagingCharges || 0);
       const discount = Number(doc.discount || 0);
       const taxAmount = doc.taxAmount || (doc.items || []).reduce((acc: number, i: any) => acc + ((Number(i.quantity || 0) * Number(i.rate || 0)) * (Number(i.taxRate || 0) / 100)), 0);
-      const grandTotal = doc.totalAmount || (subtotal + taxAmount + transportCharges + packagingCharges - discount);
+      const rawExactTotal = parseFloat((subtotal + taxAmount + transportCharges + packagingCharges - discount).toFixed(2));
+      const isRoundOffEnabled = doc.isRoundOff !== undefined ? Boolean(doc.isRoundOff) : true;
+      const roundOff = doc.roundOff !== undefined ? Number(doc.roundOff) : (isRoundOffEnabled ? parseFloat((Math.round(rawExactTotal) - rawExactTotal).toFixed(2)) : 0);
+      const grandTotal = doc.totalAmount || (isRoundOffEnabled ? Math.round(rawExactTotal) : rawExactTotal);
 
       // Left Column: Bank Info & Remarks
       pdf.setFontSize(8);
@@ -444,6 +447,11 @@ function drawRupeeSymbol(pdf: jsPDF, x: number, y: number, size: number = 2.4) {
       if (isInvoice || taxAmount > 0) {
         calcY += 4.5;
         drawValWithCurrency("Tax Amount (GST):", taxAmount);
+      }
+
+      if (isRoundOffEnabled && Math.abs(roundOff) > 0.001) {
+        calcY += 4.5;
+        drawValWithCurrency("Round Off:", Math.abs(roundOff), roundOff >= 0 ? "+ " : "- ");
       }
 
       calcY += 6;
@@ -586,7 +594,10 @@ export const downloadDCExcelDocument = (dc: any, companyInfo?: any) => {
     const packagingCharges = Number(dc.packagingCharges || 0);
     const discount = Number(dc.discount || 0);
     const taxAmount = dc.taxAmount || items.reduce((acc: number, i: any) => acc + ((Number(i.quantity || 0) * Number(i.rate || 0)) * (Number(i.taxRate || 0) / 100)), 0);
-    const grandTotal = dc.totalAmount || (subtotal + taxAmount + transportCharges + packagingCharges - discount);
+    const rawExactTotal = parseFloat((subtotal + taxAmount + transportCharges + packagingCharges - discount).toFixed(2));
+    const isRoundOffEnabled = dc.isRoundOff !== undefined ? Boolean(dc.isRoundOff) : true;
+    const roundOff = dc.roundOff !== undefined ? Number(dc.roundOff) : (isRoundOffEnabled ? parseFloat((Math.round(rawExactTotal) - rawExactTotal).toFixed(2)) : 0);
+    const grandTotal = dc.totalAmount || (isRoundOffEnabled ? Math.round(rawExactTotal) : rawExactTotal);
 
     const merges: XLSX.Range[] = [];
     const sheetData: any[][] = [];
@@ -718,6 +729,13 @@ export const downloadDCExcelDocument = (dc: any, companyInfo?: any) => {
 
     if (taxAmount > 0) {
       sheetData.push(['', '', '', '', `Tax Amount GST (${dcCurrCode})`, '', taxAmount, '']);
+      merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
+      merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
+      rowIdx++;
+    }
+
+    if (roundOff !== 0) {
+      sheetData.push(['', '', '', '', `Round Off (${dcCurrCode})`, '', roundOff, '']);
       merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
       merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
       rowIdx++;

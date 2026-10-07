@@ -2121,7 +2121,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     <h5 className="font-extrabold text-purple-700 dark:text-purple-300 uppercase text-[10px]">PAYABLE BREAKDOWN</h5>
                                     
                                     {(() => {
-                                        const subtotalVal = Number(selectedPoPreview.subtotal || 0) || (selectedPoPreview.items || []).reduce((s: number, it: any) => s + (Number(it.quantity || 0) * Number(it.rate || 0)), 0);
+                                        const subtotalVal = Number(selectedPoPreview.subtotal || 0) || (selectedPoPreview.items || []).reduce((s: number, it: any) => s + (Number(it.amount != null ? it.amount : (Number(it.quantity || 0) * Number(it.rate || 0)))), 0);
                                         const transportVal = Number(selectedPoPreview.transportCharge || 0);
                                         const packingVal = Number(selectedPoPreview.packingCharge || 0);
                                         const logisticsVal = transportVal + packingVal;

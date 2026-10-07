@@ -1602,13 +1602,19 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
     
     // Taxable base amount (composite supply including logistics)
     const taxableAmount = itemsSubtotal + logisticsCharges;
-    const totalTaxAmount = po.totalTax != null ? Number(po.totalTax) : (taxableAmount * (overallTaxRate / 100));
+    const computedTax = taxableAmount * (overallTaxRate / 100);
+    const totalTaxAmount = (po.totalTax != null && Math.abs(Number(po.totalTax) - computedTax) <= 1)
+        ? Number(po.totalTax)
+        : parseFloat(computedTax.toFixed(2));
     
-    const cgstVal = isInterState ? 0 : (po.cgstAmount != null ? Number(po.cgstAmount) : (totalTaxAmount / 2));
-    const sgstVal = isInterState ? 0 : (po.sgstAmount != null ? Number(po.sgstAmount) : (totalTaxAmount / 2));
-    const igstVal = isInterState ? (po.igstAmount != null ? Number(po.igstAmount) : totalTaxAmount) : 0;
+    const cgstVal = isInterState ? 0 : (po.cgstAmount != null && Math.abs(Number(po.cgstAmount) - (totalTaxAmount / 2)) <= 1 ? Number(po.cgstAmount) : parseFloat((totalTaxAmount / 2).toFixed(2)));
+    const sgstVal = isInterState ? 0 : (po.sgstAmount != null && Math.abs(Number(po.sgstAmount) - (totalTaxAmount / 2)) <= 1 ? Number(po.sgstAmount) : parseFloat((totalTaxAmount / 2).toFixed(2)));
+    const igstVal = isInterState ? (po.igstAmount != null && Math.abs(Number(po.igstAmount) - totalTaxAmount) <= 1 ? Number(po.igstAmount) : totalTaxAmount) : 0;
 
-    const grandTotal = taxableAmount + totalTaxAmount;
+    const rawGrandTotal = parseFloat((taxableAmount + totalTaxAmount).toFixed(2));
+    const isRoundOffEnabled = po.isRoundOff !== undefined ? Boolean(po.isRoundOff) : true;
+    const roundOff = po.roundOff !== undefined ? Number(po.roundOff) : (isRoundOffEnabled ? parseFloat((Math.round(rawGrandTotal) - rawGrandTotal).toFixed(2)) : 0);
+    const grandTotal = isRoundOffEnabled ? (po.grandTotal != null ? Number(po.grandTotal) : Math.round(rawGrandTotal)) : (po.grandTotal != null ? Number(po.grandTotal) : rawGrandTotal);
 
     let cleanedRemarks = po.remarks || '';
     if (cleanedRemarks && resolvedMrp) {
@@ -1780,6 +1786,12 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                             <td style="color: #475569; font-weight: bold;">Total GST Tax (${overallTaxRate}%):</td>
                             <td style="font-weight: bold; text-align: right;">₹${totalTaxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
+                        ${(isRoundOffEnabled && Math.abs(roundOff) > 0.001) ? `
+                        <tr>
+                            <td style="color: #475569; font-weight: bold;">Round Off:</td>
+                            <td style="font-weight: bold; text-align: right; color: ${roundOff >= 0 ? '#16a34a' : '#d97706'};">${roundOff > 0 ? '+' : ''}₹${roundOff.toFixed(2)}</td>
+                        </tr>
+                        ` : ''}
                         <tr style="border-top: 2px solid #6b21a8; font-size: 12px;">
                             <td style="font-weight: 900; color: #581c87; padding-top: 6px;">Grand Total PO Value:</td>
                             <td style="font-weight: 900; text-align: right; color: #581c87; padding-top: 6px;">₹${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>

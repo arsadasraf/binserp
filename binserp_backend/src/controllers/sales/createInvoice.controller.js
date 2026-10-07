@@ -3,6 +3,7 @@ import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialReq
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { validateSalesItemsStock, deductSalesItemsStock } from "./salesStockHelper.js";
+import { computeProfessionalTotalWithRoundOff } from "../../utils/roundingHelper.js";
 
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -175,9 +176,32 @@ export const createInvoice = async (req, res) => {
       }
     }
 
+    const isRoundOffEnabled = req.body.isRoundOff !== undefined ? Boolean(req.body.isRoundOff) : true;
+    const roundingMode = req.body.roundingMode || (isRoundOffEnabled ? 'nearest' : 'none');
+    const subtotal = Number(req.body.subtotal || 0);
+    const taxAmount = Number(req.body.taxAmount || 0);
+    const transport = Number(req.body.transportationCharges || 0);
+    const packaging = Number(req.body.packagingCharges || 0);
+    const discount = Number(req.body.discount || 0);
+
+    const rounding = computeProfessionalTotalWithRoundOff({
+      subtotal,
+      totalTax: taxAmount,
+      transportationCharges: transport,
+      packagingCharges: packaging,
+      discount,
+      isRoundOffEnabled,
+      roundingMode
+    });
+
     const invoice = await Invoice.create({
       company: companyId,
       ...req.body,
+      preRoundTotal: rounding.preRoundTotal,
+      isRoundOff: rounding.isRoundOffEnabled,
+      roundOff: rounding.roundOff,
+      roundingMode: rounding.roundingMode,
+      totalAmount: rounding.roundedGrandTotal,
       bankDetails: finalBankDetails,
       termsAndConditions: finalTermsAndConditions,
       exchangeRateToINR: Number(req.body.exchangeRateToINR || 1),

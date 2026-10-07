@@ -9,6 +9,7 @@ import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 import { ItemNameAndDescription, formatItemSelectLabel, getItemDescription } from '@/src/utils/itemDisplayHelper';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
+import { computeDualUomLinePricing, syncQuantities, switchRateUnit } from '@/src/utils/dualUomHelper';
 
 interface IncomingQuotationTabProps {
     token: string | null;
@@ -187,20 +188,28 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
             const hasSecondaryUnit = Boolean(it.hasSecondaryUnit ?? foundMaster?.hasSecondaryUnit);
             const secondaryUnit = it.secondaryUnit || foundMaster?.secondaryUnit || '';
             const conversionFactor = Number(it.conversionFactor ?? foundMaster?.conversionFactor ?? 1);
-            const secondaryQuantity = Number(it.secondaryQuantity || 0) || (hasSecondaryUnit && conversionFactor > 0 ? Number((qty / conversionFactor).toFixed(4)) : 0);
+            const secQty = hasSecondaryUnit
+                ? (it.secondaryQuantity !== undefined && !isNaN(Number(it.secondaryQuantity)) && Number(it.secondaryQuantity) > 0
+                    ? Number(it.secondaryQuantity)
+                    : syncQuantities('quantity', qty, conversionFactor).secondaryQuantity)
+                : undefined;
             const rateUnit = (it.rateUnit === 'secondary' && secondaryUnit) ? 'secondary' : 'primary';
 
             const rate = Number(it.targetPrice ?? it.unitPrice ?? foundMaster?.standardCost ?? foundMaster?.rate ?? 0);
             const taxPct = 18;
-            const lineSub = rateUnit === 'secondary' && hasSecondaryUnit ? (secondaryQuantity * rate) : (qty * rate);
-            const total = lineSub * (1 + taxPct / 100);
 
-            const primaryRate = rateUnit === 'secondary' && hasSecondaryUnit
-                ? (qty > 0 ? Number((lineSub / qty).toFixed(4)) : (conversionFactor > 0 ? Number((rate / conversionFactor).toFixed(4)) : rate))
-                : rate;
-            const secondaryRate = rateUnit === 'secondary' && hasSecondaryUnit
-                ? rate
-                : (secondaryQuantity > 0 ? Number((lineSub / secondaryQuantity).toFixed(4)) : Number((rate * conversionFactor).toFixed(4)));
+            const pricing = computeDualUomLinePricing({
+                quantity: qty,
+                unit,
+                hasSecondaryUnit,
+                secondaryUnit,
+                conversionFactor,
+                secondaryQuantity: secQty,
+                rateUnit,
+                rate,
+            });
+
+            const total = parseFloat((pricing.amount * (1 + taxPct / 100)).toFixed(2));
 
             return {
                 fromRfq: true,
@@ -208,16 +217,16 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                 materialName: name,
                 description: desc,
                 itemType,
-                quantity: qty,
+                quantity: pricing.quantity,
                 unit,
                 hasSecondaryUnit,
                 secondaryUnit,
                 conversionFactor,
-                secondaryQuantity,
-                rateUnit,
-                primaryRate,
-                secondaryRate,
-                unitPrice: rate,
+                secondaryQuantity: pricing.secondaryQuantity,
+                rateUnit: pricing.rateUnit,
+                primaryRate: pricing.primaryRate,
+                secondaryRate: pricing.secondaryRate,
+                unitPrice: pricing.rate,
                 tax: taxPct,
                 total,
                 remarks: it.remarks || ''
@@ -407,20 +416,30 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
     const handleItemPriceChange = (index: number, field: string, value: any) => {
         const updatedItems = [...newQuote.items];
         const curItem = { ...updatedItems[index] };
+        const conv = Number(curItem.conversionFactor) || 1;
+        const hasSec = Boolean(curItem.hasSecondaryUnit);
 
         if (field === 'rateUnit') {
-            curItem.rateUnit = value;
+            const targetUnit = (value === 'secondary' && hasSec) ? 'secondary' : 'primary';
+            curItem.rateUnit = targetUnit;
+            curItem.unitPrice = switchRateUnit(
+                targetUnit,
+                Number(curItem.unitPrice) || 0,
+                curItem.primaryRate,
+                curItem.secondaryRate,
+                conv
+            );
         } else if (field === 'quantity') {
-            const num = parseFloat(value) || 0;
-            curItem.quantity = num;
-            if (curItem.hasSecondaryUnit && Number(curItem.conversionFactor) > 0) {
-                curItem.secondaryQuantity = Number((num / Number(curItem.conversionFactor)).toFixed(4));
+            const synced = syncQuantities('quantity', parseFloat(value) || 0, conv);
+            curItem.quantity = synced.quantity;
+            if (hasSec) {
+                curItem.secondaryQuantity = synced.secondaryQuantity;
             }
         } else if (field === 'secondaryQuantity') {
-            const num = parseFloat(value) || 0;
-            curItem.secondaryQuantity = num;
-            if (curItem.hasSecondaryUnit && Number(curItem.conversionFactor) > 0) {
-                curItem.quantity = Number((num * Number(curItem.conversionFactor)).toFixed(4));
+            const synced = syncQuantities('secondaryQuantity', parseFloat(value) || 0, conv);
+            curItem.secondaryQuantity = synced.secondaryQuantity;
+            if (hasSec) {
+                curItem.quantity = synced.quantity;
             }
         } else if (field === 'unitPrice' || field === 'tax') {
             curItem[field] = parseFloat(value) || 0;
@@ -428,45 +447,52 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
             curItem[field] = value;
         }
 
-        const qty = Number(curItem.quantity) || 0;
-        const secQty = Number(curItem.secondaryQuantity) || 0;
-        const rate = Number(curItem.unitPrice) || 0;
+        const pricing = computeDualUomLinePricing({
+            quantity: Number(curItem.quantity) || 0,
+            unit: curItem.unit || 'PCS',
+            hasSecondaryUnit: hasSec,
+            secondaryUnit: curItem.secondaryUnit || '',
+            conversionFactor: conv,
+            secondaryQuantity: hasSec ? Number(curItem.secondaryQuantity) : undefined,
+            rateUnit: curItem.rateUnit,
+            rate: Number(curItem.unitPrice) || 0,
+        });
+
         const taxPct = Number(curItem.tax) || 0;
-        const conv = Number(curItem.conversionFactor) || 1;
-        const isSec = curItem.rateUnit === 'secondary' && Boolean(curItem.hasSecondaryUnit);
-
-        const lineSub = isSec ? (secQty * rate) : (qty * rate);
-        const lineTax = lineSub * (taxPct / 100);
-        curItem.total = lineSub + lineTax;
-
-        if (isSec) {
-            curItem.secondaryRate = rate;
-            curItem.primaryRate = qty > 0 ? Number((lineSub / qty).toFixed(4)) : (conv > 0 ? Number((rate / conv).toFixed(4)) : rate);
-        } else {
-            curItem.primaryRate = rate;
-            curItem.secondaryRate = secQty > 0 ? Number((lineSub / secQty).toFixed(4)) : Number((rate * conv).toFixed(4));
-        }
+        curItem.quantity = pricing.quantity;
+        curItem.secondaryQuantity = pricing.secondaryQuantity;
+        curItem.rateUnit = pricing.rateUnit;
+        curItem.primaryRate = pricing.primaryRate;
+        curItem.secondaryRate = pricing.secondaryRate;
+        curItem.unitPrice = pricing.rate;
+        curItem.total = parseFloat((pricing.amount * (1 + taxPct / 100)).toFixed(2));
 
         updatedItems[index] = curItem;
 
         let sub = 0;
         let tax = 0;
         updatedItems.forEach((it: any) => {
-            const q = Number(it.quantity) || 0;
-            const sq = Number(it.secondaryQuantity) || 0;
-            const r = Number(it.unitPrice) || 0;
-            const lSub = it.rateUnit === 'secondary' && it.hasSecondaryUnit ? (sq * r) : (q * r);
-            const lTax = lSub * ((Number(it.tax) || 0) / 100);
-            sub += lSub;
+            const lPricing = computeDualUomLinePricing({
+                quantity: Number(it.quantity) || 0,
+                unit: it.unit || 'PCS',
+                hasSecondaryUnit: Boolean(it.hasSecondaryUnit),
+                secondaryUnit: it.secondaryUnit || '',
+                conversionFactor: Number(it.conversionFactor) || 1,
+                secondaryQuantity: it.hasSecondaryUnit ? Number(it.secondaryQuantity) : undefined,
+                rateUnit: it.rateUnit,
+                rate: Number(it.unitPrice) || 0,
+            });
+            const lTax = lPricing.amount * ((Number(it.tax) || 0) / 100);
+            sub += lPricing.amount;
             tax += lTax;
         });
 
         setNewQuote(prev => ({
             ...prev,
             items: updatedItems,
-            subtotal: sub,
-            totalTax: tax,
-            grandTotal: sub + tax
+            subtotal: parseFloat(sub.toFixed(2)),
+            totalTax: parseFloat(tax.toFixed(2)),
+            grandTotal: parseFloat((sub + tax).toFixed(2))
         }));
     };
 

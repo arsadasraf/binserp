@@ -117,7 +117,10 @@ export default function DCPreviewModal({
     const transportCharges = Number(dc.transportationCharges || dc.freightCharges || 0);
     const packagingCharges = Number(dc.packagingCharges || 0);
     const discount = Number(dc.discount || 0);
-    const grandTotal = dc.totalAmount || Math.max(0, subtotal + transportCharges + packagingCharges - discount);
+    const rawExactTotal = parseFloat((subtotal + transportCharges + packagingCharges - discount).toFixed(2));
+    const isRoundOffEnabled = dc.isRoundOff !== undefined ? Boolean(dc.isRoundOff) : true;
+    const roundOff = dc.roundOff !== undefined ? Number(dc.roundOff) : (isRoundOffEnabled ? parseFloat((Math.round(rawExactTotal) - rawExactTotal).toFixed(2)) : 0);
+    const grandTotal = dc.totalAmount || (isRoundOffEnabled ? Math.round(rawExactTotal) : rawExactTotal);
 
     const handleCopy = (text: string, fieldName: string) => {
         if (!text || text === '-') return;
@@ -531,6 +534,11 @@ export default function DCPreviewModal({
                                     {transportCharges > 0 && <div className="text-slate-500">Freight: <strong className="font-mono text-slate-900 dark:text-white">+ {getCurrencySymbol(dc.currency)} {transportCharges.toFixed(2)}</strong></div>}
                                     {packagingCharges > 0 && <div className="text-slate-500">Packaging: <strong className="font-mono text-slate-900 dark:text-white">+ {getCurrencySymbol(dc.currency)} {packagingCharges.toFixed(2)}</strong></div>}
                                     {discount > 0 && <div className="text-emerald-600">Discount: <strong className="font-mono">- {getCurrencySymbol(dc.currency)} {discount.toFixed(2)}</strong></div>}
+                                    {isRoundOffEnabled && Math.abs(roundOff) > 0.001 && (
+                                        <div className={roundOff >= 0 ? "text-emerald-600" : "text-amber-600"}>
+                                            Round Off: <strong className="font-mono">{roundOff > 0 ? "+" : ""}{getCurrencySymbol(dc.currency)} {roundOff.toFixed(2)}</strong>
+                                        </div>
+                                    )}
                                     <div className="text-sm font-extrabold text-blue-600 dark:text-blue-400 pt-1 border-t border-slate-200 dark:border-slate-700">
                                         Total Value: <span className="font-mono">{getCurrencySymbol(dc.currency)} {grandTotal.toFixed(2)}</span>
                                     </div>
@@ -644,6 +652,12 @@ export default function DCPreviewModal({
                                             <tr className="border-t border-black text-emerald-800">
                                                 <td colSpan={6} className="border border-black p-1 text-right">Discount:</td>
                                                 <td className="border border-black p-1 text-right font-mono">- {discount.toFixed(2)}</td>
+                                            </tr>
+                                        )}
+                                        {isRoundOffEnabled && Math.abs(roundOff) > 0.001 && (
+                                            <tr className="border-t border-black">
+                                                <td colSpan={6} className="border border-black p-1 text-right">Round Off:</td>
+                                                <td className="border border-black p-1 text-right font-mono">{roundOff > 0 ? '+' : ''}{roundOff.toFixed(2)}</td>
                                             </tr>
                                         )}
                                         <tr className="border-t-2 border-black font-black text-sm bg-slate-50">

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { X, ShoppingCart, Plus, Trash2, CheckCircle2, Building2, Calendar, FileText } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
+import { computeDualUomLinePricing, syncQuantities, switchRateUnit, computePOTaxAndGrandTotals } from "@/src/utils/dualUomHelper";
 
 interface PoGenerationModalProps {
   isOpen: boolean;
@@ -28,6 +29,8 @@ export default function PoGenerationModal({
   const [remarks, setRemarks] = useState("");
   const [status, setStatus] = useState("Released");
   const [items, setItems] = useState<any[]>([]);
+  const [isRoundOffEnabled, setIsRoundOffEnabled] = useState<boolean>(true);
+  const [roundingMode, setRoundingMode] = useState<'nearest' | 'floor' | 'ceil' | 'none'>('nearest');
 
   useEffect(() => {
     if (isOpen && quotation) {
@@ -50,16 +53,8 @@ export default function PoGenerationModal({
         const convFactor = Number(it.conversionFactor) || 1;
         const secQty = hasSec ? (Number(it.secondaryQuantity) || (qty * convFactor)) : undefined;
         const rateUnit = (it.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
-        const primaryRate = Number(it.primaryRate) || (rateUnit === 'primary' ? rate : (qty > 0 && secQty ? (secQty * rate) / qty : (convFactor > 0 ? rate / convFactor : rate)));
-        const secondaryRate = Number(it.secondaryRate) || (rateUnit === 'secondary' ? rate : (qty > 0 && secQty ? (qty * rate) / secQty : (convFactor > 0 ? rate * convFactor : rate)));
-        const lineSubtotal = (rateUnit === 'secondary' && hasSec && secQty) ? (secQty * rate) : (qty * rate);
-        const taxPct = Number(it.tax) || 18;
-        const lineTotal = lineSubtotal * (1 + taxPct / 100);
 
-        return {
-          materialId: it.materialId || it.material,
-          materialName: it.materialName || 'Material Item',
-          description: it.description || '',
+        const pricing = computeDualUomLinePricing({
           quantity: qty,
           unit: it.unit || it.uom || 'PCS',
           hasSecondaryUnit: hasSec,
@@ -67,12 +62,30 @@ export default function PoGenerationModal({
           conversionFactor: convFactor,
           secondaryQuantity: secQty,
           rateUnit,
-          primaryRate,
-          secondaryRate,
           rate,
+        });
+
+        const taxPct = Number(it.tax) || 18;
+        const lineTotal = parseFloat((pricing.amount * (1 + taxPct / 100)).toFixed(2));
+
+        return {
+          materialId: it.materialId || it.material,
+          materialName: it.materialName || 'Material Item',
+          description: it.description || '',
+          quantity: pricing.quantity,
+          unit: it.unit || it.uom || 'PCS',
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: secUnit,
+          conversionFactor: convFactor,
+          secondaryQuantity: pricing.secondaryQuantity,
+          rateUnit: pricing.rateUnit,
+          selectedUnit: pricing.selectedUnit,
+          primaryRate: pricing.primaryRate,
+          secondaryRate: pricing.secondaryRate,
+          rate: pricing.rate,
           tax: taxPct,
-          amount: lineSubtotal,
-          subtotal: lineSubtotal,
+          amount: pricing.amount,
+          subtotal: pricing.amount,
           total: lineTotal
         };
       });
@@ -109,79 +122,53 @@ export default function PoGenerationModal({
 
     if (field === 'rateUnit') {
       const targetRateUnit = (value === 'secondary' && hasSec) ? 'secondary' : 'primary';
-      const prevRateUnit = updated[index].rateUnit || 'primary';
       current.rateUnit = targetRateUnit;
-
-      if (targetRateUnit === 'secondary' && prevRateUnit === 'primary') {
-        if (current.secondaryRate && current.secondaryRate > 0) {
-          current.rate = current.secondaryRate;
-        } else if (convFactor > 0 && current.rate > 0) {
-          current.rate = parseFloat((current.rate / convFactor).toFixed(2));
-        }
-      } else if (targetRateUnit === 'primary' && prevRateUnit === 'secondary') {
-        if (current.primaryRate && current.primaryRate > 0) {
-          current.rate = current.primaryRate;
-        } else if (convFactor > 0 && current.rate > 0) {
-          current.rate = parseFloat((current.rate * convFactor).toFixed(2));
-        }
-      }
+      current.rate = switchRateUnit(
+        targetRateUnit,
+        current.rate,
+        current.primaryRate,
+        current.secondaryRate,
+        convFactor
+      );
     } else if (field === 'quantity') {
-      const qtyVal = Number(value) || 0;
-      current.quantity = qtyVal;
-      if (hasSec && convFactor > 0) {
-        current.secondaryQuantity = parseFloat((qtyVal * convFactor).toFixed(3));
+      const synced = syncQuantities('quantity', value, convFactor);
+      current.quantity = synced.quantity;
+      if (hasSec) {
+        current.secondaryQuantity = synced.secondaryQuantity;
       }
     } else if (field === 'secondaryQuantity') {
-      const secVal = Number(value) || 0;
-      current.secondaryQuantity = secVal;
-      if (hasSec && convFactor > 0) {
-        current.quantity = parseFloat((secVal / convFactor).toFixed(3));
-      }
-    }
-
-    const qty = Number(current.quantity) || 0;
-    const secQty = Number(current.secondaryQuantity) || 0;
-    const rate = Number(current.rate) || 0;
-    const rateUnit = (current.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
-    const tax = Number(current.tax) || 0;
-
-    let primaryRate = Number(current.primaryRate || 0);
-    let secondaryRate = Number(current.secondaryRate || 0);
-    let lineSubtotal = 0;
-
-    if (rateUnit === 'secondary' && hasSec) {
-      const activeQty = secQty > 0 ? secQty : (convFactor > 0 ? qty * convFactor : qty);
-      lineSubtotal = parseFloat((activeQty * rate).toFixed(2));
-      secondaryRate = rate;
-      if (qty > 0 && activeQty > 0) {
-        primaryRate = parseFloat(((activeQty * rate) / qty).toFixed(3));
-      } else if (convFactor > 0) {
-        primaryRate = parseFloat((rate / convFactor).toFixed(3));
-      } else {
-        primaryRate = rate;
+      const synced = syncQuantities('secondaryQuantity', value, convFactor);
+      current.secondaryQuantity = synced.secondaryQuantity;
+      if (hasSec) {
+        current.quantity = synced.quantity;
       }
     } else {
-      lineSubtotal = parseFloat((qty * rate).toFixed(2));
-      primaryRate = rate;
-      const activeQty = secQty > 0 ? secQty : (convFactor > 0 ? qty * convFactor : qty);
-      if (hasSec) {
-        if (qty > 0 && activeQty > 0) {
-          secondaryRate = parseFloat(((qty * rate) / activeQty).toFixed(3));
-        } else if (convFactor > 0) {
-          secondaryRate = parseFloat((rate * convFactor).toFixed(3));
-        } else {
-          secondaryRate = rate;
-        }
-      }
+      (current as any)[field] = value;
     }
 
-    current.rateUnit = rateUnit;
-    current.selectedUnit = (rateUnit === 'secondary' && hasSec) ? current.secondaryUnit : current.unit;
-    current.primaryRate = primaryRate;
-    current.secondaryRate = secondaryRate;
-    current.subtotal = lineSubtotal;
-    current.amount = lineSubtotal;
-    current.total = parseFloat((lineSubtotal * (1 + tax / 100)).toFixed(2));
+    const pricing = computeDualUomLinePricing({
+      quantity: current.quantity,
+      unit: current.unit,
+      hasSecondaryUnit: hasSec,
+      secondaryUnit: current.secondaryUnit,
+      conversionFactor: convFactor,
+      secondaryQuantity: current.secondaryQuantity,
+      rateUnit: current.rateUnit,
+      rate: current.rate,
+    });
+
+    const tax = Number(current.tax) || 0;
+
+    current.quantity = pricing.quantity;
+    current.secondaryQuantity = pricing.secondaryQuantity;
+    current.rateUnit = pricing.rateUnit;
+    current.selectedUnit = pricing.selectedUnit;
+    current.primaryRate = pricing.primaryRate;
+    current.secondaryRate = pricing.secondaryRate;
+    current.rate = pricing.rate;
+    current.subtotal = pricing.amount;
+    current.amount = pricing.amount;
+    current.total = parseFloat((pricing.amount * (1 + tax / 100)).toFixed(2));
 
     updated[index] = current;
     setItems(updated);
@@ -214,9 +201,18 @@ export default function PoGenerationModal({
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const subtotal = items.reduce((acc, item) => acc + (Number(item.subtotal || ((Number(item.quantity) || 0) * (Number(item.rate) || 0)))), 0);
-  const totalTax = items.reduce((acc, item) => acc + ((Number(item.subtotal || ((Number(item.quantity) || 0) * (Number(item.rate) || 0)))) * ((Number(item.tax) || 0) / 100)), 0);
-  const grandTotal = subtotal + totalTax;
+  const poTotals = computePOTaxAndGrandTotals(
+    items,
+    0,
+    0,
+    items.length > 0 ? Number(items[0].tax || 18) : 18,
+    false,
+    isRoundOffEnabled,
+    roundingMode
+  );
+  const subtotal = poTotals.subtotal;
+  const totalTax = poTotals.totalTax;
+  const grandTotal = poTotals.grandTotal;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,29 +227,46 @@ export default function PoGenerationModal({
       rfqNumber: quotation.rfqNumber || '',
       status,
       remarks,
+      preRoundTotal: poTotals.preRoundTotal,
+      isRoundOff: isRoundOffEnabled,
+      roundOff: poTotals.roundOff,
+      roundingMode,
       items: items.map(it => {
-        const itemSubtotal = Number(it.subtotal != null ? it.subtotal : (Number(it.quantity || 1) * Number(it.rate || 0)));
+        const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+        const convFactor = Number(it.conversionFactor) || 1;
+        const pricing = computeDualUomLinePricing({
+          quantity: Number(it.quantity) || 1,
+          unit: it.unit || 'PCS',
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: it.secondaryUnit || '',
+          conversionFactor: convFactor,
+          secondaryQuantity: hasSec ? Number(it.secondaryQuantity) : undefined,
+          rateUnit: it.rateUnit,
+          rate: Number(it.rate) || 0,
+        });
+
         const itemTaxRate = Number(it.tax) || 0;
-        const itemTaxAmount = parseFloat(((itemSubtotal * itemTaxRate) / 100).toFixed(2));
+        const itemTaxAmount = parseFloat(((pricing.amount * itemTaxRate) / 100).toFixed(2));
+
         return {
           material: it.materialId || undefined,
           materialName: it.materialName,
           description: it.description || '',
-          quantity: Number(it.quantity) || 1,
+          quantity: pricing.quantity,
           unit: it.unit || 'PCS',
-          hasSecondaryUnit: Boolean(it.hasSecondaryUnit && it.secondaryUnit),
+          hasSecondaryUnit: hasSec,
           secondaryUnit: it.secondaryUnit || '',
-          conversionFactor: Number(it.conversionFactor) || 1,
-          secondaryQuantity: it.hasSecondaryUnit ? Number(it.secondaryQuantity || 0) : undefined,
-          rateUnit: (it.rateUnit === 'secondary' && it.hasSecondaryUnit) ? 'secondary' : 'primary',
-          selectedUnit: (it.rateUnit === 'secondary' && it.hasSecondaryUnit) ? it.secondaryUnit : it.unit,
-          primaryRate: Number(it.primaryRate) || Number(it.rate),
-          secondaryRate: Number(it.secondaryRate) || Number(it.rate),
-          rate: Number(it.rate) || 0,
+          conversionFactor: convFactor,
+          secondaryQuantity: pricing.secondaryQuantity,
+          rateUnit: pricing.rateUnit,
+          selectedUnit: pricing.selectedUnit,
+          primaryRate: pricing.primaryRate,
+          secondaryRate: pricing.secondaryRate,
+          rate: pricing.rate,
           taxRate: itemTaxRate,
           taxAmount: itemTaxAmount,
-          subtotal: itemSubtotal,
-          amount: itemSubtotal
+          subtotal: pricing.amount,
+          amount: pricing.amount
         };
       }),
       subtotal: parseFloat(subtotal.toFixed(2)),
@@ -562,6 +575,22 @@ export default function PoGenerationModal({
             <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1.5 text-xs">
               <div className="flex justify-between text-slate-600 dark:text-slate-400"><span>Items Subtotal:</span> <span className="font-bold">₹{subtotal.toLocaleString()}</span></div>
               <div className="flex justify-between text-slate-600 dark:text-slate-400"><span>Estimated GST Tax:</span> <span className="font-bold">₹{totalTax.toLocaleString()}</span></div>
+              <div className="flex items-center justify-between pt-1 border-t border-slate-200 dark:border-slate-700">
+                <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={isRoundOffEnabled}
+                    onChange={(e) => setIsRoundOffEnabled(e.target.checked)}
+                    className="w-3.5 h-3.5 text-cyan-600 rounded focus:ring-cyan-500 cursor-pointer"
+                  />
+                  <span>Round Off Total</span>
+                </label>
+                {isRoundOffEnabled && poTotals.roundOff !== 0 && (
+                  <span className={`font-mono font-bold ${poTotals.roundOff >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                    {poTotals.roundOff > 0 ? '+' : ''}₹{poTotals.roundOff.toFixed(2)}
+                  </span>
+                )}
+              </div>
               <div className="flex justify-between text-sm font-extrabold text-slate-900 dark:text-white pt-1 border-t border-slate-200 dark:border-slate-700">
                 <span>Grand Total PO Value:</span> <span className="text-cyan-600 font-mono">₹{grandTotal.toLocaleString()}</span>
               </div>

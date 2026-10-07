@@ -3,6 +3,7 @@ import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialReq
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { validateSalesItemsStock, deductSalesItemsStock } from "./salesStockHelper.js";
+import { computeProfessionalTotalWithRoundOff } from "../../utils/roundingHelper.js";
 
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -134,6 +135,26 @@ export const createDC = async (req, res) => {
       }
     }
 
+    const isRoundOffEnabled = req.body.isRoundOff !== undefined ? Boolean(req.body.isRoundOff) : true;
+    const roundingMode = req.body.roundingMode || (isRoundOffEnabled ? 'nearest' : 'none');
+    const itemsList = Array.isArray(items) ? items : [];
+    const subtotal = req.body.subtotal !== undefined 
+      ? Number(req.body.subtotal || 0) 
+      : itemsList.reduce((sum, it) => sum + (Number(it.amount) || (Number(it.quantity || 0) * Number(it.rate || 0))), 0);
+    const transport = Number(req.body.transportationCharges || 0);
+    const packaging = Number(req.body.packagingCharges || 0);
+    const discount = Number(req.body.discount || 0);
+
+    const rounding = computeProfessionalTotalWithRoundOff({
+      subtotal,
+      totalTax: 0,
+      transportationCharges: transport,
+      packagingCharges: packaging,
+      discount,
+      isRoundOffEnabled,
+      roundingMode
+    });
+
     const dc = await DeliveryChallan.create({
       company: companyId,
       dcNumber,
@@ -146,12 +167,18 @@ export const createDC = async (req, res) => {
       currency: dcCurrency,
       exchangeRateToINR: Number(req.body.exchangeRateToINR || 1),
       items,
+      subtotal: rounding.subtotal !== undefined ? rounding.subtotal : subtotal,
       discount: req.body.discount,
       transportationType: req.body.transportationType,
       transportationCharges: req.body.transportationCharges,
       vehicleNumber: req.body.vehicleNumber,
       packagingType: req.body.packagingType,
       packagingCharges: req.body.packagingCharges,
+      preRoundTotal: rounding.preRoundTotal,
+      isRoundOff: rounding.isRoundOffEnabled,
+      roundOff: rounding.roundOff,
+      roundingMode: rounding.roundingMode,
+      totalAmount: rounding.roundedGrandTotal,
       bankDetails: dcBankDetails,
       termsAndConditions: dcTerms,
       otherDetails: req.body.otherDetails,

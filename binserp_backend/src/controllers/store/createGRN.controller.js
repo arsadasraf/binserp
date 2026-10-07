@@ -19,6 +19,7 @@ import { componentSchema } from "../../models/ppc/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
 import { syncGRNToPurchaseBill } from "../../utils/purchaseBillSync.helper.js";
+import { computeProfessionalTotalWithRoundOff } from "../../utils/roundingHelper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -387,9 +388,20 @@ export const createGRN = async (req, res) => {
       : (computedSubtotal * parsedTaxRate) / 100;
     const parsedTransportationCharges = Math.max(0, parseFloat(transportationCharges) || 0);
     const parsedPackingCharges = Math.max(0, parseFloat(packingCharges) || 0);
-    const computedTotalAmount = totalAmount !== undefined && totalAmount !== null && !isNaN(parseFloat(totalAmount))
-      ? parseFloat(totalAmount)
-      : computedSubtotal + computedTaxAmount + parsedTransportationCharges + parsedPackingCharges;
+
+    const isRoundOffEnabled = req.body.isRoundOff !== undefined 
+      ? (req.body.isRoundOff === 'true' || req.body.isRoundOff === true) 
+      : (req.body.isRoundOffEnabled !== undefined ? (req.body.isRoundOffEnabled === 'true' || req.body.isRoundOffEnabled === true) : true);
+    const roundingMode = req.body.roundingMode || (isRoundOffEnabled ? 'nearest' : 'none');
+
+    const rounding = computeProfessionalTotalWithRoundOff({
+      subtotal: computedSubtotal,
+      totalTax: computedTaxAmount,
+      transportationCharges: parsedTransportationCharges,
+      packagingCharges: parsedPackingCharges,
+      isRoundOffEnabled,
+      roundingMode
+    });
 
     // Check for duplicate grnNumber and auto-suffix if needed
     const existingGRN = await GRN.findOne({ company: companyId, grnNumber });
@@ -420,7 +432,11 @@ export const createGRN = async (req, res) => {
       taxAmount: computedTaxAmount,
       transportationCharges: parsedTransportationCharges,
       packingCharges: parsedPackingCharges,
-      totalAmount: computedTotalAmount,
+      preRoundTotal: rounding.preRoundTotal,
+      isRoundOff: rounding.isRoundOffEnabled,
+      roundOff: rounding.roundOff,
+      roundingMode: rounding.roundingMode,
+      totalAmount: rounding.roundedGrandTotal,
       pdf: pdfUrl,
       photos: photoUrls,
       receivedBy: userId,

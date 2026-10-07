@@ -5,6 +5,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 import { syncMRPPlanFinancials } from "./mrpPlan.controller.js";
+import { computeDualUomLinePricing, computePOTaxAndGrandTotals } from "../../utils/dualUomHelper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -93,37 +94,16 @@ export const createPO = asyncHandler(async (req, res) => {
       const rateUnit = (item.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
       const enteredRate = Number(item.rate || 0);
 
-      let primaryRate = Number(item.primaryRate || 0);
-      let secondaryRate = Number(item.secondaryRate || 0);
-      let computedAmount = Number(item.amount);
-
-      if (rateUnit === 'secondary' && hasSec && (secQty > 0 || convFactor > 0)) {
-        const activeQty = secQty > 0 ? secQty : (qty * convFactor);
-        secondaryRate = enteredRate;
-        if (qty > 0 && activeQty > 0) {
-          primaryRate = Math.round(((activeQty * enteredRate) / qty) * 1000) / 1000;
-        } else if (convFactor > 0) {
-          primaryRate = Math.round((enteredRate / convFactor) * 1000) / 1000;
-        } else {
-          primaryRate = enteredRate;
-        }
-        computedAmount = parseFloat((activeQty * enteredRate).toFixed(2));
-      } else {
-        primaryRate = enteredRate;
-        const activeQty = secQty > 0 ? secQty : (qty * convFactor);
-        if (hasSec) {
-          if (qty > 0 && activeQty > 0) {
-            secondaryRate = Math.round(((qty * enteredRate) / activeQty) * 1000) / 1000;
-          } else if (convFactor > 0) {
-            secondaryRate = Math.round((enteredRate * convFactor) * 1000) / 1000;
-          } else {
-            secondaryRate = enteredRate;
-          }
-        }
-        computedAmount = parseFloat((qty * enteredRate).toFixed(2));
-      }
-
-      const selectedUnit = (rateUnit === 'secondary' && hasSec) ? secUnit : (item.unit ? item.unit.trim() : 'KG');
+      const pricing = computeDualUomLinePricing({
+        quantity: qty,
+        unit: item.unit ? item.unit.trim() : 'KG',
+        hasSecondaryUnit: hasSec,
+        secondaryUnit: secUnit,
+        conversionFactor: convFactor,
+        secondaryQuantity: secQty,
+        rateUnit: rateUnit,
+        rate: enteredRate,
+      });
 
       return {
         ...item,
@@ -134,18 +114,18 @@ export const createPO = asyncHandler(async (req, res) => {
         description: item.description || item.itemDescription || item.remarks || item.specifications || description || '',
         hsnCode: item.hsnCode || item.hsn || '',
         pieceCount: Number(item.pieceCount || item.count || 0),
-        quantity: qty,
+        quantity: pricing.quantity,
         unit: item.unit ? item.unit.trim() : 'KG',
         hasSecondaryUnit: hasSec,
         secondaryUnit: secUnit,
         conversionFactor: convFactor,
-        secondaryQuantity: secQty,
-        rateUnit,
-        selectedUnit,
-        primaryRate,
-        secondaryRate,
-        rate: enteredRate,
-        amount: computedAmount,
+        secondaryQuantity: pricing.secondaryQuantity,
+        rateUnit: pricing.rateUnit,
+        selectedUnit: pricing.selectedUnit,
+        primaryRate: pricing.primaryRate,
+        secondaryRate: pricing.secondaryRate,
+        rate: pricing.rate,
+        amount: pricing.amount,
         receivedQuantity: recQty,
         pendingQuantity: pendQty,
         itemStatus: iStatus,
@@ -153,18 +133,37 @@ export const createPO = asyncHandler(async (req, res) => {
       };
     });
 
-    const subtotal = poData.items.reduce((sum, item) => sum + (Number(item.amount) || (Number(item.quantity || 0) * Number(item.rate || 0))), 0);
     const transportCharge = Number(req.body.transportCharge || 0);
     const packingCharge = Number(req.body.packingCharge || 0);
-    const taxableAmount = subtotal + transportCharge + packingCharge;
     const taxRate = req.body.taxRate != null ? Number(req.body.taxRate) : 18;
-    const totalTax = taxableAmount * (taxRate / 100);
-    const grandTotal = taxableAmount + totalTax;
+    const isInterState = req.body.gstType === 'inter_state';
 
-    poData.subtotal = subtotal;
-    poData.totalTax = totalTax;
-    poData.grandTotal = req.body.grandTotal || grandTotal;
-    poData.totalAmount = req.body.grandTotal || req.body.totalAmount || grandTotal;
+    const isRoundOffEnabled = req.body.isRoundOff !== undefined 
+      ? Boolean(req.body.isRoundOff) 
+      : (req.body.isRoundOffEnabled !== undefined ? Boolean(req.body.isRoundOffEnabled) : true);
+    const roundingMode = req.body.roundingMode || 'nearest';
+
+    const totals = computePOTaxAndGrandTotals(
+      poData.items,
+      transportCharge,
+      packingCharge,
+      taxRate,
+      isInterState,
+      isRoundOffEnabled,
+      roundingMode
+    );
+
+    poData.subtotal = totals.subtotal;
+    poData.totalTax = totals.totalTax;
+    poData.preRoundTotal = totals.preRoundTotal;
+    poData.isRoundOff = totals.isRoundOffEnabled;
+    poData.roundOff = totals.roundOff;
+    poData.roundingMode = totals.roundingMode;
+    poData.grandTotal = totals.grandTotal;
+    poData.totalAmount = totals.grandTotal;
+    poData.cgstAmount = totals.cgstAmount;
+    poData.sgstAmount = totals.sgstAmount;
+    poData.igstAmount = totals.igstAmount;
   } else if (material || component || materialName) {
     const qty = Number(quantity || 0);
     const recQty = Number(req.body.receivedQuantity || 0);
@@ -681,37 +680,16 @@ export const updatePO = asyncHandler(async (req, res) => {
       const rateUnit = (item.rateUnit === 'secondary' && hasSec) ? 'secondary' : 'primary';
       const enteredRate = Number(item.rate || 0);
 
-      let primaryRate = Number(item.primaryRate || 0);
-      let secondaryRate = Number(item.secondaryRate || 0);
-      let computedAmount = Number(item.amount);
-
-      if (rateUnit === 'secondary' && hasSec && (secQty > 0 || convFactor > 0)) {
-        const activeQty = secQty > 0 ? secQty : (qty * convFactor);
-        secondaryRate = enteredRate;
-        if (qty > 0 && activeQty > 0) {
-          primaryRate = Math.round(((activeQty * enteredRate) / qty) * 1000) / 1000;
-        } else if (convFactor > 0) {
-          primaryRate = Math.round((enteredRate / convFactor) * 1000) / 1000;
-        } else {
-          primaryRate = enteredRate;
-        }
-        computedAmount = parseFloat((activeQty * enteredRate).toFixed(2));
-      } else {
-        primaryRate = enteredRate;
-        const activeQty = secQty > 0 ? secQty : (qty * convFactor);
-        if (hasSec) {
-          if (qty > 0 && activeQty > 0) {
-            secondaryRate = Math.round(((qty * enteredRate) / activeQty) * 1000) / 1000;
-          } else if (convFactor > 0) {
-            secondaryRate = Math.round((enteredRate * convFactor) * 1000) / 1000;
-          } else {
-            secondaryRate = enteredRate;
-          }
-        }
-        computedAmount = parseFloat((qty * enteredRate).toFixed(2));
-      }
-
-      const selectedUnit = (rateUnit === 'secondary' && hasSec) ? secUnit : (item.unit ? item.unit.trim() : 'KG');
+      const pricing = computeDualUomLinePricing({
+        quantity: qty,
+        unit: item.unit ? item.unit.trim() : 'KG',
+        hasSecondaryUnit: hasSec,
+        secondaryUnit: secUnit,
+        conversionFactor: convFactor,
+        secondaryQuantity: secQty,
+        rateUnit: rateUnit,
+        rate: enteredRate,
+      });
 
       return {
         ...item,
@@ -722,18 +700,18 @@ export const updatePO = asyncHandler(async (req, res) => {
         description: item.description || item.itemDescription || item.remarks || item.specifications || '',
         hsnCode: item.hsnCode || item.hsn || '',
         pieceCount: Number(item.pieceCount || item.count || 0),
-        quantity: qty,
+        quantity: pricing.quantity,
         unit: item.unit ? item.unit.trim() : 'KG',
         hasSecondaryUnit: hasSec,
         secondaryUnit: secUnit,
         conversionFactor: convFactor,
-        secondaryQuantity: secQty,
-        rateUnit,
-        selectedUnit,
-        primaryRate,
-        secondaryRate,
-        rate: enteredRate,
-        amount: computedAmount,
+        secondaryQuantity: pricing.secondaryQuantity,
+        rateUnit: pricing.rateUnit,
+        selectedUnit: pricing.selectedUnit,
+        primaryRate: pricing.primaryRate,
+        secondaryRate: pricing.secondaryRate,
+        rate: pricing.rate,
+        amount: pricing.amount,
         receivedQuantity: recQty,
         pendingQuantity: pendQty,
         itemStatus: iStatus,
@@ -741,18 +719,39 @@ export const updatePO = asyncHandler(async (req, res) => {
       };
     });
 
-    const subtotal = updateData.items.reduce((sum, item) => sum + (Number(item.amount) || (Number(item.quantity || 0) * Number(item.rate || 0))), 0);
     const transportCharge = Number(req.body.transportCharge !== undefined ? req.body.transportCharge : (existingPO.transportCharge || 0));
     const packingCharge = Number(req.body.packingCharge !== undefined ? req.body.packingCharge : (existingPO.packingCharge || 0));
-    const taxableAmount = subtotal + transportCharge + packingCharge;
     const taxRate = req.body.taxRate != null ? Number(req.body.taxRate) : (existingPO.taxRate != null ? Number(existingPO.taxRate) : 18);
-    const totalTax = taxableAmount * (taxRate / 100);
-    const grandTotal = taxableAmount + totalTax;
+    const isInterState = (req.body.gstType || existingPO.gstType) === 'inter_state';
 
-    updateData.subtotal = subtotal;
-    updateData.totalTax = totalTax;
-    updateData.grandTotal = req.body.grandTotal || grandTotal;
-    updateData.totalAmount = req.body.grandTotal || req.body.totalAmount || grandTotal;
+    const isRoundOffEnabled = req.body.isRoundOff !== undefined 
+      ? Boolean(req.body.isRoundOff) 
+      : (req.body.isRoundOffEnabled !== undefined 
+          ? Boolean(req.body.isRoundOffEnabled) 
+          : (existingPO.isRoundOff !== undefined ? existingPO.isRoundOff : true));
+    const roundingMode = req.body.roundingMode || existingPO.roundingMode || 'nearest';
+
+    const totals = computePOTaxAndGrandTotals(
+      updateData.items,
+      transportCharge,
+      packingCharge,
+      taxRate,
+      isInterState,
+      isRoundOffEnabled,
+      roundingMode
+    );
+
+    updateData.subtotal = totals.subtotal;
+    updateData.totalTax = totals.totalTax;
+    updateData.preRoundTotal = totals.preRoundTotal;
+    updateData.isRoundOff = totals.isRoundOffEnabled;
+    updateData.roundOff = totals.roundOff;
+    updateData.roundingMode = totals.roundingMode;
+    updateData.grandTotal = totals.grandTotal;
+    updateData.totalAmount = totals.grandTotal;
+    updateData.cgstAmount = totals.cgstAmount;
+    updateData.sgstAmount = totals.sgstAmount;
+    updateData.igstAmount = totals.igstAmount;
   }
 
   // Handle followUp appending

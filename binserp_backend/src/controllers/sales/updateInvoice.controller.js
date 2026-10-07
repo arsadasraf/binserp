@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { invoiceSchema, incomingPOSchema } from "../../models/sales/index.js";
 import { validateSalesItemsStock, deductSalesItemsStock, reverseSalesItemsStock } from "./salesStockHelper.js";
 import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
+import { computeProfessionalTotalWithRoundOff } from "../../utils/roundingHelper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -179,10 +180,35 @@ export const updateInvoice = async (req, res) => {
       }
     }
 
+    const isRoundOffEnabled = req.body.isRoundOff !== undefined 
+      ? Boolean(req.body.isRoundOff) 
+      : (existingInvoice.isRoundOff !== undefined ? existingInvoice.isRoundOff : true);
+    const roundingMode = req.body.roundingMode || existingInvoice.roundingMode || (isRoundOffEnabled ? 'nearest' : 'none');
+    const subtotal = Number(req.body.subtotal !== undefined ? req.body.subtotal : (existingInvoice.subtotal || 0));
+    const taxAmount = Number(req.body.taxAmount !== undefined ? req.body.taxAmount : (existingInvoice.taxAmount || 0));
+    const transport = Number(req.body.transportationCharges !== undefined ? req.body.transportationCharges : (existingInvoice.transportationCharges || 0));
+    const packaging = Number(req.body.packagingCharges !== undefined ? req.body.packagingCharges : (existingInvoice.packagingCharges || 0));
+    const discount = Number(req.body.discount !== undefined ? req.body.discount : (existingInvoice.discount || 0));
+
+    const rounding = computeProfessionalTotalWithRoundOff({
+      subtotal,
+      totalTax: taxAmount,
+      transportationCharges: transport,
+      packagingCharges: packaging,
+      discount,
+      isRoundOffEnabled,
+      roundingMode
+    });
+
     const updatedInvoice = await Invoice.findByIdAndUpdate(
       id,
       {
         ...req.body,
+        preRoundTotal: rounding.preRoundTotal,
+        isRoundOff: rounding.isRoundOffEnabled,
+        roundOff: rounding.roundOff,
+        roundingMode: rounding.roundingMode,
+        totalAmount: rounding.roundedGrandTotal,
         customerPoReference: finalPoReference,
         incomingPO: incomingPoDocId,
         updatedBy: userId

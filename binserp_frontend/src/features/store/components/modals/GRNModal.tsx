@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { GRNModalProps } from "@/src/features/store/types/store.types";
 import SearchableSelect from '../SearchableSelect';
+import { computeProfessionalTotalWithRoundOff, RoundingMode } from '@/src/utils/roundingHelper';
 import QuickItemMasterModal from './QuickItemMasterModal';
 import { apiGet } from '@/src/lib/api';
 import { compressImageToFile } from '@/src/utils/imageCompressor';
@@ -106,6 +107,8 @@ export default function GRNModal({
     // Additional receipt charges (Transportation & Packing)
     const [transportationCharges, setTransportationCharges] = useState<number>(0);
     const [packingCharges, setPackingCharges] = useState<number>(0);
+    const [isRoundOffEnabled, setIsRoundOffEnabled] = useState<boolean>(true);
+    const [roundingMode, setRoundingMode] = useState<RoundingMode>('nearest');
 
     // Post-submission success & preview states
     const [createdGRNData, setCreatedGRNData] = useState<any>(null);
@@ -282,6 +285,12 @@ export default function GRNModal({
                 setGlobalTaxRate(Number((initialData as any).taxRate) || 0);
                 setTransportationCharges(Number((initialData as any).transportationCharges) || 0);
                 setPackingCharges(Number((initialData as any).packingCharges) || 0);
+                if ((initialData as any).isRoundOff !== undefined) {
+                    setIsRoundOffEnabled(Boolean((initialData as any).isRoundOff));
+                }
+                if ((initialData as any).roundingMode) {
+                    setRoundingMode((initialData as any).roundingMode);
+                }
 
                 if (Array.isArray(initialData.items) && initialData.items.length > 0) {
                     const entries = initialData.items.map((item: any) => {
@@ -938,14 +947,26 @@ export default function GRNModal({
         const taxAmountCalc = (subtotalCalc * taxRateToSave) / 100;
         const transportCalc = Math.max(0, Number(transportationCharges) || 0);
         const packingCalc = Math.max(0, Number(packingCharges) || 0);
-        const totalAmountCalc = subtotalCalc + taxAmountCalc + transportCalc + packingCalc;
+
+        const rounding = computeProfessionalTotalWithRoundOff({
+            subtotal: subtotalCalc,
+            totalTax: taxAmountCalc,
+            transportationCharges: transportCalc,
+            packagingCharges: packingCalc,
+            isRoundOffEnabled,
+            roundingMode
+        });
 
         formData.append('taxRate', String(taxRateToSave));
         formData.append('subtotal', String(subtotalCalc));
         formData.append('taxAmount', String(taxAmountCalc));
         formData.append('transportationCharges', String(transportCalc));
         formData.append('packingCharges', String(packingCalc));
-        formData.append('totalAmount', String(totalAmountCalc));
+        formData.append('preRoundTotal', String(rounding.preRoundTotal));
+        formData.append('isRoundOff', String(rounding.isRoundOffEnabled));
+        formData.append('roundOff', String(rounding.roundOff));
+        formData.append('roundingMode', String(rounding.roundingMode));
+        formData.append('totalAmount', String(rounding.roundedGrandTotal));
 
         if (grnType !== 'inhouse' && grnType !== 'fg') {
             formData.append('supplier', supplierId);
@@ -989,7 +1010,11 @@ export default function GRNModal({
                 transportationCharges: transportCalc,
                 packingCharges: packingCalc,
                 totalQuantity: items.reduce((sum, it) => sum + it.quantity, 0),
-                totalAmount: totalAmountCalc
+                totalAmount: rounding.roundedGrandTotal,
+                preRoundTotal: rounding.preRoundTotal,
+                isRoundOff: rounding.isRoundOffEnabled,
+                roundOff: rounding.roundOff,
+                roundingMode: rounding.roundingMode
             });
         } catch (err: any) {
             console.error("GRN submission error:", err);
@@ -1011,7 +1036,17 @@ export default function GRNModal({
     const taxAmount = isCommercialGRN ? (subtotal * (Number(globalTaxRate) || 0)) / 100 : 0;
     const transportAmount = Number(transportationCharges) || 0;
     const packingAmount = Number(packingCharges) || 0;
-    const grandTotalWithTax = subtotal + taxAmount + transportAmount + packingAmount;
+    const rounding = useMemo(() => {
+        return computeProfessionalTotalWithRoundOff({
+            subtotal,
+            totalTax: taxAmount,
+            transportationCharges: transportAmount,
+            packagingCharges: packingAmount,
+            isRoundOffEnabled,
+            roundingMode
+        });
+    }, [subtotal, taxAmount, transportAmount, packingAmount, isRoundOffEnabled, roundingMode]);
+    const grandTotalWithTax = rounding.roundedGrandTotal;
 
     const theme = {
         title: grnType === 'inhouse' || grnType === 'fg' 
@@ -2328,6 +2363,23 @@ export default function GRNModal({
                                         )}
                                     </>
                                 )}
+
+                                <div className="flex items-center gap-2 pl-2 border-l border-slate-300 dark:border-slate-700">
+                                    <label className="flex items-center gap-1.5 cursor-pointer font-bold text-slate-700 dark:text-slate-300 text-xs">
+                                        <input
+                                            type="checkbox"
+                                            checked={isRoundOffEnabled}
+                                            onChange={(e) => setIsRoundOffEnabled(e.target.checked)}
+                                            className="w-3.5 h-3.5 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
+                                        />
+                                        <span>Round Off:</span>
+                                    </label>
+                                    {isRoundOffEnabled && rounding.roundOff !== 0 && (
+                                        <span className={`font-mono font-bold text-xs ${rounding.roundOff >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                                            {rounding.roundOff > 0 ? '+' : ''}₹{rounding.roundOff.toFixed(2)}
+                                        </span>
+                                    )}
+                                </div>
 
                                 <div className="flex items-center gap-2 pl-2 border-l border-slate-300 dark:border-slate-700">
                                     <span className="text-slate-700 dark:text-slate-300 font-black">

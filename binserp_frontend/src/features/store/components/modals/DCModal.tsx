@@ -22,6 +22,7 @@ import {
 import { DCModalProps, RmBoItem, CompanyInfo } from "@/src/features/store/types/store.types";
 import SearchableSelect, { SearchableOption } from "../SearchableSelect";
 import { getCurrencySymbol, CURRENCY_OPTIONS, convertToINR } from "@/src/utils/currencyHelper";
+import { computeProfessionalTotalWithRoundOff, RoundingMode } from "@/src/utils/roundingHelper";
 import { apiRequest } from "@/src/lib/api";
 
 interface ExtendedDCModalProps extends DCModalProps {
@@ -85,6 +86,8 @@ export default function DCModal({
     const [otherDetails, setOtherDetails] = useState("");
     const [status, setStatus] = useState("Draft");
     const [reduceStock, setReduceStock] = useState(true);
+    const [isRoundOffEnabled, setIsRoundOffEnabled] = useState<boolean>(true);
+    const [roundingMode, setRoundingMode] = useState<RoundingMode>('nearest');
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
     // Company Master Resolution & Defaults
@@ -449,6 +452,12 @@ export default function DCModal({
             setPackagingType((initialData as any).packagingType || "Standard Packaging");
             setPackagingCharges((initialData as any).packagingCharges || 0);
             setDiscount(initialData.discount || 0);
+            if ((initialData as any).isRoundOff !== undefined) {
+                setIsRoundOffEnabled(Boolean((initialData as any).isRoundOff));
+            }
+            if ((initialData as any).roundingMode) {
+                setRoundingMode((initialData as any).roundingMode);
+            }
             setOtherDetails(initialData.otherDetails || (initialData as any).remarks || "");
             setStatus(initialData.status || "Draft");
             setReduceStock((initialData as any)?.reduceStock !== false);
@@ -652,12 +661,20 @@ export default function DCModal({
         return items.reduce((acc, item) => acc + (Number(item.amount) || 0), 0);
     }, [items]);
 
-    const totalAmount = useMemo(() => {
-        const freight = Number(transportationCharges) || 0;
-        const packaging = Number(packagingCharges) || 0;
-        const disc = Number(discount) || 0;
-        return Math.max(0, subtotal + freight + packaging - disc);
-    }, [subtotal, transportationCharges, packagingCharges, discount]);
+    const rounding = useMemo(() => {
+        return computeProfessionalTotalWithRoundOff({
+            subtotal,
+            totalTax: 0,
+            transportationCharges: Number(transportationCharges || 0),
+            packagingCharges: Number(packagingCharges || 0),
+            discount: Number(discount || 0),
+            isRoundOffEnabled,
+            roundingMode,
+            currency
+        });
+    }, [subtotal, transportationCharges, packagingCharges, discount, isRoundOffEnabled, roundingMode, currency]);
+
+    const totalAmount = rounding.roundedGrandTotal;
 
     const inrConversion = useMemo(() => {
         return convertToINR(totalAmount, currency, customExchangeRate);
@@ -729,7 +746,11 @@ export default function DCModal({
             packagingCharges,
             items: payloadItems,
             subtotal,
-            totalAmount,
+            preRoundTotal: rounding.preRoundTotal,
+            isRoundOff: isRoundOffEnabled,
+            roundOff: rounding.roundOff,
+            roundingMode,
+            totalAmount: rounding.roundedGrandTotal,
             discount,
             otherDetails,
             status,
@@ -1406,6 +1427,23 @@ export default function DCModal({
                                     </span>
                                 </div>
                             )}
+
+                            <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
+                                <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 dark:text-slate-300">
+                                    <input
+                                        type="checkbox"
+                                        checked={isRoundOffEnabled}
+                                        onChange={(e) => setIsRoundOffEnabled(e.target.checked)}
+                                        className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                                    />
+                                    <span>Round Off Total Value</span>
+                                </label>
+                                {isRoundOffEnabled && rounding.roundOff !== 0 && (
+                                    <span className={`font-mono font-bold ${rounding.roundOff >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                                        {rounding.roundOff > 0 ? '+' : ''}{getCurrencySymbol(currency)} {rounding.roundOff.toFixed(2)}
+                                    </span>
+                                )}
+                            </div>
 
                             <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between text-sm font-extrabold text-slate-900 dark:text-white">
                                 <span>Total Value:</span>

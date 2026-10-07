@@ -316,10 +316,10 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     const exactMatch = useMemo(() => {
         const clean = debouncedSearchTerm.trim().toLowerCase();
         if (!clean) return false;
-        const cleanNorm = normalizeAlphaNum(clean);
+        const cleanNorm = normalizeForSearch(clean);
         return uniqueOptions.some((o) => {
             const labelLower = (o.label || '').toLowerCase();
-            return labelLower === clean || normalizeAlphaNum(labelLower) === cleanNorm;
+            return labelLower === clean || normalizeForSearch(labelLower) === cleanNorm;
         });
     }, [uniqueOptions, debouncedSearchTerm]);
 

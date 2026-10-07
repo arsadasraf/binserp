@@ -7,6 +7,7 @@ import { generateFrontendRfqPDF } from '@/src/utils/frontendPdfHelper';
 import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
+import { syncQuantities } from '@/src/utils/dualUomHelper';
 
 interface OutwardRfqTabProps {
     token: string | null;
@@ -273,7 +274,7 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
             const secUnit = selectedMat?.secondaryUnit || '';
             const conv = Number(selectedMat?.conversionFactor) || 1;
             const qty = Number(curItem.quantity) || 1;
-            const secQty = hasSec && conv > 0 ? Number((qty / conv).toFixed(4)) : 0;
+            const secQty = hasSec ? syncQuantities('quantity', qty, conv).secondaryQuantity : 0;
 
             curItem.materialId = value;
             curItem.materialName = autoName;
@@ -285,16 +286,16 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
             curItem.secondaryQuantity = secQty;
             curItem.rateUnit = 'primary';
         } else if (field === 'quantity') {
-            const num = parseFloat(value) || 0;
+            const synced = syncQuantities('quantity', parseFloat(value) || 0, Number(curItem.conversionFactor) || 1);
             curItem.quantity = value;
-            if (curItem.hasSecondaryUnit && Number(curItem.conversionFactor) > 0) {
-                curItem.secondaryQuantity = Number((num / Number(curItem.conversionFactor)).toFixed(4));
+            if (curItem.hasSecondaryUnit) {
+                curItem.secondaryQuantity = synced.secondaryQuantity;
             }
         } else if (field === 'secondaryQuantity') {
-            const num = parseFloat(value) || 0;
+            const synced = syncQuantities('secondaryQuantity', parseFloat(value) || 0, Number(curItem.conversionFactor) || 1);
             curItem.secondaryQuantity = value;
-            if (curItem.hasSecondaryUnit && Number(curItem.conversionFactor) > 0) {
-                curItem.quantity = Number((num * Number(curItem.conversionFactor)).toFixed(4));
+            if (curItem.hasSecondaryUnit) {
+                curItem.quantity = synced.quantity;
             }
         } else {
             (curItem as any)[field] = value;
