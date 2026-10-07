@@ -56,8 +56,8 @@ export const getAllQuotations = async (req, res) => {
       .populate("statusHistory.updatedBy", "name email")
       .populate("customer", "name customerName companyName email phone city code gst")
       .populate("rfq", "rfqNumber status")
-      .populate("items.component", "componentName componentCode")
-      .populate("items.fgItem", "name code unit")
+      .populate("items.component", "componentName componentCode description specification specifications")
+      .populate("items.fgItem", "name code unit description descriptions specification specifications")
       .sort({ createdAt: -1 });
     res.status(200).json({ quotations, count: quotations.length });
   } catch (error) {

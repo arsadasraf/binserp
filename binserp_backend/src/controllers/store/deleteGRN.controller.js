@@ -8,6 +8,7 @@ import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 import fs from 'fs';
 import path from 'path';
+import { syncGRNToPurchaseBill } from "../../utils/purchaseBillSync.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -83,6 +84,13 @@ export const deleteGRN = async (req, res) => {
     }
 
     await GRN.findByIdAndDelete(id);
+
+    // Dynamically delete linked Purchase Bill if RM, BO, or Consumables GRN
+    try {
+      await syncGRNToPurchaseBill(req, grn, 'delete');
+    } catch (syncErr) {
+      console.error("[deleteGRN] Failed to delete linked Purchase Bill:", syncErr);
+    }
 
     res.status(200).json({ message: "GRN deleted successfully" });
   } catch (error) {

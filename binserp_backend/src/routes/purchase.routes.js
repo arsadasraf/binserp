@@ -12,6 +12,10 @@ import {
   deleteVendorQuotation,
   createPurchaseBill,
   getPurchaseBills,
+  getPurchaseBillById,
+  recordBillPayment,
+  addBillComment,
+  syncHistoricalBills,
   getUnbilledDocs,
   updatePurchaseBill,
   deletePurchaseBill,
@@ -169,13 +173,23 @@ router.route("/quotation/:id")
 router.route("/bill/unbilled-docs")
   .get(getUnbilledDocs);
 
+router.route("/bill/sync-historical")
+  .post(syncHistoricalBills);
+
 router.route("/bill")
   .post(createPurchaseBill)
   .get(getPurchaseBills);
 
 router.route("/bill/:id")
+  .get(getPurchaseBillById)
   .put(updatePurchaseBill)
   .delete(deletePurchaseBill);
+
+router.route("/bill/:id/payment")
+  .patch(recordBillPayment);
+
+router.route("/bill/:id/comment")
+  .post(addBillComment);
 
 // Purchase Order Routes (Migrated from Store)
 router.route("/po")

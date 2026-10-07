@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { API_BASE_URL } from '@/src/utils/config';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 export default function VendorPOBucketView() {
   const [loading, setLoading] = useState(true);
@@ -57,11 +58,10 @@ export default function VendorPOBucketView() {
       return false;
     }
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchVendor = b.vendor.name?.toLowerCase().includes(q) || b.vendor.code?.toLowerCase().includes(q);
+      const matchVendor = isSpaceFreeMatch(b.vendor.name, searchQuery) || isSpaceFreeMatch(b.vendor.code, searchQuery);
       const matchPO = b.pos?.some((po: any) => 
-        po.poNumber?.toLowerCase().includes(q) || 
-        po.items?.some((it: any) => it.materialName?.toLowerCase().includes(q))
+        isSpaceFreeMatch(po.poNumber, searchQuery) || 
+        po.items?.some((it: any) => isSpaceFreeMatch(it.materialName, searchQuery) || isSpaceFreeMatch(it.description, searchQuery))
       );
       if (!matchVendor && !matchPO) return false;
     }

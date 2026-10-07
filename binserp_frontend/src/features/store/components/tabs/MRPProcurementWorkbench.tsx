@@ -4,12 +4,15 @@ import {
   Layers, Filter, Search, ArrowRight, ArrowLeft, Building2, Truck, 
   Plus, CheckSquare, Square, ChevronDown, ChevronRight, ChevronLeft,
   TrendingDown, FileText, Sparkles, Send, Boxes, GitBranch,
-  Factory, Package, Check, Eye, Clock, Calendar, Download, Printer, Tag, X, RotateCcw, Target
+  Factory, Package, Check, Eye, Clock, Calendar, Download, Printer, Tag, X, RotateCcw, Target,
+  BarChart3
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiPatch } from '@/src/lib/api';
 import { generateNestedBOMPDF } from '@/src/utils/generateNestedBOMPDF';
 import ConvertToPurchaseBucketModal from '@/src/features/store/components/modals/ConvertToPurchaseBucketModal';
+import ColumnFilter from '../tables/ColumnFilter';
 import Swal from 'sweetalert2';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 interface MRPProcurementWorkbenchProps {
   token: string;
@@ -47,6 +50,7 @@ export default function MRPProcurementWorkbench({
   const [viewMode, setViewMode] = useState<'nested-tree' | 'consolidated-types'>('nested-tree');
   const [workbenchViewMode, setWorkbenchViewMode] = useState<'plans' | 'items'>('plans');
   const [activeTypeTab, setActiveTypeTab] = useState<'rm' | 'bo' | 'component' | 'subassembly' | 'assembly'>('rm');
+  const [showQuickMetrics, setShowQuickMetrics] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [onlyShortages, setOnlyShortages] = useState(false);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
@@ -105,6 +109,22 @@ export default function MRPProcurementWorkbench({
   const [bucketModalItem, setBucketModalItem] = useState<any | null>(null);
   const [bucketModalItems, setBucketModalItems] = useState<any[] | null>(null);
   const [expandedBucketIds, setExpandedBucketIds] = useState<Set<string>>(new Set());
+
+  // Excel Column Filter State for 9 Standard Columns (Both Tree & Type Classification Views)
+  const [colFilterMaterialName, setColFilterMaterialName] = useState<string[]>([]);
+  const [colFilterCategory, setColFilterCategory] = useState<string[]>([]);
+  const [colFilterGrossRequired, setColFilterGrossRequired] = useState<string[]>([]);
+  const [numCondGrossRequired, setNumCondGrossRequired] = useState<'all' | 'gt0' | 'eq0'>('all');
+  const [colFilterLiveStock, setColFilterLiveStock] = useState<string[]>([]);
+  const [numCondLiveStock, setNumCondLiveStock] = useState<'all' | 'gt0' | 'eq0'>('all');
+  const [colFilterInTransit, setColFilterInTransit] = useState<string[]>([]);
+  const [numCondInTransit, setNumCondInTransit] = useState<'all' | 'gt0' | 'eq0'>('all');
+  const [colFilterShortage, setColFilterShortage] = useState<string[]>([]);
+  const [numCondShortage, setNumCondShortage] = useState<'all' | 'gt0' | 'eq0'>('all');
+  const [colFilterPreferredSupplier, setColFilterPreferredSupplier] = useState<string[]>([]);
+  const [colFilterPlanningRemark, setColFilterPlanningRemark] = useState<string[]>([]);
+  const [colFilterBOMStatus, setColFilterBOMStatus] = useState<string[]>([]);
+  const [tableSortConfig, setTableSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
   // Tab scrolling ref & handler for Type Switcher Tabs
   const typeTabsRef = useRef<HTMLDivElement>(null);
@@ -300,15 +320,15 @@ export default function MRPProcurementWorkbench({
       }
 
       // 3. Search Term
-      if (searchTerm) {
-        const s = searchTerm.toLowerCase();
+      if (searchTerm && searchTerm.trim()) {
+        const s = searchTerm.trim();
         const matchesSearch =
-          (plan.mrpNumber && plan.mrpNumber.toLowerCase().includes(s)) ||
-          (plan.customerName && plan.customerName.toLowerCase().includes(s)) ||
-          (plan.customerPoNumber && plan.customerPoNumber.toLowerCase().includes(s)) ||
+          isSpaceFreeMatch(plan.mrpNumber, s) ||
+          isSpaceFreeMatch(plan.customerName, s) ||
+          isSpaceFreeMatch(plan.customerPoNumber, s) ||
           (Array.isArray(plan.fgItems) && plan.fgItems.some((fg: any) => 
-            (fg.fgItemName && fg.fgItemName.toLowerCase().includes(s)) ||
-            (fg.description && fg.description.toLowerCase().includes(s))
+            isSpaceFreeMatch(fg.fgItemName, s) ||
+            isSpaceFreeMatch(fg.description, s)
           ));
         if (!matchesSearch) return false;
       }
@@ -430,23 +450,194 @@ export default function MRPProcurementWorkbench({
       }
     });
     return Array.from(map.values()).sort((a, b) => (b.isPreferred ? 1 : 0) - (a.isPreferred ? 1 : 0) || a.name.localeCompare(b.name));
-  }, [currentTypeList]);
+  }, [currentTypeList]);  // Aggregated materials across selectedPlan for Nested BOM Tree view column filtering
+  const allPlanNestedMaterials = useMemo(() => {
+    if (!selectedPlan?.fgItems) return [];
+    const list: any[] = [];
+    selectedPlan.fgItems.forEach((fg: any) => {
+      (fg.nestedMaterials || []).forEach((n: any) => {
+        list.push(n);
+      });
+    });
+    return list;
+  }, [selectedPlan]);
+
+  // Dynamic dataset for Excel column filter dropdowns based on active view mode
+  const activeDatasetForFilters = useMemo(() => {
+    if (viewMode === 'nested-tree') {
+      return allPlanNestedMaterials;
+    }
+    return currentTypeList || [];
+  }, [viewMode, allPlanNestedMaterials, currentTypeList]);
+
+  const matchesExcelFilters = (item: any) => {
+    // 1. Material Name
+    if (colFilterMaterialName.length > 0 && !colFilterMaterialName.includes(item.materialName)) return false;
+
+    // 2. Category
+    const cat = item.category || (item.itemType === 'RM' ? 'Raw Material' : item.itemType === 'BO' ? 'Bought Out' : item.itemType === 'SubAssembly' ? 'Sub Assembly' : 'Component');
+    if (colFilterCategory.length > 0 && !colFilterCategory.includes(cat)) return false;
+
+    // 3. Gross Required
+    const gross = Number(item.grossRequired ?? item.totalRequired ?? item.requiredQuantity ?? 0);
+    if (numCondGrossRequired === 'gt0' && gross <= 0) return false;
+    if (numCondGrossRequired === 'eq0' && gross !== 0) return false;
+    if (colFilterGrossRequired.length > 0 && !colFilterGrossRequired.includes(String(gross))) return false;
+
+    // 4. Live Stock
+    const stock = Number(item.currentPhysicalStock ?? 0);
+    if (numCondLiveStock === 'gt0' && stock <= 0) return false;
+    if (numCondLiveStock === 'eq0' && stock !== 0) return false;
+    if (colFilterLiveStock.length > 0 && !colFilterLiveStock.includes(String(stock))) return false;
+
+    // 5. In-Transit PO
+    const inTransit = Number(item.totalInTransitPO ?? 0);
+    if (numCondInTransit === 'gt0' && inTransit <= 0) return false;
+    if (numCondInTransit === 'eq0' && inTransit !== 0) return false;
+    if (colFilterInTransit.length > 0 && !colFilterInTransit.includes(String(inTransit))) return false;
+
+    // 6. True Net Shortage
+    const shortage = Number(item.netShortage ?? 0);
+    if (numCondShortage === 'gt0' && shortage <= 0) return false;
+    if (numCondShortage === 'eq0' && shortage !== 0) return false;
+    if (colFilterShortage.length > 0 && !colFilterShortage.includes(String(shortage))) return false;
+
+    // 7. Preferred Supplier
+    const vendorName = item.bestVendor?.vendorName || item.bestVendor?.name || 'No Quote';
+    if (colFilterPreferredSupplier.length > 0 && !colFilterPreferredSupplier.includes(vendorName)) return false;
+
+    // 8. Planning Remark
+    const remark = item.materialPlanningStatus || (shortage === 0 ? 'Stock Covered' : 'Not Planned');
+    if (colFilterPlanningRemark.length > 0 && !colFilterPlanningRemark.includes(remark)) return false;
+
+    // 9. BOM Item Status
+    const st = item.status || 'Pending';
+    if (colFilterBOMStatus.length > 0 && !colFilterBOMStatus.includes(st)) return false;
+
+    return true;
+  };
+
+  // Sort helper for items based on tableSortConfig
+  const sortItems = (items: any[]) => {
+    if (!tableSortConfig) return items;
+    const { key, direction } = tableSortConfig;
+    return [...items].sort((a, b) => {
+      let valA: any;
+      let valB: any;
+
+      if (key === 'materialName') {
+        valA = a.materialName || '';
+        valB = b.materialName || '';
+        return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      if (key === 'category') {
+        valA = a.category || '';
+        valB = b.category || '';
+        return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      if (key === 'grossRequired') {
+        valA = Number(a.grossRequired ?? a.totalRequired ?? a.requiredQuantity ?? 0);
+        valB = Number(b.grossRequired ?? b.totalRequired ?? b.requiredQuantity ?? 0);
+        return direction === 'asc' ? valA - valB : valB - valA;
+      }
+      if (key === 'currentPhysicalStock') {
+        valA = Number(a.currentPhysicalStock ?? 0);
+        valB = Number(b.currentPhysicalStock ?? 0);
+        return direction === 'asc' ? valA - valB : valB - valA;
+      }
+      if (key === 'totalInTransitPO') {
+        valA = Number(a.totalInTransitPO ?? 0);
+        valB = Number(b.totalInTransitPO ?? 0);
+        return direction === 'asc' ? valA - valB : valB - valA;
+      }
+      if (key === 'netShortage') {
+        valA = Number(a.netShortage ?? 0);
+        valB = Number(b.netShortage ?? 0);
+        return direction === 'asc' ? valA - valB : valB - valA;
+      }
+      if (key === 'preferredSupplier') {
+        valA = a.bestVendor?.vendorName || '';
+        valB = b.bestVendor?.vendorName || '';
+        return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      if (key === 'materialPlanningStatus') {
+        valA = a.materialPlanningStatus || (Number(a.netShortage || 0) === 0 ? 'Stock Covered' : 'Not Planned');
+        valB = b.materialPlanningStatus || (Number(b.netShortage || 0) === 0 ? 'Stock Covered' : 'Not Planned');
+        return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      if (key === 'status') {
+        valA = a.status || 'Pending';
+        valB = b.status || 'Pending';
+        return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      return 0;
+    });
+  };
+
+  const handleSortChange = (key: string, direction: 'asc' | 'desc') => {
+    setTableSortConfig(prev => {
+      if (prev && prev.key === key && prev.direction === direction) {
+        return null;
+      }
+      return { key, direction };
+    });
+  };
+
+  const isAnyExcelFilterActive = useMemo(() => {
+    return (
+      colFilterMaterialName.length > 0 ||
+      colFilterCategory.length > 0 ||
+      colFilterGrossRequired.length > 0 || numCondGrossRequired !== 'all' ||
+      colFilterLiveStock.length > 0 || numCondLiveStock !== 'all' ||
+      colFilterInTransit.length > 0 || numCondInTransit !== 'all' ||
+      colFilterShortage.length > 0 || numCondShortage !== 'all' ||
+      colFilterPreferredSupplier.length > 0 ||
+      colFilterPlanningRemark.length > 0 ||
+      colFilterBOMStatus.length > 0 ||
+      Boolean(tableSortConfig)
+    );
+  }, [
+    colFilterMaterialName, colFilterCategory,
+    colFilterGrossRequired, numCondGrossRequired,
+    colFilterLiveStock, numCondLiveStock,
+    colFilterInTransit, numCondInTransit,
+    colFilterShortage, numCondShortage,
+    colFilterPreferredSupplier, colFilterPlanningRemark,
+    colFilterBOMStatus, tableSortConfig
+  ]);
+
+  const handleResetExcelFilters = () => {
+    setColFilterMaterialName([]);
+    setColFilterCategory([]);
+    setColFilterGrossRequired([]);
+    setNumCondGrossRequired('all');
+    setColFilterLiveStock([]);
+    setNumCondLiveStock('all');
+    setColFilterInTransit([]);
+    setNumCondInTransit('all');
+    setColFilterShortage([]);
+    setNumCondShortage('all');
+    setColFilterPreferredSupplier([]);
+    setColFilterPlanningRemark([]);
+    setColFilterBOMStatus([]);
+    setTableSortConfig(null);
+  };
 
   const filteredConsolidatedList = useMemo(() => {
-    return currentTypeList.filter((item: any) => {
+    const list = currentTypeList.filter((item: any) => {
       // 1. Search Query
-      if (searchTerm) {
-        const s = searchTerm.toLowerCase();
+      if (searchTerm && searchTerm.trim()) {
+        const s = searchTerm.trim();
         const matchesSearch =
-          (item.materialName && item.materialName.toLowerCase().includes(s)) ||
-          (item.description && item.description.toLowerCase().includes(s)) ||
-          (item.materialCode && item.materialCode.toLowerCase().includes(s)) ||
-          (item.category && item.category.toLowerCase().includes(s)) ||
-          (item.bestVendor?.vendorName && item.bestVendor.vendorName.toLowerCase().includes(s)) ||
+          isSpaceFreeMatch(item.materialName, s) ||
+          isSpaceFreeMatch(item.description, s) ||
+          isSpaceFreeMatch(item.materialCode, s) ||
+          isSpaceFreeMatch(item.category, s) ||
+          isSpaceFreeMatch(item.bestVendor?.vendorName, s) ||
           (Array.isArray(item.mrpSources) && item.mrpSources.some((src: any) =>
-            (src.mrpNumber && src.mrpNumber.toLowerCase().includes(s)) ||
-            (src.customerName && src.customerName.toLowerCase().includes(s)) ||
-            (src.customerPoNumber && src.customerPoNumber.toLowerCase().includes(s))
+            isSpaceFreeMatch(src.mrpNumber, s) ||
+            isSpaceFreeMatch(src.customerName, s) ||
+            isSpaceFreeMatch(src.customerPoNumber, s)
           ));
         if (!matchesSearch) return false;
       }
@@ -465,7 +656,6 @@ export default function MRPProcurementWorkbench({
         if (vId !== selectedVendorFilter) return false;
       }
 
-      // 5. Date Filter (Plan Date vs Target Date)
       // 5. Plan Date Filter
       if (planDateFilter !== 'all' || planStartDate || planEndDate) {
         const rawPlanDate = item.latestPlanDate || item.mrpSources?.[0]?.planDate || item.mrpSources?.[0]?.createdAt;
@@ -501,8 +691,13 @@ export default function MRPProcurementWorkbench({
         if (!matchesAny) return false;
       }
 
+      // 9. Excel-Style Column Filters!
+      if (!matchesExcelFilters(item)) return false;
+
       return true;
     });
+
+    return sortItems(list);
   }, [
     currentTypeList,
     searchTerm,
@@ -516,7 +711,21 @@ export default function MRPProcurementWorkbench({
     targetStartDate,
     targetEndDate,
     selectedCustomerFilter,
-    selectedPlanningStatuses
+    selectedPlanningStatuses,
+    colFilterMaterialName,
+    colFilterCategory,
+    colFilterGrossRequired,
+    numCondGrossRequired,
+    colFilterLiveStock,
+    numCondLiveStock,
+    colFilterInTransit,
+    numCondInTransit,
+    colFilterShortage,
+    numCondShortage,
+    colFilterPreferredSupplier,
+    colFilterPlanningRemark,
+    colFilterBOMStatus,
+    tableSortConfig
   ]);
 
   const isAnyFilterActive = useMemo(() => {
@@ -530,14 +739,16 @@ export default function MRPProcurementWorkbench({
       selectedCategoryFilter !== 'all' ||
       selectedVendorFilter !== 'all' ||
       onlyShortages ||
-      Boolean(searchTerm)
+      Boolean(searchTerm) ||
+      isAnyExcelFilterActive
     );
   }, [
     selectedPlanningStatuses,
     planDateFilter, planStartDate, planEndDate,
     targetDateFilter, targetStartDate, targetEndDate,
     selectedCustomerFilter, selectedCategoryFilter, selectedVendorFilter,
-    onlyShortages, searchTerm
+    onlyShortages, searchTerm,
+    isAnyExcelFilterActive
   ]);
 
   const handleResetAllFilters = () => {
@@ -554,6 +765,7 @@ export default function MRPProcurementWorkbench({
     setOnlyShortages(false);
     setSearchTerm('');
     setSelectedKeys(new Set());
+    handleResetExcelFilters();
   };
 
   // Selection toggle (Exclusively in Types Classification View)
@@ -581,13 +793,16 @@ export default function MRPProcurementWorkbench({
   // Filtered purchase buckets according to search, vendor, and shortages
   const filteredBuckets = useMemo(() => {
     return currentBuckets.filter((bucket: any) => {
-      if (searchTerm) {
-        const s = searchTerm.toLowerCase();
+      if (searchTerm && searchTerm.trim()) {
+        const s = searchTerm.trim();
         const match =
-          (bucket.targetPurchaseItemName && bucket.targetPurchaseItemName.toLowerCase().includes(s)) ||
-          (bucket.targetPurchaseItemDescription && bucket.targetPurchaseItemDescription.toLowerCase().includes(s)) ||
-          (bucket.targetPurchaseItemCategory && bucket.targetPurchaseItemCategory.toLowerCase().includes(s)) ||
-          (bucket.sourceCutSizes && bucket.sourceCutSizes.some((cs: any) => cs.sourceItemName?.toLowerCase().includes(s)));
+          isSpaceFreeMatch(bucket.targetPurchaseItemName, s) ||
+          isSpaceFreeMatch(bucket.targetPurchaseItemDescription, s) ||
+          isSpaceFreeMatch(bucket.targetPurchaseItemCategory, s) ||
+          (bucket.sourceCutSizes && bucket.sourceCutSizes.some((cs: any) => 
+            isSpaceFreeMatch(cs.sourceItemName, s) || 
+            isSpaceFreeMatch(cs.sourceItemDescription, s)
+          ));
         if (!match) return false;
       }
       if (selectedVendorFilter && selectedVendorFilter !== 'all') {
@@ -2174,15 +2389,126 @@ export default function MRPProcurementWorkbench({
                       )}
                     </button>
                   </th>
-                  <th className="p-3">Material Name & Description</th>
-                  <th className="p-3">Category</th>
-                  <th className="p-3 text-center">Gross Required</th>
-                  <th className="p-3 text-center">Live Stock</th>
-                  <th className="p-3 text-center">In-Transit PO</th>
-                  <th className="p-3 text-center">True Net Shortage</th>
-                  <th className="p-3">Preferred Supplier</th>
-                  <th className="p-3 text-center">Planning Remark</th>
-                  <th className="p-3 text-center">BOM Item Status</th>
+                  <th className="p-3">
+                    <ColumnFilter
+                      column="materialName"
+                      title="Material Name & Description"
+                      data={activeDatasetForFilters}
+                      currentFilters={colFilterMaterialName}
+                      onFilterChange={setColFilterMaterialName}
+                      getValue={(item) => item.materialName || '-'}
+                      sortConfig={tableSortConfig}
+                      onSortChange={handleSortChange}
+                    />
+                  </th>
+                  <th className="p-3">
+                    <ColumnFilter
+                      column="category"
+                      title="Category"
+                      data={activeDatasetForFilters}
+                      currentFilters={colFilterCategory}
+                      onFilterChange={setColFilterCategory}
+                      getValue={(item) => item.category || '-'}
+                      sortConfig={tableSortConfig}
+                      onSortChange={handleSortChange}
+                    />
+                  </th>
+                  <th className="p-3 text-center">
+                    <ColumnFilter
+                      column="grossRequired"
+                      title="Gross Required"
+                      data={activeDatasetForFilters}
+                      currentFilters={colFilterGrossRequired}
+                      onFilterChange={setColFilterGrossRequired}
+                      getValue={(item) => String(Number(item.grossRequired ?? item.totalRequired ?? item.requiredQuantity ?? 0))}
+                      sortConfig={tableSortConfig}
+                      onSortChange={handleSortChange}
+                      isNumeric={true}
+                      numericCondition={numCondGrossRequired}
+                      onNumericConditionChange={setNumCondGrossRequired}
+                    />
+                  </th>
+                  <th className="p-3 text-center">
+                    <ColumnFilter
+                      column="currentPhysicalStock"
+                      title="Live Stock"
+                      data={activeDatasetForFilters}
+                      currentFilters={colFilterLiveStock}
+                      onFilterChange={setColFilterLiveStock}
+                      getValue={(item) => String(Number(item.currentPhysicalStock ?? 0))}
+                      sortConfig={tableSortConfig}
+                      onSortChange={handleSortChange}
+                      isNumeric={true}
+                      numericCondition={numCondLiveStock}
+                      onNumericConditionChange={setNumCondLiveStock}
+                    />
+                  </th>
+                  <th className="p-3 text-center">
+                    <ColumnFilter
+                      column="totalInTransitPO"
+                      title="In-Transit PO"
+                      data={activeDatasetForFilters}
+                      currentFilters={colFilterInTransit}
+                      onFilterChange={setColFilterInTransit}
+                      getValue={(item) => String(Number(item.totalInTransitPO ?? 0))}
+                      sortConfig={tableSortConfig}
+                      onSortChange={handleSortChange}
+                      isNumeric={true}
+                      numericCondition={numCondInTransit}
+                      onNumericConditionChange={setNumCondInTransit}
+                    />
+                  </th>
+                  <th className="p-3 text-center">
+                    <ColumnFilter
+                      column="netShortage"
+                      title="True Net Shortage"
+                      data={activeDatasetForFilters}
+                      currentFilters={colFilterShortage}
+                      onFilterChange={setColFilterShortage}
+                      getValue={(item) => String(Number(item.netShortage ?? 0))}
+                      sortConfig={tableSortConfig}
+                      onSortChange={handleSortChange}
+                      isNumeric={true}
+                      numericCondition={numCondShortage}
+                      onNumericConditionChange={setNumCondShortage}
+                    />
+                  </th>
+                  <th className="p-3">
+                    <ColumnFilter
+                      column="preferredSupplier"
+                      title="Preferred Supplier"
+                      data={activeDatasetForFilters}
+                      currentFilters={colFilterPreferredSupplier}
+                      onFilterChange={setColFilterPreferredSupplier}
+                      getValue={(item) => item.bestVendor?.vendorName || item.bestVendor?.name || 'No Quote'}
+                      sortConfig={tableSortConfig}
+                      onSortChange={handleSortChange}
+                    />
+                  </th>
+                  <th className="p-3 text-center">
+                    <ColumnFilter
+                      column="materialPlanningStatus"
+                      title="Planning Remark"
+                      data={activeDatasetForFilters}
+                      currentFilters={colFilterPlanningRemark}
+                      onFilterChange={setColFilterPlanningRemark}
+                      getValue={(item) => item.materialPlanningStatus || (Number(item.netShortage ?? 0) === 0 ? 'Stock Covered' : 'Not Planned')}
+                      sortConfig={tableSortConfig}
+                      onSortChange={handleSortChange}
+                    />
+                  </th>
+                  <th className="p-3 text-center">
+                    <ColumnFilter
+                      column="status"
+                      title="BOM Item Status"
+                      data={activeDatasetForFilters}
+                      currentFilters={colFilterBOMStatus}
+                      onFilterChange={setColFilterBOMStatus}
+                      getValue={(item) => item.status || 'Pending'}
+                      sortConfig={tableSortConfig}
+                      onSortChange={handleSortChange}
+                    />
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -2319,9 +2645,15 @@ export default function MRPProcurementWorkbench({
                               ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border-blue-200/80 dark:border-blue-800/50'
                               : activeTypeTab === 'bo'
                               ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200/80 dark:border-indigo-800/50'
+                              : activeTypeTab === 'component'
+                              ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border-purple-200/80 dark:border-purple-800/50'
+                              : activeTypeTab === 'subassembly'
+                              ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/50'
+                              : activeTypeTab === 'assembly'
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/50'
                               : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                           }`}>
-                            {item.category || (activeTypeTab === 'rm' ? 'Raw Material' : activeTypeTab === 'bo' ? 'Bought Out' : 'Component')}
+                            {item.category || '-'}
                           </span>
                         </td>
 
@@ -3699,6 +4031,20 @@ export default function MRPProcurementWorkbench({
                 <span>{syncingBOM ? "Syncing..." : "Sync Plan (BOM & PO)"}</span>
               </button>
 
+              {/* Dashboard Metrics Toggle */}
+              <button
+                onClick={() => setShowQuickMetrics(!showQuickMetrics)}
+                className={`px-3 py-1.5 rounded-xl border font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap ${
+                  showQuickMetrics
+                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-700 dark:text-indigo-300 shadow-xs'
+                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
+                }`}
+                title={showQuickMetrics ? "Hide Dashboard Summary Metrics" : "Show Dashboard Summary Metrics"}
+              >
+                <BarChart3 size={13} className={showQuickMetrics ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400"} />
+                <span>{showQuickMetrics ? "Hide Dashboard" : "Show Dashboard"}</span>
+              </button>
+
               <button
                 onClick={() => fetchWorkbenchData(selectedPlan._id)}
                 className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl cursor-pointer shrink-0"
@@ -3727,53 +4073,135 @@ export default function MRPProcurementWorkbench({
             </div>
           )}
 
-          {/* Quick Metrics Bar (PINNED) */}
-          <div className="shrink-0 grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Finished Goods</span>
-              <div className="text-lg sm:text-xl font-black text-slate-900 dark:text-white mt-0.5">
-                {(selectedPlan.fgItems || []).length} <span className="text-xs font-semibold text-slate-400">items</span>
+          {/* Quick Metrics Bar (HIDDEN BY DEFAULT - TOGGLEABLE) */}
+          {showQuickMetrics && (
+            <div className="shrink-0 grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Finished Goods</span>
+                <div className="text-lg sm:text-xl font-black text-slate-900 dark:text-white mt-0.5">
+                  {(selectedPlan.fgItems || []).length} <span className="text-xs font-semibold text-slate-400">items</span>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-red-500">Net Shortages</span>
+                <div className="text-lg sm:text-xl font-black text-red-600 dark:text-red-400 mt-0.5">
+                  {selectedPlan.planTotalShortages} <span className="text-xs font-semibold text-slate-400">units</span>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-500">In-Transit Open POs</span>
+                <div className="text-lg sm:text-xl font-black text-blue-600 mt-0.5">
+                  {selectedPlan.planTotalInTransit} <span className="text-xs font-semibold text-slate-400">units</span>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600">Procurement Status</span>
+                <div className="mt-1">
+                  {selectedPlan.isProcurementFulfilled ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      ✅ Fulfilled
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                      ⏳ Shortages Pending
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
+          )}
 
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-red-500">Net Shortages</span>
-              <div className="text-lg sm:text-xl font-black text-red-600 dark:text-red-400 mt-0.5">
-                {selectedPlan.planTotalShortages} <span className="text-xs font-semibold text-slate-400">units</span>
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-500">In-Transit Open POs</span>
-              <div className="text-lg sm:text-xl font-black text-blue-600 mt-0.5">
-                {selectedPlan.planTotalInTransit} <span className="text-xs font-semibold text-slate-400">units</span>
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 sm:p-2.5 rounded-xl shadow-xs">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600">Procurement Status</span>
-              <div className="mt-1">
-                {selectedPlan.isProcurementFulfilled ? (
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                    ✅ Fulfilled
+          {/* Active Excel Column Filters Strip */}
+          {isAnyExcelFilterActive && (
+            <div className="shrink-0 flex items-center justify-between gap-2 px-3 py-2 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 rounded-xl text-xs">
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                <span className="font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1">
+                  <Filter size={12} className="text-indigo-600 dark:text-indigo-400" />
+                  Active Column Filters:
+                </span>
+                {colFilterMaterialName.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-md text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                    Material: <strong>{colFilterMaterialName.length}</strong>
+                    <button onClick={() => setColFilterMaterialName([])} className="hover:text-rose-600 cursor-pointer">×</button>
                   </span>
-                ) : (
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                    ⏳ Shortages Pending
+                )}
+                {colFilterCategory.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-md text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                    Category: <strong>{colFilterCategory.join(', ')}</strong>
+                    <button onClick={() => setColFilterCategory([])} className="hover:text-rose-600 cursor-pointer">×</button>
+                  </span>
+                )}
+                {(colFilterGrossRequired.length > 0 || numCondGrossRequired !== 'all') && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-md text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                    Gross Req: <strong>{numCondGrossRequired !== 'all' ? (numCondGrossRequired === 'gt0' ? '> 0' : '= 0') : `${colFilterGrossRequired.length} values`}</strong>
+                    <button onClick={() => { setColFilterGrossRequired([]); setNumCondGrossRequired('all'); }} className="hover:text-rose-600 cursor-pointer">×</button>
+                  </span>
+                )}
+                {(colFilterLiveStock.length > 0 || numCondLiveStock !== 'all') && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-md text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                    Stock: <strong>{numCondLiveStock !== 'all' ? (numCondLiveStock === 'gt0' ? '> 0' : '= 0') : `${colFilterLiveStock.length} values`}</strong>
+                    <button onClick={() => { setColFilterLiveStock([]); setNumCondLiveStock('all'); }} className="hover:text-rose-600 cursor-pointer">×</button>
+                  </span>
+                )}
+                {(colFilterInTransit.length > 0 || numCondInTransit !== 'all') && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-md text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                    In-Transit: <strong>{numCondInTransit !== 'all' ? (numCondInTransit === 'gt0' ? '> 0' : '= 0') : `${colFilterInTransit.length} values`}</strong>
+                    <button onClick={() => { setColFilterInTransit([]); setNumCondInTransit('all'); }} className="hover:text-rose-600 cursor-pointer">×</button>
+                  </span>
+                )}
+                {(colFilterShortage.length > 0 || numCondShortage !== 'all') && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-md text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                    Shortage: <strong>{numCondShortage !== 'all' ? (numCondShortage === 'gt0' ? '> 0' : '= 0') : `${colFilterShortage.length} values`}</strong>
+                    <button onClick={() => { setColFilterShortage([]); setNumCondShortage('all'); }} className="hover:text-rose-600 cursor-pointer">×</button>
+                  </span>
+                )}
+                {colFilterPreferredSupplier.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-md text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                    Supplier: <strong>{colFilterPreferredSupplier.length} selected</strong>
+                    <button onClick={() => setColFilterPreferredSupplier([])} className="hover:text-rose-600 cursor-pointer">×</button>
+                  </span>
+                )}
+                {colFilterPlanningRemark.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-md text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                    Remark: <strong>{colFilterPlanningRemark.join(', ')}</strong>
+                    <button onClick={() => setColFilterPlanningRemark([])} className="hover:text-rose-600 cursor-pointer">×</button>
+                  </span>
+                )}
+                {colFilterBOMStatus.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-md text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                    Status: <strong>{colFilterBOMStatus.join(', ')}</strong>
+                    <button onClick={() => setColFilterBOMStatus([])} className="hover:text-rose-600 cursor-pointer">×</button>
+                  </span>
+                )}
+                {tableSortConfig && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-md text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                    Sort: <strong>{tableSortConfig.key} ({tableSortConfig.direction})</strong>
+                    <button onClick={() => setTableSortConfig(null)} className="hover:text-rose-600 cursor-pointer">×</button>
                   </span>
                 )}
               </div>
+
+              <button
+                onClick={handleResetExcelFilters}
+                className="px-2.5 py-1 bg-white hover:bg-rose-50 dark:bg-slate-900 dark:hover:bg-rose-950 text-rose-600 dark:text-rose-400 font-bold text-[11px] rounded-lg border border-rose-200 dark:border-rose-900 transition-colors shrink-0 cursor-pointer shadow-2xs"
+              >
+                Clear All Filters
+              </button>
             </div>
-          </div>
+          )}
 
           {/* ========================================================================= */}
-          {/* TAB 1: NESTED MULTI-LEVEL BOM TREE VIEW (CLEAN HIERARCHY - NO SELECTION)  */}
+          {/* TAB 1: NESTED MULTI-LEVEL BOM TREE VIEW (9 COLUMNS WITH EXCEL FILTERS)    */}
           {/* ========================================================================= */}
           {viewMode === 'nested-tree' && (
             <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 scroll-smooth">
               {(selectedPlan.fgItems || []).map((fg: any, fgIdx: number) => {
                 const fgKey = `${selectedPlan._id}_fg_${fgIdx}`;
                 const isExpanded = expandedNodes.has(fgKey) || true;
+                const displayedMaterials = sortItems((fg.nestedMaterials || []).filter(matchesExcelFilters));
 
                 return (
                   <div key={fgIdx} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
@@ -3821,176 +4249,424 @@ export default function MRPProcurementWorkbench({
                       </div>
                     </div>
 
-                    {/* Level 2, 3, 4: Nested Child Materials Table (Clean View) */}
+                    {/* Level 2, 3, 4: Nested Child Materials Table (9 Standardized Columns) */}
                     {isExpanded && (
                       <>
                         {/* Desktop Table View */}
                         <div className="hidden md:block overflow-x-auto scroll-smooth">
-                          <table className="w-full min-w-[780px] text-xs text-left">
+                          <table className="w-full min-w-[960px] text-xs text-left">
                             <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                               <tr>
-                                <th className="p-3">Nested Component / Material</th>
-                                <th className="p-3">Classification Type</th>
-                                <th className="p-3 text-center">Req / FG</th>
-                                <th className="p-3 text-center">Total Req</th>
-                                <th className="p-3 text-center">Live Stock</th>
-                                <th className="p-3 text-center">In-Transit PO</th>
-                                <th className="p-3 text-center">True Net Shortage</th>
-                                <th className="p-3">Best Vendor Quote</th>
+                                <th className="p-3">
+                                  <ColumnFilter
+                                    column="materialName"
+                                    title="Material Name & Description"
+                                    data={activeDatasetForFilters}
+                                    currentFilters={colFilterMaterialName}
+                                    onFilterChange={setColFilterMaterialName}
+                                    getValue={(item) => item.materialName || '-'}
+                                    sortConfig={tableSortConfig}
+                                    onSortChange={handleSortChange}
+                                  />
+                                </th>
+                                <th className="p-3">
+                                  <ColumnFilter
+                                    column="category"
+                                    title="Category"
+                                    data={activeDatasetForFilters}
+                                    currentFilters={colFilterCategory}
+                                    onFilterChange={setColFilterCategory}
+                                    getValue={(item) => item.category || '-'}
+                                    sortConfig={tableSortConfig}
+                                    onSortChange={handleSortChange}
+                                  />
+                                </th>
+                                <th className="p-3 text-center">
+                                  <ColumnFilter
+                                    column="grossRequired"
+                                    title="Gross Required"
+                                    data={activeDatasetForFilters}
+                                    currentFilters={colFilterGrossRequired}
+                                    onFilterChange={setColFilterGrossRequired}
+                                    getValue={(item) => String(Number(item.grossRequired ?? item.totalRequired ?? item.requiredQuantity ?? 0))}
+                                    sortConfig={tableSortConfig}
+                                    onSortChange={handleSortChange}
+                                    isNumeric={true}
+                                    numericCondition={numCondGrossRequired}
+                                    onNumericConditionChange={setNumCondGrossRequired}
+                                  />
+                                </th>
+                                <th className="p-3 text-center">
+                                  <ColumnFilter
+                                    column="currentPhysicalStock"
+                                    title="Live Stock"
+                                    data={activeDatasetForFilters}
+                                    currentFilters={colFilterLiveStock}
+                                    onFilterChange={setColFilterLiveStock}
+                                    getValue={(item) => String(Number(item.currentPhysicalStock ?? 0))}
+                                    sortConfig={tableSortConfig}
+                                    onSortChange={handleSortChange}
+                                    isNumeric={true}
+                                    numericCondition={numCondLiveStock}
+                                    onNumericConditionChange={setNumCondLiveStock}
+                                  />
+                                </th>
+                                <th className="p-3 text-center">
+                                  <ColumnFilter
+                                    column="totalInTransitPO"
+                                    title="In-Transit PO"
+                                    data={activeDatasetForFilters}
+                                    currentFilters={colFilterInTransit}
+                                    onFilterChange={setColFilterInTransit}
+                                    getValue={(item) => String(Number(item.totalInTransitPO ?? 0))}
+                                    sortConfig={tableSortConfig}
+                                    onSortChange={handleSortChange}
+                                    isNumeric={true}
+                                    numericCondition={numCondInTransit}
+                                    onNumericConditionChange={setNumCondInTransit}
+                                  />
+                                </th>
+                                <th className="p-3 text-center">
+                                  <ColumnFilter
+                                    column="netShortage"
+                                    title="True Net Shortage"
+                                    data={activeDatasetForFilters}
+                                    currentFilters={colFilterShortage}
+                                    onFilterChange={setColFilterShortage}
+                                    getValue={(item) => String(Number(item.netShortage ?? 0))}
+                                    sortConfig={tableSortConfig}
+                                    onSortChange={handleSortChange}
+                                    isNumeric={true}
+                                    numericCondition={numCondShortage}
+                                    onNumericConditionChange={setNumCondShortage}
+                                  />
+                                </th>
+                                <th className="p-3">
+                                  <ColumnFilter
+                                    column="preferredSupplier"
+                                    title="Preferred Supplier"
+                                    data={activeDatasetForFilters}
+                                    currentFilters={colFilterPreferredSupplier}
+                                    onFilterChange={setColFilterPreferredSupplier}
+                                    getValue={(item) => item.bestVendor?.vendorName || item.bestVendor?.name || 'No Quote'}
+                                    sortConfig={tableSortConfig}
+                                    onSortChange={handleSortChange}
+                                  />
+                                </th>
+                                <th className="p-3 text-center">
+                                  <ColumnFilter
+                                    column="materialPlanningStatus"
+                                    title="Planning Remark"
+                                    data={activeDatasetForFilters}
+                                    currentFilters={colFilterPlanningRemark}
+                                    onFilterChange={setColFilterPlanningRemark}
+                                    getValue={(item) => item.materialPlanningStatus || (Number(item.netShortage ?? 0) === 0 ? 'Stock Covered' : 'Not Planned')}
+                                    sortConfig={tableSortConfig}
+                                    onSortChange={handleSortChange}
+                                  />
+                                </th>
+                                <th className="p-3 text-center">
+                                  <ColumnFilter
+                                    column="status"
+                                    title="BOM Item Status"
+                                    data={activeDatasetForFilters}
+                                    currentFilters={colFilterBOMStatus}
+                                    onFilterChange={setColFilterBOMStatus}
+                                    getValue={(item) => item.status || 'Pending'}
+                                    sortConfig={tableSortConfig}
+                                    onSortChange={handleSortChange}
+                                  />
+                                </th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                              {(fg.nestedMaterials || []).map((nMat: any, nIdx: number) => {
-                                const levelIndent = nMat.level ? (nMat.level - 1) * 16 : 0;
+                              {displayedMaterials.length === 0 ? (
+                                <tr>
+                                  <td colSpan={9} className="p-8 text-center text-slate-400 italic">
+                                    No nested materials match the active column filters.
+                                  </td>
+                                </tr>
+                              ) : (
+                                displayedMaterials.map((nMat: any, nIdx: number) => {
+                                  const levelIndent = nMat.level ? (nMat.level - 1) * 16 : 0;
+                                  const currentStatus = nMat.status || 'Pending';
 
-                                return (
-                                  <tr key={nIdx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                                    <td className="p-3">
-                                      <div style={{ paddingLeft: `${levelIndent}px` }} className="flex items-center gap-1.5">
-                                        {nMat.level > 1 && <span className="text-slate-300 font-mono">↳</span>}
-                                        <div>
-                                          <span className="font-bold text-slate-800 dark:text-slate-200">{nMat.materialName}</span>
-                                          {nMat.description && <span className="block text-[10px] text-slate-500 italic mt-0.5">{nMat.description}</span>}
+                                  return (
+                                    <tr key={nIdx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                                      {/* 1. Material Name & Description (Strict AGENTS.md Standard) */}
+                                      <td className="p-3">
+                                        <div style={{ paddingLeft: `${levelIndent}px` }} className="flex items-start gap-1.5">
+                                          {nMat.level > 1 && (
+                                            <span className="text-slate-400 font-mono text-xs mt-0.5 shrink-0" title={`Level ${nMat.level}`}>
+                                              ↳
+                                            </span>
+                                          )}
+                                          <div className="min-w-0">
+                                            <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white leading-tight">
+                                              {nMat.materialName}
+                                            </div>
+                                            {(nMat.description || nMat.descriptions) && (
+                                              <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                                                {nMat.description || nMat.descriptions}
+                                              </div>
+                                            )}
+                                          </div>
                                         </div>
-                                      </div>
-                                    </td>
+                                      </td>
 
-                                    <td className="p-3">
-                                      <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                                        nMat.itemType === 'SubAssembly' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' :
-                                        nMat.itemType === 'Component' ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300' :
-                                        nMat.itemType === 'BO' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' :
-                                        nMat.itemType === 'Assembly' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' :
-                                        'bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300'
-                                      }`}>
-                                        {nMat.itemType || "RM"}
-                                      </span>
-                                    </td>
+                                      {/* 2. Category */}
+                                      <td className="p-3">
+                                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${
+                                          nMat.itemType === 'SubAssembly' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 dark:border-amber-700' :
+                                          nMat.itemType === 'Component' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border-purple-300 dark:border-purple-700' :
+                                          nMat.itemType === 'BO' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700' :
+                                          nMat.itemType === 'Assembly' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700' :
+                                          'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-300 dark:border-blue-700'
+                                        }`}>
+                                          {nMat.category || '-'}
+                                        </span>
+                                      </td>
 
-                                    <td className="p-3 text-center">
-                                      {renderDualUnitQty(
-                                        Number(nMat.quantityPerFG) || 1,
-                                        nMat.unit,
-                                        nMat,
-                                        { isPerFG: true, fontClass: 'font-mono text-slate-600 dark:text-slate-400' }
-                                      )}
-                                    </td>
-
-                                    <td className="p-3 text-center">
-                                      {renderDualUnitQty(
-                                        Number(nMat.totalRequired || nMat.requiredQuantity) || 0,
-                                        nMat.unit,
-                                        nMat
-                                      )}
-                                    </td>
-
-                                    <td className="p-3 text-center">
-                                      {renderDualUnitQty(
-                                        Number(nMat.currentPhysicalStock) || 0,
-                                        nMat.unit,
-                                        nMat,
-                                        { fontClass: 'font-semibold text-slate-600 dark:text-slate-400' }
-                                      )}
-                                    </td>
-
-                                    <td className="p-3 text-center">
-                                      {renderDualUnitQty(
-                                        Number(nMat.totalInTransitPO) || 0,
-                                        nMat.unit,
-                                        nMat,
-                                        { isInTransit: true }
-                                      )}
-                                    </td>
-
-                                    <td className="p-3 text-center">
-                                      {renderDualUnitQty(
-                                        Number(nMat.netShortage) || 0,
-                                        nMat.unit,
-                                        nMat,
-                                        { isShortage: true }
-                                      )}
-                                    </td>
-
-                                    <td className="p-3">
-                                      {nMat.bestVendor ? (
-                                        <div className="text-[11px]">
-                                          <span className="font-bold text-slate-700 dark:text-slate-300">{nMat.bestVendor.vendorName}</span>
-                                          <span className="text-slate-400 block text-[10px]">₹{nMat.bestVendor.rate}/{nMat.unit}</span>
+                                      {/* 3. Gross Required */}
+                                      <td className="p-3 text-center">
+                                        <div className="flex flex-col items-center">
+                                          {renderDualUnitQty(
+                                            Number(nMat.totalRequired || nMat.requiredQuantity || nMat.grossRequired) || 0,
+                                            nMat.unit,
+                                            nMat
+                                          )}
+                                          <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 mt-0.5" title="Requirement per Finished Good unit">
+                                            (Req/FG: {Number(nMat.quantityPerFG) || 1} {nMat.unit})
+                                          </span>
                                         </div>
-                                      ) : (
-                                        <span className="text-slate-400 italic text-[10px]">No vendor quote</span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
+                                      </td>
+
+                                      {/* 4. Live Stock */}
+                                      <td className="p-3 text-center">
+                                        {renderDualUnitQty(
+                                          Number(nMat.currentPhysicalStock) || 0,
+                                          nMat.unit,
+                                          nMat,
+                                          { fontClass: 'font-semibold text-slate-600 dark:text-slate-400' }
+                                        )}
+                                      </td>
+
+                                      {/* 5. In-Transit PO */}
+                                      <td className="p-3 text-center">
+                                        {renderDualUnitQty(
+                                          Number(nMat.totalInTransitPO) || 0,
+                                          nMat.unit,
+                                          nMat,
+                                          { isInTransit: true }
+                                        )}
+                                      </td>
+
+                                      {/* 6. True Net Shortage */}
+                                      <td className="p-3 text-center">
+                                        {renderDualUnitQty(
+                                          Number(nMat.netShortage) || 0,
+                                          nMat.unit,
+                                          nMat,
+                                          { isShortage: true }
+                                        )}
+                                      </td>
+
+                                      {/* 7. Preferred Supplier */}
+                                      <td className="p-3">
+                                        {nMat.bestVendor ? (
+                                          <div className="text-[11px]">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                              <span className="font-bold text-slate-800 dark:text-slate-200">{nMat.bestVendor.vendorName}</span>
+                                              {nMat.bestVendor.isPreferred && (
+                                                <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
+                                                  ⭐ Preferred
+                                                </span>
+                                              )}
+                                            </div>
+                                            <span className="text-slate-400 block text-[10px] font-mono">₹{Number(nMat.bestVendor.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })} / {nMat.unit}</span>
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-400 italic text-[10px]">No vendor quote</span>
+                                        )}
+                                      </td>
+
+                                      {/* 8. Planning Remark */}
+                                      <td className="p-3 text-center">
+                                        {(() => {
+                                          const pStatus = nMat.materialPlanningStatus || (Number(nMat.netShortage || 0) === 0 ? 'Stock Covered' : 'Not Planned');
+                                          if (pStatus === 'Completed') {
+                                            return (
+                                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300 whitespace-nowrap">
+                                                ✓ Completed
+                                              </span>
+                                            );
+                                          }
+                                          if (pStatus === 'PO Sent') {
+                                            return (
+                                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 whitespace-nowrap">
+                                                📦 PO Sent
+                                              </span>
+                                            );
+                                          }
+                                          if (pStatus === 'Raised RFQ') {
+                                            return (
+                                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 whitespace-nowrap">
+                                                📑 RFQ Raised
+                                              </span>
+                                            );
+                                          }
+                                          if (pStatus === 'PO In-Transit') {
+                                            return (
+                                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-300 whitespace-nowrap">
+                                                🚚 PO In-Transit
+                                              </span>
+                                            );
+                                          }
+                                          if (pStatus === 'Partially In-Transit') {
+                                            return (
+                                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 whitespace-nowrap">
+                                                ⏳ Partial In-Transit
+                                              </span>
+                                            );
+                                          }
+                                          if (pStatus === 'Stock Covered' || Number(nMat.netShortage || 0) === 0) {
+                                            return (
+                                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 whitespace-nowrap">
+                                                ✅ Stock Covered
+                                              </span>
+                                            );
+                                          }
+                                          return (
+                                            <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 inline-flex items-center gap-1 whitespace-nowrap">
+                                              <AlertTriangle size={10} /> ⚠️ Not Planned
+                                            </span>
+                                          );
+                                        })()}
+                                      </td>
+
+                                      {/* 9. BOM Item Status */}
+                                      <td className="p-3 text-center">
+                                        <div className="inline-block relative">
+                                          <select
+                                            value={currentStatus}
+                                            onChange={(e) => handleUpdateItemStatus(e.target.value, nMat)}
+                                            className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border outline-none cursor-pointer appearance-none pr-5 text-center transition-all ${getStatusBadgeClass(currentStatus)}`}
+                                          >
+                                            {STATUS_OPTIONS.map((opt) => (
+                                              <option key={opt} value={opt} className="text-slate-800 bg-white dark:bg-slate-900 dark:text-slate-200">
+                                                {opt}
+                                              </option>
+                                            ))}
+                                          </select>
+                                          <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
                             </tbody>
                           </table>
                         </div>
 
                         {/* Mobile Cards View for Nested Materials */}
                         <div className="md:hidden p-2.5 space-y-2 divide-y divide-slate-100 dark:divide-slate-800">
-                          {(fg.nestedMaterials || []).map((nMat: any, nIdx: number) => {
-                            return (
-                              <div key={nIdx} className="pt-2 first:pt-0 space-y-1.5 text-xs">
-                                <div className="flex items-start justify-between gap-1.5">
-                                  <div className="flex items-start gap-1 min-w-0">
-                                    {nMat.level > 1 && (
-                                      <span className="text-slate-400 font-mono text-[10px] mt-0.5 shrink-0">
-                                        {'↳'.repeat(nMat.level - 1)}
-                                      </span>
-                                    )}
-                                    <div className="min-w-0">
-                                      <span className="font-bold text-slate-800 dark:text-slate-200">
-                                        {nMat.materialName}
-                                      </span>
-                                      {nMat.description && (
-                                        <span className="block text-[10.5px] text-slate-500 italic mt-0.5 line-clamp-2">
-                                          {nMat.description}
+                          {displayedMaterials.length === 0 ? (
+                            <div className="p-4 text-center text-slate-400 italic text-xs">
+                              No nested materials match the active column filters.
+                            </div>
+                          ) : (
+                            displayedMaterials.map((nMat: any, nIdx: number) => {
+                              const currentStatus = nMat.status || 'Pending';
+
+                              return (
+                                <div key={nIdx} className="pt-2 first:pt-0 space-y-1.5 text-xs">
+                                  <div className="flex items-start justify-between gap-1.5">
+                                    <div className="flex items-start gap-1 min-w-0">
+                                      {nMat.level > 1 && (
+                                        <span className="text-slate-400 font-mono text-[10px] mt-0.5 shrink-0">
+                                          {'↳'.repeat(nMat.level - 1)}
                                         </span>
                                       )}
+                                      <div className="min-w-0">
+                                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                                          {nMat.materialName}
+                                        </span>
+                                        {(nMat.description || nMat.descriptions) && (
+                                          <span className="block text-[10.5px] text-slate-500 italic mt-0.5 line-clamp-2">
+                                            {nMat.description || nMat.descriptions}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <span className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-bold border ${
+                                      nMat.itemType === 'SubAssembly' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 dark:border-amber-700' :
+                                      nMat.itemType === 'Component' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border-purple-300 dark:border-purple-700' :
+                                      nMat.itemType === 'BO' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700' :
+                                      nMat.itemType === 'Assembly' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700' :
+                                      'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-300 dark:border-blue-700'
+                                    }`}>
+                                      {nMat.category || '-'}
+                                    </span>
+                                  </div>
+
+                                  <div className="grid grid-cols-4 gap-1.5 bg-slate-50/80 dark:bg-slate-800/50 p-2 rounded-xl text-center">
+                                    <div>
+                                      <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">Req/FG</span>
+                                      <div className="mt-0.5">{renderDualUnitQty(Number(nMat.quantityPerFG) || 1, nMat.unit, nMat, { isPerFG: true, fontClass: 'font-mono text-[11px] text-slate-600 dark:text-slate-400' })}</div>
+                                    </div>
+                                    <div>
+                                      <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">Total Req</span>
+                                      <div className="mt-0.5">{renderDualUnitQty(Number(nMat.totalRequired || nMat.requiredQuantity || nMat.grossRequired) || 0, nMat.unit, nMat)}</div>
+                                    </div>
+                                    <div>
+                                      <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">Live Stock</span>
+                                      <div className="mt-0.5">{renderDualUnitQty(Number(nMat.currentPhysicalStock) || 0, nMat.unit, nMat, { fontClass: 'font-semibold text-[11px] text-slate-600 dark:text-slate-400' })}</div>
+                                    </div>
+                                    <div>
+                                      <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">Shortage</span>
+                                      <div className="mt-0.5">{renderDualUnitQty(Number(nMat.netShortage) || 0, nMat.unit, nMat, { isShortage: true })}</div>
                                     </div>
                                   </div>
 
-                                  <span className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-bold ${
-                                    nMat.itemType === 'SubAssembly' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' :
-                                    nMat.itemType === 'Component' ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300' :
-                                    nMat.itemType === 'BO' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' :
-                                    nMat.itemType === 'Assembly' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' :
-                                    'bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300'
-                                  }`}>
-                                    {nMat.itemType || "RM"}
-                                  </span>
-                                </div>
+                                  <div className="flex items-center justify-between gap-2 pt-1">
+                                    <div>
+                                      {(() => {
+                                        const pStatus = nMat.materialPlanningStatus || (Number(nMat.netShortage || 0) === 0 ? 'Stock Covered' : 'Not Planned');
+                                        return (
+                                          <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">
+                                            Status: <strong>{pStatus}</strong>
+                                          </span>
+                                        );
+                                      })()}
+                                    </div>
+                                    <div className="inline-block relative">
+                                      <select
+                                        value={currentStatus}
+                                        onChange={(e) => handleUpdateItemStatus(e.target.value, nMat)}
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border outline-none cursor-pointer appearance-none pr-4 text-center transition-all ${getStatusBadgeClass(currentStatus)}`}
+                                      >
+                                        {STATUS_OPTIONS.map((opt) => (
+                                          <option key={opt} value={opt} className="text-slate-800 bg-white dark:bg-slate-900 dark:text-slate-200">
+                                            {opt}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <ChevronDown size={8} className="absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                                    </div>
+                                  </div>
 
-                                <div className="grid grid-cols-4 gap-1.5 bg-slate-50/80 dark:bg-slate-800/50 p-2 rounded-xl text-center">
-                                  <div>
-                                    <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">Req/FG</span>
-                                    <div className="mt-0.5">{renderDualUnitQty(Number(nMat.quantityPerFG) || 1, nMat.unit, nMat, { isPerFG: true, fontClass: 'font-mono text-[11px] text-slate-600 dark:text-slate-400' })}</div>
-                                  </div>
-                                  <div>
-                                    <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">Total Req</span>
-                                    <div className="mt-0.5">{renderDualUnitQty(Number(nMat.totalRequired || nMat.requiredQuantity) || 0, nMat.unit, nMat)}</div>
-                                  </div>
-                                  <div>
-                                    <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">Live Stock</span>
-                                    <div className="mt-0.5">{renderDualUnitQty(Number(nMat.currentPhysicalStock) || 0, nMat.unit, nMat, { fontClass: 'font-semibold text-[11px] text-slate-600 dark:text-slate-400' })}</div>
-                                  </div>
-                                  <div>
-                                    <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block">Shortage</span>
-                                    <div className="mt-0.5">{renderDualUnitQty(Number(nMat.netShortage) || 0, nMat.unit, nMat, { isShortage: true })}</div>
-                                  </div>
+                                  {nMat.bestVendor && (
+                                    <div className="flex items-center justify-between text-[10.5px] text-slate-500 pt-0.5">
+                                      <span className="font-semibold text-slate-700 dark:text-slate-300">Quote: {nMat.bestVendor.vendorName}</span>
+                                      <span className="font-mono">₹{nMat.bestVendor.rate}/{nMat.unit}</span>
+                                    </div>
+                                  )}
                                 </div>
-
-                                {nMat.bestVendor && (
-                                  <div className="flex items-center justify-between text-[10.5px] text-slate-500 pt-0.5">
-                                    <span className="font-semibold text-slate-700 dark:text-slate-300">Quote: {nMat.bestVendor.vendorName}</span>
-                                    <span className="font-mono">₹{nMat.bestVendor.rate}/{nMat.unit}</span>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                              );
+                            })
+                          )}
                         </div>
                       </>
                     )}

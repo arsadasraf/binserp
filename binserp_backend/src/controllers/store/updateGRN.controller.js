@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { syncGRNToPurchaseBill } from "../../utils/purchaseBillSync.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -243,6 +244,24 @@ export const updateGRN = async (req, res) => {
       }
     }
 
+    if (Array.isArray(req.body.items)) {
+      req.body.items = req.body.items.map(it => {
+        const hasSec = Boolean(it.hasSecondaryUnit);
+        const secUnit = it.secondaryUnit || '';
+        const isSecUnit = hasSec && it.selectedUnit === secUnit;
+        const billingQty = isSecUnit ? (Number(it.secondaryQuantity) || 0) : (Number(it.quantity) || 0);
+        const itemRate = parseFloat(it.rate) || 0;
+        const itemAmount = it.amount !== undefined && it.amount !== null && !isNaN(parseFloat(it.amount))
+          ? parseFloat(it.amount)
+          : Number((billingQty * itemRate).toFixed(2));
+        return {
+          ...it,
+          rate: itemRate,
+          amount: itemAmount
+        };
+      });
+    }
+
     if (req.body.invoiceNumber && !req.body.poReference) {
       req.body.poReference = req.body.invoiceNumber;
     } else if (req.body.poNumber && !req.body.poReference) {
@@ -257,6 +276,12 @@ export const updateGRN = async (req, res) => {
     }
     if (req.body.taxAmount !== undefined) {
       req.body.taxAmount = parseFloat(req.body.taxAmount) || 0;
+    }
+    if (req.body.transportationCharges !== undefined) {
+      req.body.transportationCharges = Math.max(0, parseFloat(req.body.transportationCharges) || 0);
+    }
+    if (req.body.packingCharges !== undefined) {
+      req.body.packingCharges = Math.max(0, parseFloat(req.body.packingCharges) || 0);
     }
     if (req.body.totalAmount !== undefined) {
       req.body.totalAmount = parseFloat(req.body.totalAmount) || 0;
@@ -342,6 +367,13 @@ export const updateGRN = async (req, res) => {
     const grnObj = updatedGRN?.toObject ? updatedGRN.toObject() : { ...updatedGRN };
     if (grnObj.photos && grnObj.photos.length > 0) grnObj.photos = await signPhotos(grnObj.photos);
     if (grnObj.pdf) grnObj.pdf = (await signPhotos([grnObj.pdf]))[0];
+
+    // Dynamically sync to Purchase Bill if RM, BO, or Consumables GRN
+    try {
+      await syncGRNToPurchaseBill(req, updatedGRN, 'update');
+    } catch (syncErr) {
+      console.error("[updateGRN] Failed to sync to Purchase Bill:", syncErr);
+    }
 
     res.status(200).json({ message: "GRN updated successfully", grn: grnObj });
   } catch (error) {

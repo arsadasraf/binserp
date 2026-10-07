@@ -7,6 +7,7 @@ import SearchableMultiSelect from '../SearchableMultiSelect';
 import { generateFrontendInwardRfqPDF } from '@/src/utils/frontendPdfHelper';
 import { getCurrencySymbol, CURRENCY_OPTIONS, normalizeCurrencyCode } from '@/src/utils/currencyHelper';
 import { useExchangeRates } from '@/src/hooks/useExchangeRates';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 interface InwardRfqTabProps {
     token: string | null;
@@ -360,11 +361,15 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
 
     const filteredRfqs = useMemo(() => {
         return (Array.isArray(rfqs) ? rfqs : []).filter((rfq: any) => {
+            const term = searchTerm?.trim() || "";
             const matchSearch =
-                !searchTerm ||
-                (rfq.rfqNumber && rfq.rfqNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (rfq.customerName && rfq.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (rfq.items && rfq.items.some((i: any) => (i.fgItem?.name || i.itemName || i.description || '').toLowerCase().includes(searchTerm.toLowerCase())));
+                !term ||
+                isSpaceFreeMatch(rfq.rfqNumber, term) ||
+                isSpaceFreeMatch(rfq.customerName, term) ||
+                (rfq.items && rfq.items.some((i: any) => 
+                    isSpaceFreeMatch(i.fgItem?.name || i.itemName, term) || 
+                    isSpaceFreeMatch(i.description, term)
+                ));
 
             const matchStatus = filterStatus === 'All' || rfq.status === filterStatus;
 
@@ -413,11 +418,15 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
     // Scoped RFQs based on active search, customer, and date/month filters (used for live status dropdown counts)
     const scopedRfqs = useMemo(() => {
         return (Array.isArray(rfqs) ? rfqs : []).filter((rfq: any) => {
+            const term = searchTerm?.trim() || "";
             const matchSearch =
-                !searchTerm ||
-                (rfq.rfqNumber && rfq.rfqNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (rfq.customerName && rfq.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (rfq.items && rfq.items.some((i: any) => (i.fgItem?.name || i.itemName || i.description || '').toLowerCase().includes(searchTerm.toLowerCase())));
+                !term ||
+                isSpaceFreeMatch(rfq.rfqNumber, term) ||
+                isSpaceFreeMatch(rfq.customerName, term) ||
+                (rfq.items && rfq.items.some((i: any) => 
+                    isSpaceFreeMatch(i.fgItem?.name || i.itemName, term) || 
+                    isSpaceFreeMatch(i.description, term)
+                ));
 
             let matchCustomer = true;
             if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) {

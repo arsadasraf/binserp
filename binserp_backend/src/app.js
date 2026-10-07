@@ -28,10 +28,17 @@ app.use(
                 origin.startsWith("http://127.0.0.1:") ||
                 origin.startsWith("http://192.168.") ||
                 origin.startsWith("http://10.") ||
+                origin.startsWith("http://172.") ||
                 origin.startsWith("https://localhost:") ||
                 origin.startsWith("https://127.0.0.1:") ||
                 origin.startsWith("https://192.168.") ||
-                origin.startsWith("https://10.")) {
+                origin.startsWith("https://10.") ||
+                origin.startsWith("https://172.")) {
+                return callback(null, true);
+            }
+
+            // In local development, permit request origin
+            if (process.env.NODE_ENV !== "production") {
                 return callback(null, true);
             }
 
@@ -40,7 +47,7 @@ app.use(
         },
         credentials: true,
         methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization"],
+        allowedHeaders: ["Content-Type", "Authorization", "x-refresh-token", "Accept", "Origin", "X-Requested-With"],
     })
 );
 // app.use(cors());
@@ -51,8 +58,12 @@ app.use(express.urlencoded({ extended: true, limit: "16mb" }));
 app.use(express.static("public"));
 app.use(cookieParser());
 
-// Security Middlewares
-app.use(helmet());
+// Security Middlewares - allow cross-origin resource sharing between frontend and backend
+app.use(
+    helmet({
+        crossOriginResourcePolicy: { policy: "cross-origin" },
+    })
+);
 // Fix for Express 5: req.query is a getter, so we must sanitize objects in-place instead of reassigning
 app.use((req, res, next) => {
     ['body', 'params', 'headers', 'query'].forEach((key) => {
@@ -130,7 +141,7 @@ app.use("/api/hr-prefix", hrPrefixRoutes);
 app.use("/api/maintenance", maintenanceRoutes);
 app.use("/api/quality", qualityRoutes);
 app.use("/api/crm", crmRoutes);
-// app.use("/api/auth", authRoutes);
+app.use("/api/auth", authRoutes);
 app.use("/auth", authRoutes);
 app.use("/api/accounts", accountsRoutes);
 app.use("/api/documents", documentRoutes);

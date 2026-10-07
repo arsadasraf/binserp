@@ -89,6 +89,7 @@ export const grnSchema = new mongoose.Schema(
         secondaryRejectedQuantity: { type: Number, default: 0 },
         billedQuantity: { type: Number, default: 0 },
         selectedUnit: { type: String, default: "" },
+        amount: { type: Number, default: 0 },
         locationId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Location",
@@ -123,6 +124,16 @@ export const grnSchema = new mongoose.Schema(
     taxAmount: {
       type: Number,
       default: 0,
+    },
+    transportationCharges: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    packingCharges: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     totalAmount: {
       type: Number,

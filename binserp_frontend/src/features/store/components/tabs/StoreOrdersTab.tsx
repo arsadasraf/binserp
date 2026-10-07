@@ -18,6 +18,7 @@ import LoadingSpinner from '@/src/components/LoadingSpinner';
 import StoreCreateOrderModal from "../modals/StoreCreateOrderModal";
 import StoreOrderDetailModal from "../modals/StoreOrderDetailModal";
 import SearchableMultiSelect from "../SearchableMultiSelect";
+import { isSpaceFreeMatch } from "@/src/utils/spaceFreeSearchHelper";
 
 interface jsPDFWithPlugin extends jsPDF {
   autoTable: (options: UserOptions) => jsPDF;
@@ -122,15 +123,21 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
 
   const { data: orders = [], isLoading: loading, refetch } = useGetStoreDataQuery('order');
 
-  const filteredOrders = useMemo(() => {
+    const filteredOrders = useMemo(() => {
     if (!orders.length) return [];
 
-    const lowerTerm = searchTerm.toLowerCase();
-    let result = orders.filter(
-      (o: any) =>
-        o.orderNumber.toLowerCase().includes(lowerTerm) ||
-        (o.customer?.name || "").toLowerCase().includes(lowerTerm)
-    );
+    const term = searchTerm?.trim() || "";
+    let result = orders.filter((o: any) => {
+      if (!term) return true;
+      return (
+        isSpaceFreeMatch(o.orderNumber, term) ||
+        isSpaceFreeMatch(o.customer?.name, term) ||
+        (o.items && o.items.some((it: any) => 
+          isSpaceFreeMatch(it.productName || it.name, term) || 
+          isSpaceFreeMatch(it.description, term)
+        ))
+      );
+    });
 
     if (currentSubTab === "history") {
       result = result.filter((o: any) => ["Completed", "Dispatched", "Cancelled"].includes(o.status));

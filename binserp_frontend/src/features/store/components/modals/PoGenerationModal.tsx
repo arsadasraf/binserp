@@ -71,8 +71,9 @@ export default function PoGenerationModal({
           secondaryRate,
           rate,
           tax: taxPct,
-          amount: lineTotal,
-          subtotal: lineSubtotal
+          amount: lineSubtotal,
+          subtotal: lineSubtotal,
+          total: lineTotal
         };
       });
 
@@ -92,7 +93,8 @@ export default function PoGenerationModal({
         rate: 0,
         tax: 18,
         amount: 0,
-        subtotal: 0
+        subtotal: 0,
+        total: 0
       }]);
     }
   }, [isOpen, quotation]);
@@ -178,7 +180,8 @@ export default function PoGenerationModal({
     current.primaryRate = primaryRate;
     current.secondaryRate = secondaryRate;
     current.subtotal = lineSubtotal;
-    current.amount = parseFloat((lineSubtotal * (1 + tax / 100)).toFixed(2));
+    current.amount = lineSubtotal;
+    current.total = parseFloat((lineSubtotal * (1 + tax / 100)).toFixed(2));
 
     updated[index] = current;
     setItems(updated);
@@ -201,7 +204,8 @@ export default function PoGenerationModal({
       rate: 0,
       tax: 18,
       amount: 0,
-      subtotal: 0
+      subtotal: 0,
+      total: 0
     }]);
   };
 
@@ -227,24 +231,40 @@ export default function PoGenerationModal({
       rfqNumber: quotation.rfqNumber || '',
       status,
       remarks,
-      items: items.map(it => ({
-        material: it.materialId || undefined,
-        materialName: it.materialName,
-        description: it.description || '',
-        quantity: Number(it.quantity) || 1,
-        unit: it.unit || 'PCS',
-        hasSecondaryUnit: Boolean(it.hasSecondaryUnit && it.secondaryUnit),
-        secondaryUnit: it.secondaryUnit || '',
-        conversionFactor: Number(it.conversionFactor) || 1,
-        secondaryQuantity: it.hasSecondaryUnit ? Number(it.secondaryQuantity || 0) : undefined,
-        rateUnit: (it.rateUnit === 'secondary' && it.hasSecondaryUnit) ? 'secondary' : 'primary',
-        selectedUnit: (it.rateUnit === 'secondary' && it.hasSecondaryUnit) ? it.secondaryUnit : it.unit,
-        primaryRate: Number(it.primaryRate) || Number(it.rate),
-        secondaryRate: Number(it.secondaryRate) || Number(it.rate),
-        rate: Number(it.rate) || 0,
-        amount: Number(it.subtotal || it.amount) || ((Number(it.quantity) || 1) * (Number(it.rate) || 0))
-      })),
-      totalAmount: grandTotal
+      items: items.map(it => {
+        const itemSubtotal = Number(it.subtotal != null ? it.subtotal : (Number(it.quantity || 1) * Number(it.rate || 0)));
+        const itemTaxRate = Number(it.tax) || 0;
+        const itemTaxAmount = parseFloat(((itemSubtotal * itemTaxRate) / 100).toFixed(2));
+        return {
+          material: it.materialId || undefined,
+          materialName: it.materialName,
+          description: it.description || '',
+          quantity: Number(it.quantity) || 1,
+          unit: it.unit || 'PCS',
+          hasSecondaryUnit: Boolean(it.hasSecondaryUnit && it.secondaryUnit),
+          secondaryUnit: it.secondaryUnit || '',
+          conversionFactor: Number(it.conversionFactor) || 1,
+          secondaryQuantity: it.hasSecondaryUnit ? Number(it.secondaryQuantity || 0) : undefined,
+          rateUnit: (it.rateUnit === 'secondary' && it.hasSecondaryUnit) ? 'secondary' : 'primary',
+          selectedUnit: (it.rateUnit === 'secondary' && it.hasSecondaryUnit) ? it.secondaryUnit : it.unit,
+          primaryRate: Number(it.primaryRate) || Number(it.rate),
+          secondaryRate: Number(it.secondaryRate) || Number(it.rate),
+          rate: Number(it.rate) || 0,
+          taxRate: itemTaxRate,
+          taxAmount: itemTaxAmount,
+          subtotal: itemSubtotal,
+          amount: itemSubtotal
+        };
+      }),
+      subtotal: parseFloat(subtotal.toFixed(2)),
+      totalTax: parseFloat(totalTax.toFixed(2)),
+      totalAmount: parseFloat(grandTotal.toFixed(2)),
+      grandTotal: parseFloat(grandTotal.toFixed(2)),
+      gstType: 'intra_state',
+      taxRate: items.length > 0 ? Number(items[0].tax || 18) : 18,
+      cgstAmount: parseFloat((totalTax / 2).toFixed(2)),
+      sgstAmount: parseFloat((totalTax / 2).toFixed(2)),
+      igstAmount: 0
     };
 
     onSubmit(payload);
@@ -351,19 +371,19 @@ export default function PoGenerationModal({
               <table className="w-full text-xs text-left">
                 <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-700">
                   <tr>
-                    <th className="px-4 py-3">Material Name</th>
+                    <th className="px-3 py-3 w-64 min-w-[200px] max-w-[260px]">Material Name</th>
                     <th className="px-4 py-3 text-center w-28">Quantity</th>
                     <th className="px-4 py-3 text-center w-32">Billing Unit</th>
-                    <th className="px-4 py-3 text-right w-36">Agreed Rate (₹)</th>
+                    <th className="px-3 py-3 text-right w-48 min-w-[190px]">Agreed Rate (₹)</th>
                     <th className="px-4 py-3 text-center w-20">GST %</th>
-                    <th className="px-4 py-3 text-right w-36">Total Amount (₹)</th>
+                    <th className="px-4 py-3 text-right w-36">Taxable Amount (₹)</th>
                     <th className="px-3 py-3 text-center w-12"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                   {items.map((item, idx) => (
                     <tr key={idx}>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2 w-64 min-w-[200px] max-w-[260px]">
                         <input
                           type="text"
                           value={item.materialName}
@@ -440,7 +460,7 @@ export default function PoGenerationModal({
                           />
                         )}
                       </td>
-                      <td className="px-3 py-2 min-w-[130px]">
+                      <td className="px-3 py-2 w-48 min-w-[190px]">
                         <div className="space-y-1">
                           <div className="flex items-center gap-1.5">
                             <input
@@ -449,7 +469,7 @@ export default function PoGenerationModal({
                               step="any"
                               value={item.rate}
                               onChange={(e) => handleItemChange(idx, 'rate', e.target.value)}
-                              className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right font-bold"
+                              className="w-full min-w-[90px] px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right font-bold"
                             />
                             <span className={`px-2 py-1 rounded text-[10px] font-bold border shrink-0 ${
                               item.rateUnit === 'secondary'
@@ -478,8 +498,13 @@ export default function PoGenerationModal({
                           className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-center"
                         />
                       </td>
-                      <td className="px-4 py-3 text-right font-extrabold text-cyan-600 font-mono">
-                        ₹{Number(item.amount || 0).toLocaleString()}
+                      <td className="px-4 py-3 text-right font-mono">
+                        <div className="font-extrabold text-cyan-600 dark:text-cyan-400">
+                          ₹{Number(item.amount || item.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          Total: ₹{Number((Number(item.amount || item.subtotal || 0) * (1 + (Number(item.tax) || 0) / 100))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
                       </td>
                       <td className="px-2 py-2 text-center">
                         <div className="flex items-center justify-center gap-1">

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { apiGet } from '@/src/lib/api';
 import MRP360WipDrawer from '../modals/MRP360WipDrawer';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 interface MRP360WipTrackerProps {
   token: string;
@@ -39,11 +40,13 @@ export default function MRP360WipTracker({ token }: MRP360WipTrackerProps) {
 
   const filteredOverview = useMemo(() => {
     return wipOverview.filter((item: any) => {
-      const s = searchTerm.toLowerCase();
-      return !searchTerm ||
-        item.mrpNumber.toLowerCase().includes(s) ||
-        (item.customerName && item.customerName.toLowerCase().includes(s)) ||
-        (item.customerPoNumber && item.customerPoNumber.toLowerCase().includes(s));
+      if (!searchTerm || !searchTerm.trim()) return true;
+      const s = searchTerm.trim();
+      return (
+        isSpaceFreeMatch(item.mrpNumber, s) ||
+        isSpaceFreeMatch(item.customerName, s) ||
+        isSpaceFreeMatch(item.customerPoNumber, s)
+      );
     });
   }, [wipOverview, searchTerm]);
 

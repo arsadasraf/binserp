@@ -8,6 +8,7 @@ import PoGenerationModal from '../modals/PoGenerationModal';
 import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 import { ItemNameAndDescription, formatItemSelectLabel, getItemDescription } from '@/src/utils/itemDisplayHelper';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 interface IncomingQuotationTabProps {
     token: string | null;
@@ -560,10 +561,16 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
 
     const filteredQuotations = useMemo(() => {
         return (Array.isArray(quotations) ? quotations : []).filter((q: any) => {
+            const term = searchTerm?.trim() || "";
             const matchSearch = 
-                (q.quotationNumber && q.quotationNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (q.rfqNumber && q.rfqNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (q.vendorName && q.vendorName.toLowerCase().includes(searchTerm.toLowerCase()));
+                !term ||
+                isSpaceFreeMatch(q.quotationNumber, term) ||
+                isSpaceFreeMatch(q.rfqNumber, term) ||
+                isSpaceFreeMatch(q.vendorName, term) ||
+                (q.items && q.items.some((it: any) => 
+                    isSpaceFreeMatch(it.materialName, term) ||
+                    isSpaceFreeMatch(it.materialDescription || it.description, term)
+                ));
             
             const matchStatus = filterStatus === 'All' || q.status === filterStatus;
 

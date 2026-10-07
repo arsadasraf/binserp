@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useGetStoreMRPsQuery } from "@/src/store/services/storeService";
 import { Package, Search, ChevronDown, ChevronUp, AlertCircle, CheckCircle } from 'lucide-react';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 export default function SalesOrderMRPTable() {
   const { data: mrps = [], isLoading } = useGetStoreMRPsQuery();
@@ -18,8 +19,13 @@ export default function SalesOrderMRPTable() {
   };
 
   const filteredMRPs = mrps.filter((mrp: any) => 
-    mrp.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    mrp.salesOrder?.customer?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+    !searchTerm?.trim() ||
+    isSpaceFreeMatch(mrp.orderNumber, searchTerm) ||
+    isSpaceFreeMatch(mrp.salesOrder?.customer?.name, searchTerm) ||
+    (mrp.salesOrder?.items && mrp.salesOrder.items.some((it: any) => 
+      isSpaceFreeMatch(it.productName || it.name, searchTerm) || 
+      isSpaceFreeMatch(it.description, searchTerm)
+    ))
   );
 
   if (isLoading) {

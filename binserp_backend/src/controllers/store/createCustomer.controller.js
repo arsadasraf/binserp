@@ -5,7 +5,7 @@ import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
-import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
+import { validateMasterUniqueness, formatDuplicateKeyError, generateUniqueMasterCode } from "../../utils/duplicateValidator.helper.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -57,6 +57,21 @@ export const createCustomer = async (req, res) => {
     }
     const cleanName = name.toString().trim();
 
+    // Auto-generate code if not provided or empty
+    if (!code || !code.toString().trim()) {
+      const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
+      const settings = (await StorePrefix.findOne({ company: companyId })) || (await StorePrefix.findOne()) || new StorePrefix();
+      const rawPrefix = settings.customerPrefix || "CUS";
+      code = await generateUniqueMasterCode({
+        Model: Customer,
+        companyId,
+        prefix: rawPrefix,
+        padLength: 3
+      });
+    } else {
+      code = code.toString().trim().toUpperCase();
+    }
+
     // Pre-validate uniqueness
     const uniqueness = await validateMasterUniqueness({
       Model: Customer,
@@ -67,23 +82,6 @@ export const createCustomer = async (req, res) => {
     });
     if (uniqueness.isDuplicate) {
       return res.status(400).json({ message: uniqueness.message });
-    }
-
-    if (!code) {
-      const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
-      const settings = await StorePrefix.findOne() || new StorePrefix();
-      const prefix = settings.customerPrefix || "CUS";
-      
-      const lastCustomer = await Customer.findOne({ company: companyId, code: { $regex: new RegExp(`^${prefix}`) } }).sort({ code: -1 });
-      
-      let nextNumber = 1;
-      if (lastCustomer && lastCustomer.code) {
-        const match = lastCustomer.code.match(/\d+$/);
-        if (match) {
-          nextNumber = parseInt(match[0], 10) + 1;
-        }
-      }
-      code = `${prefix}-${nextNumber.toString().padStart(3, '0')}`;
     }
 
     // Ensure robust bank details mapping

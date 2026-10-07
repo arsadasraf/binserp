@@ -24,6 +24,7 @@ import {
   Hash
 } from 'lucide-react';
 import { generateMaterialRequestReportPDF } from '@/src/utils/generateMaterialRequestReportPDF';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 interface MaterialRequestLedgerTableProps {
   requests: any[];
@@ -113,18 +114,18 @@ export default function MaterialRequestLedgerTable({
   const filteredRequests = useMemo(() => {
     return requests.filter(req => {
       // 1. Search filter
-      if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase();
-        const reqNum = (req.requestNumber || '').toLowerCase();
-        const reqBy = (req.requestedBy?.name || req.createdByName || '').toLowerCase();
-        const mrp = (req.mrpNumber || '').toLowerCase();
-        const so = (req.soNumber || req.salesOrder?.orderNumber || '').toLowerCase();
+      if (searchTerm && searchTerm.trim()) {
+        const q = searchTerm.trim();
+        const reqNumMatch = isSpaceFreeMatch(req.requestNumber, q);
+        const reqByMatch = isSpaceFreeMatch(req.requestedBy?.name || req.createdByName, q);
+        const mrpMatch = isSpaceFreeMatch(req.mrpNumber, q);
+        const soMatch = isSpaceFreeMatch(req.soNumber || req.salesOrder?.orderNumber, q);
         const itemsMatch = (req.items || []).some((it: any) => 
-          (it.materialName || '').toLowerCase().includes(q) ||
-          (it.materialDescription || it.description || '').toLowerCase().includes(q) ||
-          (it.purpose || '').toLowerCase().includes(q)
+          isSpaceFreeMatch(it.materialName, q) ||
+          isSpaceFreeMatch(it.materialDescription || it.description, q) ||
+          isSpaceFreeMatch(it.purpose, q)
         );
-        if (!reqNum.includes(q) && !reqBy.includes(q) && !mrp.includes(q) && !so.includes(q) && !itemsMatch) {
+        if (!reqNumMatch && !reqByMatch && !mrpMatch && !soMatch && !itemsMatch) {
           return false;
         }
       }

@@ -294,10 +294,6 @@ export const createMRPPlan = async (req, res) => {
       }).lean().catch(() => []);
     }
 
-    // String normalization helpers for lookup maps
-    const cleanStr = (s) => (s || "").trim().toLowerCase();
-    const cleanKey = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-
     // Build Fast Vendor Price List Map
     const vendorPriceMap = new Map();
     (allPriceLists || []).forEach((vpl) => {
@@ -1678,9 +1674,27 @@ export const updateMRPPlanStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
+    const updateFields = { status };
+    if (status === "Completed") {
+      updateFields.completedAt = new Date();
+    } else {
+      updateFields.completedAt = null;
+    }
+
+    const editHistoryEntry = {
+      updatedBy: req.user?.id || req.user?._id,
+      updatedByName: req.user?.name || req.user?.username || "User",
+      updatedAt: new Date(),
+      action: "Status Updated",
+      remarks: req.body.remarks || `MRP plan status changed to '${status}'`
+    };
+
     const updated = await MRPPlan.findOneAndUpdate(
       { _id: id, company: companyId },
-      { status },
+      { 
+        $set: updateFields,
+        $push: { editHistory: editHistoryEntry }
+      },
       { new: true }
     );
 
@@ -1902,9 +1916,6 @@ export const previewMRPBOMBudget = async (req, res) => {
       FGItem.find({ company: companyId }),
       VendorPriceList.find({ company: companyId }).populate("vendor", "name code").lean().catch(() => [])
     ]);
-
-    const cleanStr = (s) => (s || "").trim().toLowerCase();
-    const cleanKey = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
     // Fast Vendor Price List lookup map
     const vendorPriceMap = new Map();

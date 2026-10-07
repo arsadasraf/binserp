@@ -8,23 +8,29 @@
  */
 
 export const getApiBaseUrl = () => {
-    // 1. Priority: Local Development Override
-    // If we're running locally, ignore the baked-in production URL from Docker
-    if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
-        return `http://${window.location.hostname}:8000`;
+    // 1. In browser runtime:
+    if (typeof window !== "undefined") {
+        const hostname = window.location.hostname;
+        // Local machine development
+        if (hostname === "localhost" || hostname === "127.0.0.1") {
+            return `http://${hostname}:8000`;
+        }
+        // Local network access (LAN / Wi-Fi / Hotspot / VM)
+        if (/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(hostname)) {
+            return `${window.location.protocol}//${hostname}:8000`;
+        }
+        // Production domain override (if explicitly configured and not localhost)
+        if (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL !== "undefined" && !process.env.NEXT_PUBLIC_API_URL.includes("localhost")) {
+            return process.env.NEXT_PUBLIC_API_URL;
+        }
+        return `${window.location.protocol}//${hostname}:8000`;
     }
 
-    // 2. Priority: Environment Variable (if explicitly set and not empty)
+    // 2. Server-side / Build-time fallback
     if (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL !== "undefined") {
         return process.env.NEXT_PUBLIC_API_URL;
     }
 
-    // 3. Dynamic Runtime: Use current window hostname but port 8000
-    if (typeof window !== "undefined") {
-        return `${window.location.protocol}//${window.location.hostname}:8000`;
-    }
-
-    // 4. Fallback: Localhost (for server-side generated pages or local dev)
     return "http://localhost:8000";
 };
 

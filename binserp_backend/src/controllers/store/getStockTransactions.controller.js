@@ -1,4 +1,5 @@
 import { stockTransactionSchema } from "../../models/store/index.js";
+import { buildMultiFieldSearchFilter } from "../../utils/searchHelper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -85,16 +86,31 @@ export const getStockTransactions = async (req, res) => {
       }
     }
 
-    if (search) {
-      const searchRegex = new RegExp(search, "i");
-      query.$or = [
-        { itemName: searchRegex },
-        { itemCode: searchRegex },
-        { referenceDocNumber: searchRegex },
-        { recipientOrSource: searchRegex },
-        { purpose: searchRegex },
-        { performedByName: searchRegex },
+    if (search && search.trim()) {
+      const searchFields = [
+        "itemName",
+        "itemCode",
+        "referenceDocNumber",
+        "recipientOrSource",
+        "purpose",
+        "performedByName"
       ];
+      const searchCondition = buildMultiFieldSearchFilter(search, searchFields);
+      if (searchCondition) {
+        if (query.$or) {
+          query.$and = [
+            { $or: query.$or },
+            searchCondition.$or ? { $or: searchCondition.$or } : { $and: searchCondition.$and }
+          ];
+          delete query.$or;
+        } else {
+          if (searchCondition.$or) {
+            query.$or = searchCondition.$or;
+          } else if (searchCondition.$and) {
+            query.$and = searchCondition.$and;
+          }
+        }
+      }
     }
 
     const pageNum = parseInt(page, 10) || 1;

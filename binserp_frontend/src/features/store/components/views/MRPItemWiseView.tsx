@@ -7,6 +7,7 @@ import {
   ShoppingBag, Truck, Info, FileCheck, X, Search, ChevronRight,
   TrendingUp, AlertCircle, ChevronUp, LayoutGrid
 } from 'lucide-react';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 export interface MRPItemWiseViewProps {
   mrpPlans: any[];
@@ -261,14 +262,14 @@ export default function MRPItemWiseView({
   // Filter items by search term and secondary status tab
   const filteredItems = useMemo(() => {
     return aggregatedItems.filter((item) => {
-      const q = searchTerm.toLowerCase().trim();
+      const q = searchTerm?.trim() || "";
       const matchesSearch = !q || 
-        item.name.toLowerCase().includes(q) || 
-        item.description.toLowerCase().includes(q) ||
+        isSpaceFreeMatch(item.name, q) || 
+        isSpaceFreeMatch(item.description, q) ||
         item.linkedPlans.some(lp => 
-          lp.mrpNumber.toLowerCase().includes(q) || 
-          lp.customerName.toLowerCase().includes(q) ||
-          (lp.customerPoNumber && lp.customerPoNumber.toLowerCase().includes(q))
+          isSpaceFreeMatch(lp.mrpNumber, q) || 
+          isSpaceFreeMatch(lp.customerName, q) ||
+          (lp.customerPoNumber && isSpaceFreeMatch(lp.customerPoNumber, q))
         );
 
       if (!matchesSearch) return false;

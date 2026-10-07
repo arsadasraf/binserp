@@ -61,8 +61,8 @@ export const updateQuotation = async (req, res) => {
       .populate("statusHistory.updatedBy", "name email")
       .populate("customer", "name customerName companyName email phone city code gst")
       .populate("rfq", "rfqNumber status")
-      .populate("items.component", "componentName componentCode")
-      .populate("items.fgItem", "name code unit");
+      .populate("items.component", "componentName componentCode description specification specifications")
+      .populate("items.fgItem", "name code unit description descriptions specification specifications");
 
     res.status(200).json({ message: "Quotation updated successfully", quotation });
   } catch (error) {

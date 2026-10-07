@@ -16,8 +16,10 @@ import POModal from '../modals/POModal';
 import MRPProcurementWorkbench from './MRPProcurementWorkbench';
 import MRP360WipDrawer from '../modals/MRP360WipDrawer';
 import MRPItemWiseView from '../views/MRPItemWiseView';
+import MRPHistoryView from '../views/MRPHistoryView';
 import { calculateMRPLockStatus } from '@/src/features/mrp/utils/mrpStatusHelper';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 interface MRPTabProps {
   token?: string | null;
@@ -27,7 +29,7 @@ interface MRPTabProps {
 
 export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabProps) {
   const [loading, setLoading] = useState(true);
-  const [mainView, setMainView] = useState<'plans' | 'workbench'>('plans');
+  const [mainView, setMainView] = useState<'plans' | 'workbench' | 'history'>('plans');
   const [viewMode, setViewMode] = useState<'plans' | 'items'>('plans');
   const [showPlansDashboard, setShowPlansDashboard] = useState<boolean>(false);
   const [showItemsDashboard, setShowItemsDashboard] = useState<boolean>(false);
@@ -44,7 +46,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   const [searchTerm, setSearchTerm] = useState('');
   
   // 3-Tab Filter System: Status (Multi-select), Plan Date, Committed Date
-  const MRP_STATUS_OPTIONS = ['Planned', 'In Production', 'Partially Completed', 'Completed'] as const;
+  const MRP_STATUS_OPTIONS = ['Planned', 'In Production', 'Partially Received', 'Partially Completed', 'Completed'] as const;
 
   // Tab 1: Status Filter State (Multi-Select)
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
@@ -163,6 +165,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
     const counts: Record<string, number> = {
       Planned: 0,
       'In Production': 0,
+      'Partially Received': 0,
       'Partially Completed': 0,
       Completed: 0
     };
@@ -307,6 +310,38 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
     }
   };
 
+  // Action: Mark MRP Plan as Completed (Moves to MRP History)
+  const handleMarkAsCompleted = async (plan: any, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const confirm = await Swal.fire({
+      title: 'Mark MRP Plan as Completed?',
+      text: `Plan ${plan.mrpNumber} will be marked as Completed and moved to MRP History.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Complete Plan',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#059669'
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      await apiPut(`/api/purchase/mrp/plan/${plan._id}/status`, { status: 'Completed' }, token);
+      Swal.fire({
+        icon: 'success',
+        title: 'Plan Completed',
+        text: `MRP Plan ${plan.mrpNumber} is now completed and moved to MRP History.`,
+        timer: 2000,
+        showConfirmButton: false
+      });
+      if (selectedDemandPlan && selectedDemandPlan._id === plan._id) {
+        setSelectedDemandPlan(null);
+      }
+      fetchData();
+    } catch (err: any) {
+      Swal.fire('Error', err.message || 'Failed to update plan status', 'error');
+    }
+  };
+
   const [syncingPlanId, setSyncingPlanId] = useState<string | null>(null);
 
   const handleSyncBOM = async (plan: any, e?: React.MouseEvent) => {
@@ -383,8 +418,11 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   const filteredMrpPlans = useMemo(() => {
     return (Array.isArray(mrpPlans) ? mrpPlans : []).filter((plan: any) => {
       // 1. Status Multi-select Filter
-      if (selectedStatuses.length > 0 && !selectedStatuses.includes(plan.status)) {
-        return false;
+      if (selectedStatuses.length > 0) {
+        if (!selectedStatuses.includes(plan.status)) return false;
+      } else {
+        // By default in Demand Plans, exclude 'Completed' plans (they are archived in MRP History)
+        if (plan.status === 'Completed') return false;
       }
 
       // 2. Plan Date Filter (Created / Plan Date)
@@ -400,16 +438,16 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
       }
 
       // 4. Search Filter
-      if (searchTerm) {
-        const s = searchTerm.toLowerCase();
+      if (searchTerm && searchTerm.trim()) {
+        const s = searchTerm.trim();
         const matchesSearch =
-          (plan.mrpNumber && plan.mrpNumber.toLowerCase().includes(s)) ||
-          (plan.customerName && plan.customerName.toLowerCase().includes(s)) ||
-          (plan.customerPoNumber && plan.customerPoNumber.toLowerCase().includes(s)) ||
+          isSpaceFreeMatch(plan.mrpNumber, s) ||
+          isSpaceFreeMatch(plan.customerName, s) ||
+          isSpaceFreeMatch(plan.customerPoNumber, s) ||
           (plan.fgItems || []).some((f: any) => 
-            (f.fgItemName && f.fgItemName.toLowerCase().includes(s)) || 
-            (f.fgItemCode && f.fgItemCode.toLowerCase().includes(s)) ||
-            (f.description && f.description.toLowerCase().includes(s))
+            isSpaceFreeMatch(f.fgItemName, s) || 
+            isSpaceFreeMatch(f.fgItemCode, s) ||
+            isSpaceFreeMatch(f.description, s)
           );
         if (!matchesSearch) return false;
       }
@@ -678,7 +716,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   return (
     <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-hidden space-y-2.5 sm:space-y-3">
       
-      {/* 1. TOP-LEVEL VIEW SWITCHER: PLANS | WORKBENCH (PINNED HEADER) */}
+      {/* 1. TOP-LEVEL VIEW SWITCHER: PLANS | WORKBENCH | HISTORY (PINNED HEADER) */}
       <div className="shrink-0 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 overflow-x-auto scroll-smooth touch-pan-x py-0.5 no-scrollbar">
           <button
@@ -692,7 +730,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
             <Layers size={14} />
             <span>📑 MRP Demand Plans</span>
             <span className={`px-1.5 py-0.2 rounded text-[10px] ${mainView === 'plans' ? 'bg-indigo-800 text-indigo-100' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}>
-              {mrpPlans.length}
+              {mrpPlans.filter((p: any) => p.status !== 'Completed').length}
             </span>
           </button>
 
@@ -706,6 +744,21 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
           >
             <ShoppingCart size={14} />
             <span>🛒 Procurement Workbench</span>
+          </button>
+
+          <button
+            onClick={() => setMainView('history')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+              mainView === 'history'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40'
+            }`}
+          >
+            <Clock size={14} />
+            <span>📜 MRP History</span>
+            <span className={`px-1.5 py-0.2 rounded text-[10px] ${mainView === 'history' ? 'bg-purple-800 text-purple-100' : 'bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300'}`}>
+              {statusCounts['Completed'] || 0}
+            </span>
           </button>
         </div>
       </div>
@@ -1555,6 +1608,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                 <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
                                   plan.status === 'Completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
                                   plan.status === 'In Production' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
+                                  plan.status === 'Partially Received' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300' :
                                   plan.status === 'Partially Completed' ? 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300' :
                                   'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
                                 }`}>
@@ -1562,7 +1616,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                 </span>
                               </td>
 
-                              {/* Action Buttons: View, Edit, Delete */}
+                              {/* Action Buttons: View, Complete, Edit, Delete */}
                               <td className="p-3.5 text-right">
                                 <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                                   <button
@@ -1573,6 +1627,16 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                     <span>View</span>
                                     <ChevronRight size={13} />
                                   </button>
+
+                                  {plan.status !== 'Completed' && (
+                                    <button
+                                      onClick={(e) => handleMarkAsCompleted(plan, e)}
+                                      className="p-1.5 rounded-xl border border-emerald-200 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950 transition-all cursor-pointer"
+                                      title="Mark Plan as Completed (Moves to MRP History)"
+                                    >
+                                      <CheckCircle2 size={13} />
+                                    </button>
+                                  )}
 
                                   <button
                                     onClick={(e) => handleSyncBOM(plan, e)}
@@ -1673,6 +1737,8 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                             <span className={`px-2 py-0.5 rounded-full text-[10.5px] font-extrabold border ${
                               plan.status === 'Completed'
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300'
+                                : plan.status === 'Partially Received'
+                                ? 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300'
                                 : plan.status === 'In Production'
                                 ? 'bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950 dark:text-purple-300'
                                 : 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300'
@@ -1781,6 +1847,16 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                               )}
                             </div>
                             <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              {plan.status !== 'Completed' && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleMarkAsCompleted(plan, e)}
+                                  className="p-1.5 rounded-lg border border-emerald-200 text-emerald-600 bg-emerald-50/50 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 cursor-pointer"
+                                  title="Mark Plan as Completed (Moves to History)"
+                                >
+                                  <CheckCircle2 size={12} />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={(e) => handleSyncBOM(plan, e)}
@@ -1962,6 +2038,17 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                     <Eye size={13} />
                     <span>Details & GRN</span>
                   </button>
+
+                  {selectedDemandPlan.status !== 'Completed' && (
+                    <button
+                      onClick={(e) => handleMarkAsCompleted(selectedDemandPlan, e)}
+                      className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold text-xs rounded-xl border border-emerald-200 dark:border-emerald-800 transition-all flex items-center gap-1.5 cursor-pointer"
+                      title="Mark Plan as Completed (Moves to MRP History)"
+                    >
+                      <CheckCircle2 size={13} />
+                      <span>Complete Plan</span>
+                    </button>
+                  )}
 
                   {/* Sync Plan (BOM, Customer PO & Sales Price) Button */}
                   <button
@@ -2492,6 +2579,25 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* VIEW 3: MRP HISTORY (COMPLETED PLANS) */}
+      {mainView === 'history' && (
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <MRPHistoryView
+            mrpPlans={mrpPlans}
+            token={token}
+            onRefresh={fetchData}
+            onViewDetails={(plan) => {
+              setSelectedPlanForDetails(plan);
+              setIsDetailsModalOpen(true);
+            }}
+            onOpenDrawer={(planId) => {
+              setDrawerPlanId(planId);
+              setIs360DrawerOpen(true);
+            }}
+          />
         </div>
       )}
 

@@ -6,6 +6,7 @@ import {
   Clock, ArrowUpDown, ExternalLink, FileText, CheckCircle, 
   ShoppingBag, Truck, Info, X, Search, ShoppingCart
 } from 'lucide-react';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 export interface OutwardPOItemWiseViewProps {
   data: any[];
@@ -236,13 +237,13 @@ export default function OutwardPOItemWiseView({
   // Filter materials by search term, vendor, material type, and fulfillment status
   const filteredMaterials = useMemo(() => {
     return aggregatedMaterials.filter((item) => {
-      const q = searchTerm.toLowerCase().trim();
+      const q = searchTerm?.trim() || "";
       const matchesSearch = !q || 
-        item.name.toLowerCase().includes(q) || 
-        item.description.toLowerCase().includes(q) ||
+        isSpaceFreeMatch(item.name, q) || 
+        isSpaceFreeMatch(item.description, q) ||
         item.linkedPos.some(lp => 
-          lp.poNumber.toLowerCase().includes(q) || 
-          lp.vendorName.toLowerCase().includes(q)
+          isSpaceFreeMatch(lp.poNumber, q) || 
+          isSpaceFreeMatch(lp.vendorName, q)
         );
 
       if (!matchesSearch) return false;

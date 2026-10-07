@@ -7,6 +7,7 @@ import SearchableMultiSelect from '../SearchableMultiSelect';
 import { generateFrontendOutwardQuotationPDF } from '@/src/utils/frontendPdfHelper';
 import { getCurrencySymbol, CURRENCY_OPTIONS, normalizeCurrencyCode } from '@/src/utils/currencyHelper';
 import { useExchangeRates } from '@/src/hooks/useExchangeRates';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 interface OutwardQuotationTabProps {
     token: string | null;
@@ -247,7 +248,9 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             const taxRate = pEntry && pEntry.taxRate != null ? Number(pEntry.taxRate) : Number(matchedFg?.taxRate || 18);
             const hsn = it.hsnCode || matchedFg?.hsnCode || pEntry?.hsnCode || '';
             const prodName = matchedFg?.name || it.fgItem?.name || it.itemName || 'FG Item';
-            const amount = qty * rate * (1 + taxRate / 100);
+            const lineSub = qty * rate;
+            const lineTax = lineSub * (taxRate / 100);
+            const lineTotal = lineSub + lineTax;
 
             return {
                 fgItem: fgId,
@@ -258,11 +261,13 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                 unit: it.unit || matchedFg?.unit || 'PCS',
                 rate: rate,
                 taxRate: taxRate,
-                amount: amount
+                taxAmount: lineTax,
+                amount: lineSub,
+                total: lineTotal
             };
         });
 
-        const initialItems = autoItems.length > 0 ? autoItems : [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }];
+        const initialItems = autoItems.length > 0 ? autoItems : [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0, taxAmount: 0, total: 0 }];
 
         let sub = 0;
         let taxSum = 0;
@@ -324,7 +329,9 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             const taxRate = pEntry && pEntry.taxRate != null ? Number(pEntry.taxRate) : Number(matchedFg?.taxRate || 18);
             const hsn = it.hsnCode || matchedFg?.hsnCode || pEntry?.hsnCode || '';
             const prodName = matchedFg?.name || it.fgItem?.name || it.itemName || 'FG Item';
-            const amount = qty * rate * (1 + taxRate / 100);
+            const lineSub = qty * rate;
+            const lineTax = lineSub * (taxRate / 100);
+            const lineTotal = lineSub + lineTax;
 
             return {
                 fgItem: fgId,
@@ -335,11 +342,13 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                 unit: it.unit || matchedFg?.unit || 'PCS',
                 rate: rate,
                 taxRate: taxRate,
-                amount: amount
+                taxAmount: lineTax,
+                amount: lineSub,
+                total: lineTotal
             };
         });
 
-        const initialItems = autoItems.length > 0 ? autoItems : [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }];
+        const initialItems = autoItems.length > 0 ? autoItems : [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0, taxAmount: 0, total: 0 }];
 
         let sub = 0;
         let taxSum = 0;
@@ -353,22 +362,26 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             taxSum += lineTax;
         });
 
-        setNewQuote(prev => ({
-            ...prev,
-            rfq: targetRfq._id,
-            rfqId: targetRfq._id,
-            rfqNumber: targetRfq.rfqNumber || '',
-            customer: custId || prev.customer,
-            customerName: targetRfq.customerName || matchedCust?.name || matchedCust?.companyName || prev.customerName,
-            customerAddress: matchedCust?.address || matchedCust?.billingAddress || prev.customerAddress,
-            customerEmail: targetRfq.customerEmail || matchedCust?.email || prev.customerEmail,
-            customerPhone: targetRfq.customerPhone || matchedCust?.phone || prev.customerPhone,
-            currency: targetRfq.currency || prev.currency || 'INR',
-            items: initialItems,
-            subtotal: sub,
-            taxAmount: taxSum,
-            totalAmount: sub + taxSum
-        }));
+        setNewQuote(prev => {
+            const trans = Number(prev.transportationCharges || 0);
+            const pack = Number(prev.packagingCharges || 0);
+            return {
+                ...prev,
+                rfq: targetRfq._id,
+                rfqId: targetRfq._id,
+                rfqNumber: targetRfq.rfqNumber || '',
+                customer: custId || prev.customer,
+                customerName: targetRfq.customerName || matchedCust?.name || matchedCust?.companyName || prev.customerName,
+                customerAddress: matchedCust?.address || matchedCust?.billingAddress || prev.customerAddress,
+                customerEmail: targetRfq.customerEmail || matchedCust?.email || prev.customerEmail,
+                customerPhone: targetRfq.customerPhone || matchedCust?.phone || prev.customerPhone,
+                currency: targetRfq.currency || prev.currency || 'INR',
+                items: initialItems,
+                subtotal: sub,
+                taxAmount: taxSum,
+                totalAmount: sub + taxSum + trans + pack
+            };
+        });
     };
 
     const handleOpenEditModal = (quote: any) => {
@@ -376,19 +389,39 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
         setSelectedRfqId(quote.rfq?._id || quote.rfq || '');
         setFormErrors({});
 
+        let initSub = 0;
+        let initTax = 0;
         const mappedItems = Array.isArray(quote.items) && quote.items.length > 0
-            ? quote.items.map((it: any) => ({
-                fgItem: it.fgItem?._id || it.fgItem || it.material || it.component || '',
-                productName: it.productName || it.fgItem?.name || it.materialName || '',
-                hsnCode: it.hsnCode || '',
-                description: it.description || '',
-                quantity: it.quantity || 1,
-                unit: it.unit || 'PCS',
-                rate: it.rate || 0,
-                taxRate: it.taxRate != null ? it.taxRate : 18,
-                amount: it.amount || 0
-            }))
-            : [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }];
+            ? quote.items.map((it: any) => {
+                const q = Number(it.quantity || 1);
+                const r = Number(it.rate || 0);
+                const lSub = q * r;
+                const tRate = Number(it.taxRate != null ? it.taxRate : 18);
+                const lTax = it.taxAmount != null ? Number(it.taxAmount) : (lSub * (tRate / 100));
+                initSub += lSub;
+                initTax += lTax;
+
+                return {
+                    fgItem: it.fgItem?._id || it.fgItem || it.material || it.component || '',
+                    productName: it.productName || it.fgItem?.name || it.materialName || '',
+                    hsnCode: it.hsnCode || '',
+                    description: it.description || '',
+                    quantity: q,
+                    unit: it.unit || 'PCS',
+                    rate: r,
+                    taxRate: tRate,
+                    taxAmount: lTax,
+                    amount: lSub,
+                    total: lSub + lTax
+                };
+            })
+            : [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0, taxAmount: 0, total: 0 }];
+
+        const trans = Number(quote.transportationCharges || 0);
+        const pack = Number(quote.packagingCharges || 0);
+        const calcSub = quote.subtotal != null && Number(quote.subtotal) > 0 ? Number(quote.subtotal) : initSub;
+        const calcTax = quote.taxAmount != null && Number(quote.taxAmount) > 0 ? Number(quote.taxAmount) : initTax;
+        const calcGrand = quote.totalAmount != null && Number(quote.totalAmount) > 0 ? Number(quote.totalAmount) : (calcSub + calcTax + trans + pack);
 
         setNewQuote({
             quotationNumber: quote.quotationNumber || '',
@@ -404,15 +437,15 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             date: quote.date ? new Date(quote.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
             validUntil: quote.validUntil ? new Date(quote.validUntil).toISOString().slice(0, 10) : new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
             transportationType: quote.transportationType || 'Included',
-            transportationCharges: quote.transportationCharges || 0,
+            transportationCharges: trans,
             packagingType: quote.packagingType || 'Standard',
-            packagingCharges: quote.packagingCharges || 0,
+            packagingCharges: pack,
             otherDetails: quote.otherDetails || '',
             status: quote.status || 'Draft',
             items: mappedItems,
-            subtotal: quote.subtotal || 0,
-            taxAmount: quote.taxAmount || 0,
-            totalAmount: quote.totalAmount || 0
+            subtotal: calcSub,
+            taxAmount: calcTax,
+            totalAmount: calcGrand
         });
 
         setIsCreateModalOpen(true);
@@ -421,7 +454,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
     const handleAddItem = () => {
         setNewQuote(prev => ({
             ...prev,
-            items: [...prev.items, { fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }]
+            items: [...prev.items, { fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0, taxAmount: 0, total: 0 }]
         }));
     };
 
@@ -466,14 +499,17 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
         recalculateTotals(updated);
     };
 
-    const recalculateTotals = (itemsList: any[]) => {
+    const recalculateTotals = (
+        itemsList: any[],
+        chargesOverride?: { transportationCharges?: number; packagingCharges?: number }
+    ) => {
         let sub = 0;
         let taxSum = 0;
 
         const updatedItems = itemsList.map(it => {
             const qty = Number(it.quantity) || 0;
             const rate = Number(it.rate) || 0;
-            const taxPct = Number(it.taxRate) || 0;
+            const taxPct = Number(it.taxRate != null ? it.taxRate : 18);
             const lineSub = qty * rate;
             const lineTax = lineSub * (taxPct / 100);
             const lineTotal = lineSub + lineTax;
@@ -483,19 +519,33 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
             return {
                 ...it,
-                amount: lineTotal,
-                taxAmount: lineTax
+                quantity: qty,
+                rate: rate,
+                taxRate: taxPct,
+                subtotal: lineSub,
+                amount: lineSub,
+                taxAmount: lineTax,
+                total: lineTotal
             };
         });
 
-        const grand = sub + taxSum + Number(newQuote.transportationCharges || 0) + Number(newQuote.packagingCharges || 0);
+        const trans = chargesOverride?.transportationCharges !== undefined
+            ? Number(chargesOverride.transportationCharges)
+            : Number(newQuote.transportationCharges || 0);
+        const pack = chargesOverride?.packagingCharges !== undefined
+            ? Number(chargesOverride.packagingCharges)
+            : Number(newQuote.packagingCharges || 0);
+
+        const grand = sub + taxSum + trans + pack;
 
         setNewQuote(prev => ({
             ...prev,
             items: updatedItems,
             subtotal: sub,
             taxAmount: taxSum,
-            totalAmount: grand
+            totalAmount: grand,
+            ...(chargesOverride?.transportationCharges !== undefined ? { transportationCharges: trans } : {}),
+            ...(chargesOverride?.packagingCharges !== undefined ? { packagingCharges: pack } : {})
         }));
     };
 
@@ -591,12 +641,17 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
     const filteredQuotations = useMemo(() => {
         return (Array.isArray(quotations) ? quotations : []).filter((q: any) => {
+            const term = searchTerm?.trim() || "";
             const matchSearch =
-                !searchTerm ||
-                (q.quotationNumber && q.quotationNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (q.rfqNumber && q.rfqNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (q.customerName && q.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (q.items && q.items.some((i: any) => (i.productName || i.description || i.fgItem?.name || '').toLowerCase().includes(searchTerm.toLowerCase())));
+                !term ||
+                isSpaceFreeMatch(q.quotationNumber, term) ||
+                isSpaceFreeMatch(q.rfqNumber, term) ||
+                isSpaceFreeMatch(q.customerName, term) ||
+                (q.items && q.items.some((i: any) => 
+                    isSpaceFreeMatch(i.productName, term) ||
+                    isSpaceFreeMatch(i.description, term) ||
+                    isSpaceFreeMatch(i.fgItem?.name, term)
+                ));
 
             const matchStatus = filterStatus === 'All' || q.status === filterStatus;
 
@@ -1623,8 +1678,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                             value={newQuote.transportationCharges}
                                             onChange={(e) => {
                                                 const val = Number(e.target.value) || 0;
-                                                setNewQuote(prev => ({ ...prev, transportationCharges: val }));
-                                                recalculateTotals(newQuote.items);
+                                                recalculateTotals(newQuote.items, { transportationCharges: val });
                                             }}
                                             placeholder="0"
                                             className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none"
@@ -1659,8 +1713,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                             value={newQuote.packagingCharges}
                                             onChange={(e) => {
                                                 const val = Number(e.target.value) || 0;
-                                                setNewQuote(prev => ({ ...prev, packagingCharges: val }));
-                                                recalculateTotals(newQuote.items);
+                                                recalculateTotals(newQuote.items, { packagingCharges: val });
                                             }}
                                             placeholder="0"
                                             className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none"
@@ -1857,13 +1910,23 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
                             {/* Summary Card */}
                             <div className="bg-indigo-50/70 dark:bg-indigo-950/40 p-4 sm:p-5 rounded-2xl border border-indigo-200 dark:border-indigo-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
-                                <div className="text-xs space-y-1">
+                                <div className="text-xs space-y-1.5">
                                     <div className="font-bold text-slate-700 dark:text-slate-300">
-                                        Subtotal: <span className="font-mono text-slate-900 dark:text-white">{getCurrencySymbol(newQuote.currency)}{newQuote.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        Taxable Subtotal: <span className="font-mono text-slate-900 dark:text-white">{getCurrencySymbol(newQuote.currency)}{newQuote.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                     </div>
                                     <div className="font-bold text-slate-700 dark:text-slate-300">
                                         Total Tax (GST): <span className="font-mono text-slate-900 dark:text-white">{getCurrencySymbol(newQuote.currency)}{newQuote.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                     </div>
+                                    {Number(newQuote.transportationCharges || 0) > 0 && (
+                                        <div className="font-bold text-slate-700 dark:text-slate-300">
+                                            Freight / Transport ({newQuote.transportationType || 'Transport'}): <span className="font-mono text-slate-900 dark:text-white">+{getCurrencySymbol(newQuote.currency)}{Number(newQuote.transportationCharges).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        </div>
+                                    )}
+                                    {Number(newQuote.packagingCharges || 0) > 0 && (
+                                        <div className="font-bold text-slate-700 dark:text-slate-300">
+                                            Packaging ({newQuote.packagingType || 'Packaging'}): <span className="font-mono text-slate-900 dark:text-white">+{getCurrencySymbol(newQuote.currency)}{Number(newQuote.packagingCharges).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="text-left sm:text-right">
                                     <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Grand Total ({newQuote.currency || 'INR'})</span>
@@ -2038,10 +2101,11 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                     <table className="w-full text-xs text-left">
                                         <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600">
                                             <tr>
-                                                <th className="p-3">FG Item Name</th>
+                                                <th className="p-3">Product / FG Item</th>
                                                 <th className="p-3 text-center">HSN</th>
                                                 <th className="p-3 text-center">Quantity</th>
                                                 <th className="p-3 text-right">Unit Rate ({selectedQuote.currency || 'INR'})</th>
+                                                <th className="p-3 text-right">Taxable Value ({selectedQuote.currency || 'INR'})</th>
                                                 <th className="p-3 text-center">GST %</th>
                                                 <th className="p-3 text-right">Line Total ({selectedQuote.currency || 'INR'})</th>
                                             </tr>
@@ -2050,19 +2114,22 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                             {(selectedQuote.items || []).map((item: any, idx: number) => {
                                                 const qty = Number(item.quantity) || 1;
                                                 const rate = Number(item.rate || item.unitPrice) || 0;
+                                                const lineSub = qty * rate;
                                                 const tax = Number(item.taxRate != null ? item.taxRate : 18);
-                                                const lineTotal = item.amount ? Number(item.amount) : (qty * rate * (1 + tax / 100));
+                                                const lineTax = item.taxAmount != null ? Number(item.taxAmount) : (lineSub * (tax / 100));
+                                                const lineTotal = lineSub + lineTax;
+                                                const itemDesc = item.description || item.fgItem?.description || '';
 
                                                 return (
                                                     <tr key={idx}>
                                                         <td className="p-3 font-bold">
-                                                            {item.fgItem?.name || item.productName || 'FG Item'}
-                                                            {item.fgItem?.code && <span className="text-[10px] text-slate-400 font-mono ml-1">[{item.fgItem.code}]</span>}
-                                                            {item.description && <span className="block text-[10px] font-normal text-slate-400">{item.description}</span>}
+                                                            <div>{item.fgItem?.name || item.productName || 'FG Item'}</div>
+                                                            {itemDesc && <div className="text-[11px] font-normal italic text-slate-500 mt-0.5">{itemDesc}</div>}
                                                         </td>
                                                         <td className="p-3 text-center font-mono text-xs text-slate-600 dark:text-slate-400">{item.hsnCode || item.hsn || '-'}</td>
                                                         <td className="p-3 text-center font-bold text-indigo-600">{qty} {item.unit || 'PCS'}</td>
                                                         <td className="p-3 text-right font-bold font-mono">{getCurrencySymbol(selectedQuote.currency)}{rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                        <td className="p-3 text-right font-mono font-bold text-slate-700 dark:text-slate-300">{getCurrencySymbol(selectedQuote.currency)}{lineSub.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                         <td className="p-3 text-center font-bold text-slate-600">{tax}%</td>
                                                         <td className="p-3 text-right font-extrabold font-mono text-indigo-600">{getCurrencySymbol(selectedQuote.currency)}{lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                     </tr>
@@ -2071,6 +2138,41 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                         </tbody>
                                     </table>
                                 </div>
+                                {(() => {
+                                    let cSub = 0;
+                                    let cTax = 0;
+                                    (selectedQuote.items || []).forEach((it: any) => {
+                                        const q = Number(it.quantity || 0);
+                                        const r = Number(it.rate || it.unitPrice || 0);
+                                        const ls = q * r;
+                                        const tx = Number(it.taxRate != null ? it.taxRate : 18);
+                                        const lt = it.taxAmount != null ? Number(it.taxAmount) : (ls * (tx / 100));
+                                        cSub += ls;
+                                        cTax += lt;
+                                    });
+                                    const sub = selectedQuote.subtotal != null && Number(selectedQuote.subtotal) > 0 ? Number(selectedQuote.subtotal) : cSub;
+                                    const tax = selectedQuote.taxAmount != null && Number(selectedQuote.taxAmount) > 0 ? Number(selectedQuote.taxAmount) : cTax;
+                                    const trans = Number(selectedQuote.transportationCharges || 0);
+                                    const pack = Number(selectedQuote.packagingCharges || 0);
+                                    const grand = selectedQuote.totalAmount != null && Number(selectedQuote.totalAmount) > 0 ? Number(selectedQuote.totalAmount) : (sub + tax + trans + pack);
+
+                                    return (
+                                        <div className="mt-3 p-3.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row justify-between items-start sm:items-center text-xs gap-2">
+                                            <div className="space-y-1">
+                                                <div>Taxable Subtotal: <span className="font-bold font-mono">{getCurrencySymbol(selectedQuote.currency)}{sub.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                <div>Total GST: <span className="font-bold font-mono">{getCurrencySymbol(selectedQuote.currency)}{tax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                {trans > 0 && <div>Freight ({selectedQuote.transportationType || 'Transport'}): <span className="font-bold font-mono">+{getCurrencySymbol(selectedQuote.currency)}{trans.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                                                {pack > 0 && <div>Packaging ({selectedQuote.packagingType || 'Packaging'}): <span className="font-bold font-mono">+{getCurrencySymbol(selectedQuote.currency)}{pack.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                                            </div>
+                                            <div className="sm:text-right">
+                                                <span className="text-[10px] font-bold text-slate-500 uppercase block">Grand Total</span>
+                                                <span className="text-base sm:text-lg font-black font-mono text-indigo-600 dark:text-indigo-400">
+                                                    {getCurrencySymbol(selectedQuote.currency)}{grand.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </div>
 

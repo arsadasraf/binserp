@@ -34,7 +34,7 @@ const cleanKey = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
  */
 export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
   const companyId = getCompanyId(req);
-  const { mrpId } = req.query;
+  const { mrpId, includeCompleted } = req.query;
 
   const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
   const PurchaseOrder = req.getModel("PurchaseOrder", purchaseOrderSchema);
@@ -50,12 +50,16 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
   const Vendor = req.getModel("Vendor", vendorSchema);
   const Category = req.getModel("Category", categorySchema);
 
-  // Fetch active MRP Plans
+  // Fetch active MRP Plans (Completed plans excluded by default to avoid artificial shortages)
+  const isSpecificPlan = Boolean(mrpId && mrpId !== "all");
+  const allowCompleted = includeCompleted === "true" || isSpecificPlan;
   const query = {
     company: companyId,
-    status: { $nin: ["Cancelled", "Draft"] }
+    status: allowCompleted
+      ? { $nin: ["Cancelled", "Draft"] }
+      : { $nin: ["Cancelled", "Draft", "Completed"] }
   };
-  if (mrpId && mrpId !== "all") {
+  if (isSpecificPlan) {
     query._id = mrpId;
   }
 
@@ -160,8 +164,8 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     BoughtOut.find({ company: companyId }).populate("categoryId", "name code").lean(),
     RmBoItem.find({ company: companyId }).populate("categoryId", "name code").lean(),
     ConsumableItem.find({ company: companyId }).populate("categoryId", "name code").lean(),
-    Component.find({ company: companyId }).lean(),
-    FGItem.find({ company: companyId }).lean(),
+    Component.find({ company: companyId }).populate("category", "name code").lean(),
+    FGItem.find({ company: companyId }).populate("category", "name code").populate("categoryId", "name code").lean(),
     BOM.find({ company: companyId, status: { $ne: "Inactive" } }).lean(),
     VendorPriceList.find({ company: companyId }).populate("vendor", "name code email phone").lean(),
     Category.find({ company: companyId }).lean()
@@ -211,7 +215,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
 
   const categoryLookupMap = new Map();
   const registerCategory = (name, code, catName) => {
-    if (!catName || catName === "Raw Material" || catName === "Bought Out" || catName === "RM/BO") return;
+    if (!catName || ["Raw Material", "Bought Out", "RM/BO", "In-House Component", "Component Part", "Sub Assembly", "Finished Good", "Finished Good / Assembly"].includes(catName)) return;
     [cleanStr(name), cleanStr(code), cleanKey(name), cleanKey(code)].filter(Boolean).forEach(k => {
       if (!categoryLookupMap.has(k)) {
         categoryLookupMap.set(k, catName);
@@ -301,6 +305,11 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     const name = comp.name || comp.componentName || "";
     const code = comp.code || comp.componentCode || "";
     const qty = Number(comp.quantity ?? comp.currentStock ?? 0);
+    const catName = comp.category?.name || comp.categoryId?.name || 
+      (comp.category && categoryMap.get(String(comp.category))) || 
+      (comp.categoryId && categoryMap.get(String(comp.categoryId))) || "";
+    if (catName) registerCategory(name, code, catName);
+
     const info = {
       materialId: comp._id,
       name,
@@ -312,7 +321,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       secondaryUnit: comp.secondaryUnit || "",
       conversionFactor: Number(comp.conversionFactor) || 1,
       itemType: "Component",
-      category: "In-House Component",
+      category: catName || "Component",
       priority: 3
     };
     setStockEntry([String(comp._id), cleanStr(code), cleanStr(name), cleanKey(code), cleanKey(name)], info);
@@ -326,17 +335,20 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     const fgType = fg.type || "Component";
 
     let itemType = "Assembly";
-    let category = "Finished Good";
     if (fgType === "Sub Assembly") {
       itemType = "SubAssembly";
-      category = "Sub Assembly";
     } else if (fgType === "Component") {
       itemType = "Component";
-      category = "In-House Component";
     } else {
       itemType = "Assembly";
-      category = "Finished Good / Assembly";
     }
+
+    const catName = fg.category?.name || fg.categoryId?.name || 
+      (fg.category && categoryMap.get(String(fg.category))) || 
+      (fg.categoryId && categoryMap.get(String(fg.categoryId))) || "";
+    if (catName) registerCategory(name, code, catName);
+
+    const defaultCategory = fgType === "Sub Assembly" ? "Sub Assembly" : (fgType === "Component" ? "Component" : "Assembly");
 
     const info = {
       materialId: fg._id,
@@ -349,7 +361,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       secondaryUnit: fg.secondaryUnit || "",
       conversionFactor: Number(fg.conversionFactor) || 1,
       itemType,
-      category,
+      category: catName || defaultCategory,
       priority: 3
     };
     setStockEntry([String(fg._id), cleanStr(code), cleanStr(name), cleanKey(code), cleanKey(name)], info);
@@ -668,16 +680,22 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     const secondaryNetShortage = hasSecondaryUnit ? roundQty(netShortage * conversionFactor) : null;
     const secondaryTotalInTransitPO = hasSecondaryUnit ? roundQty(inTransitInfo.totalInTransit * conversionFactor) : null;
 
-    // Resolve true master category (prefer specific assigned category over generic "Raw Material" / "Bought Out")
+    // Helper to identify generic type labels vs true Master Category names
+    const isGenericCategoryLabel = (c) => !c || [
+      "Raw Material", "Bought Out", "RM/BO", "Material",
+      "In-House Component", "Component Part", "Sub Assembly", "Finished Good", "Finished Good / Assembly"
+    ].includes(c);
+
+    // Resolve true master category (prefer specific assigned category over generic placeholders)
     const assignedCategory =
-      (stockInfo.category && stockInfo.category !== "Raw Material" && stockInfo.category !== "Bought Out" && stockInfo.category !== "RM/BO" ? stockInfo.category : "") ||
+      (stockInfo.category && !isGenericCategoryLabel(stockInfo.category) ? stockInfo.category : "") ||
       categoryLookupMap.get(cKey) || 
       categoryLookupMap.get(nKey) || 
       categoryLookupMap.get(cleanKey(cKey)) || 
       categoryLookupMap.get(cleanKey(nKey)) ||
+      (rawCategory && !isGenericCategoryLabel(rawCategory) ? rawCategory : "") ||
       stockInfo.category ||
-      (rawCategory && rawCategory !== "Raw Material" && rawCategory !== "Bought Out" && rawCategory !== "RM/BO" && rawCategory !== "Material" ? rawCategory : "") ||
-      (classification.itemType === "RM" ? "Raw Material" : classification.itemType === "BO" ? "Bought Out" : classification.category);
+      (classification.itemType === "RM" ? "Raw Material" : classification.itemType === "BO" ? "Bought Out" : classification.itemType === "SubAssembly" ? "Sub Assembly" : classification.itemType);
 
     const resolvedMaterialId = stockInfo.materialId || materialId || undefined;
     const canonicalKey = resolvedMaterialId
@@ -953,7 +971,10 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       );
       const fgType = fgDoc?.type || fg.type || "Assembly";
       const rawFGType = fgType === "Sub Assembly" ? "SubAssembly" : fgType;
-      const rawFGCat = fgType === "Sub Assembly" ? "Sub Assembly" : (fgType === "Component" ? "In-House Component" : "Finished Good / Assembly");
+      const fgDocCat = fgDoc?.category?.name || fgDoc?.categoryId?.name || 
+        (fgDoc?.category && categoryMap.get(String(fgDoc.category))) || 
+        (fgDoc?.categoryId && categoryMap.get(String(fgDoc.categoryId))) || "";
+      const rawFGCat = fgDocCat || (fgType === "Sub Assembly" ? "Sub Assembly" : (fgType === "Component" ? "Component" : "Assembly"));
 
       // Sanitize root FG poNumber
       const rawFGPo = fg.poNumber || "";
@@ -1049,9 +1070,10 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         const resolvedNMatType = matchedFG 
           ? (matchedFG.type === 'Sub Assembly' ? 'SubAssembly' : (matchedFG.type === 'Component' ? 'Component' : 'Assembly'))
           : nMat.itemType;
-        const resolvedNMatCat = matchedFG
-          ? (matchedFG.type === 'Sub Assembly' ? 'Sub Assembly' : (matchedFG.type === 'Component' ? 'In-House Component' : 'Finished Good / Assembly'))
-          : nMat.category;
+        const matchedFGCat = matchedFG?.category?.name || matchedFG?.categoryId?.name || 
+          (matchedFG?.category && categoryMap.get(String(matchedFG.category))) || 
+          (matchedFG?.categoryId && categoryMap.get(String(matchedFG.categoryId))) || "";
+        const resolvedNMatCat = matchedFGCat || nMat.category || "";
 
         const processed = processMaterialInfo(
           nMat.materialName,
@@ -1140,9 +1162,27 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
 
         const withBucket = attachBucketInfo(processed, String(plan._id));
 
+        let nMatPlanningStatus = "Not Planned";
+        if (["Completed", "Material Received", "Issued for Production"].includes(matStatus)) {
+          nMatPlanningStatus = "Completed";
+        } else if (matStatus === "PO Sent" || matStatus === "PO Raised") {
+          nMatPlanningStatus = "PO Sent";
+        } else if (matStatus === "Raised RFQ" || matStatus === "RFQ Raised") {
+          nMatPlanningStatus = "Raised RFQ";
+        } else if (processed.netShortage === 0) {
+          nMatPlanningStatus = "Stock Covered";
+        } else if (processed.totalInTransitPO > 0 && processed.totalInTransitPO >= processed.netShortage) {
+          nMatPlanningStatus = "PO In-Transit";
+        } else if (processed.totalInTransitPO > 0) {
+          nMatPlanningStatus = "Partially In-Transit";
+        } else {
+          nMatPlanningStatus = "Not Planned";
+        }
+
         return {
           ...nMat.toObject?.() || nMat,
           ...withBucket,
+          materialPlanningStatus: nMatPlanningStatus,
           quantityPerFG: qtyPerFG,
           secondaryQuantityPerFG
         };

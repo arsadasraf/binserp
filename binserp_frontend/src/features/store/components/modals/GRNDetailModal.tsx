@@ -82,9 +82,23 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
     const remainingSecs = getRemainingEditSeconds(grn.createdAt || grn.date);
     const isWithinLimit = isEditAllowed(grn.createdAt || grn.date);
 
-    const totalAmount = grn.items?.reduce((sum: number, item: any) => {
-        return sum + ((item.rate || 0) * (item.quantity || 0));
+    const getItemAmount = (item: any) => {
+        if (typeof item.amount === 'number' && !isNaN(item.amount) && item.amount > 0) {
+            return item.amount;
+        }
+        const isSec = item.selectedUnit && item.secondaryUnit && item.selectedUnit === item.secondaryUnit;
+        const qty = isSec ? (Number(item.secondaryQuantity) || Number(item.secondaryReceivedQuantity) || 0) : (Number(item.quantity) || Number(item.receivedQuantity) || 0);
+        return (item.rate || 0) * qty;
+    };
+
+    const itemsSubtotal = grn.items?.reduce((sum: number, item: any) => {
+        return sum + getItemAmount(item);
     }, 0) || 0;
+
+    const transportationCharges = Number(grn.transportationCharges) || 0;
+    const packingCharges = Number(grn.packingCharges) || 0;
+    const taxAmount = Number(grn.taxAmount) || 0;
+    const grandTotal = grn.totalAmount ? Number(grn.totalAmount) : (itemsSubtotal + taxAmount + transportationCharges + packingCharges);
 
     const scroll = (direction: 'left' | 'right') => {
         if (scrollContainerRef.current) {
@@ -302,21 +316,62 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                                             </div>
                                                         )}
                                                     </td>
-                                                    <td className="px-4 py-3 text-sm text-gray-900 text-right">₹{(item.rate || 0).toFixed(2)}</td>
-                                                    <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">₹{((item.rate || 0) * (item.quantity || 0)).toFixed(2)}</td>
+                                                    <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                                                        <div>₹{(item.rate || 0).toFixed(2)}</div>
+                                                        <div className="text-[10px] text-gray-400">/ {item.selectedUnit || item.unit || 'Unit'}</div>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">₹{getItemAmount(item).toFixed(2)}</td>
                                                 </tr>
                                             );
                                         })}
                                     </tbody>
-                                    <tfoot className="bg-green-50 border-t-2 border-green-200">
+                                    <tfoot className="bg-green-50/60 border-t-2 border-green-200">
                                         <tr>
-                                            <td colSpan={7} className="px-4 py-4 text-right text-base font-bold text-gray-900">
-                                                Total Amount:
+                                            <td colSpan={7} className="px-4 py-2.5 text-right text-xs font-semibold text-gray-600">
+                                                Items Subtotal:
                                             </td>
-                                            <td colSpan={2} className="px-4 py-4 text-right">
-                                                <div className="flex items-center justify-end gap-2 text-lg font-bold text-green-700">
+                                            <td colSpan={2} className="px-4 py-2.5 text-right text-sm font-semibold text-gray-800">
+                                                ₹{itemsSubtotal.toFixed(2)}
+                                            </td>
+                                        </tr>
+                                        {taxAmount > 0 && (
+                                            <tr>
+                                                <td colSpan={7} className="px-4 py-1.5 text-right text-xs font-semibold text-indigo-600">
+                                                    GST / Tax:
+                                                </td>
+                                                <td colSpan={2} className="px-4 py-1.5 text-right text-sm font-semibold text-indigo-700">
+                                                    + ₹{taxAmount.toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        )}
+                                        {transportationCharges > 0 && (
+                                            <tr>
+                                                <td colSpan={7} className="px-4 py-1.5 text-right text-xs font-semibold text-blue-600">
+                                                    Transportation Charges:
+                                                </td>
+                                                <td colSpan={2} className="px-4 py-1.5 text-right text-sm font-semibold text-blue-700">
+                                                    + ₹{transportationCharges.toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        )}
+                                        {packingCharges > 0 && (
+                                            <tr>
+                                                <td colSpan={7} className="px-4 py-1.5 text-right text-xs font-semibold text-amber-600">
+                                                    Packing Charges:
+                                                </td>
+                                                <td colSpan={2} className="px-4 py-1.5 text-right text-sm font-semibold text-amber-700">
+                                                    + ₹{packingCharges.toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        )}
+                                        <tr className="border-t border-green-200 bg-green-100/70">
+                                            <td colSpan={7} className="px-4 py-3.5 text-right text-base font-bold text-gray-900">
+                                                Grand Total Amount:
+                                            </td>
+                                            <td colSpan={2} className="px-4 py-3.5 text-right">
+                                                <div className="flex items-center justify-end gap-1.5 text-lg font-bold text-green-800">
                                                     <IndianRupee size={20} />
-                                                    <span>₹{totalAmount.toFixed(2)}</span>
+                                                    <span>₹{grandTotal.toFixed(2)}</span>
                                                 </div>
                                             </td>
                                         </tr>
@@ -371,7 +426,7 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                                 </div>
 
                                                 <div className="col-span-3 flex justify-between pt-2 border-t border-gray-100 mt-1">
-                                                    <span className="text-gray-500">Rate: <span className="text-gray-900 font-medium">₹{(item.rate || 0).toFixed(2)}</span></span>
+                                                    <span className="text-gray-500">Rate: <span className="text-gray-900 font-medium">₹{(item.rate || 0).toFixed(2)} / {item.selectedUnit || item.unit || 'Unit'}</span></span>
                                                     <span className="text-gray-500">Unit: <span className="text-gray-900 font-medium">{item.unit || 'PCS'}{item.hasSecondaryUnit && item.secondaryUnit ? ` / ${item.secondaryUnit}` : ''}{item.hasSecondaryUnit && item.selectedUnit === item.secondaryUnit ? ' (2nd Unit)' : ''}</span></span>
                                                 </div>
 
@@ -379,18 +434,42 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                                     <span className="font-semibold text-gray-700">Amount</span>
                                                     <div className="flex items-center gap-1 font-bold text-green-700">
                                                         <IndianRupee size={16} />
-                                                        <span>₹{((item.rate || 0) * (item.quantity || 0)).toFixed(2)}</span>
+                                                        <span>₹{getItemAmount(item).toFixed(2)}</span>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                     );
                                 })}
-                                <div className="bg-green-50 p-4 rounded-xl border border-green-200 flex justify-between items-center">
-                                    <span className="font-bold text-gray-900">Total Amount</span>
-                                    <div className="flex items-center gap-1 font-bold text-green-700 text-lg">
-                                        <IndianRupee size={20} />
-                                        <span>₹{totalAmount.toFixed(2)}</span>
+                                <div className="bg-green-50 p-4 rounded-xl border border-green-200 space-y-2">
+                                    <div className="flex justify-between items-center text-xs text-gray-600 font-medium">
+                                        <span>Items Subtotal:</span>
+                                        <span className="font-semibold text-gray-800">₹{itemsSubtotal.toFixed(2)}</span>
+                                    </div>
+                                    {taxAmount > 0 && (
+                                        <div className="flex justify-between items-center text-xs text-indigo-600 font-medium">
+                                            <span>GST / Tax:</span>
+                                            <span className="font-semibold">+ ₹{taxAmount.toFixed(2)}</span>
+                                        </div>
+                                    )}
+                                    {transportationCharges > 0 && (
+                                        <div className="flex justify-between items-center text-xs text-blue-600 font-medium">
+                                            <span>Transportation:</span>
+                                            <span className="font-semibold">+ ₹{transportationCharges.toFixed(2)}</span>
+                                        </div>
+                                    )}
+                                    {packingCharges > 0 && (
+                                        <div className="flex justify-between items-center text-xs text-amber-600 font-medium">
+                                            <span>Packing:</span>
+                                            <span className="font-semibold">+ ₹{packingCharges.toFixed(2)}</span>
+                                        </div>
+                                    )}
+                                    <div className="border-t border-green-200 pt-2 flex justify-between items-center">
+                                        <span className="font-bold text-gray-900">Grand Total</span>
+                                        <div className="flex items-center gap-1 font-bold text-green-700 text-lg">
+                                            <IndianRupee size={20} />
+                                            <span>₹{grandTotal.toFixed(2)}</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

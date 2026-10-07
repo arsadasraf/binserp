@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "@/src/utils/config";
+import { API_BASE_URL, getApiBaseUrl } from "@/src/utils/config";
 
 interface FetchOptions extends RequestInit {
   token?: string | null;
@@ -46,7 +46,8 @@ export const apiRequest = async (
     headers.Authorization = `Bearer ${activeToken}`;
   }
 
-  const url = endpoint.startsWith("http") ? endpoint : `${API_BASE_URL}${endpoint}`;
+  const baseUrl = typeof window !== "undefined" ? getApiBaseUrl() : API_BASE_URL;
+  const url = endpoint.startsWith("http") ? endpoint : `${baseUrl}${endpoint}`;
 
   try {
     const response = await fetch(url, {
@@ -120,9 +121,9 @@ export const apiRequest = async (
     }
 
     return response;
-  } catch (error) {
-    console.error("API Request Error:", error);
-    throw new Error("Network error. Please check your connection and try again.");
+  } catch (error: any) {
+    console.warn("API Request Error:", error?.message || error);
+    throw new Error(error?.message || "Network error. Please check your connection and try again.");
   }
 };
 

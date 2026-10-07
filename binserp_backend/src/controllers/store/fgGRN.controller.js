@@ -2,6 +2,7 @@ import { fgGRNSchema, fgItemSchema, fgInventoryMonthlySchema, rmBoItemSchema, bo
 import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { uploadOnS3, signPhotos } from "../../utils/s3.js";
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
+import { syncMRPPlanFGReceiptStatus } from "../../utils/mrpFgGrnSync.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -202,18 +203,13 @@ export const createFGGRN = async (req, res) => {
               }
             }
 
-            const allFulfilled = plan.fgItems.every(f => (f.receivedQuantity || 0) >= f.quantity);
-            const anyReceived = plan.fgItems.some(f => (f.receivedQuantity || 0) > 0);
-
-            if (allFulfilled) {
-              plan.status = 'Completed';
-            } else if (anyReceived) {
-              plan.status = 'Partially Completed';
-            } else {
-              plan.status = 'In Production';
-            }
-
-            await plan.save();
+            // Synchronize MRP plan FG receipts and dynamic status using ground-truth helper
+            await syncMRPPlanFGReceiptStatus({
+              mrpPlanId: newGRN.mrpPlan,
+              mrpNumber: newGRN.mrpNumber,
+              companyId,
+              req
+            });
           }
         } catch (mrpErr) {
           console.error("Error updating MRP Plan from FG GRN:", mrpErr);
@@ -256,6 +252,9 @@ export const updateFGGRN = async (req, res) => {
     const { id } = req.params;
     const companyId = getCompanyId(req);
 
+    const oldGRN = await FGGRN.findOne({ _id: id, company: companyId }).lean();
+    if (!oldGRN) return res.status(404).json({ message: "FG GRN not found" });
+
     const updated = await FGGRN.findOneAndUpdate(
       { _id: id, company: companyId },
       req.body,
@@ -263,6 +262,27 @@ export const updateFGGRN = async (req, res) => {
     );
 
     if (!updated) return res.status(404).json({ message: "FG GRN not found" });
+
+    // Sync current linked MRP plan
+    if (updated.mrpPlan || updated.mrpNumber) {
+      await syncMRPPlanFGReceiptStatus({
+        mrpPlanId: updated.mrpPlan,
+        mrpNumber: updated.mrpNumber,
+        companyId,
+        req
+      });
+    }
+
+    // If MRP plan reference was changed, also re-sync the old plan
+    if (oldGRN.mrpPlan && String(oldGRN.mrpPlan) !== String(updated.mrpPlan)) {
+      await syncMRPPlanFGReceiptStatus({
+        mrpPlanId: oldGRN.mrpPlan,
+        mrpNumber: oldGRN.mrpNumber,
+        companyId,
+        req
+      });
+    }
+
     res.status(200).json({ message: "FG GRN updated successfully", grn: updated });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -277,6 +297,16 @@ export const deleteFGGRN = async (req, res) => {
 
     const deleted = await FGGRN.findOneAndDelete({ _id: id, company: companyId });
     if (!deleted) return res.status(404).json({ message: "FG GRN not found" });
+
+    // Re-sync linked MRP plan if deleted GRN belonged to an MRP
+    if (deleted.mrpPlan || deleted.mrpNumber) {
+      await syncMRPPlanFGReceiptStatus({
+        mrpPlanId: deleted.mrpPlan,
+        mrpNumber: deleted.mrpNumber,
+        companyId,
+        req
+      });
+    }
 
     res.status(200).json({ message: "FG GRN deleted successfully" });
   } catch (error) {

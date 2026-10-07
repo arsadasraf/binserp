@@ -1427,12 +1427,12 @@ export default function POModal({
                                 <thead>
                                     <tr className="bg-slate-100/75 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                         <th className="py-3 px-3 w-12 text-center">#</th>
-                                        <th className="py-3 px-3 min-w-[360px]">Material Name & Description <span className="text-rose-500">*</span></th>
+                                        <th className="py-3 px-3 w-64 min-w-[220px] max-w-[280px]">Material Name & Description <span className="text-rose-500">*</span></th>
                                         <th className="py-3 px-3 w-36 min-w-[130px] text-center">HSN / SAC</th>
                                         <th className="py-3 px-3 w-28 min-w-[100px] text-center" title="Informational Piece/Count tracking">Count (Pcs)</th>
                                         <th className="py-3 px-3 w-36 min-w-[140px] text-center">Quantity <span className="text-rose-500">*</span></th>
                                         <th className="py-3 px-3 w-28 min-w-[120px] text-center">Billing Unit <span className="text-rose-500">*</span></th>
-                                        <th className="py-3 px-3 w-32 min-w-[130px] text-right">Rate (₹)</th>
+                                        <th className="py-3 px-3 w-48 min-w-[190px] xl:w-52 xl:min-w-[210px] text-right">Rate (₹)</th>
                                         <th className="py-3 px-3 w-36 min-w-[140px] text-right">Amount (₹)</th>
                                         <th className="py-3 px-3 w-20 text-center">Actions</th>
                                     </tr>
@@ -1463,7 +1463,7 @@ export default function POModal({
                                                 </td>
 
                                                 {/* Material Selection / Name with Description - Always persistent and editable */}
-                                                <td className="py-2.5 px-3 space-y-1.5">
+                                                <td className="py-2.5 px-3 w-64 min-w-[220px] max-w-[280px] space-y-1.5">
                                                     <div className="flex gap-1.5 items-center">
                                                         <div className="flex-1">
                                                             <SearchableSelect
@@ -1625,7 +1625,7 @@ export default function POModal({
                                                 </td>
 
                                                 {/* Rate & Rate Unit Selector */}
-                                                <td className="py-2.5 px-3 min-w-[130px]">
+                                                <td className="py-2.5 px-3 w-48 min-w-[190px] xl:w-52 xl:min-w-[210px]">
                                                     <div className="space-y-1">
                                                         <div className="flex items-center gap-1.5">
                                                             <input
@@ -1635,7 +1635,7 @@ export default function POModal({
                                                                 value={entry.rate || ''}
                                                                 onChange={(e) => updateEntry(index, 'rate', parseFloat(e.target.value) || 0)}
                                                                 placeholder="0.00"
-                                                                className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white text-right font-mono focus:ring-2 focus:ring-cyan-500"
+                                                                className="w-full min-w-[95px] px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white text-right font-mono focus:ring-2 focus:ring-cyan-500"
                                                             />
                                                             <span className={`px-2 py-1 rounded-lg text-[10.5px] font-mono font-bold shrink-0 border ${
                                                                 entry.rateUnit === 'secondary'

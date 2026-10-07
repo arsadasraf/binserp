@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { apiGet } from '@/src/lib/api';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 import WipLedgerDrawer from '../modals/WipLedgerDrawer';
 import WipActionModal from '../modals/WipActionModal';
 import WipMultiItemConvertModal from '../modals/WipMultiItemConvertModal';
@@ -612,10 +613,10 @@ export default function WipInventoryTab({
     // Filtered Items for standard RM/BO/FG WIP tabs
     const filteredItems = useMemo(() => {
         return wipItems.filter(item => {
-            const matchSearch =
-                item.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (item.materialCode && item.materialCode.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (item.materialDescription && item.materialDescription.toLowerCase().includes(searchTerm.toLowerCase()));
+            const matchSearch = !searchTerm?.trim() ||
+                isSpaceFreeMatch(item.materialName, searchTerm) ||
+                isSpaceFreeMatch(item.materialCode, searchTerm) ||
+                isSpaceFreeMatch(item.materialDescription, searchTerm);
 
             const matchCategory = !filterCategory || item.categoryName === filterCategory || item.categoryType === filterCategory;
 
@@ -629,10 +630,10 @@ export default function WipInventoryTab({
     // Filtered MRP Buckets for MRP WIP Inventory tab
     const filteredMrpBuckets = useMemo(() => {
         return mrpBuckets.filter(bucket => {
-            const matchSearch =
-                (bucket.mrpNumber && bucket.mrpNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (bucket.customerName && bucket.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (bucket.items && bucket.items.some((it: any) => it.materialName?.toLowerCase().includes(searchTerm.toLowerCase())));
+            const matchSearch = !searchTerm?.trim() ||
+                isSpaceFreeMatch(bucket.mrpNumber, searchTerm) ||
+                isSpaceFreeMatch(bucket.customerName, searchTerm) ||
+                (bucket.items && bucket.items.some((it: any) => isSpaceFreeMatch(it.materialName, searchTerm) || isSpaceFreeMatch(it.description, searchTerm)));
 
             const matchMrp = !filterMrp || bucket.mrpNumber === filterMrp;
             const matchStatus = filterStatus === 'All' || 
@@ -645,12 +646,12 @@ export default function WipInventoryTab({
     // Filtered Ledger Transactions with Date Filter
     const filteredLedger = useMemo(() => {
         let list = ledgerTransactions.filter(tx => {
-            const matchSearch =
-                (tx.materialName && tx.materialName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (tx.docNumber && tx.docNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (tx.mrpNumber && tx.mrpNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (tx.type && tx.type.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (tx.processType && tx.processType.toLowerCase().includes(searchTerm.toLowerCase()));
+            const matchSearch = !searchTerm?.trim() ||
+                isSpaceFreeMatch(tx.materialName, searchTerm) ||
+                isSpaceFreeMatch(tx.docNumber, searchTerm) ||
+                isSpaceFreeMatch(tx.mrpNumber, searchTerm) ||
+                isSpaceFreeMatch(tx.type, searchTerm) ||
+                isSpaceFreeMatch(tx.processType, searchTerm);
 
             const matchMrp = !filterMrp || tx.mrpNumber === filterMrp;
             return matchSearch && matchMrp;

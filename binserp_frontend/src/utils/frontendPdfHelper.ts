@@ -948,44 +948,60 @@ export const generateFrontendOutwardQuotationPDF = (data: { quotation: any; cust
 
     const items = quotation.items || [];
     let totalQty = 0;
+    let computedSubtotal = 0;
+    let computedTaxAmount = 0;
     let itemsTableRowsHtml = '';
 
     if (items.length > 0) {
         items.forEach((item: any, idx: number) => {
             const qty = Number(item.quantity || 0);
             const rate = Number(item.rate || item.unitPrice || 0);
+            const lineSubtotal = qty * rate;
             const tax = Number(item.taxRate != null ? item.taxRate : (item.tax != null ? item.tax : 18));
-            const lineTotal = item.amount ? Number(item.amount) : (item.total ? Number(item.total) : (qty * rate * (1 + tax / 100)));
+            const lineTax = item.taxAmount != null && Number(item.taxAmount) > 0 ? Number(item.taxAmount) : (lineSubtotal * (tax / 100));
+            const lineTotal = lineSubtotal + lineTax;
             const itemName = item.fgItem?.name || item.productName || 'FG Item';
+            const itemDesc = item.description || item.fgItem?.description || '';
+            const itemHsn = item.hsnCode || item.hsn || '-';
 
             totalQty += qty;
+            computedSubtotal += lineSubtotal;
+            computedTaxAmount += lineTax;
 
             itemsTableRowsHtml += `
                 <tr>
                     <td style="text-align: center; padding: 6px;">${idx + 1}</td>
                     <td style="text-align: left; font-weight: bold; padding: 6px;">
                         ${itemName}
-                        ${item.description ? `<div style="font-size: 9px; color: #475569; font-weight: normal;">${item.description}</div>` : ''}
+                        ${itemDesc ? `<div style="font-size: 9px; color: #475569; font-weight: normal; font-style: italic; margin-top: 2px;">${itemDesc}</div>` : ''}
                     </td>
+                    <td style="text-align: center; font-family: monospace; padding: 6px;">${itemHsn}</td>
                     <td style="text-align: center; font-weight: bold; padding: 6px;">${qty} ${item.unit || 'PCS'}</td>
                     <td style="text-align: right; padding: 6px; font-weight: bold; font-family: monospace;">${quotCurrSym}${rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td style="text-align: right; padding: 6px; font-weight: bold; font-family: monospace; color: #334155;">${quotCurrSym}${lineSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td style="text-align: center; padding: 6px;">${tax > 0 ? tax + '%' : '-'}</td>
                     <td style="text-align: right; padding: 6px; font-weight: 800; font-family: monospace; color: #0f172a;">${quotCurrSym}${lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
             `;
         });
     } else {
-        itemsTableRowsHtml = `<tr><td colspan="6" style="text-align: center; padding: 30px;">No quoted items specified</td></tr>`;
+        itemsTableRowsHtml = `<tr><td colspan="8" style="text-align: center; padding: 30px;">No quoted items specified</td></tr>`;
     }
 
-    const subtotal = quotation.subtotal ? Number(quotation.subtotal) : 0;
-    const taxAmount = quotation.taxAmount ? Number(quotation.taxAmount) : (quotation.totalTax ? Number(quotation.totalTax) : 0);
-    const transCharges = quotation.transportationCharges ? Number(quotation.transportationCharges) : 0;
-    const packCharges = quotation.packagingCharges ? Number(quotation.packagingCharges) : 0;
-    const grandTotal = quotation.totalAmount ? Number(quotation.totalAmount) : (quotation.grandTotal ? Number(quotation.grandTotal) : subtotal + taxAmount + transCharges + packCharges);
+    const subtotal = quotation.subtotal != null && Number(quotation.subtotal) > 0 ? Number(quotation.subtotal) : computedSubtotal;
+    const taxAmount = quotation.taxAmount != null && Number(quotation.taxAmount) > 0 ? Number(quotation.taxAmount) : (quotation.totalTax != null && Number(quotation.totalTax) > 0 ? Number(quotation.totalTax) : computedTaxAmount);
+    const transCharges = Number(quotation.transportationCharges || 0);
+    const packCharges = Number(quotation.packagingCharges || 0);
+    const discount = Number(quotation.discount || 0);
+    const grandTotal = quotation.totalAmount != null && Number(quotation.totalAmount) > 0 ? Number(quotation.totalAmount) : (quotation.grandTotal != null && Number(quotation.grandTotal) > 0 ? Number(quotation.grandTotal) : (subtotal + taxAmount + transCharges + packCharges - discount));
 
     const transMode = quotation.transportationType || 'Standard Freight';
     const packType = quotation.packagingType || 'Standard Packing';
+
+    // State code resolution for GST breakdown
+    const compGstClean = (compGst || '').replace(/[^a-zA-Z0-9]/g, '');
+    const custGstClean = (custGst || '').replace(/[^a-zA-Z0-9]/g, '');
+    const isInterState = quotation.gstType === 'inter_state' || (compGstClean.length >= 2 && custGstClean.length >= 2 && compGstClean.slice(0, 2) !== custGstClean.slice(0, 2));
 
     const htmlContent = `
         <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 11px; color: #111;">
@@ -1063,48 +1079,70 @@ export const generateFrontendOutwardQuotationPDF = (data: { quotation: any; cust
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 10px;" border="1" bordercolor="#94a3b8">
                 <thead style="background: #eef2ff; text-transform: uppercase; font-weight: bold; color: #3730a3;">
                     <tr>
-                        <th style="width: 5%; padding: 7px 4px; text-align: center;">S.No</th>
-                        <th style="width: 35%; padding: 7px 8px; text-align: left;">Product / Item Description</th>
-                        <th style="width: 12%; padding: 7px 4px; text-align: center;">Quantity</th>
-                        <th style="width: 15%; padding: 7px 8px; text-align: right;">Unit Rate (${quotCurrCode})</th>
-                        <th style="width: 11%; padding: 7px 4px; text-align: center;">GST %</th>
-                        <th style="width: 22%; padding: 7px 8px; text-align: right;">Total Amount (${quotCurrCode})</th>
+                        <th style="width: 4%; padding: 7px 3px; text-align: center;">S.No</th>
+                        <th style="width: 30%; padding: 7px 8px; text-align: left;">Product / Item Description</th>
+                        <th style="width: 10%; padding: 7px 4px; text-align: center;">HSN</th>
+                        <th style="width: 10%; padding: 7px 4px; text-align: center;">Quantity</th>
+                        <th style="width: 13%; padding: 7px 6px; text-align: right;">Unit Rate (${quotCurrCode})</th>
+                        <th style="width: 14%; padding: 7px 6px; text-align: right;">Taxable Value (${quotCurrCode})</th>
+                        <th style="width: 9%; padding: 7px 4px; text-align: center;">GST %</th>
+                        <th style="width: 16%; padding: 7px 6px; text-align: right;">Total Amount (${quotCurrCode})</th>
                     </tr>
                 </thead>
                 <tbody>
                     ${itemsTableRowsHtml}
                 </tbody>
                 <tfoot style="background: #f8fafc; font-weight: bold; border-top: 2px solid #4f46e5;">
-                    ${subtotal ? `
-                        <tr>
-                            <td colspan="5" style="padding: 5px 8px; text-align: right;">Subtotal =</td>
-                            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">${quotCurrSym}${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                    ` : ''}
-                    ${taxAmount ? `
-                        <tr>
-                            <td colspan="5" style="padding: 5px 8px; text-align: right;">GST Tax =</td>
-                            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">${quotCurrSym}${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                    ` : ''}
+                    <tr>
+                        <td colspan="7" style="padding: 5px 8px; text-align: right; color: #475569;">Taxable Subtotal =</td>
+                        <td style="padding: 5px 8px; text-align: right; font-family: monospace;">${quotCurrSym}${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                    ${taxAmount > 0 ? (
+                        isInterState ? `
+                            <tr>
+                                <td colspan="7" style="padding: 5px 8px; text-align: right; color: #475569;">Integrated GST (IGST) =</td>
+                                <td style="padding: 5px 8px; text-align: right; font-family: monospace; color: #0891b2;">${quotCurrSym}${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                        ` : `
+                            <tr>
+                                <td colspan="7" style="padding: 4px 8px; text-align: right; color: #475569;">Central GST (CGST) =</td>
+                                <td style="padding: 4px 8px; text-align: right; font-family: monospace; color: #0891b2;">${quotCurrSym}${(taxAmount / 2).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            <tr>
+                                <td colspan="7" style="padding: 4px 8px; text-align: right; color: #475569;">State GST (SGST) =</td>
+                                <td style="padding: 4px 8px; text-align: right; font-family: monospace; color: #0891b2;">${quotCurrSym}${(taxAmount / 2).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                        `
+                    ) : ''}
                     ${transCharges > 0 ? `
                         <tr>
-                            <td colspan="5" style="padding: 5px 8px; text-align: right;">Freight / Transport Charges (${transMode}) =</td>
-                            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">${quotCurrSym}${transCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td colspan="7" style="padding: 5px 8px; text-align: right; color: #475569;">Freight / Transport Charges (${transMode}) =</td>
+                            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">+ ${quotCurrSym}${transCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                     ` : ''}
                     ${packCharges > 0 ? `
                         <tr>
-                            <td colspan="5" style="padding: 5px 8px; text-align: right;">Packaging Charges (${packType}) =</td>
-                            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">${quotCurrSym}${packCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td colspan="7" style="padding: 5px 8px; text-align: right; color: #475569;">Packaging Charges (${packType}) =</td>
+                            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">+ ${quotCurrSym}${packCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        </tr>
+                    ` : ''}
+                    ${discount > 0 ? `
+                        <tr>
+                            <td colspan="7" style="padding: 5px 8px; text-align: right; color: #475569;">Discount =</td>
+                            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">- ${quotCurrSym}${discount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                     ` : ''}
                     <tr style="font-size: 11px; background: #eef2ff; color: #3730a3;">
-                        <td colspan="5" style="padding: 7px 8px; text-align: right; font-weight: bold;">Grand Total (${quotCurrCode}) =</td>
+                        <td colspan="7" style="padding: 7px 8px; text-align: right; font-weight: bold;">Grand Total (${quotCurrCode}) =</td>
                         <td style="padding: 7px 8px; text-align: right; font-weight: 900; font-family: monospace;">${quotCurrSym}${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                 </tfoot>
             </table>
+
+            <!-- Amount in Words -->
+            <div style="margin-bottom: 12px; padding: 6px 10px; background: #f8fafc; border: 1px solid #cbd5e1; font-size: 10px; font-weight: bold; color: #0f172a; font-style: italic;">
+                Amount in Words: ${convertAmountToWords(grandTotal, quotation.currency)}
+            </div>
 
             <!-- Special Instructions & Commercial Terms -->
             <div style="border: 1px solid #94a3b8; padding: 10px; background: #fafafa; margin-bottom: 14px; font-size: 9.5px; line-height: 1.4;">
@@ -2562,7 +2600,18 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
         const accQty = Number(item.acceptedQuantity !== undefined ? item.acceptedQuantity : qty);
         const rejQty = Number(item.rejectedQuantity || 0);
         const rate = Number(item.rate || item.unitPrice || 0);
-        const lineTotal = rate > 0 ? (qty * rate) : 0;
+
+        const hasSec = Boolean(item.hasSecondaryUnit);
+        const secUnit = item.secondaryUnit || '';
+        const secQty = Number(item.secondaryQuantity || item.secondaryReceivedQuantity || 0);
+        const secAccQty = Number(item.secondaryAcceptedQuantity !== undefined ? item.secondaryAcceptedQuantity : secQty);
+        const secRejQty = Number(item.secondaryRejectedQuantity || 0);
+
+        const isSecSelected = Boolean(hasSec && item.selectedUnit === secUnit);
+        const billingQty = isSecSelected ? secQty : qty;
+        const lineTotal = typeof item.amount === 'number' && !isNaN(item.amount) && item.amount > 0
+            ? item.amount
+            : (rate > 0 ? (billingQty * rate) : 0);
 
         totalRcvQty += qty;
         totalAccQty += accQty;
@@ -2571,12 +2620,6 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
 
         const name = item.materialName || item.itemName || (typeof item.fgItem === 'object' ? item.fgItem?.name : item.fgItem) || 'Item';
         const desc = item.description || item.descriptions || item.material?.description || item.material?.descriptions || '';
-
-        const hasSec = Boolean(item.hasSecondaryUnit);
-        const secUnit = item.secondaryUnit || '';
-        const secQty = Number(item.secondaryQuantity || item.secondaryReceivedQuantity || 0);
-        const secAccQty = Number(item.secondaryAcceptedQuantity !== undefined ? item.secondaryAcceptedQuantity : secQty);
-        const secRejQty = Number(item.secondaryRejectedQuantity || 0);
 
         const rcvDisplay = hasSec && secUnit
             ? `<div>${qty}</div><div style="font-size: 9px; color: #4f46e5; font-weight: bold;">(${secQty} ${secUnit})</div>`
@@ -2591,6 +2634,7 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
             : (rejQty > 0 ? `${rejQty}` : '-');
 
         const hsn = item.hsnCode || item.material?.hsnCode || item.fgItem?.hsnCode || item.component?.hsnCode || '-';
+        const activeUnitLabel = item.selectedUnit || item.unit || 'PCS';
 
         itemsTableRowsHtml += `
             <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
@@ -2607,7 +2651,10 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
                     <div>${item.unit || 'PCS'}</div>
                     ${hasSec && secUnit ? `<div style="font-size: 9px; color: #4f46e5; font-weight: bold;">(${secUnit})</div>` : ''}
                 </td>
-                <td style="padding: 6px 8px; text-align: right;">₹${rate.toFixed(2)}</td>
+                <td style="padding: 6px 8px; text-align: right;">
+                    ₹${rate.toFixed(2)}
+                    <div style="font-size: 8.5px; color: #64748b;">/${activeUnitLabel}</div>
+                </td>
                 <td style="padding: 6px 8px; text-align: right; font-weight: bold; color: #0f172a;">₹${lineTotal.toFixed(2)}</td>
             </tr>
         `;
@@ -2615,8 +2662,11 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
 
     const grnTaxRate = Number(grn.taxRate) || 0;
     const grnSubtotal = Number(grn.subtotal) || totalVal;
+    const grnTransportationCharges = Number(grn.transportationCharges) || 0;
+    const grnPackingCharges = Number(grn.packingCharges) || 0;
     const grnTaxAmount = Number(grn.taxAmount) || (grnTaxRate > 0 ? (grnSubtotal * grnTaxRate) / 100 : 0);
-    const grnGrandTotal = Number(grn.totalAmount) || (grnSubtotal + grnTaxAmount);
+    const grnGrandTotal = Number(grn.totalAmount) || (grnSubtotal + grnTaxAmount + grnTransportationCharges + grnPackingCharges);
+    const hasExtraCharges = grnTaxRate > 0 || grnTransportationCharges > 0 || grnPackingCharges > 0;
 
     const pagesHtml = copyTypes.map((copyTitle) => `
         <div class="page" style="page-break-after: always; width: 100%; max-width: 800px; margin: 0 auto 30px auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); border: 1px solid #e2e8f0;">
@@ -2698,21 +2748,35 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
                 </tbody>
                 <tfoot>
                     <tr style="background: #f8fafc; font-weight: bold; font-size: 11px; border-top: 2px solid #cbd5e1;">
-                        <td colspan="3" style="padding: 7px 8px; text-align: right; text-transform: uppercase;">${grnTaxRate > 0 ? 'Total Qty / Subtotal:' : 'Total:'}</td>
+                        <td colspan="3" style="padding: 7px 8px; text-align: right; text-transform: uppercase;">${hasExtraCharges ? 'Total Qty / Subtotal:' : 'Total:'}</td>
                         <td style="padding: 7px 8px; text-align: center;">${totalRcvQty}</td>
                         <td style="padding: 7px 8px; text-align: center; color: #16a34a;">${totalAccQty}</td>
                         <td style="padding: 7px 8px; text-align: center; color: ${totalRejQty > 0 ? '#dc2626' : '#64748b'};">${totalRejQty}</td>
                         <td></td>
                         <td></td>
-                        <td style="padding: 7px 8px; text-align: right; font-size: 11px; color: ${grnTaxRate > 0 ? '#1e293b' : '#4f46e5'}; font-weight: 800;">₹${grnSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td style="padding: 7px 8px; text-align: right; font-size: 11px; color: ${hasExtraCharges ? '#1e293b' : '#4f46e5'}; font-weight: 800;">₹${grnSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                     ${grnTaxRate > 0 ? `
                     <tr style="background: #f8fafc; font-weight: bold; font-size: 11px;">
                         <td colspan="8" style="padding: 5px 8px; text-align: right; color: #4f46e5; font-size: 10px; text-transform: uppercase;">GST (${grnTaxRate}%):</td>
                         <td style="padding: 5px 8px; text-align: right; font-size: 11px; color: #4f46e5; font-weight: 700;">+ ₹${grnTaxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
+                    ` : ''}
+                    ${grnTransportationCharges > 0 ? `
+                    <tr style="background: #f8fafc; font-weight: bold; font-size: 11px;">
+                        <td colspan="8" style="padding: 5px 8px; text-align: right; color: #2563eb; font-size: 10px; text-transform: uppercase;">Transportation Charges:</td>
+                        <td style="padding: 5px 8px; text-align: right; font-size: 11px; color: #2563eb; font-weight: 700;">+ ₹${grnTransportationCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                    ` : ''}
+                    ${grnPackingCharges > 0 ? `
+                    <tr style="background: #f8fafc; font-weight: bold; font-size: 11px;">
+                        <td colspan="8" style="padding: 5px 8px; text-align: right; color: #d97706; font-size: 10px; text-transform: uppercase;">Packing Charges:</td>
+                        <td style="padding: 5px 8px; text-align: right; font-size: 11px; color: #d97706; font-weight: 700;">+ ₹${grnPackingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                    ` : ''}
+                    ${hasExtraCharges ? `
                     <tr style="background: #eef2ff; font-weight: 900; font-size: 12px; border-top: 1px solid #c7d2fe;">
-                        <td colspan="8" style="padding: 8px; text-align: right; text-transform: uppercase; color: #1e1b4b;">Whole GRN Price (with GST):</td>
+                        <td colspan="8" style="padding: 8px; text-align: right; text-transform: uppercase; color: #1e1b4b;">Whole GRN Price (with GST & Charges):</td>
                         <td style="padding: 8px; text-align: right; font-size: 12px; color: #059669; font-weight: 900;">₹${grnGrandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                     ` : ''}

@@ -18,6 +18,7 @@ import { purchaseOrderSchema, mrpPlanSchema } from "../../models/purchase/index.
 import { componentSchema } from "../../models/ppc/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { syncGRNToPurchaseBill } from "../../utils/purchaseBillSync.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -63,6 +64,8 @@ export const createGRN = async (req, res) => {
       taxRate,
       subtotal,
       taxAmount,
+      transportationCharges,
+      packingCharges,
       totalAmount 
     } = req.body;
 
@@ -307,6 +310,13 @@ export const createGRN = async (req, res) => {
         const validFgItemId = fgItemId && isValidObjectId(fgItemId.toString()) ? fgItemId.toString() : undefined;
         const validComponentId = componentId && isValidObjectId(componentId.toString()) ? componentId.toString() : undefined;
 
+        const itemRate = parseFloat(item.rate) || 0;
+        const isSecUnit = hasSec && selectedUnit === secUnit;
+        const billingQty = isSecUnit ? secQty : qty;
+        const itemAmount = item.amount !== undefined && item.amount !== null && !isNaN(parseFloat(item.amount))
+          ? parseFloat(item.amount)
+          : Number((billingQty * itemRate).toFixed(2));
+
         itemsArray.push({
           material: validMaterialId,
           consumable: validConsumableId,
@@ -320,7 +330,8 @@ export const createGRN = async (req, res) => {
           locationId: validLocationId,
           receivedQuantity: qty,
           acceptedQuantity: qcRequired ? 0 : qty,
-          rate: parseFloat(item.rate) || 0,
+          rate: itemRate,
+          amount: itemAmount,
           hasSecondaryUnit: hasSec,
           secondaryUnit: secUnit,
           conversionFactor: convFactor,
@@ -343,6 +354,11 @@ export const createGRN = async (req, res) => {
         }
       }
 
+      const singleRate = parseFloat(req.body.rate) || 0;
+      const singleAmount = req.body.amount !== undefined && !isNaN(parseFloat(req.body.amount))
+        ? parseFloat(req.body.amount)
+        : Number((qty * singleRate).toFixed(2));
+
       itemsArray.push({
         material: isValidObjectId(material.toString()) ? material.toString() : undefined,
         materialName: req.body.materialName || 'Material Item',
@@ -353,7 +369,8 @@ export const createGRN = async (req, res) => {
         locationId: validLocationId,
         receivedQuantity: qty,
         acceptedQuantity: qcRequired ? 0 : qty,
-        rate: parseFloat(req.body.rate) || 0,
+        rate: singleRate,
+        amount: singleAmount,
       });
     }
 
@@ -364,13 +381,15 @@ export const createGRN = async (req, res) => {
     const parsedTaxRate = parseFloat(taxRate) || 0;
     const computedSubtotal = subtotal !== undefined && subtotal !== null && !isNaN(parseFloat(subtotal))
       ? parseFloat(subtotal)
-      : itemsArray.reduce((sum, it) => sum + (it.quantity * (it.rate || 0)), 0);
+      : itemsArray.reduce((sum, it) => sum + (it.amount !== undefined && !isNaN(it.amount) ? it.amount : (it.quantity * (it.rate || 0))), 0);
     const computedTaxAmount = taxAmount !== undefined && taxAmount !== null && !isNaN(parseFloat(taxAmount))
       ? parseFloat(taxAmount)
       : (computedSubtotal * parsedTaxRate) / 100;
+    const parsedTransportationCharges = Math.max(0, parseFloat(transportationCharges) || 0);
+    const parsedPackingCharges = Math.max(0, parseFloat(packingCharges) || 0);
     const computedTotalAmount = totalAmount !== undefined && totalAmount !== null && !isNaN(parseFloat(totalAmount))
       ? parseFloat(totalAmount)
-      : computedSubtotal + computedTaxAmount;
+      : computedSubtotal + computedTaxAmount + parsedTransportationCharges + parsedPackingCharges;
 
     // Check for duplicate grnNumber and auto-suffix if needed
     const existingGRN = await GRN.findOne({ company: companyId, grnNumber });
@@ -399,6 +418,8 @@ export const createGRN = async (req, res) => {
       taxRate: parsedTaxRate,
       subtotal: computedSubtotal,
       taxAmount: computedTaxAmount,
+      transportationCharges: parsedTransportationCharges,
+      packingCharges: parsedPackingCharges,
       totalAmount: computedTotalAmount,
       pdf: pdfUrl,
       photos: photoUrls,
@@ -411,6 +432,13 @@ export const createGRN = async (req, res) => {
       updatedBy: userId,
       updatedByName: userName
     });
+
+    // Auto-create / sync Purchase Bill for RM, BO, Consumable GRNs
+    try {
+      await syncGRNToPurchaseBill(req, grn, 'create');
+    } catch (syncErr) {
+      console.error("[createGRN] Failed to sync to Purchase Bill:", syncErr);
+    }
 
     // Update Linked Purchase Order Item Quantities & Status if linked
     if (purchaseOrder || poNumber || poReference) {

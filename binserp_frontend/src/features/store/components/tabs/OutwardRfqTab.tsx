@@ -6,6 +6,7 @@ import SearchableSelect from '../SearchableSelect';
 import { generateFrontendRfqPDF } from '@/src/utils/frontendPdfHelper';
 import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 interface OutwardRfqTabProps {
     token: string | null;
@@ -84,15 +85,15 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
     };
 
     const filteredModalVendors = useMemo(() => {
-        if (!vendorSearchTerm.trim()) return vendors;
-        const lower = vendorSearchTerm.toLowerCase();
+        if (!vendorSearchTerm?.trim()) return vendors;
+        const term = vendorSearchTerm.trim();
         return (Array.isArray(vendors) ? vendors : []).filter((v: any) =>
-            (v.name && v.name.toLowerCase().includes(lower)) ||
-            (v.code && v.code.toLowerCase().includes(lower)) ||
-            (v.city && v.city.toLowerCase().includes(lower)) ||
-            (v.phone && v.phone.toLowerCase().includes(lower)) ||
-            (v.email && v.email.toLowerCase().includes(lower)) ||
-            (v.gst && v.gst.toLowerCase().includes(lower))
+            isSpaceFreeMatch(v.name, term) ||
+            isSpaceFreeMatch(v.code, term) ||
+            isSpaceFreeMatch(v.city, term) ||
+            isSpaceFreeMatch(v.phone, term) ||
+            isSpaceFreeMatch(v.email, term) ||
+            isSpaceFreeMatch(v.gst, term)
         );
     }, [vendors, vendorSearchTerm]);
 
@@ -342,9 +343,14 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
 
     const filteredRfqs = useMemo(() => {
         return (Array.isArray(rfqs) ? rfqs : []).filter((rfq: any) => {
-            const matchSearch = 
-                (rfq.rfqNumber && rfq.rfqNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (rfq.items && rfq.items.some((i: any) => i.materialName?.toLowerCase().includes(searchTerm.toLowerCase())));
+            const term = searchTerm?.trim() || "";
+            const matchSearch = !term ||
+                isSpaceFreeMatch(rfq.rfqNumber, term) ||
+                (rfq.items && rfq.items.some((i: any) => 
+                    isSpaceFreeMatch(i.materialName, term) || 
+                    isSpaceFreeMatch(i.materialDescription, term) ||
+                    isSpaceFreeMatch(i.description, term)
+                ));
             
             const matchStatus = filterStatus === 'All' || rfq.status === filterStatus;
 

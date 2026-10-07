@@ -26,6 +26,7 @@ import {
 } from "@/src/store/services/storeService";
 import { useGetPpcComponentsQuery } from "@/src/store/services/ppcService";
 import { TabType, MasterType, StoreFormData, Vendor, Customer, Location, Category, RmBoItem, GRNFormData, POFormData, CompanyInfo, DCFormData, BillingFormData, JobWorkSupplier, Process } from "@/src/features/store/types/store.types";
+import { isSpaceFreeMatch } from "@/src/utils/spaceFreeSearchHelper";
 
 export function useStoreData(activeTab: TabType, masterTab: MasterType, token: string | null, queryParams?: string) {
     // --- Queries ---
@@ -174,9 +175,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
                 }
             }
 
-            const searchLower = searchTerm.toLowerCase();
-
-            if (!searchLower) return true;
+            if (!searchTerm || !searchTerm.trim()) return true;
 
             if (activeTab === "price-list") {
                 // For price list, search might be handled differently, or just fallback
@@ -186,32 +185,38 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
             if (activeTab === "masters" || masterTab === "grn-history") {
                 // Search in master data fields
                 return (
-                    (item.name?.toLowerCase().includes(searchLower) || false) ||
-                    (item.code?.toLowerCase().includes(searchLower) || false) ||
-                    (item.contactPerson?.toLowerCase().includes(searchLower) || false) ||
-                    (item.email?.toLowerCase().includes(searchLower) || false) ||
-                    (item.grnNumber?.toLowerCase().includes(searchLower) || false) || // GRN Number
-                    (item.supplierName?.toLowerCase().includes(searchLower) || false) || // Supplier Name
-                    (item.componentName?.toLowerCase().includes(searchLower) || false) || // InHouse Component Name
-                    (item.componentCode?.toLowerCase().includes(searchLower) || false) // InHouse Component Code
+                    isSpaceFreeMatch(item.name, searchTerm) ||
+                    isSpaceFreeMatch(item.code, searchTerm) ||
+                    isSpaceFreeMatch(item.description, searchTerm) ||
+                    isSpaceFreeMatch(item.descriptions, searchTerm) ||
+                    isSpaceFreeMatch(item.contactPerson, searchTerm) ||
+                    isSpaceFreeMatch(item.email, searchTerm) ||
+                    isSpaceFreeMatch(item.grnNumber, searchTerm) ||
+                    isSpaceFreeMatch(item.supplierName, searchTerm) ||
+                    isSpaceFreeMatch(item.componentName, searchTerm) ||
+                    isSpaceFreeMatch(item.componentCode, searchTerm)
                 );
             }
 
             // Search in transaction/inventory fields
             return (
                 // General Store Item / Material Issue fields
-                (item.materialName?.toLowerCase().includes(searchLower) || false) ||
-                (item.code?.toLowerCase().includes(searchLower) || false) ||
+                isSpaceFreeMatch(item.materialName, searchTerm) ||
+                isSpaceFreeMatch(item.materialDescription, searchTerm) ||
+                isSpaceFreeMatch(item.description, searchTerm) ||
+                isSpaceFreeMatch(item.descriptions, searchTerm) ||
+                isSpaceFreeMatch(item.name, searchTerm) ||
+                isSpaceFreeMatch(item.code, searchTerm) ||
                 // PO fields
-                (item.poNumber?.toLowerCase().includes(searchLower) || false) ||
-                (item.vendorName?.toLowerCase().includes(searchLower) || false) ||
+                isSpaceFreeMatch(item.poNumber, searchTerm) ||
+                isSpaceFreeMatch(item.vendorName, searchTerm) ||
                 // DC fields
-                (item.dcNumber?.toLowerCase().includes(searchLower) || false) ||
-                (item.customerName?.toLowerCase().includes(searchLower) || false) ||
+                isSpaceFreeMatch(item.dcNumber, searchTerm) ||
+                isSpaceFreeMatch(item.customerName, searchTerm) ||
                 // Invoice fields
-                (item.invoiceNumber?.toLowerCase().includes(searchLower) || false) ||
+                isSpaceFreeMatch(item.invoiceNumber, searchTerm) ||
                 // Common fallback
-                (item.status?.toLowerCase().includes(searchLower) || false)
+                isSpaceFreeMatch(item.status, searchTerm)
             );
         });
     }, [data, searchTerm, activeTab, masterTab, startDate, endDate, filterSupplier]);

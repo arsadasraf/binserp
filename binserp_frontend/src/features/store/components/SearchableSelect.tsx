@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Check, ChevronDown, Plus, Loader2, PackagePlus } from 'lucide-react';
+import { normalizeForSearch } from '@/src/utils/spaceFreeSearchHelper';
 
 export interface SearchableOption {
     value: string;
@@ -167,11 +168,6 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     // Determine active source options (async vs local)
     const sourceOptions = asyncSearch ? asyncOptions : options;
 
-    // Helper to normalize alphanumeric strings (stripping spaces, dashes, slashes, etc.)
-    const normalizeAlphaNum = (str: string) => {
-        return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    };
-
     // Deduplicate options by value and pre-compute indexed search keys
     const uniqueOptions = useMemo(() => {
         const map = new Map<string, SearchableOption & { _searchKey: string; _cleanKey: string }>();
@@ -194,7 +190,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     description: descStr,
                     code: codeStr,
                     _searchKey: rawSearch,
-                    _cleanKey: normalizeAlphaNum(rawSearch)
+                    _cleanKey: normalizeForSearch(rawSearch)
                 });
             }
         }
@@ -257,19 +253,19 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
         const tokens = rawTerm.split(/\s+/).filter(Boolean);
         if (tokens.length === 0) return uniqueOptions;
 
-        const cleanTerm = normalizeAlphaNum(rawTerm);
+        const cleanTerm = normalizeForSearch(rawTerm);
 
         // Filter: an option matches if ALL tokens match in _searchKey or _cleanKey
         const matched = uniqueOptions.filter((o) => {
             // Direct substring match of full query
             if (o._searchKey.includes(rawTerm)) return true;
             // Clean match (e.g. "ss 304" or "ss-304" matches "ss304")
-            if (cleanTerm.length >= 2 && o._cleanKey.includes(cleanTerm)) return true;
+            if (cleanTerm.length >= 1 && o._cleanKey.includes(cleanTerm)) return true;
 
             // Multi-token match (all words must be present, any order)
             return tokens.every((token) => {
                 if (o._searchKey.includes(token)) return true;
-                const cleanToken = normalizeAlphaNum(token);
+                const cleanToken = normalizeForSearch(token);
                 if (cleanToken && o._cleanKey.includes(cleanToken)) return true;
                 return false;
             });
@@ -285,8 +281,8 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
             if (labelLower === rawTerm || codeLower === rawTerm) return 0;
 
             // 2. Exact clean match (e.g. "SS304" vs "SS-304")
-            const cleanCode = normalizeAlphaNum(opt.code || '');
-            const cleanLabel = normalizeAlphaNum(opt.label || '');
+            const cleanCode = normalizeForSearch(opt.code || '');
+            const cleanLabel = normalizeForSearch(opt.label || '');
             if (cleanCode === cleanTerm || cleanLabel === cleanTerm) return 1;
 
             // 3. Starts with the full search query

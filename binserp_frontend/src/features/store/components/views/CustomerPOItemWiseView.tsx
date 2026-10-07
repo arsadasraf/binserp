@@ -7,6 +7,7 @@ import {
   ShoppingBag, Truck, Info, FileCheck, X, Search
 } from 'lucide-react';
 import { getCurrencySymbol } from '@/src/utils/currencyHelper';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 export interface CustomerPOItemWiseViewProps {
   poList: any[];
@@ -183,13 +184,13 @@ export default function CustomerPOItemWiseView({
       : (filterCustomer && filterCustomer !== 'All' ? [filterCustomer] : []);
 
     return aggregatedItems.filter((item) => {
-      const q = searchTerm.toLowerCase().trim();
+      const q = searchTerm?.trim() || "";
       const matchesSearch = !q || 
-        item.name.toLowerCase().includes(q) || 
-        item.description.toLowerCase().includes(q) ||
+        isSpaceFreeMatch(item.name, q) || 
+        isSpaceFreeMatch(item.description, q) ||
         item.linkedPos.some(lp => 
-          lp.poNumber.toLowerCase().includes(q) || 
-          lp.customerName.toLowerCase().includes(q)
+          isSpaceFreeMatch(lp.poNumber, q) || 
+          isSpaceFreeMatch(lp.customerName, q)
         );
 
       if (!matchesSearch) return false;

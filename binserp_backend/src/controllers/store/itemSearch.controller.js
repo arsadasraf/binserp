@@ -8,6 +8,7 @@ import {
   categorySchema,
   locationSchema,
 } from "../../models/store/index.js";
+import { buildMultiFieldSearchFilter } from "../../utils/searchHelper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -48,35 +49,15 @@ export const searchStoreItems = async (req, res) => {
 
     const searchFilter = { company: companyId, isActive: { $ne: false }, status: { $ne: 'Deactivated' } };
 
-    // Parse search tokens for intelligent multi-keyword matching
-    const tokens = searchTerm.toLowerCase().split(/\s+/).filter(Boolean);
-
-    if (tokens.length > 0) {
-      // Build an $and condition where each token must be matched in at least one field (name, code, or description)
-      const tokenConditions = tokens.map(token => {
-        const escaped = escapeRegex(token);
-        
-        // Flexible separator pattern: allows "ss-304" to match "SS 304" or "ss304"
-        let flexPattern = escaped.replace(/[-_./\s]+/g, '[-_./\\s]*');
-        if (/^[a-z]+[0-9]+$/i.test(token)) {
-          flexPattern = token.replace(/([a-z]+)([0-9]+)/i, '$1[-_./\\s]*$2');
+    // Search condition using space-free multi-keyword matching
+    if (searchTerm) {
+      const searchCondition = buildMultiFieldSearchFilter(searchTerm, ['name', 'code', 'descriptions', 'description']);
+      if (searchCondition) {
+        if (searchCondition.$or) {
+          searchFilter.$or = searchCondition.$or;
+        } else if (searchCondition.$and) {
+          searchFilter.$and = searchCondition.$and;
         }
-
-        const regex = new RegExp(flexPattern, 'i');
-        return {
-          $or: [
-            { name: regex },
-            { code: regex },
-            { descriptions: regex },
-            { description: regex },
-          ]
-        };
-      });
-
-      if (tokenConditions.length === 1) {
-        searchFilter.$or = tokenConditions[0].$or;
-      } else {
-        searchFilter.$and = tokenConditions;
       }
     }
 

@@ -338,16 +338,29 @@ export interface GRNFormData {
     locationId: string;
     category?: string;  // Auto-filled from material's category
     rate?: number;  // Price per unit for backward compatibility
+    amount?: number;
+    taxRate?: number;
+    subtotal?: number;
+    taxAmount?: number;
+    transportationCharges?: number;
+    packingCharges?: number;
+    totalAmount?: number;
     // Multiple materials support
     items?: Array<{
-        material: string;
+        material?: string;
         materialName: string;
         hsnCode?: string;
         description?: string;
         quantity: number;
         unit: string;
-        locationId: string;
+        locationId?: string;
         rate?: number;  // Price per unit
+        amount?: number;
+        hasSecondaryUnit?: boolean;
+        secondaryUnit?: string;
+        conversionFactor?: number;
+        secondaryQuantity?: number;
+        selectedUnit?: string;
     }>;
 }
 

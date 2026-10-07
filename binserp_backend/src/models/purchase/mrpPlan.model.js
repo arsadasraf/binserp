@@ -60,8 +60,11 @@ export const mrpPlanSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Draft", "Planned", "In Procurement", "In Production", "Partially Completed", "Completed"],
+      enum: ["Draft", "Planned", "In Procurement", "In Production", "Partially Received", "Partially Completed", "Completed"],
       default: "Planned",
+    },
+    completedAt: {
+      type: Date,
     },
     // FG Items Required
     fgItems: [
@@ -326,3 +329,4 @@ export const mrpPlanSchema = new mongoose.Schema(
 
 mrpPlanSchema.index({ company: 1, mrpNumber: 1 });
 mrpPlanSchema.index({ company: 1, status: 1 });
+mrpPlanSchema.index({ company: 1, completedAt: 1 });

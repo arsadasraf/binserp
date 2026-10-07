@@ -23,6 +23,7 @@ import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
 import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import { usePermission } from '@/src/hooks/usePermission';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 import MaterialRequestModal, { RequestInventoryType } from '../modals/MaterialRequestModal';
 import MaterialRequestDetailsModal from '../modals/MaterialRequestDetailsModal';
 import MaterialRequestLedgerTable from '../tables/MaterialRequestLedgerTable';
@@ -252,16 +253,16 @@ export default function MaterialRequestTab({
       }
 
       // 4. Search Filter
-      if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase();
-        const reqNum = (r.requestNumber || '').toLowerCase();
-        const reqBy = (r.requestedBy?.name || r.createdByName || '').toLowerCase();
+      if (searchTerm && searchTerm.trim()) {
+        const q = searchTerm.trim();
+        const reqNumMatch = isSpaceFreeMatch(r.requestNumber, q);
+        const reqByMatch = isSpaceFreeMatch(r.requestedBy?.name || r.createdByName, q);
         const itemsMatch = (r.items || []).some((it: any) => 
-          (it.materialName || '').toLowerCase().includes(q) ||
-          (it.materialDescription || it.description || '').toLowerCase().includes(q) ||
-          (it.purpose || '').toLowerCase().includes(q)
+          isSpaceFreeMatch(it.materialName, q) ||
+          isSpaceFreeMatch(it.materialDescription || it.description, q) ||
+          isSpaceFreeMatch(it.purpose, q)
         );
-        if (!reqNum.includes(q) && !reqBy.includes(q) && !itemsMatch) {
+        if (!reqNumMatch && !reqByMatch && !itemsMatch) {
           return false;
         }
       }

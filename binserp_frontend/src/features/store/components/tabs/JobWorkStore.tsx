@@ -14,6 +14,7 @@ import RejectionReworkHub from './RejectionReworkHub';
 
 import { apiGet, apiDelete } from '@/src/lib/api';
 import { generateDocument } from '@/src/utils/documentHelper';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 export type ChallanStatusType = 'active' | 'overdue' | 'received';
 
@@ -300,11 +301,17 @@ export default function JobWorkStore({
     // Filter Logic
     const filteredChallans = useMemo(() => {
         return challans.filter(c => {
+            const term = searchTerm?.trim() || "";
             const matchesSearch =
-                c.challanNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (c.vendor?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (c.mrpNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (c.items || []).some((it: any) => (it.itemName || '').toLowerCase().includes(searchTerm.toLowerCase()));
+                !term ||
+                isSpaceFreeMatch(c.challanNumber, term) ||
+                isSpaceFreeMatch(c.vendor?.name, term) ||
+                isSpaceFreeMatch(c.mrpNumber, term) ||
+                (c.items || []).some((it: any) => 
+                    isSpaceFreeMatch(it.itemName, term) || 
+                    isSpaceFreeMatch(it.description, term) ||
+                    isSpaceFreeMatch(it.itemDescription, term)
+                );
 
             if (!matchesSearch) return false;
 

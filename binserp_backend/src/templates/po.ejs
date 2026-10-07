@@ -51,44 +51,98 @@
         <table class="w-full text-sm text-left mb-8">
             <thead class="text-xs text-white uppercase bg-purple-600 rounded-t-lg">
                 <tr>
-                    <th class="px-4 py-3 rounded-tl-lg">Material</th>
-                    <th class="px-4 py-3 text-center">HSN</th>
-                    <th class="px-4 py-3 text-right">Qty</th>
-                    <th class="px-4 py-3">Unit</th>
-                    <th class="px-4 py-3 text-right">Rate (<%= currSym %>)</th>
-                    <th class="px-4 py-3 text-right rounded-tr-lg">Amount (<%= currSym %>)</th>
+                    <th class="px-3 py-3 rounded-tl-lg">Sl</th>
+                    <th class="px-3 py-3">Material & Description</th>
+                    <th class="px-3 py-3 text-center">HSN</th>
+                    <th class="px-3 py-3 text-right">Qty</th>
+                    <th class="px-3 py-3 text-center">Unit</th>
+                    <th class="px-3 py-3 text-right">Rate (<%= currSym %>)</th>
+                    <th class="px-3 py-3 text-right rounded-tr-lg">Taxable Amount (<%= currSym %>)</th>
                 </tr>
             </thead>
             <tbody>
                 <% 
                 const items = doc.items && doc.items.length > 0 ? doc.items : [{
                     materialName: doc.materialName,
+                    description: doc.description,
                     hsnCode: doc.hsnCode,
                     quantity: doc.quantity,
                     unit: doc.unit,
                     rate: doc.rate,
                     amount: doc.amount
                 }];
+                let computedSubtotal = 0;
                 items.forEach(function(item, index) { 
+                    const q = Number(item.quantity || 0);
+                    const r = Number(item.rate || 0);
+                    const lineAmt = item.amount != null && Number(item.amount) > 0 ? Number(item.amount) : (q * r);
+                    computedSubtotal += lineAmt;
                 %>
                 <tr class="border-b border-slate-200 <%= index % 2 === 0 ? 'bg-white' : 'bg-slate-50' %>">
-                    <td class="px-4 py-3 font-medium text-slate-800"><%= item.materialName || item.productName || 'N/A' %></td>
-                    <td class="px-4 py-3 text-center font-mono text-slate-600"><%= item.hsnCode || item.hsn || '-' %></td>
-                    <td class="px-4 py-3 text-right text-slate-600"><%= item.quantity || 0 %></td>
-                    <td class="px-4 py-3 text-slate-600"><%= item.unit || 'PCS' %></td>
-                    <td class="px-4 py-3 text-right text-slate-600"><%= currSym %> <%= Number(item.rate || 0).toFixed(2) %></td>
-                    <td class="px-4 py-3 text-right font-medium text-slate-800"><%= currSym %> <%= Number(item.amount || 0).toFixed(2) %></td>
+                    <td class="px-3 py-3 font-medium text-slate-800"><%= index + 1 %></td>
+                    <td class="px-3 py-3 font-medium text-slate-800">
+                        <%= item.materialName || item.productName || 'Material Item' %>
+                        <% if (item.description) { %>
+                            <div class="text-xs text-slate-500 font-normal italic mt-0.5"><%= item.description %></div>
+                        <% } %>
+                    </td>
+                    <td class="px-3 py-3 text-center font-mono text-slate-600"><%= item.hsnCode || item.hsn || '-' %></td>
+                    <td class="px-3 py-3 text-right text-slate-600"><%= q %></td>
+                    <td class="px-3 py-3 text-center text-slate-600"><%= item.unit || 'PCS' %></td>
+                    <td class="px-3 py-3 text-right text-slate-600"><%= currSym %> <%= r.toFixed(2) %></td>
+                    <td class="px-3 py-3 text-right font-medium text-slate-800"><%= currSym %> <%= lineAmt.toFixed(2) %></td>
                 </tr>
                 <% }); %>
             </tbody>
         </table>
 
         <!-- Totals -->
+        <% 
+            const finalSub = doc.subtotal != null && Number(doc.subtotal) > 0 ? Number(doc.subtotal) : computedSubtotal;
+            const trans = Number(doc.transportCharge || 0);
+            const pack = Number(doc.packingCharge || 0);
+            const taxableBase = finalSub + trans + pack;
+            const tRate = Number(doc.taxRate != null ? doc.taxRate : 18);
+            const isInter = doc.gstType === 'inter_state';
+            const finalTax = doc.totalTax != null && Number(doc.totalTax) > 0 ? Number(doc.totalTax) : (taxableBase * (tRate / 100));
+            const finalGrand = doc.grandTotal != null && Number(doc.grandTotal) > 0 ? Number(doc.grandTotal) : (doc.totalAmount != null && Number(doc.totalAmount) > 0 ? Number(doc.totalAmount) : (taxableBase + finalTax));
+        %>
         <div class="flex justify-end mb-12">
-            <div class="w-64">
-                <div class="flex justify-between py-3 text-base font-bold text-slate-800">
-                    <span>Total Amount (<%= doc.currency || 'INR' %>):</span>
-                    <span class="text-purple-600"><%= currSym %> <%= Number(doc.totalAmount || doc.amount || 0).toFixed(2) %></span>
+            <div class="w-80">
+                <div class="flex justify-between py-1.5 text-sm text-slate-600">
+                    <span>Items Subtotal:</span>
+                    <span class="font-mono"><%= currSym %> <%= finalSub.toFixed(2) %></span>
+                </div>
+                <% if (trans > 0) { %>
+                <div class="flex justify-between py-1.5 text-sm text-slate-600">
+                    <span>Freight / Transport (<%= doc.transportType || 'Freight' %>):</span>
+                    <span class="font-mono">+ <%= currSym %> <%= trans.toFixed(2) %></span>
+                </div>
+                <% } %>
+                <% if (pack > 0) { %>
+                <div class="flex justify-between py-1.5 text-sm text-slate-600">
+                    <span>Packaging (<%= doc.packingType || 'Packaging' %>):</span>
+                    <span class="font-mono">+ <%= currSym %> <%= pack.toFixed(2) %></span>
+                </div>
+                <% } %>
+                <% if (isInter) { %>
+                <div class="flex justify-between py-1.5 text-sm text-slate-600">
+                    <span>Integrated GST (IGST @ <%= tRate %>%):</span>
+                    <span class="font-mono"><%= currSym %> <%= finalTax.toFixed(2) %></span>
+                </div>
+                <% } else { %>
+                <div class="flex justify-between py-1.5 text-sm text-slate-600">
+                    <span>Central GST (CGST @ <%= (tRate / 2) %>%):</span>
+                    <span class="font-mono"><%= currSym %> <%= (finalTax / 2).toFixed(2) %></span>
+                </div>
+                <div class="flex justify-between py-1.5 text-sm text-slate-600">
+                    <span>State GST (SGST @ <%= (tRate / 2) %>%):</span>
+                    <span class="font-mono"><%= currSym %> <%= (finalTax / 2).toFixed(2) %></span>
+                </div>
+                <% } %>
+                <div class="flex justify-between py-3 text-base font-bold text-slate-800 border-t border-slate-200">
+                    <span>Grand Total (<%= doc.currency || 'INR' %>):</span>
+                    <span class="text-purple-600 font-mono text-lg"><%= currSym %> <%= finalGrand.toFixed(2) %></span>
                 </div>
             </div>
         </div>

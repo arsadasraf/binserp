@@ -51,6 +51,7 @@ type DateFilterMode = "preset" | "day" | "month" | "range";
 import { generateFrontendGrnPDF } from "@/src/utils/frontendPdfHelper";
 import { ItemNameAndDescription, getItemDescription } from "@/src/utils/itemDisplayHelper";
 import { API_BASE_URL } from "@/src/utils/config";
+import { isSpaceFreeMatch } from "@/src/utils/spaceFreeSearchHelper";
 
 const downloadGRNAsPDF = (grn: any, companyInfo?: any) => {
   try {
@@ -386,21 +387,27 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
       }
 
       // 3. Search Filter
-      if (search.trim()) {
-        const query = search.toLowerCase();
-        const grnNum = (grn.grnNumber || "").toLowerCase();
-        const poRef = (grn.poNumber || grn.poReference || "").toLowerCase();
-        const invNum = (grn.invoiceNumber || grn.invoiceNo || "").toLowerCase();
-        const party = (grn.supplierOrCustomer || "").toLowerCase();
-        const recBy = (grn.receivedBy?.name || grn.receivedByName || "").toLowerCase();
+      if (search && search.trim()) {
+        const query = search.trim();
+        const grnMatch = isSpaceFreeMatch(grn.grnNumber, query);
+        const poMatch = isSpaceFreeMatch(grn.poNumber || grn.poReference, query);
+        const invMatch = isSpaceFreeMatch(grn.invoiceNumber || grn.invoiceNo, query);
+        const partyMatch = isSpaceFreeMatch(grn.supplierOrCustomer, query);
+        const recByMatch = isSpaceFreeMatch(grn.receivedBy?.name || grn.receivedByName, query);
         const hasItemMatch = (grn.items || []).some((item: any) => {
-          const name = (item.materialName || item.itemName || (typeof item.fgItem === 'object' ? item.fgItem?.name : item.fgItem) || "").toLowerCase();
-          const code = (item.materialCode || item.itemCode || (typeof item.fgItem === 'object' ? item.fgItem?.code : '') || "").toLowerCase();
-          const hsn = (item.hsnCode || "").toLowerCase();
-          return name.includes(query) || code.includes(query) || hsn.includes(query);
+          const name = item.materialName || item.itemName || (typeof item.fgItem === 'object' ? item.fgItem?.name : item.fgItem) || "";
+          const desc = item.materialDescription || item.description || item.descriptions || (typeof item.fgItem === 'object' ? item.fgItem?.description : '') || "";
+          const code = item.materialCode || item.itemCode || (typeof item.fgItem === 'object' ? item.fgItem?.code : '') || "";
+          const hsn = item.hsnCode || "";
+          return (
+            isSpaceFreeMatch(name, query) ||
+            isSpaceFreeMatch(desc, query) ||
+            isSpaceFreeMatch(code, query) ||
+            isSpaceFreeMatch(hsn, query)
+          );
         });
 
-        if (!grnNum.includes(query) && !poRef.includes(query) && !invNum.includes(query) && !party.includes(query) && !recBy.includes(query) && !hasItemMatch) {
+        if (!grnMatch && !poMatch && !invMatch && !partyMatch && !recByMatch && !hasItemMatch) {
           return false;
         }
       }

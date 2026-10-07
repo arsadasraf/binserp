@@ -13,6 +13,7 @@ import {
   Check,
   X
 } from 'lucide-react';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 export interface ColumnDef<T> {
   id: string;
@@ -138,26 +139,24 @@ export default function DataTable<T extends Record<string, any>>({
   // Filtered distinct values matching the search inside filter popup
   const filteredUniqueValues = useMemo(() => {
     if (!colFilterSearch) return uniqueColumnValues;
-    const lower = colFilterSearch.toLowerCase();
-    return uniqueColumnValues.filter(item => item.value.toLowerCase().includes(lower));
+    return uniqueColumnValues.filter(item => isSpaceFreeMatch(item.value, colFilterSearch));
   }, [uniqueColumnValues, colFilterSearch]);
 
   // Handle Global Search + Excel Column Filters + Sorting
   const filteredData = useMemo(() => {
     let result = [...data];
 
-    // 1. Global Search
+    // 1. Global Search (Space-Free and separator agnostic)
     if (searchTerm) {
-      const lowerSearch = searchTerm.toLowerCase();
       result = result.filter(item => {
         if (searchableKeys.length > 0) {
           return searchableKeys.some(key => {
             const val = item[key];
-            return val && String(val).toLowerCase().includes(lowerSearch);
+            return val !== undefined && val !== null && isSpaceFreeMatch(val, searchTerm);
           });
         }
         return Object.values(item).some(val => 
-          val && (typeof val === 'string' || typeof val === 'number') && String(val).toLowerCase().includes(lowerSearch)
+          val !== undefined && val !== null && (typeof val === 'string' || typeof val === 'number') && isSpaceFreeMatch(val, searchTerm)
         );
       });
     }
