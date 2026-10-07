@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { apiRequest } from "@/src/lib/api";
 import { formatItemSelectLabel, getItemDescription, ItemNameAndDescription } from "@/src/utils/itemDisplayHelper";
+import SearchableSelect, { SearchableOption } from "../SearchableSelect";
 
 interface ConsumedRow {
   materialId: string;
@@ -180,11 +181,45 @@ export default function WipMultiItemConvertModal({
     );
   }, [selectedTargetId, targetItemName, allBoms]);
 
+  // Memoized Searchable Options for Target FG / Component
+  const targetOptions: SearchableOption[] = useMemo(() => {
+    const list: SearchableOption[] = existingTargets.map((item) => ({
+      value: String(item.id),
+      label: formatItemSelectLabel(item),
+      description: item.description,
+      badge: item.type || "Component",
+    }));
+
+    list.push({
+      value: "__custom__",
+      label: "✨ + Enter New / Custom Component Name",
+      badge: "Custom",
+    });
+
+    return list;
+  }, [existingTargets]);
+
+  // Memoized Searchable Options for Shopfloor WIP Ingredients (RM & BO)
+  const wipIngredientOptions: SearchableOption[] = useMemo(() => {
+    return availableWipStockList.map((item) => {
+      const isAlreadyAdded = consumedRows.some(r => String(r.materialId) === String(item.materialId));
+      return {
+        value: String(item.materialId),
+        label: formatItemSelectLabel(item),
+        description: item.materialDescription,
+        badge: item.itemType === "bo" ? "Bought Out" : "Raw Material",
+        subBadge: `Floor: ${item.shopfloorWipQty} ${item.unit}`,
+        disabled: isAlreadyAdded,
+        hint: isAlreadyAdded ? "Already added" : undefined,
+      };
+    });
+  }, [availableWipStockList, consumedRows]);
+
   // Handle Target Selection Change
   const handleSelectTarget = (targetId: string) => {
     if (targetId === "__custom__") {
       setIsCustomTarget(true);
-      setSelectedTargetId("");
+      setSelectedTargetId("__custom__");
       setTargetItemName("");
       setTargetItemCode("");
       setTargetDescription("");
@@ -198,8 +233,8 @@ export default function WipMultiItemConvertModal({
     const found = existingTargets.find(t => String(t.id) === String(targetId));
     if (found) {
       setTargetItemName(found.name);
-      setTargetItemCode(found.code);
-      setTargetDescription(found.description);
+      setTargetItemCode(found.code || "");
+      setTargetDescription(found.description || "");
       setTargetUnit(found.unit || "PCS");
       setTargetType(found.type || "Component");
     }
@@ -246,9 +281,11 @@ export default function WipMultiItemConvertModal({
   };
 
   // Add individual ingredient from Shopfloor WIP
-  const handleAddIngredient = () => {
-    if (!selectedIngredientToAdd) return;
-    const item = availableWipStockList.find(i => String(i.materialId) === String(selectedIngredientToAdd));
+  const handleAddIngredient = (idToAdd?: string) => {
+    const targetId = idToAdd || selectedIngredientToAdd;
+    if (!targetId) return;
+
+    const item = availableWipStockList.find(i => String(i.materialId) === String(targetId));
     if (!item) return;
 
     if (consumedRows.some(r => String(r.materialId) === String(item.materialId))) {
@@ -371,12 +408,12 @@ export default function WipMultiItemConvertModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[250] flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-5xl rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-150 max-h-[94vh] flex flex-col">
+    <div className="fixed inset-0 z-[250] flex items-center justify-center p-2 sm:p-4 lg:p-6 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-7xl xl:max-w-[1440px] 2xl:max-w-[1560px] rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-150 max-h-[95vh] flex flex-col">
         
         {/* Header */}
-        <div className="px-6 py-5 bg-gradient-to-r from-indigo-700 via-indigo-800 to-purple-800 text-white flex items-center justify-between shrink-0 shadow-xs">
-          <div className="flex items-center gap-3">
+        <div className="px-6 sm:px-8 py-5 bg-gradient-to-r from-indigo-700 via-indigo-800 to-purple-800 text-white flex items-center justify-between shrink-0 shadow-xs">
+          <div className="flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-2xl bg-white/15 flex items-center justify-center backdrop-blur-md shadow-inner">
               <Factory size={24} className="text-white" />
             </div>
@@ -401,10 +438,10 @@ export default function WipMultiItemConvertModal({
         </div>
 
         {/* Content Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 sm:p-7 space-y-6">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 sm:p-7 lg:p-8 space-y-6">
           
           {/* Section 1: Target Finished Good / Component */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+          <div className="p-5 sm:p-6 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/70 dark:border-slate-700/70 pb-3">
               <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-sm">
                 <Boxes size={18} />
@@ -422,44 +459,58 @@ export default function WipMultiItemConvertModal({
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-              {/* Target Item Selector */}
-              <div className="md:col-span-6 space-y-1.5">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 lg:gap-5">
+              {/* Target Item Keyword Searchable Select */}
+              <div className="md:col-span-6 lg:col-span-7 xl:col-span-8 space-y-1.5">
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                   Target Product Name &amp; Description <span className="text-rose-500">*</span>
                 </label>
-                <select
+                <SearchableSelect
+                  options={targetOptions}
                   value={isCustomTarget ? "__custom__" : selectedTargetId}
-                  onChange={(e) => handleSelectTarget(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="">-- Choose Existing FG / Component --</option>
-                  {existingTargets.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {formatItemSelectLabel(item)}
-                    </option>
-                  ))}
-                  <option value="__custom__">✨ + Enter New / Custom Component Name</option>
-                </select>
+                  onChange={handleSelectTarget}
+                  placeholder="🔍 Search target FG / Component by keyword, name, or description..."
+                  dropdownPosition="bottom"
+                  className="w-full"
+                />
                 {isCustomTarget && (
-                  <input
-                    type="text"
-                    placeholder="Enter custom WIP FG / Component name..."
-                    value={targetItemName}
-                    onChange={(e) => setTargetItemName(e.target.value)}
-                    className="w-full mt-2 px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-indigo-400 dark:border-indigo-600 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500"
-                    required
-                  />
+                  <div className="mt-2.5 p-3 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 space-y-2 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
+                        <Sparkles size={13} /> Custom Component Name
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCustomTarget(false);
+                          setSelectedTargetId("");
+                          setTargetItemName("");
+                        }}
+                        className="text-[11px] font-semibold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                      >
+                        ← Back to Catalog Selection
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Type custom WIP FG / Component name..."
+                      value={targetItemName}
+                      onChange={(e) => setTargetItemName(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-indigo-400 dark:border-indigo-600 rounded-xl text-sm font-bold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                      autoFocus
+                      required
+                    />
+                  </div>
                 )}
-                {targetDescription && (
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 italic px-1 line-clamp-2">
+                {targetDescription && !isCustomTarget && (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 italic px-1 line-clamp-2 mt-1">
                     {targetDescription}
                   </p>
                 )}
               </div>
 
               {/* Target Produced Quantity */}
-              <div className="md:col-span-3 space-y-1.5">
+              <div className="md:col-span-3 lg:col-span-3 xl:col-span-2 space-y-1.5">
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                   Produced Qty (WIP) <span className="text-rose-500">*</span>
                 </label>
@@ -476,7 +527,7 @@ export default function WipMultiItemConvertModal({
               </div>
 
               {/* Target Unit */}
-              <div className="md:col-span-3 space-y-1.5">
+              <div className="md:col-span-3 lg:col-span-2 xl:col-span-2 space-y-1.5">
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                   Unit
                 </label>
@@ -492,34 +543,32 @@ export default function WipMultiItemConvertModal({
           </div>
 
           {/* Section 2: Source RM & BO Consumed Items */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/70 dark:border-slate-700/70 pb-3">
+          <div className="p-5 sm:p-6 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-200/70 dark:border-slate-700/70 pb-3">
               <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-sm">
                 <Layers size={18} />
                 <span>2. Ingredients Consumed from Shopfloor WIP ({consumedRows.length} items)</span>
               </div>
 
-              {/* Add Material Select & Button */}
-              <div className="flex items-center gap-2 max-w-md w-full sm:w-auto">
-                <select
-                  value={selectedIngredientToAdd}
-                  onChange={(e) => setSelectedIngredientToAdd(e.target.value)}
-                  className="flex-1 sm:w-72 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-indigo-500 truncate"
-                >
-                  <option value="">+ Add RM / BO from Shopfloor WIP...</option>
-                  {availableWipStockList.map((item) => (
-                    <option key={item.materialId} value={item.materialId}>
-                      {formatItemSelectLabel(item)} [Floor: {item.shopfloorWipQty} {item.unit}]
-                    </option>
-                  ))}
-                </select>
+              {/* Add Material Keyword Searchable Select & Button */}
+              <div className="flex items-center gap-2.5 w-full lg:w-auto lg:min-w-[480px] xl:min-w-[580px]">
+                <div className="flex-1">
+                  <SearchableSelect
+                    options={wipIngredientOptions}
+                    value={selectedIngredientToAdd}
+                    onChange={(val) => setSelectedIngredientToAdd(val)}
+                    placeholder="🔍 Search RM / BO in Shopfloor WIP by keyword, name, or description..."
+                    dropdownPosition="auto"
+                    className="w-full"
+                  />
+                </div>
                 <button
                   type="button"
-                  onClick={handleAddIngredient}
+                  onClick={() => handleAddIngredient()}
                   disabled={!selectedIngredientToAdd}
-                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-xs transition-colors shrink-0 cursor-pointer"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors shrink-0 cursor-pointer h-[38px]"
                 >
-                  <Plus size={14} /> Add
+                  <Plus size={15} /> <span>Add</span>
                 </button>
               </div>
             </div>
@@ -532,21 +581,21 @@ export default function WipMultiItemConvertModal({
                   No ingredients added yet
                 </p>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Pick RM / BO items from the selector above or use "Auto-fill Ingredients from BOM"
+                  Search &amp; pick RM / BO items from the keyword search bar above or use "Auto-fill Ingredients from BOM"
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xs">
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                      <th className="px-4 py-3">Material &amp; Technical Description</th>
-                      <th className="px-4 py-3 text-center">Category</th>
-                      <th className="px-4 py-3 text-center">Shopfloor Balance</th>
-                      <th className="px-4 py-3 text-center w-40">Consumed Quantity</th>
-                      <th className="px-4 py-3 text-center">Unit</th>
-                      <th className="px-4 py-3 text-center">Status</th>
-                      <th className="px-4 py-3 text-right">Remove</th>
+                      <th className="px-4 py-3.5">Material &amp; Technical Description</th>
+                      <th className="px-4 py-3.5 text-center w-32">Category</th>
+                      <th className="px-4 py-3.5 text-center w-36">Shopfloor Balance</th>
+                      <th className="px-4 py-3.5 text-center w-44">Consumed Quantity</th>
+                      <th className="px-4 py-3.5 text-center w-24">Unit</th>
+                      <th className="px-4 py-3.5 text-center w-36">Status</th>
+                      <th className="px-4 py-3.5 text-right w-20">Remove</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -557,14 +606,14 @@ export default function WipMultiItemConvertModal({
 
                       return (
                         <tr key={`${row.materialId}_${idx}`} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                          <td className="px-4 py-3 max-w-[260px]">
+                          <td className="px-4 py-3.5 min-w-[280px] lg:min-w-[360px] xl:min-w-[440px]">
                             <ItemNameAndDescription
                               name={row.materialName}
                               description={row.materialDescription}
                             />
                           </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          <td className="px-4 py-3.5 text-center">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                               row.itemType === "bo"
                                 ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
                                 : "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300"
@@ -572,10 +621,10 @@ export default function WipMultiItemConvertModal({
                               {row.itemType === "bo" ? "Bought Out" : "Raw Material"}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
+                          <td className="px-4 py-3.5 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
                             {row.availableWipQty} {row.unit}
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-4 py-3.5 text-center">
                             <input
                               type="number"
                               min="0.0001"
@@ -591,10 +640,10 @@ export default function WipMultiItemConvertModal({
                               required
                             />
                           </td>
-                          <td className="px-4 py-3 text-center font-semibold text-slate-500">
+                          <td className="px-4 py-3.5 text-center font-semibold text-slate-500">
                             {row.unit}
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-4 py-3.5 text-center">
                             {isShortage ? (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400">
                                 <AlertCircle size={12} /> Exceeds Stock
@@ -607,7 +656,7 @@ export default function WipMultiItemConvertModal({
                               </span>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-right">
+                          <td className="px-4 py-3.5 text-right">
                             <button
                               type="button"
                               onClick={() => handleRemoveIngredient(idx)}

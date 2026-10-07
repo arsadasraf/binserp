@@ -190,7 +190,7 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
             <!-- Target Consolidated Return Box -->
             <div style="border: 2px solid #1e3a8a; background: #f8fafc; border-radius: 4px; padding: 8px 12px; margin-bottom: 12px;">
                 <div style="font-size: 9px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; margin-bottom: 5px;">
-                    2. Inward Material (Consolidated 1 Item Deliverable - Many ➔ 1)
+                    2. Inward Material (Expected Return Deliverable)
                 </div>
                 <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
                     <tr>
@@ -320,7 +320,7 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
 
             <!-- Document Title Bar -->
             <div style="text-align: center; background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: bold; font-size: 13px; padding: 6px; text-transform: uppercase; letter-spacing: 1px; color: #0f172a; margin-bottom: 12px;">
-                ${isAssemblyMode ? 'RETURNABLE - DELIVERY CHALLAN [MANY TO ONE CONSOLIDATION]' : 'RETURNABLE - DELIVERY CHALLAN [ONE TO MANY]'}
+                RETURNABLE - DELIVERY CHALLAN
             </div>
 
             <!-- Address & Logistics Panel -->

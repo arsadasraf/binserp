@@ -25,14 +25,19 @@ import {
   IndianRupee,
   LayoutGrid,
   RotateCcw,
-  AlertTriangle
+  AlertTriangle,
+  LayoutDashboard,
+  SlidersHorizontal,
+  FilterX
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { apiGet } from '@/src/lib/api';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
+import ColumnFilter from '../tables/ColumnFilter';
 import WipLedgerDrawer from '../modals/WipLedgerDrawer';
 import WipActionModal from '../modals/WipActionModal';
 import WipMultiItemConvertModal from '../modals/WipMultiItemConvertModal';
+import MrpWipMaterialPreviewModal from '../modals/MrpWipMaterialPreviewModal';
 
 export type WipSubTabType = 'rm' | 'bo' | 'fg' | 'mrp' | 'ledger' | 'mrp-buckets';
 
@@ -82,9 +87,19 @@ export default function WipInventoryTab({
     const [filterCategory, setFilterCategory] = useState('');
     const [filterMrp, setFilterMrp] = useState('');
     const [filterStatus, setFilterStatus] = useState<'All' | 'Active WIP Only' | 'WIP Zero' | 'Completed'>('All');
+    const [mrpFilterStatus, setMrpFilterStatus] = useState<'Active' | 'Complete' | 'All'>('Active');
     const [filterDatePreset, setFilterDatePreset] = useState<'all' | 'today' | 'this_month' | 'last_30_days' | 'custom'>('all');
     const [filterStartDate, setFilterStartDate] = useState('');
     const [filterEndDate, setFilterEndDate] = useState('');
+
+    // Excel-style Column Filters & Sorting State
+    const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+    const [numericConditions, setNumericConditions] = useState<Record<string, 'all' | 'gt0' | 'eq0'>>({});
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+    // MRP Material Preview Modal State
+    const [previewMrpBucket, setPreviewMrpBucket] = useState<any | null>(null);
+    const [isMrpPreviewOpen, setIsMrpPreviewOpen] = useState(false);
 
     // Ledger Drawer State
     const [selectedWipItem, setSelectedWipItem] = useState<any | null>(null);
@@ -96,14 +111,85 @@ export default function WipInventoryTab({
     const [isActionModalOpen, setIsActionModalOpen] = useState(false);
     const [isMultiConvertOpen, setIsMultiConvertOpen] = useState(false);
 
-    // Dashboard & Focus State
-    const [showDashboard, setShowDashboard] = useState<boolean>(false);
+    // Dashboard & Focus State (Open by default for prominent executive visibility)
+    const [showDashboard, setShowDashboard] = useState<boolean>(true);
     const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
 
-    // Reset focused item when subtab changes
+    // Reset filters and focused item when subtab changes
     useEffect(() => {
         setFocusedItemId(null);
+        setColumnFilters({});
+        setNumericConditions({});
+        setSortConfig(null);
     }, [wipType]);
+
+    // Handlers for Excel-style Column Filtering & Sorting
+    const handleFilterChange = (column: string, values: string[]) => {
+        setColumnFilters(prev => {
+            const next = { ...prev };
+            if (values.length === 0) {
+                delete next[column];
+            } else {
+                next[column] = values;
+            }
+            return next;
+        });
+    };
+
+    const handleNumericConditionChange = (column: string, condition: 'all' | 'gt0' | 'eq0') => {
+        setNumericConditions(prev => {
+            const next = { ...prev };
+            if (condition === 'all') {
+                delete next[column];
+            } else {
+                next[column] = condition;
+            }
+            return next;
+        });
+    };
+
+    const handleSortChange = (column: string, direction: 'asc' | 'desc') => {
+        if (sortConfig?.key === column && sortConfig?.direction === direction) {
+            setSortConfig(null);
+        } else {
+            setSortConfig({ key: column, direction });
+        }
+    };
+
+    const clearAllFilters = () => {
+        setColumnFilters({});
+        setNumericConditions({});
+        setSortConfig(null);
+        setSearchTerm('');
+        setFilterCategory('');
+        setFilterStatus('All');
+        setFilterMrp('');
+    };
+
+    const getColumnDisplayName = (col: string) => {
+        switch (col) {
+            case 'materialName': return 'Material';
+            case 'category': return 'Category';
+            case 'mainStoreStock': return 'Store Stock';
+            case 'shopfloorWipQty': return 'Shopfloor WIP';
+            case 'jobWorkWipQty': return 'Job Work Stock';
+            case 'pendingWipQty': return 'Total WIP';
+            case 'unitPrice': return 'Rate';
+            case 'wipValuation': return 'WIP Valuation';
+            case 'status': return 'Status';
+            default: return col;
+        }
+    };
+
+    // Count active filters
+    const activeFilterCount = useMemo(() => {
+        let count = Object.keys(columnFilters).length + Object.keys(numericConditions).length;
+        if (searchTerm.trim()) count++;
+        if (filterCategory) count++;
+        if (filterStatus !== 'All') count++;
+        if (filterMrp) count++;
+        return count;
+    }, [columnFilters, numericConditions, searchTerm, filterCategory, filterStatus, filterMrp]);
 
     // Local price list state with optional fallback fetch if parent didn't provide props
     const [localVendorPriceLists, setLocalVendorPriceLists] = useState<any[]>(vendorPriceLists || []);
@@ -399,13 +485,141 @@ export default function WipInventoryTab({
         }
     };
 
+    const isFg = wipType === 'fg';
+
     const focusedItem = useMemo(() => {
         if (!focusedItemId) return null;
         return wipItems.find((i: any) => (i.id || i._id)?.toString() === focusedItemId) || null;
     }, [wipItems, focusedItemId]);
 
+    // Filtered and Sorted Items for standard RM/BO/FG WIP tabs (Dynamic Excel filtering)
+    const filteredItems = useMemo(() => {
+        let items = wipItems.filter(item => {
+            const priceInfo = getItemPriceDetails(item, isFg);
+            const itemValuation = Number(item.pendingWipQty || 0) * priceInfo.unitPrice;
+
+            // 1. Global Search Filter
+            if (searchTerm?.trim()) {
+                const matches = 
+                    isSpaceFreeMatch(item.materialName, searchTerm) ||
+                    isSpaceFreeMatch(item.materialCode, searchTerm) ||
+                    isSpaceFreeMatch(item.materialDescription, searchTerm) ||
+                    isSpaceFreeMatch(item.categoryName, searchTerm);
+                if (!matches) return false;
+            }
+
+            // 2. Toolbar Category Filter
+            if (filterCategory) {
+                const cat = item.categoryName || item.categoryType;
+                if (cat !== filterCategory) return false;
+            }
+
+            // 3. Toolbar Status Filter
+            if (filterStatus !== 'All') {
+                const wipQty = Number(item.pendingWipQty || 0);
+                if (filterStatus === 'Active WIP Only' && wipQty <= 0) return false;
+                if (filterStatus === 'WIP Zero' && wipQty > 0) return false;
+            }
+
+            // 4. Excel-style Multi-Value Column Filters
+            for (const [col, selectedVals] of Object.entries(columnFilters)) {
+                if (!selectedVals || selectedVals.length === 0) continue;
+                let val = '';
+                if (col === 'materialName') {
+                    val = item.materialName || item.name || '-';
+                } else if (col === 'category') {
+                    val = item.categoryName || item.categoryType || '-';
+                } else if (col === 'mainStoreStock') {
+                    val = String(Number(item.mainStoreStock || 0));
+                } else if (col === 'shopfloorWipQty') {
+                    val = String(Number(item.shopfloorWipQty || 0));
+                } else if (col === 'jobWorkWipQty') {
+                    val = String(Number(item.jobWorkWipQty || 0));
+                } else if (col === 'pendingWipQty') {
+                    val = String(Number(item.pendingWipQty || 0));
+                } else if (col === 'unitPrice') {
+                    val = priceInfo.unitPrice > 0 ? `₹${priceInfo.unitPrice.toLocaleString('en-IN')}` : 'Unpriced';
+                } else if (col === 'wipValuation') {
+                    val = itemValuation > 0 ? `₹${itemValuation.toLocaleString('en-IN')}` : '₹0';
+                } else if (col === 'status') {
+                    val = Number(item.pendingWipQty || 0) > 0 ? 'In WIP' : 'WIP Zero';
+                } else {
+                    val = String(item[col] ?? '-');
+                }
+                if (!selectedVals.includes(val)) return false;
+            }
+
+            // 5. Excel-style Numeric Conditions (> 0 / = 0)
+            for (const [col, cond] of Object.entries(numericConditions)) {
+                if (cond === 'all') continue;
+                let numVal = 0;
+                if (col === 'mainStoreStock') numVal = Number(item.mainStoreStock || 0);
+                else if (col === 'shopfloorWipQty') numVal = Number(item.shopfloorWipQty || 0);
+                else if (col === 'jobWorkWipQty') numVal = Number(item.jobWorkWipQty || 0);
+                else if (col === 'pendingWipQty') numVal = Number(item.pendingWipQty || 0);
+                else if (col === 'unitPrice') numVal = priceInfo.unitPrice;
+                else if (col === 'wipValuation') numVal = itemValuation;
+
+                if (cond === 'gt0' && numVal <= 0) return false;
+                if (cond === 'eq0' && numVal !== 0) return false;
+            }
+
+            return true;
+        });
+
+        // 6. Column Sorting
+        if (sortConfig) {
+            const { key, direction } = sortConfig;
+            items = [...items].sort((a, b) => {
+                const priceA = getItemPriceDetails(a, isFg).unitPrice;
+                const priceB = getItemPriceDetails(b, isFg).unitPrice;
+
+                if (key === 'materialName') {
+                    const nameA = (a.materialName || a.name || '').toLowerCase();
+                    const nameB = (b.materialName || b.name || '').toLowerCase();
+                    return direction === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+                }
+                if (key === 'category') {
+                    const catA = (a.categoryName || a.categoryType || '').toLowerCase();
+                    const catB = (b.categoryName || b.categoryType || '').toLowerCase();
+                    return direction === 'asc' ? catA.localeCompare(catB) : catB.localeCompare(catA);
+                }
+                if (key === 'status') {
+                    const statA = Number(a.pendingWipQty || 0) > 0 ? 'In WIP' : 'WIP Zero';
+                    const statB = Number(b.pendingWipQty || 0) > 0 ? 'In WIP' : 'WIP Zero';
+                    return direction === 'asc' ? statA.localeCompare(statB) : statB.localeCompare(statA);
+                }
+
+                let numA = 0;
+                let numB = 0;
+                if (key === 'mainStoreStock') {
+                    numA = Number(a.mainStoreStock || 0);
+                    numB = Number(b.mainStoreStock || 0);
+                } else if (key === 'shopfloorWipQty') {
+                    numA = Number(a.shopfloorWipQty || 0);
+                    numB = Number(b.shopfloorWipQty || 0);
+                } else if (key === 'jobWorkWipQty') {
+                    numA = Number(a.jobWorkWipQty || 0);
+                    numB = Number(b.jobWorkWipQty || 0);
+                } else if (key === 'pendingWipQty') {
+                    numA = Number(a.pendingWipQty || 0);
+                    numB = Number(b.pendingWipQty || 0);
+                } else if (key === 'unitPrice') {
+                    numA = priceA;
+                    numB = priceB;
+                } else if (key === 'wipValuation') {
+                    numA = Number(a.pendingWipQty || 0) * priceA;
+                    numB = Number(b.pendingWipQty || 0) * priceB;
+                }
+
+                return direction === 'asc' ? numA - numB : numB - numA;
+            });
+        }
+
+        return items;
+    }, [wipItems, searchTerm, filterCategory, filterStatus, columnFilters, numericConditions, sortConfig, isFg, vendorPriceMap, salesPriceMap]);
+
     const wipKpis = useMemo(() => {
-        const isFg = wipType === 'fg';
         const tabTitle = wipType === 'bo' 
             ? 'Bought Out (BO)' 
             : wipType === 'fg' 
@@ -444,6 +658,7 @@ export default function WipInventoryTab({
                 itemDesc,
                 tabTitle,
                 totalItems: 1,
+                rawCatalogTotal: wipItems.length,
                 pricedItemsCount: priceInfo.unitPrice > 0 ? 1 : 0,
                 totalWipQty,
                 formattedTotalWipQty: `${totalWipQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${focusedItem.unit || 'PCS'}`,
@@ -477,7 +692,7 @@ export default function WipInventoryTab({
             };
         }
 
-        // 2. Aggregate Overview Mode
+        // 2. Aggregate Overview Mode (Dynamically computed from filteredItems)
         let totalWipValuation = 0;
         let totalShopfloorValuation = 0;
         let totalJobWorkValuation = 0;
@@ -489,7 +704,7 @@ export default function WipInventoryTab({
         let pricedItemsCount = 0;
         let activeWipItemCount = 0;
 
-        wipItems.forEach((item: any) => {
+        filteredItems.forEach((item: any) => {
             const priceInfo = getItemPriceDetails(item, isFg);
             const shopfloorQty = Number(item.shopfloorWipQty || 0);
             const jobWorkQty = Number(item.jobWorkWipQty || 0);
@@ -520,7 +735,8 @@ export default function WipInventoryTab({
             itemName: '',
             itemDesc: '',
             tabTitle,
-            totalItems: wipItems.length,
+            totalItems: filteredItems.length,
+            rawCatalogTotal: wipItems.length,
             activeWipItemCount,
             pricedItemsCount,
             totalWipQty: totalWipUnits,
@@ -550,7 +766,7 @@ export default function WipInventoryTab({
             mainStoreValuation: totalMainStoreValuation,
             formattedMainStoreValuation: `₹${totalMainStoreValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
         };
-    }, [wipItems, wipType, vendorPriceMap, salesPriceMap, focusedItem]);
+    }, [filteredItems, wipItems.length, wipType, isFg, vendorPriceMap, salesPriceMap, focusedItem]);
 
     const handleOpenActionModal = (item: any, mode: 'return' | 'scrap' | 'convert') => {
         setActionModalItem(item);
@@ -610,38 +826,48 @@ export default function WipInventoryTab({
         return Array.from(set);
     }, [mrpBuckets, ledgerTransactions]);
 
-    // Filtered Items for standard RM/BO/FG WIP tabs
-    const filteredItems = useMemo(() => {
-        return wipItems.filter(item => {
-            const matchSearch = !searchTerm?.trim() ||
-                isSpaceFreeMatch(item.materialName, searchTerm) ||
-                isSpaceFreeMatch(item.materialCode, searchTerm) ||
-                isSpaceFreeMatch(item.materialDescription, searchTerm);
 
-            const matchCategory = !filterCategory || item.categoryName === filterCategory || item.categoryType === filterCategory;
-
-            const matchStatus = filterStatus === 'All' || 
-                (filterStatus === 'Active WIP Only' ? item.pendingWipQty > 0 : item.pendingWipQty === 0);
-
-            return matchSearch && matchCategory && matchStatus;
+    // Live counts for MRP status tabs
+    const mrpStatusCounts = useMemo(() => {
+        let active = 0;
+        let complete = 0;
+        mrpBuckets.forEach(b => {
+            const isBucketCompleted = b.status === 'Completed' || (Number(b.pendingWipQty || 0) <= 0 && Number(b.totalIssuedQty || 0) > 0);
+            if (isBucketCompleted) complete++;
+            else active++;
         });
-    }, [wipItems, searchTerm, filterCategory, filterStatus]);
+        return {
+            all: mrpBuckets.length,
+            active,
+            complete
+        };
+    }, [mrpBuckets]);
 
-    // Filtered MRP Buckets for MRP WIP Inventory tab
+    // Filtered MRP Buckets for MRP WIP Inventory tab (Active by default)
     const filteredMrpBuckets = useMemo(() => {
         return mrpBuckets.filter(bucket => {
             const matchSearch = !searchTerm?.trim() ||
                 isSpaceFreeMatch(bucket.mrpNumber, searchTerm) ||
                 isSpaceFreeMatch(bucket.customerName, searchTerm) ||
-                (bucket.items && bucket.items.some((it: any) => isSpaceFreeMatch(it.materialName, searchTerm) || isSpaceFreeMatch(it.description, searchTerm)));
+                isSpaceFreeMatch(bucket.productName, searchTerm) ||
+                isSpaceFreeMatch(bucket.salesOrderNumber, searchTerm) ||
+                (bucket.items && bucket.items.some((it: any) => 
+                    isSpaceFreeMatch(it.materialName, searchTerm) || 
+                    isSpaceFreeMatch(it.description, searchTerm) || 
+                    isSpaceFreeMatch(it.materialDescription, searchTerm)
+                ));
 
             const matchMrp = !filterMrp || bucket.mrpNumber === filterMrp;
-            const matchStatus = filterStatus === 'All' || 
-                (filterStatus === 'Completed' ? bucket.status === 'Completed' : bucket.status !== 'Completed');
+            const isBucketCompleted = bucket.status === 'Completed' || (Number(bucket.pendingWipQty || 0) <= 0 && Number(bucket.totalIssuedQty || 0) > 0);
+            const matchStatus = mrpFilterStatus === 'All'
+                ? true
+                : mrpFilterStatus === 'Complete'
+                ? isBucketCompleted
+                : !isBucketCompleted; // 'Active' by default
 
             return matchSearch && matchMrp && matchStatus;
         });
-    }, [mrpBuckets, searchTerm, filterMrp, filterStatus]);
+    }, [mrpBuckets, searchTerm, filterMrp, mrpFilterStatus]);
 
     // Filtered Ledger Transactions with Date Filter
     const filteredLedger = useMemo(() => {
@@ -790,10 +1016,10 @@ export default function WipInventoryTab({
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 uppercase tracking-wide">
                                             <LayoutGrid size={14} className="text-indigo-600 dark:text-indigo-400" />
-                                            <span>{wipKpis.tabTitle} Executive Overview</span>
+                                            <span>{wipKpis.tabTitle} Executive Valuation Dashboard</span>
                                         </span>
                                         <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 font-mono">
-                                            ({wipKpis.totalItems} Items &bull; {wipKpis.pricedItemsCount} Priced via Price List)
+                                            ({wipKpis.totalItems < wipKpis.rawCatalogTotal ? `${wipKpis.totalItems} Filtered of ${wipKpis.rawCatalogTotal} Items` : `${wipKpis.totalItems} Items`} &bull; {wipKpis.pricedItemsCount} Priced)
                                         </span>
                                     </div>
                                 )}
@@ -846,51 +1072,13 @@ export default function WipInventoryTab({
                             </div>
                         </div>
 
-                        {/* 4 Dynamic KPI Cards */}
+                        {/* 4 Dynamic KPI Cards with Real-Time Valuation & Excel Filter Response */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                            {/* Card 1: WIP Stock Volume & SKUs */}
-                            <div className="bg-gradient-to-br from-indigo-50/90 via-white to-slate-50 dark:from-indigo-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 shadow-2xs relative overflow-hidden">
-                                <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400 mb-1.5">
-                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                        {wipKpis.isFocused ? "Active WIP Quantity" : "Total Active WIP Units"}
-                                    </span>
-                                    <div className="w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
-                                        <Boxes size={15} />
-                                    </div>
-                                </div>
-                                <div className="text-xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
-                                    {wipKpis.isFocused ? (
-                                        <span>{wipKpis.formattedTotalWipQty}</span>
-                                    ) : (
-                                        <>
-                                            {wipKpis.formattedTotalWipQty} <span className="text-xs font-semibold text-slate-500 font-sans">Units</span>
-                                        </>
-                                    )}
-                                </div>
-                                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                                    {wipKpis.isFocused ? (
-                                        <>
-                                            <span>Secondary Unit WIP</span>
-                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                                                {wipKpis.formattedSecWipQty || "N/A"}
-                                            </span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <span>Active / Total Catalog</span>
-                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                                                {wipKpis.activeWipItemCount} / {wipKpis.totalItems} Items
-                                            </span>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Card 2: Total WIP Valuation (INR) */}
-                            <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-2xs relative overflow-hidden">
+                            {/* Card 1: TOTAL WIP INVENTORY VALUE (₹) */}
+                            <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-emerald-200/80 dark:border-emerald-900/40 shadow-2xs relative overflow-hidden">
                                 <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 mb-1.5">
-                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                        {wipKpis.isFocused ? "Item WIP Value" : "Total WIP Valuation"}
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                                        {wipKpis.isFocused ? "Item WIP Inventory Value" : "Total WIP Inventory Value"}
                                     </span>
                                     <div className="w-7 h-7 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
                                         <IndianRupee size={15} />
@@ -909,12 +1097,33 @@ export default function WipInventoryTab({
                                         </>
                                     ) : (
                                         <>
-                                            <span>Valuation Source</span>
+                                            <span>Shopfloor: <strong className="font-mono text-slate-700 dark:text-slate-300">{wipKpis.formattedShopfloorValuation}</strong></span>
                                             <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                                                {wipType === 'fg' ? 'Sales Price List' : 'Purchase Price List'}
+                                                {wipKpis.formattedTotalWipQty} Units
                                             </span>
                                         </>
                                     )}
+                                </div>
+                            </div>
+
+                            {/* Card 2: MAIN STORE STOCK VALUE (₹) */}
+                            <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-blue-200/80 dark:border-blue-900/40 shadow-2xs relative overflow-hidden">
+                                <div className="flex items-center justify-between text-blue-600 dark:text-blue-400 mb-1.5">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-blue-800 dark:text-blue-300">
+                                        {wipKpis.isFocused ? "Item Main Store Value" : "Main Store Stock Value"}
+                                    </span>
+                                    <div className="w-7 h-7 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                                        <Warehouse size={15} />
+                                    </div>
+                                </div>
+                                <div className="text-xl font-black text-slate-900 dark:text-white font-mono tracking-tight truncate">
+                                    {wipKpis.formattedMainStoreValuation}
+                                </div>
+                                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                                    <span>Store Units: <strong className="font-mono text-blue-600 dark:text-blue-400">{wipKpis.formattedMainStoreQty}</strong></span>
+                                    <span className="font-bold text-slate-600 dark:text-slate-300 font-mono">
+                                        {wipKpis.mainStoreQty > 0 ? `${((wipKpis.totalWipQty / (wipKpis.mainStoreQty + wipKpis.totalWipQty || 1)) * 100).toFixed(0)}% in WIP` : '—'}
+                                    </span>
                                 </div>
                             </div>
 
@@ -948,24 +1157,41 @@ export default function WipInventoryTab({
                                 </div>
                             </div>
 
-                            {/* Card 4: Store Stock vs WIP Allocation Ratio */}
-                            <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-2xs relative overflow-hidden">
-                                <div className="flex items-center justify-between text-blue-600 dark:text-blue-400 mb-1.5">
+                            {/* Card 4: WIP Stock Volume & SKUs */}
+                            <div className="bg-gradient-to-br from-indigo-50/90 via-white to-slate-50 dark:from-indigo-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 shadow-2xs relative overflow-hidden">
+                                <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400 mb-1.5">
                                     <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                        Store vs WIP Allocation
+                                        {wipKpis.isFocused ? "Active WIP Quantity" : "WIP Volume & SKUs"}
                                     </span>
-                                    <div className="w-7 h-7 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
-                                        <Warehouse size={15} />
+                                    <div className="w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
+                                        <Boxes size={15} />
                                     </div>
                                 </div>
                                 <div className="text-xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
-                                    {wipKpis.formattedMainStoreQty} <span className="text-xs font-semibold text-slate-500 font-sans">in Store</span>
+                                    {wipKpis.isFocused ? (
+                                        <span>{wipKpis.formattedTotalWipQty}</span>
+                                    ) : (
+                                        <>
+                                            {wipKpis.formattedTotalWipQty} <span className="text-xs font-semibold text-slate-500 font-sans">Units</span>
+                                        </>
+                                    )}
                                 </div>
                                 <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                                    <span>Store Value: <strong className="font-mono text-blue-600">{wipKpis.formattedMainStoreValuation}</strong></span>
-                                    <span className="font-bold text-slate-600 dark:text-slate-300">
-                                        {wipKpis.mainStoreQty > 0 ? `${((wipKpis.totalWipQty / (wipKpis.mainStoreQty + wipKpis.totalWipQty || 1)) * 100).toFixed(0)}% in WIP` : '—'}
-                                    </span>
+                                    {wipKpis.isFocused ? (
+                                        <>
+                                            <span>Secondary Unit WIP</span>
+                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                {wipKpis.formattedSecWipQty || "N/A"}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span>Active / Filtered SKUs</span>
+                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                {wipKpis.activeWipItemCount} / {wipKpis.totalItems} Items
+                                            </span>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1004,7 +1230,57 @@ export default function WipInventoryTab({
                         )}
 
                         {/* Status Filter */}
-                        {wipType !== 'ledger' && (
+                        {wipType === 'mrp' ? (
+                            <div className="flex items-center gap-2">
+                                {/* Segmented Buttons for 1-Click Status Toggling */}
+                                <div className="hidden sm:inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => setMrpFilterStatus('Active')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                            mrpFilterStatus === 'Active'
+                                                ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-xs'
+                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        Active ({mrpStatusCounts.active})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setMrpFilterStatus('Complete')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                            mrpFilterStatus === 'Complete'
+                                                ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-xs'
+                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        Complete ({mrpStatusCounts.complete})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setMrpFilterStatus('All')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                            mrpFilterStatus === 'All'
+                                                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        All ({mrpStatusCounts.all})
+                                    </button>
+                                </div>
+
+                                {/* Dropdown Selector (visible on all screens / dropdown tab) */}
+                                <select
+                                    value={mrpFilterStatus}
+                                    onChange={(e: any) => setMrpFilterStatus(e.target.value)}
+                                    className="sm:hidden px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                                >
+                                    <option value="Active">Active ({mrpStatusCounts.active})</option>
+                                    <option value="Complete">Complete ({mrpStatusCounts.complete})</option>
+                                    <option value="All">All ({mrpStatusCounts.all})</option>
+                                </select>
+                            </div>
+                        ) : wipType !== 'ledger' ? (
                             <select
                                 value={filterStatus}
                                 onChange={(e: any) => setFilterStatus(e.target.value)}
@@ -1014,7 +1290,7 @@ export default function WipInventoryTab({
                                 <option value="Active WIP Only">Active WIP Only</option>
                                 <option value="WIP Zero">WIP Zero</option>
                             </select>
-                        )}
+                        ) : null}
 
                         {/* MRP Plan Filter for Ledger */}
                         {wipType === 'ledger' && mrpList.length > 0 && (
@@ -1032,6 +1308,22 @@ export default function WipInventoryTab({
                     </div>
 
                     <div className="flex items-center gap-2">
+                        {/* Valuation Dashboard Toggle Button */}
+                        <button
+                            type="button"
+                            onClick={() => setShowDashboard(prev => !prev)}
+                            className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border shrink-0 ${
+                                showDashboard
+                                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800 shadow-2xs'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700'
+                            }`}
+                            title={showDashboard ? "Collapse Valuation Dashboard" : "Expand Valuation Dashboard"}
+                        >
+                            <LayoutDashboard size={13} className={showDashboard ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500"} />
+                            <span>Dashboard</span>
+                            {showDashboard ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        </button>
+
                         {/* Assemble / Convert to WIP FG Button */}
                         <button
                             onClick={() => setIsMultiConvertOpen(true)}
@@ -1110,112 +1402,258 @@ export default function WipInventoryTab({
                 )}
             </div>
 
+            {/* Active Column Filters & Conditions Ribbon */}
+            {activeFilterCount > 0 && wipType !== 'ledger' && (
+                <div className="flex flex-wrap items-center gap-1.5 p-2.5 bg-indigo-50/60 dark:bg-slate-800/60 rounded-xl border border-indigo-100 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-300 animate-in fade-in duration-200">
+                    <span className="font-bold flex items-center gap-1 text-indigo-700 dark:text-indigo-300 text-[11px] uppercase tracking-wide mr-1">
+                        <SlidersHorizontal size={12} />
+                        <span>Active Filters ({activeFilterCount}):</span>
+                    </span>
+
+                    {searchTerm.trim() && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-[11px] font-medium shadow-2xs">
+                            <span>Search: &ldquo;{searchTerm}&rdquo;</span>
+                            <button
+                                type="button"
+                                onClick={() => setSearchTerm('')}
+                                className="hover:text-rose-600 text-slate-400 cursor-pointer ml-0.5 text-xs font-bold leading-none"
+                            >
+                                &times;
+                            </button>
+                        </span>
+                    )}
+
+                    {filterCategory && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-[11px] font-medium shadow-2xs">
+                            <span>Category: {filterCategory}</span>
+                            <button
+                                type="button"
+                                onClick={() => setFilterCategory('')}
+                                className="hover:text-rose-600 text-slate-400 cursor-pointer ml-0.5 text-xs font-bold leading-none"
+                            >
+                                &times;
+                            </button>
+                        </span>
+                    )}
+
+                    {filterStatus !== 'All' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-[11px] font-medium shadow-2xs">
+                            <span>Status: {filterStatus}</span>
+                            <button
+                                type="button"
+                                onClick={() => setFilterStatus('All')}
+                                className="hover:text-rose-600 text-slate-400 cursor-pointer ml-0.5 text-xs font-bold leading-none"
+                            >
+                                &times;
+                            </button>
+                        </span>
+                    )}
+
+                    {Object.entries(columnFilters).map(([col, vals]) => (
+                        <span key={col} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[11px] font-medium shadow-2xs">
+                            <span>{getColumnDisplayName(col)}: {vals.length === 1 ? vals[0] : `${vals.length} selected`}</span>
+                            <button
+                                type="button"
+                                onClick={() => handleFilterChange(col, [])}
+                                className="hover:text-rose-600 text-indigo-400 cursor-pointer ml-0.5 text-xs font-bold leading-none"
+                            >
+                                &times;
+                            </button>
+                        </span>
+                    ))}
+
+                    {Object.entries(numericConditions).map(([col, cond]) => {
+                        if (cond === 'all') return null;
+                        return (
+                            <span key={col} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium shadow-2xs">
+                                <span>{getColumnDisplayName(col)}: {cond === 'gt0' ? '> 0' : '= 0'}</span>
+                                <button
+                                    type="button"
+                                    onClick={() => handleNumericConditionChange(col, 'all')}
+                                    className="hover:text-rose-600 text-emerald-400 cursor-pointer ml-0.5 text-xs font-bold leading-none"
+                                >
+                                    &times;
+                                </button>
+                            </span>
+                        );
+                    })}
+
+                    <button
+                        type="button"
+                        onClick={clearAllFilters}
+                        className="ml-auto text-xs font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 flex items-center gap-1 cursor-pointer pl-2"
+                    >
+                        <FilterX size={12} />
+                        <span>Reset Filters</span>
+                    </button>
+                </div>
+            )}
+
             {/* Main Content Area */}
             {loading ? (
                 <div className="flex justify-center p-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
                 </div>
             ) : wipType === 'mrp' ? (
-                /* MRP WIP Inventory View */
+                /* MRP WIP Inventory Single-Line Table View */
                 filteredMrpBuckets.length === 0 ? (
                     <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
                         <Boxes className="mx-auto h-12 w-12 text-slate-300 mb-3" />
                         <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
-                            No Active MRP WIP Tracking Plans
+                            {mrpFilterStatus === 'Active' 
+                                ? 'No Active MRP Plans in WIP' 
+                                : mrpFilterStatus === 'Complete' 
+                                ? 'No Completed MRP Plans Found' 
+                                : 'No MRP WIP Tracking Plans Found'}
                         </h3>
-                        <p className="text-xs text-slate-500 mt-1">Material issues against MRP Plans will group and show cumulative progress here.</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                            {mrpFilterStatus === 'Active'
+                                ? 'All MRP demands are either closed or have no material issued to shopfloor yet. Switch to "All" or "Complete" to view other plans.'
+                                : 'Material issues against MRP Plans will group and show cumulative progress here.'}
+                        </p>
                     </div>
                 ) : (
-                    <div className="space-y-4">
-                        {filteredMrpBuckets.map((bucket) => {
-                            const isCompleted = bucket.pendingWipQty <= 0 && bucket.totalIssuedQty > 0;
-                            const planWipValuation = (bucket.items || []).reduce((acc: number, it: any) => {
-                                const itPrice = getItemPriceDetails(it, false);
-                                return acc + ((it.pendingQty || 0) * itPrice.unitPrice);
-                            }, 0);
-                            return (
-                                <div key={bucket.mrpPlanId || bucket.mrpNumber} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 shadow-xs space-y-4">
-                                    {/* MRP Header Info */}
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
-                                        <div className="flex items-center gap-3">
-                                            <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-xl">
-                                                <Boxes size={20} />
-                                            </div>
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <h3 className="text-base font-bold text-slate-900 dark:text-white font-mono">
-                                                        {bucket.mrpNumber}
-                                                    </h3>
-                                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                                        isCompleted 
-                                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' 
-                                                            : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
-                                                    }`}>
-                                                        {isCompleted ? 'MRP Closed' : 'In Production'}
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-xs text-left">
+                                <thead className="bg-slate-100/90 dark:bg-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                                    <tr>
+                                        <th className="px-4 py-3.5 whitespace-nowrap">MRP Plan #</th>
+                                        <th className="px-4 py-3.5">Target Product &amp; Planned Qty</th>
+                                        <th className="px-4 py-3.5">Customer / SO Reference</th>
+                                        <th className="px-4 py-3.5 text-center whitespace-nowrap">Issued to WIP</th>
+                                        <th className="px-4 py-3.5 text-center whitespace-nowrap">FG Consumed</th>
+                                        <th className="px-4 py-3.5 text-center whitespace-nowrap">Pending in WIP</th>
+                                        <th className="px-4 py-3.5 text-center whitespace-nowrap">WIP Valuation</th>
+                                        <th className="px-4 py-3.5 text-center whitespace-nowrap">Status</th>
+                                        <th className="px-4 py-3.5 text-right whitespace-nowrap">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {filteredMrpBuckets.map((bucket) => {
+                                        const isCompleted = bucket.status === 'Completed' || (Number(bucket.pendingWipQty || 0) <= 0 && Number(bucket.totalIssuedQty || 0) > 0);
+                                        const planWipValuation = (bucket.items || []).reduce((acc: number, it: any) => {
+                                            const itPrice = getItemPriceDetails(it, false);
+                                            return acc + ((it.pendingQty || 0) * itPrice.unitPrice);
+                                        }, 0);
+
+                                        return (
+                                            <tr
+                                                key={bucket.mrpPlanId || bucket.mrpNumber}
+                                                onClick={() => {
+                                                    setPreviewMrpBucket(bucket);
+                                                    setIsMrpPreviewOpen(true);
+                                                }}
+                                                className="hover:bg-indigo-50/60 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group"
+                                            >
+                                                {/* MRP Number */}
+                                                <td className="px-4 py-3 whitespace-nowrap">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                                                            <Boxes size={14} />
+                                                        </div>
+                                                        <span className="font-mono font-black text-slate-900 dark:text-white text-xs group-hover:text-indigo-600 transition-colors">
+                                                            {bucket.mrpNumber}
+                                                        </span>
+                                                    </div>
+                                                </td>
+
+                                                {/* Target Product & Planned Qty */}
+                                                <td className="px-4 py-3 min-w-[200px]">
+                                                    <div className="font-bold text-slate-800 dark:text-slate-100 truncate">
+                                                        {bucket.productName || "Finished Good"}
+                                                    </div>
+                                                    <div className="text-[11px] text-slate-500 font-medium">
+                                                        Planned: <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">{bucket.orderQuantity} {bucket.unit || "PCS"}</span>
+                                                    </div>
+                                                </td>
+
+                                                {/* Customer / SO Reference */}
+                                                <td className="px-4 py-3 min-w-[180px]">
+                                                    <div className="font-medium text-slate-700 dark:text-slate-300 truncate">
+                                                        {bucket.customerName || "Internal Production"}
+                                                    </div>
+                                                    {bucket.salesOrderNumber ? (
+                                                        <div className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                                            SO: {bucket.salesOrderNumber}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-[10px] text-slate-400">Direct Demand</div>
+                                                    )}
+                                                </td>
+
+                                                {/* Issued to WIP */}
+                                                <td className="px-4 py-3 text-center whitespace-nowrap">
+                                                    <span className="font-mono font-bold text-amber-600 dark:text-amber-400 text-xs">
+                                                        {bucket.totalIssuedQty || 0}
                                                     </span>
-                                                </div>
-                                                <p className="text-xs text-slate-500 mt-0.5">
-                                                    Product: <span className="font-semibold text-slate-700 dark:text-slate-300">{bucket.productName}</span> ({bucket.orderQuantity} {bucket.unit})
-                                                    {bucket.salesOrderNumber && <span className="ml-2">| SO: <span className="font-mono font-bold text-indigo-600">{bucket.salesOrderNumber}</span></span>}
-                                                    {bucket.customerName && <span className="ml-2 text-slate-400">({bucket.customerName})</span>}
-                                                </p>
-                                            </div>
-                                        </div>
+                                                    <span className="text-[10px] text-slate-400 block">{bucket.items?.length || 0} items</span>
+                                                </td>
 
-                                        {/* Progress Metrics */}
-                                        <div className="flex items-center gap-4 text-xs">
-                                            <div className="text-right">
-                                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Issued to WIP</span>
-                                                <span className="font-bold text-amber-600 font-mono text-sm">
-                                                    {bucket.totalIssuedQty}
-                                                </span>
-                                            </div>
-                                            <div className="text-right">
-                                                <span className="text-[10px] uppercase font-bold text-slate-400 block">FG Consumed</span>
-                                                <span className="font-bold text-emerald-600 font-mono text-sm">
-                                                    {bucket.totalConsumedQty}
-                                                </span>
-                                            </div>
-                                            <div className="text-right pl-3 border-l border-slate-200 dark:border-slate-700">
-                                                <span className="text-[10px] uppercase font-bold text-indigo-600 dark:text-indigo-400 block">Pending In WIP</span>
-                                                <span className="font-black text-indigo-700 dark:text-indigo-300 font-mono text-base">
-                                                    {bucket.pendingWipQty}
-                                                </span>
-                                            </div>
-                                            <div className="text-right pl-3 border-l border-slate-200 dark:border-slate-700">
-                                                <span className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400 block">WIP Valuation</span>
-                                                <span className="font-black text-emerald-700 dark:text-emerald-300 font-mono text-base">
-                                                    {planWipValuation > 0 ? `₹${planWipValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
+                                                {/* FG Consumed */}
+                                                <td className="px-4 py-3 text-center whitespace-nowrap">
+                                                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs">
+                                                        {bucket.totalConsumedQty || 0}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-400 block">{bucket.unit || "units"}</span>
+                                                </td>
 
-                                    {/* Items Inside this MRP Bucket */}
-                                    <div className="space-y-2">
-                                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Items in MRP WIP Inventory</h4>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                                            {(bucket.items || []).map((it: any, i: number) => (
-                                                <div key={i} className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 flex justify-between items-center text-xs">
-                                                    <div className="min-w-0 pr-2">
-                                                        <span className="font-bold text-slate-900 dark:text-white block truncate">{it.materialName}</span>
-                                                        <span className="text-[10px] text-slate-400 block mt-0.5">{it.category || '-'}</span>
-                                                    </div>
-                                                    <div className="text-right shrink-0">
-                                                        <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 block">
-                                                            {it.pendingQty} <span className="text-[10px] font-normal text-slate-400">{it.unit}</span>
-                                                        </span>
-                                                        <span className="text-[10px] text-slate-400">
-                                                            Issued: {it.issuedQty}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                                                {/* Pending in WIP */}
+                                                <td className="px-4 py-3 text-center whitespace-nowrap">
+                                                    <span className="font-mono font-black text-indigo-700 dark:text-indigo-300 text-sm">
+                                                        {bucket.pendingWipQty || 0}
+                                                    </span>
+                                                    <span className="text-[10px] text-indigo-500/80 block">in floor</span>
+                                                </td>
+
+                                                {/* WIP Valuation */}
+                                                <td className="px-4 py-3 text-center whitespace-nowrap">
+                                                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-xs">
+                                                        {planWipValuation > 0 ? `₹${planWipValuation.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '—'}
+                                                    </span>
+                                                </td>
+
+                                                {/* Status Badge */}
+                                                <td className="px-4 py-3 text-center whitespace-nowrap">
+                                                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                                                        isCompleted
+                                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                                                            : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800'
+                                                    }`}>
+                                                        {isCompleted ? (
+                                                            <>
+                                                                <CheckCircle2 size={11} /> Complete
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Clock size={11} /> Active (In Prod)
+                                                            </>
+                                                        )}
+                                                    </span>
+                                                </td>
+
+                                                {/* Action Preview Button */}
+                                                <td className="px-4 py-3 text-right whitespace-nowrap">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setPreviewMrpBucket(bucket);
+                                                            setIsMrpPreviewOpen(true);
+                                                        }}
+                                                        className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1 shadow-2xs shrink-0 cursor-pointer"
+                                                        title="Clickable preview: view all issue material status"
+                                                    >
+                                                        <Eye size={13} />
+                                                        <span>Preview</span>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 )
             ) : wipType === 'ledger' ? (
@@ -1327,16 +1765,156 @@ export default function WipInventoryTab({
                             <table className="w-full text-sm text-left">
                                 <thead>
                                     <tr className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                                        <th className="px-4 py-3.5">Material & Description</th>
-                                        <th className="px-4 py-3.5">Category</th>
-                                        <th className="px-4 py-3.5 text-center">Main Store Stock</th>
-                                        <th className="px-4 py-3.5 text-center">Shopfloor WIP</th>
-                                        <th className="px-4 py-3.5 text-center">Job Work Stock</th>
-                                        <th className="px-4 py-3.5 text-center">Total WIP</th>
-                                        <th className="px-4 py-3.5 text-center">Rate</th>
-                                        <th className="px-4 py-3.5 text-right">WIP Valuation</th>
-                                        <th className="px-4 py-3.5 text-center">Status</th>
-                                        <th className="px-4 py-3.5 text-right">Action</th>
+                                        <th className="px-4 py-3 text-left">
+                                            <ColumnFilter
+                                                column="materialName"
+                                                title="Material & Description"
+                                                data={wipItems}
+                                                currentFilters={columnFilters['materialName'] || []}
+                                                onFilterChange={(vals) => handleFilterChange('materialName', vals)}
+                                                getValue={(item) => item.materialName || item.name || '-'}
+                                                sortConfig={sortConfig}
+                                                onSortChange={handleSortChange}
+                                            />
+                                        </th>
+                                        <th className="px-4 py-3 text-left">
+                                            <ColumnFilter
+                                                column="category"
+                                                title="Category"
+                                                data={wipItems}
+                                                currentFilters={columnFilters['category'] || []}
+                                                onFilterChange={(vals) => handleFilterChange('category', vals)}
+                                                getValue={(item) => item.categoryName || item.categoryType || '-'}
+                                                sortConfig={sortConfig}
+                                                onSortChange={handleSortChange}
+                                            />
+                                        </th>
+                                        <th className="px-4 py-3 text-center">
+                                            <div className="inline-flex justify-center">
+                                                <ColumnFilter
+                                                    column="mainStoreStock"
+                                                    title="Main Store Stock"
+                                                    data={wipItems}
+                                                    currentFilters={columnFilters['mainStoreStock'] || []}
+                                                    onFilterChange={(vals) => handleFilterChange('mainStoreStock', vals)}
+                                                    getValue={(item) => String(Number(item.mainStoreStock || 0))}
+                                                    sortConfig={sortConfig}
+                                                    onSortChange={handleSortChange}
+                                                    isNumeric={true}
+                                                    numericCondition={numericConditions['mainStoreStock'] || 'all'}
+                                                    onNumericConditionChange={(cond) => handleNumericConditionChange('mainStoreStock', cond)}
+                                                />
+                                            </div>
+                                        </th>
+                                        <th className="px-4 py-3 text-center">
+                                            <div className="inline-flex justify-center">
+                                                <ColumnFilter
+                                                    column="shopfloorWipQty"
+                                                    title="Shopfloor WIP"
+                                                    data={wipItems}
+                                                    currentFilters={columnFilters['shopfloorWipQty'] || []}
+                                                    onFilterChange={(vals) => handleFilterChange('shopfloorWipQty', vals)}
+                                                    getValue={(item) => String(Number(item.shopfloorWipQty || 0))}
+                                                    sortConfig={sortConfig}
+                                                    onSortChange={handleSortChange}
+                                                    isNumeric={true}
+                                                    numericCondition={numericConditions['shopfloorWipQty'] || 'all'}
+                                                    onNumericConditionChange={(cond) => handleNumericConditionChange('shopfloorWipQty', cond)}
+                                                />
+                                            </div>
+                                        </th>
+                                        <th className="px-4 py-3 text-center">
+                                            <div className="inline-flex justify-center">
+                                                <ColumnFilter
+                                                    column="jobWorkWipQty"
+                                                    title="Job Work Stock"
+                                                    data={wipItems}
+                                                    currentFilters={columnFilters['jobWorkWipQty'] || []}
+                                                    onFilterChange={(vals) => handleFilterChange('jobWorkWipQty', vals)}
+                                                    getValue={(item) => String(Number(item.jobWorkWipQty || 0))}
+                                                    sortConfig={sortConfig}
+                                                    onSortChange={handleSortChange}
+                                                    isNumeric={true}
+                                                    numericCondition={numericConditions['jobWorkWipQty'] || 'all'}
+                                                    onNumericConditionChange={(cond) => handleNumericConditionChange('jobWorkWipQty', cond)}
+                                                />
+                                            </div>
+                                        </th>
+                                        <th className="px-4 py-3 text-center">
+                                            <div className="inline-flex justify-center">
+                                                <ColumnFilter
+                                                    column="pendingWipQty"
+                                                    title="Total WIP"
+                                                    data={wipItems}
+                                                    currentFilters={columnFilters['pendingWipQty'] || []}
+                                                    onFilterChange={(vals) => handleFilterChange('pendingWipQty', vals)}
+                                                    getValue={(item) => String(Number(item.pendingWipQty || 0))}
+                                                    sortConfig={sortConfig}
+                                                    onSortChange={handleSortChange}
+                                                    isNumeric={true}
+                                                    numericCondition={numericConditions['pendingWipQty'] || 'all'}
+                                                    onNumericConditionChange={(cond) => handleNumericConditionChange('pendingWipQty', cond)}
+                                                />
+                                            </div>
+                                        </th>
+                                        <th className="px-4 py-3 text-center">
+                                            <div className="inline-flex justify-center">
+                                                <ColumnFilter
+                                                    column="unitPrice"
+                                                    title="Rate"
+                                                    data={wipItems}
+                                                    currentFilters={columnFilters['unitPrice'] || []}
+                                                    onFilterChange={(vals) => handleFilterChange('unitPrice', vals)}
+                                                    getValue={(item) => {
+                                                        const p = getItemPriceDetails(item, isFg).unitPrice;
+                                                        return p > 0 ? `₹${p.toLocaleString('en-IN')}` : 'Unpriced';
+                                                    }}
+                                                    sortConfig={sortConfig}
+                                                    onSortChange={handleSortChange}
+                                                    isNumeric={true}
+                                                    numericCondition={numericConditions['unitPrice'] || 'all'}
+                                                    onNumericConditionChange={(cond) => handleNumericConditionChange('unitPrice', cond)}
+                                                />
+                                            </div>
+                                        </th>
+                                        <th className="px-4 py-3 text-right">
+                                            <div className="inline-flex justify-end w-full">
+                                                <ColumnFilter
+                                                    column="wipValuation"
+                                                    title="WIP Valuation"
+                                                    data={wipItems}
+                                                    currentFilters={columnFilters['wipValuation'] || []}
+                                                    onFilterChange={(vals) => handleFilterChange('wipValuation', vals)}
+                                                    getValue={(item) => {
+                                                        const p = getItemPriceDetails(item, isFg).unitPrice;
+                                                        const v = (Number(item.pendingWipQty || 0)) * p;
+                                                        return v > 0 ? `₹${v.toLocaleString('en-IN')}` : '₹0';
+                                                    }}
+                                                    sortConfig={sortConfig}
+                                                    onSortChange={handleSortChange}
+                                                    isNumeric={true}
+                                                    numericCondition={numericConditions['wipValuation'] || 'all'}
+                                                    onNumericConditionChange={(cond) => handleNumericConditionChange('wipValuation', cond)}
+                                                />
+                                            </div>
+                                        </th>
+                                        <th className="px-4 py-3 text-center">
+                                            <div className="inline-flex justify-center">
+                                                <ColumnFilter
+                                                    column="status"
+                                                    title="Status"
+                                                    data={wipItems}
+                                                    currentFilters={columnFilters['status'] || []}
+                                                    onFilterChange={(vals) => handleFilterChange('status', vals)}
+                                                    getValue={(item) => (Number(item.pendingWipQty || 0) > 0 ? 'In WIP' : 'WIP Zero')}
+                                                    sortConfig={sortConfig}
+                                                    onSortChange={handleSortChange}
+                                                />
+                                            </div>
+                                        </th>
+                                        <th className="px-4 py-3 text-right font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+                                            Action
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -1684,6 +2262,16 @@ export default function WipInventoryTab({
                     fetchWipInventory();
                 }}
                 onError={onError}
+            />
+
+            {/* MRP WIP Material Issue Preview Modal */}
+            <MrpWipMaterialPreviewModal
+                isOpen={isMrpPreviewOpen}
+                onClose={() => {
+                    setIsMrpPreviewOpen(false);
+                    setPreviewMrpBucket(null);
+                }}
+                mrpBucket={previewMrpBucket}
             />
         </div>
     );

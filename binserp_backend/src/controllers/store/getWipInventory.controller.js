@@ -426,8 +426,10 @@ export const getWipInventory = async (req, res) => {
           const itemMapKey = `${matName}_${targetType}`;
           if (!bucket.itemsInWip.has(itemMapKey)) {
             bucket.itemsInWip.set(itemMapKey, {
+              materialId: rawId,
               materialName: matName,
               materialCode: matCode,
+              materialDescription: entry?.materialDescription || item.descriptions || item.description || item.specification || "",
               itemType: targetType,
               category: targetType === 'rm' ? 'Raw Material' : targetType === 'bo' ? 'Bought Out' : 'FG / Component',
               unit: unit,
@@ -445,9 +447,14 @@ export const getWipInventory = async (req, res) => {
             type: "Material Issue into WIP",
             docNumber: docNo,
             materialName: matName,
+            materialCode: matCode,
+            materialDescription: entry?.materialDescription || item.descriptions || item.description || item.specification || "",
             itemType: targetType,
             qty: qty,
-            unit: unit
+            unit: unit,
+            department: issueDept,
+            issuedTo: issue.issuedTo?.name || "Production",
+            status: "Issued"
           });
         }
       });
@@ -1091,7 +1098,14 @@ export const getWipInventory = async (req, res) => {
     }
 
     const mrpBuckets = Array.from(mrpBucketMap.values()).map(b => {
-      const items = Array.from(b.itemsInWip.values());
+      const items = Array.from(b.itemsInWip.values()).map(it => ({
+        ...it,
+        status: it.pendingQty <= 0 && it.issuedQty > 0 
+          ? "Fully Consumed" 
+          : it.consumedQty > 0 
+          ? "Partially Consumed" 
+          : "In WIP"
+      }));
       const totalIssuedQty = b.totalIssuedQty || (b.totalRmIssued + b.totalBoIssued + b.totalFgIssued);
       const totalConsumedQty = b.totalConsumedQty || b.totalFgProduced || 0;
       const pendingWipQty = Math.max(0, totalIssuedQty - totalConsumedQty);
