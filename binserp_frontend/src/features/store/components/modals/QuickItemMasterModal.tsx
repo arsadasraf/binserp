@@ -10,7 +10,8 @@ import {
   PackagePlus,
   AlertCircle,
   Loader2,
-  CheckCircle2
+  CheckCircle2,
+  Lock
 } from "lucide-react";
 import { useCreateStoreRecordMutation } from "@/src/store/services/storeService";
 import Swal from "sweetalert2";
@@ -26,34 +27,7 @@ export interface QuickItemMasterModalProps {
   onItemCreated: (createdItem: any) => void;
 }
 
-const COMMON_UNITS = [
-  "PCS",
-  "KG",
-  "Nos",
-  "Mtr",
-  "Ltr",
-  "Set",
-  "Box",
-  "Pkt",
-  "Roll",
-  "Sheet",
-  "Pair",
-  "Bag",
-  "Sq.Ft",
-  "Sq.Mtr"
-];
-
-const COMMON_SECONDARY_UNITS = [
-  "KG",
-  "Grams",
-  "Mtr",
-  "Ltr",
-  "PCS",
-  "Nos",
-  "Box",
-  "Sheet",
-  "Roll"
-];
+import { STANDARD_UOMS, getDefaultBaseUom } from "@/src/constants/uomConfig";
 
 export default function QuickItemMasterModal({
   isOpen,
@@ -90,7 +64,7 @@ export default function QuickItemMasterModal({
   // Form Fields
   const [name, setName] = useState(initialName);
   const [descriptions, setDescriptions] = useState("");
-  const [unit, setUnit] = useState("PCS");
+  const [unit, setUnit] = useState(getDefaultBaseUom(initialClassification));
   const [categoryId, setCategoryId] = useState("");
   const [locationId, setLocationId] = useState("");
   const [minimumStock, setMinimumStock] = useState<number | "">("");
@@ -98,7 +72,7 @@ export default function QuickItemMasterModal({
 
   // Dual Unit / Secondary Unit
   const [hasSecondaryUnit, setHasSecondaryUnit] = useState(false);
-  const [secondaryUnit, setSecondaryUnit] = useState("KG");
+  const [secondaryUnit, setSecondaryUnit] = useState(initialClassification === 'rm' ? 'NOS' : 'KG');
   const [conversionFactor, setConversionFactor] = useState<number | "">(1);
 
   // Finished Good specific classification
@@ -107,20 +81,30 @@ export default function QuickItemMasterModal({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [createStoreRecord, { isLoading }] = useCreateStoreRecordMutation();
 
+  const handleTypeSelect = (type: "rm" | "bo" | "consumable" | "fg") => {
+    setItemType(type);
+    const def = getDefaultBaseUom(type);
+    setUnit(def);
+    setSecondaryUnit(def === 'KG' ? 'NOS' : 'KG');
+    clearError("unit");
+  };
+
   // Reset/sync form when opening
   useEffect(() => {
     if (isOpen) {
       console.log("[QuickItemMasterModal] Opened with:", { defaultType, initialName });
-      setItemType(initialClassification);
+      const initType = initialClassification;
+      const initUnit = getDefaultBaseUom(initType);
+      setItemType(initType);
       setName(initialName || "");
       setDescriptions("");
-      setUnit("PCS");
+      setUnit(initUnit);
       setCategoryId("");
       setLocationId("");
       setMinimumStock("");
       setHsnCode("");
       setHasSecondaryUnit(false);
-      setSecondaryUnit("KG");
+      setSecondaryUnit(initUnit === 'KG' ? 'NOS' : 'KG');
       setConversionFactor(1);
       setFgType("Component");
       setFormErrors({});
@@ -141,10 +125,6 @@ export default function QuickItemMasterModal({
   const handleCategorySelect = (catId: string) => {
     setCategoryId(catId);
     clearError("category");
-    const foundCat = safeCategories.find((c: any) => c._id === catId);
-    if (foundCat && foundCat.unit) {
-      setUnit(foundCat.unit);
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -292,7 +272,7 @@ export default function QuickItemMasterModal({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <button
                 type="button"
-                onClick={() => setItemType("rm")}
+                onClick={() => handleTypeSelect("rm")}
                 className={`py-2 px-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer text-center ${
                   itemType === "rm"
                     ? "bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 dark:border-blue-500 ring-2 ring-blue-400/30"
@@ -304,7 +284,7 @@ export default function QuickItemMasterModal({
 
               <button
                 type="button"
-                onClick={() => setItemType("bo")}
+                onClick={() => handleTypeSelect("bo")}
                 className={`py-2 px-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer text-center ${
                   itemType === "bo"
                     ? "bg-amber-50 border-amber-500 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-500 ring-2 ring-amber-400/30"
@@ -316,7 +296,7 @@ export default function QuickItemMasterModal({
 
               <button
                 type="button"
-                onClick={() => setItemType("consumable")}
+                onClick={() => handleTypeSelect("consumable")}
                 className={`py-2 px-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer text-center ${
                   itemType === "consumable"
                     ? "bg-teal-50 border-teal-500 text-teal-700 dark:bg-teal-950/70 dark:text-teal-300 dark:border-teal-500 ring-2 ring-teal-400/30"
@@ -328,7 +308,7 @@ export default function QuickItemMasterModal({
 
               <button
                 type="button"
-                onClick={() => setItemType("fg")}
+                onClick={() => handleTypeSelect("fg")}
                 className={`py-2 px-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer text-center ${
                   itemType === "fg"
                     ? "bg-purple-50 border-purple-500 text-purple-700 dark:bg-purple-950/70 dark:text-purple-300 dark:border-purple-500 ring-2 ring-purple-400/30"
@@ -427,32 +407,22 @@ export default function QuickItemMasterModal({
 
           {/* Unit, Category & Storage Location */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {/* Primary Unit */}
+            {/* Primary Unit (Locked) */}
             <div>
               <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
                 <span>
                   Primary Unit <span className="text-red-500">*</span>
                 </span>
-                {formErrors.unit && (
-                  <span className="text-[10px] text-rose-600 font-bold">{formErrors.unit}</span>
-                )}
+                <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                  <Lock size={9} /> Fixed
+                </span>
               </label>
-              <input
-                list="quick-units-list"
-                type="text"
-                value={unit}
-                onChange={(e) => {
-                  setUnit(e.target.value);
-                  if (e.target.value) clearError("unit");
-                }}
-                placeholder="e.g. PCS, KG"
-                className="w-full h-9 px-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-500 uppercase"
-              />
-              <datalist id="quick-units-list">
-                {COMMON_UNITS.map((u) => (
-                  <option key={u} value={u} />
-                ))}
-              </datalist>
+              <div className="w-full h-9 px-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold flex items-center justify-between text-slate-800 dark:text-slate-200 select-none cursor-not-allowed">
+                <span className="font-mono">{unit}</span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
+                  {unit === 'KG' ? 'Raw Material Standard' : 'Count Standard'}
+                </span>
+              </div>
             </div>
 
             {/* Category */}
@@ -522,22 +492,21 @@ export default function QuickItemMasterModal({
                   <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-1">
                     2nd Unit (Secondary) <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    list="quick-sec-units-list"
-                    type="text"
+                  <select
                     value={secondaryUnit}
                     onChange={(e) => {
                       setSecondaryUnit(e.target.value);
                       if (e.target.value) clearError("secondaryUnit");
                     }}
-                    placeholder="e.g. KG, Grams, Mtr"
-                    className="w-full h-8 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold uppercase"
-                  />
-                  <datalist id="quick-sec-units-list">
-                    {COMMON_SECONDARY_UNITS.map((u) => (
-                      <option key={u} value={u} />
+                    className="w-full h-8 px-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold"
+                  >
+                    <option value="">-- Select Secondary Unit --</option>
+                    {STANDARD_UOMS.filter(u => u.value.toUpperCase() !== (unit || '').toUpperCase()).map((u) => (
+                      <option key={u.value} value={u.value}>
+                        {u.label}
+                      </option>
                     ))}
-                  </datalist>
+                  </select>
                 </div>
 
                 <div>

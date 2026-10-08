@@ -772,18 +772,29 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
                             </td>
 
                             <td className="p-2.5 text-center font-bold text-slate-800 dark:text-slate-200">
-                              {reqQty} {unit}
+                              <div>{reqQty} {unit}</div>
+                              {Boolean(item.hasSecondaryUnit && item.secondaryUnit && Number(item.secondaryRequiredQuantity) > 0) && (
+                                <div className="text-[10px] text-slate-500 font-normal mt-0.5">({item.secondaryRequiredQuantity} {item.secondaryUnit})</div>
+                              )}
                             </td>
 
                             <td className="p-2.5 text-center font-medium text-slate-600 dark:text-slate-300">
-                              {stockQty} {unit}
+                              <div>{stockQty} {unit}</div>
+                              {Boolean(item.hasSecondaryUnit && item.secondaryUnit && Number(item.secondaryCurrentStock) > 0) && (
+                                <div className="text-[10px] text-slate-500 font-normal mt-0.5">({item.secondaryCurrentStock} {item.secondaryUnit})</div>
+                              )}
                             </td>
 
                             <td className="p-2.5 text-center">
                               {isShortage ? (
-                                <span className="font-bold text-rose-600 dark:text-rose-400">
-                                  {shortageQty} {unit}
-                                </span>
+                                <div>
+                                  <span className="font-bold text-rose-600 dark:text-rose-400">
+                                    {shortageQty} {unit}
+                                  </span>
+                                  {Boolean(item.hasSecondaryUnit && item.secondaryUnit && Number(item.secondaryShortage) > 0) && (
+                                    <div className="text-[10px] text-rose-500/80 font-normal mt-0.5">({item.secondaryShortage} {item.secondaryUnit})</div>
+                                  )}
+                                </div>
                               ) : (
                                 <span className="font-semibold text-emerald-600 dark:text-emerald-400">
                                   0 (In Stock)

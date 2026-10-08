@@ -275,16 +275,24 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       }
 
       // 3. Upsert or Create Record in Dedicated Collection and sync to RmBoItem
-      const rawUnit = (item.unit || 'PCS').toString().trim();
+      // System Standard: Base UOM is strictly immutable (RM: KG, BO: NOS, Consumable: NOS)
+      const defaultBaseUnit = isConsumable ? 'NOS' : (determinedItemType === 'Bought Out' ? 'NOS' : 'KG');
+      const inputUnit = (item.unit || '').toString().trim();
       const rawHsn = (item.hsnCode || item.hsn || '').toString().trim();
       const rawStatus = (item.status || 'Active').toString().trim();
       const finalStatus = (rawStatus.toLowerCase() === 'deactivated' || rawStatus.toLowerCase() === 'inactive' || item.isActive === false) ? 'Deactivated' : 'Active';
       const finalActive = finalStatus === 'Active';
 
       const rawHasSecUnit = (item.hasSecondaryUnit ?? item.secondaryUnitApplicable ?? '').toString().trim().toLowerCase();
-      const isDualUnit = rawHasSecUnit === 'true' || rawHasSecUnit === 'yes' || rawHasSecUnit === 'y' || item.hasSecondaryUnit === true;
-      const secUnit = isDualUnit ? (item.secondaryUnit || '').toString().trim() : '';
-      const convFactor = isDualUnit && Number(item.conversionFactor) > 0 ? Number(item.conversionFactor) : 1;
+      let isDualUnit = rawHasSecUnit === 'true' || rawHasSecUnit === 'yes' || rawHasSecUnit === 'y' || item.hasSecondaryUnit === true;
+      let secUnit = isDualUnit ? (item.secondaryUnit || '').toString().trim() : '';
+      let convFactor = isDualUnit && Number(item.conversionFactor) > 0 ? Number(item.conversionFactor) : 1;
+
+      // If imported file specified an alternate unit in Unit column, map it gracefully to secondaryUnit
+      if (inputUnit && inputUnit.toUpperCase() !== defaultBaseUnit && !secUnit) {
+        secUnit = inputUnit;
+        isDualUnit = true;
+      }
 
       const defaultPrefix = isConsumable ? 'CON' : (determinedItemType === 'Bought Out' ? 'BO' : 'RM');
       const materialCode = (item.code || item.materialCode || '').toString().trim() || `${defaultPrefix}-${Math.floor(10000 + Math.random() * 90000)}`;
@@ -298,7 +306,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         itemType: determinedItemType,
         descriptions: item.descriptions || item.description || '',
         minimumStock: Number(item.minStock ?? item.minimumStock ?? 0),
-        unit: rawUnit,
+        unit: defaultBaseUnit,
         hasSecondaryUnit: isDualUnit,
         secondaryUnit: secUnit,
         conversionFactor: convFactor,

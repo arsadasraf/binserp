@@ -16,7 +16,7 @@ export const rmBoItemSchema = new mongoose.Schema(
     },
     descriptions: { type: String },
     minimumStock: { type: Number },
-    unit: { type: String, default: "PCS", trim: true },
+    unit: { type: String, default: "KG", trim: true },
     hasSecondaryUnit: { type: Boolean, default: false },
     secondaryUnit: { type: String, trim: true, default: "" },
     conversionFactor: { type: Number, default: 1, min: 0 },

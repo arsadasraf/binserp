@@ -30,7 +30,8 @@ export const createRawMaterial = async (req, res) => {
       return res.status(400).json({ message: "Raw Material Name is required" });
     }
     const cleanName = name.toString().trim();
-    const itemUnit = (unit || 'PCS').toString().trim();
+    // System Standard: Base UOM for Raw Materials is strictly immutable (KG)
+    const itemUnit = 'KG';
     const itemHsn = (hsnCode || '').toString().trim();
     const isDualUnit = String(hasSecondaryUnit) === 'true' || hasSecondaryUnit === true;
     const cleanSecondaryUnit = isDualUnit ? (secondaryUnit || '').toString().trim() : '';
@@ -429,6 +430,8 @@ export const updateRawMaterial = async (req, res) => {
     const { userId, userName } = getUserAudit(req);
     req.body.updatedBy = userId;
     req.body.updatedByName = userName;
+    // System Standard: Base UOM for Raw Materials is strictly immutable (KG)
+    req.body.unit = 'KG';
 
     if (req.body.hasSecondaryUnit !== undefined) {
       req.body.hasSecondaryUnit = String(req.body.hasSecondaryUnit) === 'true' || req.body.hasSecondaryUnit === true;

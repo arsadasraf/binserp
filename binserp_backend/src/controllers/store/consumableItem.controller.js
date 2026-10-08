@@ -34,7 +34,8 @@ export const createConsumableItem = async (req, res) => {
       return res.status(400).json({ message: "Name is required" });
     }
     const cleanName = name.toString().trim();
-    const itemUnit = (unit || 'PCS').toString().trim();
+    // System Standard: Base UOM for Consumables is strictly immutable (NOS)
+    const itemUnit = 'NOS';
     const itemHsn = (hsnCode || '').toString().trim();
     const isDualUnit = String(hasSecondaryUnit) === 'true' || hasSecondaryUnit === true;
     const cleanSecondaryUnit = isDualUnit ? (secondaryUnit || '').toString().trim() : '';
@@ -404,6 +405,8 @@ export const updateConsumableItem = async (req, res) => {
     const { userId, userName } = getUserAudit(req);
     req.body.updatedBy = userId;
     req.body.updatedByName = userName;
+    // System Standard: Base UOM for Consumables is strictly immutable (NOS)
+    req.body.unit = 'NOS';
 
     if (req.body.hasSecondaryUnit !== undefined) {
       req.body.hasSecondaryUnit = String(req.body.hasSecondaryUnit) === 'true' || req.body.hasSecondaryUnit === true;

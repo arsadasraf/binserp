@@ -7,6 +7,7 @@ import {
   ShoppingBag, Truck, Info, X, Search, ShoppingCart
 } from 'lucide-react';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
+import { resolveLineItemDisplay } from '@/src/utils/dualUomHelper';
 
 export interface OutwardPOItemWiseViewProps {
   data: any[];
@@ -107,18 +108,14 @@ export default function OutwardPOItemWiseView({
           const key = matId || `name_${rawName.toLowerCase()}`;
 
           const desc = it.description || matObj?.descriptions || matObj?.description || '';
-          const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
-          const isSecRate = it.rateUnit === 'secondary' && hasSec;
-          const convFactor = Number(it.conversionFactor) || 1;
-          const activeUnit = isSecRate ? it.secondaryUnit : (it.unit || matObj?.unit || 'PCS');
+          const disp = resolveLineItemDisplay(it);
+          const activeUnit = disp.displayUnit || matObj?.unit || 'PCS';
           const cat = it.itemType || matObj?.category || matObj?.type || 'rm';
-          const ordered = isSecRate 
-            ? (Number(it.secondaryQuantity) || (Number(it.quantity || 0) * convFactor))
-            : Number(it.quantity || 0);
+          const ordered = disp.displayQty;
           const received = Number(it.receivedQuantity || 0);
           const pending = it.pendingQuantity != null ? Number(it.pendingQuantity) : Math.max(0, ordered - received);
-          const rate = Number(it.rate || 0);
-          const amount = Number(it.amount || ordered * rate);
+          const rate = disp.displayRate;
+          const amount = disp.lineAmount;
 
           const linkedPo: LinkedPoEntry = {
             po,
@@ -172,13 +169,14 @@ export default function OutwardPOItemWiseView({
         const key = matId || `name_${rawName.toLowerCase()}`;
 
         const desc = po.description || matObj?.descriptions || matObj?.description || '';
-        const unit = po.unit || matObj?.unit || 'PCS';
+        const disp = resolveLineItemDisplay(po);
+        const unit = disp.displayUnit || matObj?.unit || 'PCS';
         const cat = po.itemType || matObj?.category || 'rm';
-        const ordered = Number(po.quantity || 0);
+        const ordered = disp.displayQty;
         const received = Number(po.receivedQuantity || 0);
         const pending = po.pendingQuantity != null ? Number(po.pendingQuantity) : Math.max(0, ordered - received);
-        const rate = Number(po.rate || 0);
-        const amount = Number(po.amount || po.totalAmount || ordered * rate);
+        const rate = disp.displayRate;
+        const amount = disp.lineAmount;
 
         const linkedPo: LinkedPoEntry = {
           po,

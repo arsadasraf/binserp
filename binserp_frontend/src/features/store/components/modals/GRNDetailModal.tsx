@@ -3,6 +3,7 @@ import { X, Download, FileText, Camera, IndianRupee, ArrowLeft, ChevronLeft, Che
 import { generateFrontendGrnPDF } from '@/src/utils/frontendPdfHelper';
 import { API_BASE_URL } from '@/src/utils/config';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
+import { resolveGrnLineItemDisplay } from '@/src/utils/dualUomHelper';
 
 interface GRNDetailModalProps {
     grn: any;
@@ -83,12 +84,8 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
     const isWithinLimit = isEditAllowed(grn.createdAt || grn.date);
 
     const getItemAmount = (item: any) => {
-        if (typeof item.amount === 'number' && !isNaN(item.amount) && item.amount > 0) {
-            return item.amount;
-        }
-        const isSec = item.selectedUnit && item.secondaryUnit && item.selectedUnit === item.secondaryUnit;
-        const qty = isSec ? (Number(item.secondaryQuantity) || Number(item.secondaryReceivedQuantity) || 0) : (Number(item.quantity) || Number(item.receivedQuantity) || 0);
-        return (item.rate || 0) * qty;
+        const disp = resolveGrnLineItemDisplay(item);
+        return disp.lineAmount;
     };
 
     const itemsSubtotal = grn.items?.reduce((sum: number, item: any) => {
@@ -268,6 +265,7 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
                                         {grn.items?.map((item: any, index: number) => {
+                                            const disp = resolveGrnLineItemDisplay(item);
                                             const desc = item.description || item.descriptions || (typeof item.material === 'object' ? (item.material?.descriptions || item.material?.description) : '');
                                             const hsn = item.hsnCode || item.material?.hsnCode || item.material?.hsn || item.fgItem?.hsnCode || item.fgItem?.hsn || '-';
                                             return (
@@ -276,7 +274,7 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                                     <td className="px-4 py-3 text-sm font-medium text-gray-900">
                                                         <div>{item.materialName || 'N/A'}</div>
                                                         {desc && (
-                                                            <div className="text-xs text-gray-500 font-normal mt-0.5">
+                                                            <div className="text-xs text-gray-500 font-normal italic mt-0.5">
                                                                 📝 {desc}
                                                             </div>
                                                         )}
@@ -284,43 +282,51 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                                     <td className="px-4 py-3 text-sm text-gray-600 text-center font-mono text-xs">
                                                         {hsn}
                                                     </td>
-                                                    <td className="px-4 py-3 text-sm text-gray-900 text-center">
-                                                        <div>{item.quantity || item.receivedQuantity || 0}</div>
-                                                        {item.hasSecondaryUnit && item.secondaryUnit && (
-                                                            <div className="text-xs text-indigo-600 font-semibold">
-                                                                ({item.secondaryQuantity || item.secondaryReceivedQuantity || 0} {item.secondaryUnit})
+                                                    <td className="px-4 py-3 text-sm text-gray-900 text-center font-mono">
+                                                        <div className="font-bold">{disp.displayQty} {disp.displayUnit}</div>
+                                                        {disp.hasSecondaryUnit && (
+                                                            <div className="text-[11px] text-indigo-600 font-medium">
+                                                                (≈ {disp.isSecondary ? `${disp.baseQty} ${disp.baseUnit}` : `${disp.secondaryQty} ${disp.secondaryUnit}`})
                                                             </div>
                                                         )}
                                                     </td>
-                                                    <td className="px-4 py-3 text-sm text-green-600 font-medium text-center">
-                                                        <div>{item.acceptedQuantity || 0}</div>
-                                                        {item.hasSecondaryUnit && item.secondaryUnit && item.secondaryAcceptedQuantity !== undefined && (
-                                                            <div className="text-xs text-green-700 font-semibold">
-                                                                ({item.secondaryAcceptedQuantity} {item.secondaryUnit})
+                                                    <td className="px-4 py-3 text-sm text-green-600 font-medium text-center font-mono">
+                                                        <div className="font-bold">{disp.displayAcceptedQty} {disp.displayUnit}</div>
+                                                        {disp.hasSecondaryUnit && (
+                                                            <div className="text-[11px] text-green-700 font-medium">
+                                                                (≈ {disp.isSecondary ? `${disp.baseAcceptedQty} ${disp.baseUnit}` : `${disp.secondaryAcceptedQty} ${disp.secondaryUnit}`})
                                                             </div>
                                                         )}
                                                     </td>
-                                                    <td className="px-4 py-3 text-sm text-red-600 font-bold text-center">
-                                                        <div>{item.rejectedQuantity > 0 ? item.rejectedQuantity : '-'}</div>
-                                                        {item.hasSecondaryUnit && item.secondaryUnit && Number(item.secondaryRejectedQuantity) > 0 && (
-                                                            <div className="text-xs text-red-700 font-semibold">
-                                                                ({item.secondaryRejectedQuantity} {item.secondaryUnit})
+                                                    <td className="px-4 py-3 text-sm text-red-600 font-bold text-center font-mono">
+                                                        <div>{disp.displayRejectedQty > 0 ? `${disp.displayRejectedQty} ${disp.displayUnit}` : '-'}</div>
+                                                        {disp.hasSecondaryUnit && disp.displayRejectedQty > 0 && (
+                                                            <div className="text-[11px] text-red-700 font-medium">
+                                                                (≈ {disp.isSecondary ? `${disp.baseRejectedQty} ${disp.baseUnit}` : `${disp.secondaryRejectedQty} ${disp.secondaryUnit}`})
                                                             </div>
                                                         )}
                                                     </td>
                                                     <td className="px-4 py-3 text-sm text-gray-600">
-                                                        <div className="font-semibold">{item.unit || 'PCS'}</div>
-                                                        {item.hasSecondaryUnit && item.secondaryUnit && (
-                                                            <div className="text-[11px] text-indigo-600 font-medium">
-                                                                ({item.secondaryUnit}) {item.selectedUnit === item.secondaryUnit && <span className="text-[9px] px-1 py-0.2 bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold rounded">2nd</span>}
+                                                        <div className="font-bold">{disp.displayUnit}</div>
+                                                        {disp.hasSecondaryUnit && (
+                                                            <div className="text-[10px] text-indigo-600 font-medium">
+                                                                1 {disp.baseUnit} = {disp.conversionFactor} {disp.secondaryUnit}
                                                             </div>
                                                         )}
                                                     </td>
-                                                    <td className="px-4 py-3 text-sm text-gray-900 text-right">
-                                                        <div>₹{(item.rate || 0).toFixed(2)}</div>
-                                                        <div className="text-[10px] text-gray-400">/ {item.selectedUnit || item.unit || 'Unit'}</div>
+                                                    <td className="px-4 py-3 text-sm text-gray-900 text-right font-mono">
+                                                        <div className="font-bold">₹{disp.displayRate.toFixed(2)}</div>
+                                                        <div className="text-[10px] text-gray-400 font-sans">/ {disp.displayUnit}</div>
+                                                        {disp.hasSecondaryUnit && disp.conversionFactor > 0 && disp.displayRate > 0 && (
+                                                            <div className="text-[9.5px] text-indigo-600 font-medium">
+                                                                {disp.isSecondary
+                                                                    ? `(Eq: ₹${(disp.displayRate * disp.conversionFactor).toFixed(2)} / ${disp.baseUnit})`
+                                                                    : `(Eq: ₹${(disp.displayRate / disp.conversionFactor).toFixed(2)} / ${disp.secondaryUnit})`
+                                                                }
+                                                            </div>
+                                                        )}
                                                     </td>
-                                                    <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">₹{getItemAmount(item).toFixed(2)}</td>
+                                                    <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right font-mono">₹{disp.lineAmount.toFixed(2)}</td>
                                                 </tr>
                                             );
                                         })}
@@ -382,6 +388,7 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                             {/* Mobile Card View */}
                             <div className="md:hidden space-y-4">
                                 {grn.items?.map((item: any, index: number) => {
+                                    const disp = resolveGrnLineItemDisplay(item);
                                     const desc = item.description || item.descriptions || (typeof item.material === 'object' ? (item.material?.descriptions || item.material?.description) : '');
                                     const hsn = item.hsnCode || item.material?.hsnCode || item.material?.hsn || item.fgItem?.hsnCode || item.fgItem?.hsn;
                                     return (
@@ -398,43 +405,55 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                                         )}
                                                     </div>
                                                     {desc && (
-                                                        <span className="text-xs text-gray-500 mt-1 pl-1">📝 {desc}</span>
+                                                        <span className="text-xs text-gray-500 italic mt-1 pl-1">📝 {desc}</span>
                                                     )}
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-3 gap-y-2 text-sm">
-                                                <div className="text-gray-500 text-center">
+                                                <div className="text-gray-500 text-center font-mono">
                                                     Rcv<br />
-                                                    <span className="text-gray-900 font-medium">
-                                                        {item.quantity || 0}
-                                                        {item.hasSecondaryUnit && item.secondaryUnit ? ` (${item.secondaryQuantity || 0} ${item.secondaryUnit})` : ''}
+                                                    <span className="text-gray-900 font-bold">
+                                                        {disp.displayQty} {disp.displayUnit}
                                                     </span>
+                                                    {disp.hasSecondaryUnit && (
+                                                        <div className="text-[10px] text-indigo-600 font-medium">
+                                                            (≈ {disp.isSecondary ? `${disp.baseQty} ${disp.baseUnit}` : `${disp.secondaryQty} ${disp.secondaryUnit}`})
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                <div className="text-gray-500 text-center">
+                                                <div className="text-gray-500 text-center font-mono">
                                                     Acc<br />
-                                                    <span className="text-green-600 font-medium">
-                                                        {item.acceptedQuantity || 0}
-                                                        {item.hasSecondaryUnit && item.secondaryUnit && item.secondaryAcceptedQuantity !== undefined ? ` (${item.secondaryAcceptedQuantity} ${item.secondaryUnit})` : ''}
+                                                    <span className="text-green-600 font-bold">
+                                                        {disp.displayAcceptedQty} {disp.displayUnit}
                                                     </span>
+                                                    {disp.hasSecondaryUnit && (
+                                                        <div className="text-[10px] text-green-700 font-medium">
+                                                            (≈ {disp.isSecondary ? `${disp.baseAcceptedQty} ${disp.baseUnit}` : `${disp.secondaryAcceptedQty} ${disp.secondaryUnit}`})
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                <div className="text-gray-500 text-center">
+                                                <div className="text-gray-500 text-center font-mono">
                                                     Rej<br />
                                                     <span className="text-red-600 font-bold">
-                                                        {item.rejectedQuantity || 0}
-                                                        {item.hasSecondaryUnit && item.secondaryUnit && Number(item.secondaryRejectedQuantity) > 0 ? ` (${item.secondaryRejectedQuantity} ${item.secondaryUnit})` : ''}
+                                                        {disp.displayRejectedQty > 0 ? `${disp.displayRejectedQty} ${disp.displayUnit}` : '-'}
                                                     </span>
+                                                    {disp.hasSecondaryUnit && disp.displayRejectedQty > 0 && (
+                                                        <div className="text-[10px] text-red-700 font-medium">
+                                                            (≈ {disp.isSecondary ? `${disp.baseRejectedQty} ${disp.baseUnit}` : `${disp.secondaryRejectedQty} ${disp.secondaryUnit}`})
+                                                        </div>
+                                                    )}
                                                 </div>
 
-                                                <div className="col-span-3 flex justify-between pt-2 border-t border-gray-100 mt-1">
-                                                    <span className="text-gray-500">Rate: <span className="text-gray-900 font-medium">₹{(item.rate || 0).toFixed(2)} / {item.selectedUnit || item.unit || 'Unit'}</span></span>
-                                                    <span className="text-gray-500">Unit: <span className="text-gray-900 font-medium">{item.unit || 'PCS'}{item.hasSecondaryUnit && item.secondaryUnit ? ` / ${item.secondaryUnit}` : ''}{item.hasSecondaryUnit && item.selectedUnit === item.secondaryUnit ? ' (2nd Unit)' : ''}</span></span>
+                                                <div className="col-span-3 flex justify-between pt-2 border-t border-gray-100 mt-1 text-xs">
+                                                    <span className="text-gray-500">Rate: <span className="text-gray-900 font-semibold font-mono">₹{disp.displayRate.toFixed(2)} / {disp.displayUnit}</span></span>
+                                                    <span className="text-gray-500">Unit: <span className="text-gray-900 font-semibold">{disp.displayUnit}</span>{disp.hasSecondaryUnit ? ` (1 ${disp.baseUnit} = ${disp.conversionFactor} ${disp.secondaryUnit})` : ''}</span>
                                                 </div>
 
                                                 <div className="col-span-3 border-t border-gray-200 pt-2 mt-2 flex justify-between items-center bg-white p-2 rounded-lg">
                                                     <span className="font-semibold text-gray-700">Amount</span>
-                                                    <div className="flex items-center gap-1 font-bold text-green-700">
+                                                    <div className="flex items-center gap-1 font-bold text-green-700 font-mono">
                                                         <IndianRupee size={16} />
-                                                        <span>₹{getItemAmount(item).toFixed(2)}</span>
+                                                        <span>₹{disp.lineAmount.toFixed(2)}</span>
                                                     </div>
                                                 </div>
                                             </div>

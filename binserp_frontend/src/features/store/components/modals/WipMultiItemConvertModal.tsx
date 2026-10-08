@@ -63,7 +63,10 @@ export default function WipMultiItemConvertModal({
   const [targetDescription, setTargetDescription] = useState<string>("");
   const [targetType, setTargetType] = useState<string>("Component");
   const [targetQuantity, setTargetQuantity] = useState<string>("1");
-  const [targetUnit, setTargetUnit] = useState<string>("PCS");
+  const [targetUnit, setTargetUnit] = useState<string>("NOS");
+  const [targetHasSecondaryUnit, setTargetHasSecondaryUnit] = useState<boolean>(false);
+  const [targetSecondaryUnit, setTargetSecondaryUnit] = useState<string>("");
+  const [targetConversionFactor, setTargetConversionFactor] = useState<number>(1);
   const [isCustomTarget, setIsCustomTarget] = useState(false);
 
   // Consumed ingredients list
@@ -83,7 +86,10 @@ export default function WipMultiItemConvertModal({
       setTargetDescription("");
       setTargetType("Component");
       setTargetQuantity("1");
-      setTargetUnit("PCS");
+      setTargetUnit("NOS");
+      setTargetHasSecondaryUnit(false);
+      setTargetSecondaryUnit("");
+      setTargetConversionFactor(1);
       setIsCustomTarget(false);
       setConsumedRows([]);
       setSelectedIngredientToAdd("");
@@ -119,7 +125,10 @@ export default function WipMultiItemConvertModal({
               code: item.code || "",
               description: getItemDescription(item),
               unit: item.unit || "PCS",
-              type: item.type || item.fgType || "Component"
+              type: item.type || item.fgType || "Component",
+              hasSecondaryUnit: Boolean(item.hasSecondaryUnit),
+              secondaryUnit: item.secondaryUnit || "",
+              conversionFactor: Number(item.conversionFactor) || 1
             });
           }
         });
@@ -237,6 +246,9 @@ export default function WipMultiItemConvertModal({
       setTargetDescription(found.description || "");
       setTargetUnit(found.unit || "PCS");
       setTargetType(found.type || "Component");
+      setTargetHasSecondaryUnit(Boolean(found.hasSecondaryUnit));
+      setTargetSecondaryUnit(found.secondaryUnit || "");
+      setTargetConversionFactor(Number(found.conversionFactor) || 1);
     }
   };
 
@@ -370,19 +382,31 @@ export default function WipMultiItemConvertModal({
         targetType: targetType || "Component",
         targetQuantity: numTargetQty,
         targetUnit: targetUnit.trim() || "PCS",
+        targetHasSecondaryUnit: Boolean(targetHasSecondaryUnit),
+        targetSecondaryUnit: targetSecondaryUnit || "",
+        targetConversionFactor: Number(targetConversionFactor) || 1,
+        targetSecondaryQuantity: targetHasSecondaryUnit && Number(targetConversionFactor) > 0
+          ? parseFloat((numTargetQty * Number(targetConversionFactor)).toFixed(4))
+          : 0,
         mrpNumber: mrpNumber.trim(),
         remarks: remarks.trim() || `In-house WIP Assembly (${consumedRows.length} items)`,
-        consumedItems: consumedRows.map(r => ({
-          materialId: r.materialId,
-          materialName: r.materialName,
-          materialCode: r.materialCode,
-          itemType: r.itemType,
-          quantity: parseFloat(r.quantity),
-          unit: r.unit,
-          hasSecondaryUnit: r.hasSecondaryUnit,
-          secondaryUnit: r.secondaryUnit,
-          conversionFactor: r.conversionFactor
-        }))
+        consumedItems: consumedRows.map(r => {
+          const q = parseFloat(r.quantity);
+          const cf = Number(r.conversionFactor) || 1;
+          const secQ = r.hasSecondaryUnit && cf > 0 ? parseFloat((q * cf).toFixed(4)) : 0;
+          return {
+            materialId: r.materialId,
+            materialName: r.materialName,
+            materialCode: r.materialCode,
+            itemType: r.itemType,
+            quantity: q,
+            unit: r.unit,
+            hasSecondaryUnit: Boolean(r.hasSecondaryUnit),
+            secondaryUnit: r.secondaryUnit || "",
+            conversionFactor: cf,
+            secondaryQuantity: secQ
+          };
+        })
       };
 
       const res = await apiRequest("/api/store/wip/convert-multiple-to-fg", {
@@ -524,6 +548,11 @@ export default function WipMultiItemConvertModal({
                   className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-mono font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500"
                   required
                 />
+                {targetHasSecondaryUnit && targetSecondaryUnit && numTargetQty > 0 && (
+                  <p className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mt-1">
+                    (~{parseFloat((numTargetQty * targetConversionFactor).toFixed(3))} {targetSecondaryUnit})
+                  </p>
+                )}
               </div>
 
               {/* Target Unit */}
@@ -532,12 +561,23 @@ export default function WipMultiItemConvertModal({
                   Unit
                 </label>
                 <input
+                  list="wip-target-uoms"
                   type="text"
                   value={targetUnit}
                   onChange={(e) => setTargetUnit(e.target.value)}
-                  placeholder="PCS / Nos"
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500"
+                  placeholder="NOS / PCS"
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 uppercase"
                 />
+                <datalist id="wip-target-uoms">
+                  <option value="NOS" />
+                  <option value="PCS" />
+                  <option value="KG" />
+                  <option value="Sheet" />
+                  <option value="Set" />
+                  <option value="Meter" />
+                  <option value="Box" />
+                  <option value="Pair" />
+                </datalist>
               </div>
             </div>
           </div>
@@ -622,23 +662,35 @@ export default function WipMultiItemConvertModal({
                             </span>
                           </td>
                           <td className="px-4 py-3.5 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
-                            {row.availableWipQty} {row.unit}
+                            <div>{row.availableWipQty} {row.unit}</div>
+                            {row.hasSecondaryUnit && row.secondaryUnit && (
+                              <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5">
+                                (~{parseFloat((row.availableWipQty * (row.conversionFactor || 1)).toFixed(2))} {row.secondaryUnit})
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3.5 text-center">
-                            <input
-                              type="number"
-                              min="0.0001"
-                              step="any"
-                              value={row.quantity}
-                              onChange={(e) => handleUpdateConsumedQty(idx, e.target.value)}
-                              className={`w-32 px-2.5 py-1.5 rounded-lg border text-center font-mono font-bold text-xs focus:ring-2 ${
-                                isShortage 
-                                  ? "border-rose-400 bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:border-rose-700 dark:text-rose-300 focus:ring-rose-500" 
-                                  : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-indigo-500"
-                              }`}
-                              placeholder="Consumed Qty"
-                              required
-                            />
+                            <div className="flex flex-col items-center">
+                              <input
+                                type="number"
+                                min="0.0001"
+                                step="any"
+                                value={row.quantity}
+                                onChange={(e) => handleUpdateConsumedQty(idx, e.target.value)}
+                                className={`w-32 px-2.5 py-1.5 rounded-lg border text-center font-mono font-bold text-xs focus:ring-2 ${
+                                  isShortage 
+                                    ? "border-rose-400 bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:border-rose-700 dark:text-rose-300 focus:ring-rose-500" 
+                                    : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-indigo-500"
+                                }`}
+                                placeholder="Consumed Qty"
+                                required
+                              />
+                              {row.hasSecondaryUnit && row.secondaryUnit && numQty > 0 && (
+                                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
+                                  ~{parseFloat((numQty * (row.conversionFactor || 1)).toFixed(3))} {row.secondaryUnit}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 py-3.5 text-center font-semibold text-slate-500">
                             {row.unit}

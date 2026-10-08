@@ -192,3 +192,156 @@ export function computePOTaxAndGrandTotals(
     roundingMode: rounding.roundingMode
   };
 }
+
+export interface ResolvedLineItemDisplay {
+  displayUnit: string;
+  displayQty: number;
+  displayRate: number;
+  lineAmount: number;
+  baseUnit: string;
+  baseQty: number;
+  secondaryUnit?: string;
+  secondaryQty?: number;
+  hasSecondaryUnit: boolean;
+  conversionFactor: number;
+  rateUnit: 'primary' | 'secondary';
+}
+
+/**
+ * Cleanly resolves the display unit, quantity, and rate based on user's selected UOM.
+ * Used across PO Modal, PO Table, PO Details Modal, and PO PDF Generators.
+ */
+export function resolveLineItemDisplay(item: any): ResolvedLineItemDisplay {
+  const hasSec = Boolean(item?.hasSecondaryUnit && item?.secondaryUnit);
+  const convFactor = (hasSec && Number(item?.conversionFactor) > 0) ? Number(item?.conversionFactor) : 1;
+  const baseUnit = (item?.unit || item?.uom || 'PCS').toString().trim();
+  const secUnit = hasSec ? item?.secondaryUnit.toString().trim() : '';
+
+  // Secondary is active if rateUnit is secondary or selectedUnit explicitly equals secondaryUnit
+  const isSec = Boolean(
+    hasSec && (
+      item?.rateUnit === 'secondary' ||
+      (item?.selectedUnit && secUnit && item.selectedUnit.toLowerCase() === secUnit.toLowerCase())
+    )
+  );
+
+  const baseQty = Number(item?.quantity) || 0;
+  const secQty = hasSec
+    ? (item?.secondaryQuantity != null && !isNaN(Number(item?.secondaryQuantity))
+        ? Number(item.secondaryQuantity)
+        : parseFloat((baseQty * convFactor).toFixed(3)))
+    : undefined;
+
+  const displayUnit = isSec ? secUnit : (item?.selectedUnit || baseUnit);
+  const displayQty = isSec ? (secQty ?? parseFloat((baseQty * convFactor).toFixed(3))) : baseQty;
+  const displayRate = Number(item?.rate) || 0;
+  const lineAmount = typeof item?.amount === 'number' && !isNaN(item.amount)
+    ? item.amount
+    : parseFloat((displayQty * displayRate).toFixed(2));
+
+  return {
+    displayUnit,
+    displayQty,
+    displayRate,
+    lineAmount,
+    baseUnit,
+    baseQty,
+    secondaryUnit: secUnit,
+    secondaryQty: secQty,
+    hasSecondaryUnit: hasSec,
+    conversionFactor: convFactor,
+    rateUnit: isSec ? 'secondary' : 'primary'
+  };
+}
+
+export interface ResolvedGrnLineItemDisplay {
+  displayUnit: string;
+  displayQty: number;
+  displayAcceptedQty: number;
+  displayRejectedQty: number;
+  displayRate: number;
+  lineAmount: number;
+  baseUnit: string;
+  baseQty: number;
+  baseAcceptedQty: number;
+  baseRejectedQty: number;
+  secondaryUnit?: string;
+  secondaryQty?: number;
+  secondaryAcceptedQty?: number;
+  secondaryRejectedQty?: number;
+  hasSecondaryUnit: boolean;
+  conversionFactor: number;
+  isSecondary: boolean;
+}
+
+/**
+ * Cleanly resolves GRN line item received, accepted, and rejected quantities,
+ * unit, rate, and amount based on user's selected transaction UOM.
+ */
+export function resolveGrnLineItemDisplay(item: any): ResolvedGrnLineItemDisplay {
+  const hasSec = Boolean(item?.hasSecondaryUnit && item?.secondaryUnit);
+  const convFactor = (hasSec && Number(item?.conversionFactor) > 0) ? Number(item?.conversionFactor) : 1;
+  const baseUnit = (item?.unit || item?.uom || 'PCS').toString().trim();
+  const secUnit = hasSec ? item?.secondaryUnit.toString().trim() : '';
+
+  const isSec = Boolean(
+    hasSec && (
+      item?.rateUnit === 'secondary' ||
+      (item?.selectedUnit && secUnit && item.selectedUnit.toLowerCase() === secUnit.toLowerCase())
+    )
+  );
+
+  const baseQty = Number(item?.quantity !== undefined ? item.quantity : (item?.receivedQuantity || 0)) || 0;
+  const baseAcceptedQty = Number(item?.acceptedQuantity !== undefined ? item.acceptedQuantity : baseQty) || 0;
+  const baseRejectedQty = Number(item?.rejectedQuantity || 0);
+
+  const secQty = hasSec
+    ? (item?.secondaryQuantity != null && !isNaN(Number(item?.secondaryQuantity))
+        ? Number(item.secondaryQuantity)
+        : (item?.secondaryReceivedQuantity != null && !isNaN(Number(item?.secondaryReceivedQuantity))
+            ? Number(item.secondaryReceivedQuantity)
+            : parseFloat((baseQty * convFactor).toFixed(3))))
+    : undefined;
+
+  const secAcceptedQty = hasSec
+    ? (item?.secondaryAcceptedQuantity != null && !isNaN(Number(item?.secondaryAcceptedQuantity))
+        ? Number(item.secondaryAcceptedQuantity)
+        : parseFloat((baseAcceptedQty * convFactor).toFixed(3)))
+    : undefined;
+
+  const secRejectedQty = hasSec
+    ? (item?.secondaryRejectedQuantity != null && !isNaN(Number(item?.secondaryRejectedQuantity))
+        ? Number(item.secondaryRejectedQuantity)
+        : parseFloat((baseRejectedQty * convFactor).toFixed(3)))
+    : undefined;
+
+  const displayUnit = isSec ? secUnit : (item?.selectedUnit || baseUnit);
+  const displayQty = isSec ? (secQty ?? parseFloat((baseQty * convFactor).toFixed(3))) : baseQty;
+  const displayAcceptedQty = isSec ? (secAcceptedQty ?? parseFloat((baseAcceptedQty * convFactor).toFixed(3))) : baseAcceptedQty;
+  const displayRejectedQty = isSec ? (secRejectedQty ?? parseFloat((baseRejectedQty * convFactor).toFixed(3))) : baseRejectedQty;
+  const displayRate = Number(item?.rate || item?.unitPrice || 0);
+  const lineAmount = typeof item?.amount === 'number' && !isNaN(item.amount) && item.amount > 0
+    ? item.amount
+    : parseFloat((displayQty * displayRate).toFixed(2));
+
+  return {
+    displayUnit,
+    displayQty,
+    displayAcceptedQty,
+    displayRejectedQty,
+    displayRate,
+    lineAmount,
+    baseUnit,
+    baseQty,
+    baseAcceptedQty,
+    baseRejectedQty,
+    secondaryUnit: secUnit,
+    secondaryQty: secQty,
+    secondaryAcceptedQty: secAcceptedQty,
+    secondaryRejectedQty: secRejectedQty,
+    hasSecondaryUnit: hasSec,
+    conversionFactor: convFactor,
+    isSecondary: isSec
+  };
+}
+

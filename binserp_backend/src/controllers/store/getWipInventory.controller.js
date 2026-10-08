@@ -960,7 +960,7 @@ export const getWipInventory = async (req, res) => {
             materialName: it.itemName || it.name || "",
             materialCode: it.code || it.itemCode || "",
             quantity: Number(it.quantity) || 1,
-            unit: it.unit || "PCS",
+            unit: (it.itemType === 'RawMaterial' || it.itemType === 'Material') ? 'KG' : (it.unit || "NOS"),
             itemType: it.itemType || it.fgType || ""
           }));
         }

@@ -133,8 +133,6 @@ export function explodeFGBOMHierarchy(
 
       const perParentQty = Number(bItem.quantity) || 1;
       const cumulativeQty = Number((perParentQty * parentCumulativeQty).toFixed(4));
-      const unit = bItem.unit || (typeof bItem.item === 'object' ? bItem.item?.unit : '') || 'Nos';
-
       // 1. Resolve matched master record
       let matchedFG = (rawId ? fgMapById.get(rawId) : null) || (rawName ? fgMapByName.get(rawName.toLowerCase()) : null);
       let matchedRM = (rawId ? rmMapById.get(rawId) : null) || (rawName ? rmMapByName.get(rawName.toLowerCase()) : null);
@@ -147,6 +145,9 @@ export function explodeFGBOMHierarchy(
 
       let resolvedType: 'SubAssembly' | 'Assembly' | 'Component' | 'BO' | 'RM' = 'RM';
       let categoryLabel = 'Raw Material';
+
+      const canonicalUnit = matchedRM?.unit || matchedBO?.unit || (isBOType || isFGType ? 'NOS' : 'KG');
+      const unit = canonicalUnit;
 
       if (isFGType) {
         const fgClassification = bItem.fgType || bItem.itemClassification || matchedFG?.type || 'Component';

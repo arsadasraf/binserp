@@ -66,21 +66,26 @@ export const createFGItem = async (req, res) => {
       try { bom = JSON.parse(bom); } catch(e) { console.error("Failed to parse bom", e); }
     }
     if (Array.isArray(bom)) {
-      cleanedBom = bom.filter(b => b && b.item && mongoose.Types.ObjectId.isValid(b.item)).map(b => ({
-        itemType: b.itemType || 'RawMaterial',
-        item: b.item,
-        itemName: b.itemName || '',
-        quantity: Number(b.quantity) || 1,
-        unit: b.unit || 'Nos',
-        hasSecondaryUnit: Boolean(b.hasSecondaryUnit),
-        secondaryUnit: (b.secondaryUnit || '').toString().trim(),
-        conversionFactor: Number(b.conversionFactor) || 1,
-        secondaryQuantity: b.secondaryQuantity !== undefined ? Number(b.secondaryQuantity) : undefined,
-        selectedUnit: b.selectedUnit || b.unit || 'Nos',
-        inputQuantity: b.inputQuantity !== undefined ? Number(b.inputQuantity) : (Number(b.quantity) || 1),
-        fgType: b.fgType,
-        itemClassification: b.itemClassification
-      }));
+      cleanedBom = bom.filter(b => b && b.item && mongoose.Types.ObjectId.isValid(b.item)).map(b => {
+        const normType = b.itemType || 'RawMaterial';
+        const isRM = normType === 'RawMaterial' || normType === 'Material';
+        const canonicalUom = isRM ? 'KG' : 'NOS';
+        return {
+          itemType: normType,
+          item: b.item,
+          itemName: b.itemName || '',
+          quantity: Number(b.quantity) || 1,
+          unit: canonicalUom,
+          hasSecondaryUnit: Boolean(b.hasSecondaryUnit),
+          secondaryUnit: (b.secondaryUnit || '').toString().trim(),
+          conversionFactor: Number(b.conversionFactor) || 1,
+          secondaryQuantity: b.secondaryQuantity !== undefined ? Number(b.secondaryQuantity) : undefined,
+          selectedUnit: b.selectedUnit || canonicalUom,
+          inputQuantity: b.inputQuantity !== undefined ? Number(b.inputQuantity) : (Number(b.quantity) || 1),
+          fgType: b.fgType,
+          itemClassification: b.itemClassification
+        };
+      });
     }
 
     const validLocation = (location && mongoose.Types.ObjectId.isValid(location)) ? location : undefined;
@@ -115,7 +120,8 @@ export const createFGItem = async (req, res) => {
       location: validLocation,
       category: validCategory,
       categoryId: validCategory,
-      unit: (unit || "Nos").toString().trim(),
+      // System Standard: Base UOM for Finished Goods is strictly immutable (NOS)
+      unit: "NOS",
       hasSecondaryUnit: parsedHasSecondary,
       secondaryUnit: parsedSecondaryUnit,
       conversionFactor: parsedConversionFactor,
@@ -266,8 +272,21 @@ export const getAllFGItems = async (req, res) => {
         const resolvedTaxRate = Number(item.taxRate != null ? item.taxRate : (matchedPL?.taxRate != null ? matchedPL.taxRate : 18));
         const resolvedCurrency = (item.currency || matchedPL?.currency || 'INR').trim().toUpperCase();
 
+        const sanitizedBom = Array.isArray(item.bom) ? item.bom.map(b => {
+            const isRM = b.itemType === 'RawMaterial' || b.itemType === 'Material';
+            const canonicalUnit = isRM ? 'KG' : 'NOS';
+            const masterUnit = (typeof b.item === 'object' && b.item !== null) ? b.item.unit : null;
+            const finalUnit = masterUnit || canonicalUnit;
+            return {
+                ...b,
+                unit: finalUnit,
+                selectedUnit: b.selectedUnit === 'KG' || b.selectedUnit === 'NOS' ? finalUnit : (b.selectedUnit || finalUnit)
+            };
+        }) : [];
+
         return {
             ...item,
+            bom: sanitizedBom,
             quantity: stock,
             currentStock: stock,
             sellingPrice: resolvedSellingPrice,
@@ -305,7 +324,8 @@ export const updateFGItem = async (req, res) => {
     let { name, code, type, description, location, category, categoryId, unit, bom, revisionNumber, reorderLevel, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor } = req.body;
 
     let updateData = { name, code, type, description, revisionNumber };
-    if (unit !== undefined) updateData.unit = (unit || "Nos").toString().trim();
+    // System Standard: Base UOM for Finished Goods is strictly immutable (NOS)
+    updateData.unit = "NOS";
     if (hsnCode !== undefined) updateData.hsnCode = (hsnCode || "").toString().trim();
 
     if (hasSecondaryUnit !== undefined) {
@@ -339,21 +359,26 @@ export const updateFGItem = async (req, res) => {
       try { bom = JSON.parse(bom); } catch(e) { console.error("Failed to parse bom", e); }
     }
     if (Array.isArray(bom)) {
-      updateData.bom = bom.filter(b => b && b.item && mongoose.Types.ObjectId.isValid(b.item)).map(b => ({
-        itemType: b.itemType || 'RawMaterial',
-        item: b.item,
-        itemName: b.itemName || '',
-        quantity: Number(b.quantity) || 1,
-        unit: b.unit || 'Nos',
-        hasSecondaryUnit: Boolean(b.hasSecondaryUnit),
-        secondaryUnit: (b.secondaryUnit || '').toString().trim(),
-        conversionFactor: Number(b.conversionFactor) || 1,
-        secondaryQuantity: b.secondaryQuantity !== undefined ? Number(b.secondaryQuantity) : undefined,
-        selectedUnit: b.selectedUnit || b.unit || 'Nos',
-        inputQuantity: b.inputQuantity !== undefined ? Number(b.inputQuantity) : (Number(b.quantity) || 1),
-        fgType: b.fgType,
-        itemClassification: b.itemClassification
-      }));
+      updateData.bom = bom.filter(b => b && b.item && mongoose.Types.ObjectId.isValid(b.item)).map(b => {
+        const normType = b.itemType || 'RawMaterial';
+        const isRM = normType === 'RawMaterial' || normType === 'Material';
+        const canonicalUom = isRM ? 'KG' : 'NOS';
+        return {
+          itemType: normType,
+          item: b.item,
+          itemName: b.itemName || '',
+          quantity: Number(b.quantity) || 1,
+          unit: canonicalUom,
+          hasSecondaryUnit: Boolean(b.hasSecondaryUnit),
+          secondaryUnit: (b.secondaryUnit || '').toString().trim(),
+          conversionFactor: Number(b.conversionFactor) || 1,
+          secondaryQuantity: b.secondaryQuantity !== undefined ? Number(b.secondaryQuantity) : undefined,
+          selectedUnit: b.selectedUnit || canonicalUom,
+          inputQuantity: b.inputQuantity !== undefined ? Number(b.inputQuantity) : (Number(b.quantity) || 1),
+          fgType: b.fgType,
+          itemClassification: b.itemClassification
+        };
+      });
     }
     
     // Handle photo uploads

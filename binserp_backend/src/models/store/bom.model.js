@@ -24,10 +24,15 @@ export const bomSchema = new mongoose.Schema(
     description: String,
     items: [
       {
+        material: { type: mongoose.Schema.Types.ObjectId, ref: "RmBoItem" },
         materialName: { type: String, required: true },
         materialCode: String,
         quantity: { type: Number, required: true },
-        unit: { type: String, default: "PCS" },
+        unit: { type: String, default: "KG" },
+        hasSecondaryUnit: { type: Boolean, default: false },
+        secondaryUnit: { type: String, default: "" },
+        conversionFactor: { type: Number, default: 1 },
+        secondaryQuantity: { type: Number, default: 0 },
         description: String,
       },
     ],

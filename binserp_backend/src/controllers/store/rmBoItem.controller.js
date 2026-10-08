@@ -60,8 +60,12 @@ export const createRmBoItem = async (req, res) => {
       return res.status(400).json({ message: "Name is required" });
     }
     const cleanName = name.toString().trim();
-    const itemUnit = (unit || 'PCS').toString().trim();
+    // System Standard: Base UOM is strictly immutable (RM: KG, BO: NOS)
+    const itemUnit = finalItemType === 'Bought Out' ? 'NOS' : 'KG';
     const itemHsn = (hsnCode || '').toString().trim();
+    const isDualUnit = String(req.body.hasSecondaryUnit) === 'true' || req.body.hasSecondaryUnit === true;
+    const cleanSecondaryUnit = isDualUnit ? (req.body.secondaryUnit || '').toString().trim() : '';
+    const cleanConversionFactor = isDualUnit && Number(req.body.conversionFactor) > 0 ? Number(req.body.conversionFactor) : 1;
 
     const isValidObjectId = (id) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
 
@@ -165,6 +169,9 @@ export const createRmBoItem = async (req, res) => {
       descriptions: descriptions || '', 
       minimumStock: Number(minimumStock || 0), 
       unit: itemUnit,
+      hasSecondaryUnit: isDualUnit,
+      secondaryUnit: cleanSecondaryUnit,
+      conversionFactor: cleanConversionFactor,
       hsnCode: itemHsn,
       ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}), 
       ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}), 
@@ -188,9 +195,9 @@ export const createRmBoItem = async (req, res) => {
               descriptions: descriptions || '',
               minimumStock: Number(minimumStock || 0),
               unit: itemUnit,
-              hasSecondaryUnit: Boolean(req.body.hasSecondaryUnit),
-              secondaryUnit: req.body.secondaryUnit || '',
-              conversionFactor: Number(req.body.conversionFactor) || 1,
+              hasSecondaryUnit: isDualUnit,
+              secondaryUnit: cleanSecondaryUnit,
+              conversionFactor: cleanConversionFactor,
               hsnCode: itemHsn,
               ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
               ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
@@ -210,9 +217,9 @@ export const createRmBoItem = async (req, res) => {
               descriptions: descriptions || '',
               minimumStock: Number(minimumStock || 0),
               unit: itemUnit,
-              hasSecondaryUnit: Boolean(req.body.hasSecondaryUnit),
-              secondaryUnit: req.body.secondaryUnit || '',
-              conversionFactor: Number(req.body.conversionFactor) || 1,
+              hasSecondaryUnit: isDualUnit,
+              secondaryUnit: cleanSecondaryUnit,
+              conversionFactor: cleanConversionFactor,
               hsnCode: itemHsn,
               ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
               ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
@@ -238,6 +245,9 @@ export const createRmBoItem = async (req, res) => {
             materialCode: matCode,
             materialName: cleanName,
             unit: itemUnit,
+            hasSecondaryUnit: isDualUnit,
+            secondaryUnit: cleanSecondaryUnit,
+            conversionFactor: cleanConversionFactor,
             itemType: finalItemType,
             currentStock: 0,
             reorderLevel: Number(minimumStock || 0),

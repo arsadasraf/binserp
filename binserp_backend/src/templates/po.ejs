@@ -73,9 +73,15 @@
                 }];
                 let computedSubtotal = 0;
                 items.forEach(function(item, index) { 
-                    const q = Number(item.quantity || 0);
+                    const hasSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
+                    const secUnit = (item.secondaryUnit || '').toString().trim();
+                    const isSec = Boolean(hasSec && (item.rateUnit === 'secondary' || (item.selectedUnit && item.selectedUnit.toLowerCase() === secUnit.toLowerCase())));
+                    const dispUnit = isSec ? secUnit : (item.selectedUnit || item.unit || 'PCS');
+                    const baseQty = Number(item.quantity || 0);
+                    const convFactor = (hasSec && Number(item.conversionFactor) > 0) ? Number(item.conversionFactor) : 1;
+                    const dispQty = isSec ? (item.secondaryQuantity != null && !isNaN(Number(item.secondaryQuantity)) ? Number(item.secondaryQuantity) : (baseQty * convFactor)) : baseQty;
                     const r = Number(item.rate || 0);
-                    const lineAmt = item.amount != null && Number(item.amount) > 0 ? Number(item.amount) : (q * r);
+                    const lineAmt = item.amount != null && Number(item.amount) > 0 ? Number(item.amount) : (dispQty * r);
                     computedSubtotal += lineAmt;
                 %>
                 <tr class="border-b border-slate-200 <%= index % 2 === 0 ? 'bg-white' : 'bg-slate-50' %>">
@@ -87,11 +93,12 @@
                         <% } %>
                     </td>
                     <td class="px-3 py-3 text-center font-mono text-slate-600"><%= item.hsnCode || item.hsn || '-' %></td>
-                    <td class="px-3 py-3 text-right text-slate-600"><%= q %></td>
-                    <td class="px-3 py-3 text-center text-slate-600"><%= item.unit || 'PCS' %></td>
+                    <td class="px-3 py-3 text-right text-slate-600 font-bold"><%= dispQty %></td>
+                    <td class="px-3 py-3 text-center text-slate-600 font-semibold"><%= dispUnit %></td>
                     <td class="px-3 py-3 text-right text-slate-600"><%= currSym %> <%= r.toFixed(2) %></td>
                     <td class="px-3 py-3 text-right font-medium text-slate-800"><%= currSym %> <%= lineAmt.toFixed(2) %></td>
                 </tr>
+
                 <% }); %>
             </tbody>
         </table>

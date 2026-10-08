@@ -221,6 +221,9 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
       const hasSecVal = hasSecondaryUnit !== undefined ? Boolean(hasSecondaryUnit) : Boolean(material?.hasSecondaryUnit);
       const secUnitVal = secondaryUnit !== undefined ? secondaryUnit : (material?.secondaryUnit || "");
       const convFactorVal = Number(options.conversionFactor ?? material?.conversionFactor ?? 1);
+      const effectiveFactor = (!isNaN(convFactorVal) && convFactorVal > 0) ? convFactorVal : 1;
+      const secStockVal = hasSecVal ? parseFloat((newStock * effectiveFactor).toFixed(4)) : 0;
+      const secQcPendingVal = (isPending && hasSecVal) ? parseFloat((quantity * effectiveFactor).toFixed(4)) : 0;
 
       inventory = await Inventory.create({
         company: companyId,
@@ -229,9 +232,11 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
         unit: resolvedUnit,
         hasSecondaryUnit: hasSecVal,
         secondaryUnit: secUnitVal,
-        conversionFactor: convFactorVal,
+        conversionFactor: effectiveFactor,
         currentStock: newStock,
+        secondaryCurrentStock: secStockVal,
         qcPendingStock: (isPending) ? Math.max(0, quantity) : 0,
+        secondaryQcPendingStock: secQcPendingVal,
         locationId: resolvedLocId || undefined,
         categoryId: categoryId || undefined,
         materialId: actualMatId,
@@ -243,15 +248,29 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
       const incFields = {};
       const setFields = {};
 
+      const effectiveConv = Number(options.conversionFactor ?? inventory.conversionFactor ?? material?.conversionFactor ?? 1) || 1;
+      const isDual = hasSecondaryUnit !== undefined ? Boolean(hasSecondaryUnit) : Boolean(inventory.hasSecondaryUnit);
+      const secQtyDelta = isDual && effectiveConv > 0
+        ? (options.secondaryQuantity !== undefined && options.secondaryQuantity !== 0
+            ? (quantity < 0 ? -Math.abs(Number(options.secondaryQuantity)) : Math.abs(Number(options.secondaryQuantity)))
+            : parseFloat((quantity * effectiveConv).toFixed(4)))
+        : 0;
+
       if (isPending) {
         incFields.qcPendingStock = quantity;
+        if (isDual) incFields.secondaryQcPendingStock = secQtyDelta;
         newStock = previousStock;
       } else if (isQCRelease) {
         incFields.currentStock = quantity;
         incFields.qcPendingStock = -inspectedQuantity;
+        if (isDual) {
+          incFields.secondaryCurrentStock = secQtyDelta;
+          incFields.secondaryQcPendingStock = -parseFloat((inspectedQuantity * effectiveConv).toFixed(4));
+        }
         newStock = Math.max(0, previousStock + quantity);
       } else {
         incFields.currentStock = quantity;
+        if (isDual) incFields.secondaryCurrentStock = secQtyDelta;
         newStock = Math.max(0, previousStock + quantity);
       }
 
@@ -300,12 +319,20 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
       if (updatedInv) {
         // Guard against negative stock clamping without losing history
         if (updatedInv.currentStock < 0) {
-          await Inventory.updateOne({ _id: inventory._id }, { $set: { currentStock: 0 } });
+          await Inventory.updateOne({ _id: inventory._id }, { $set: { currentStock: 0, secondaryCurrentStock: 0 } });
           updatedInv.currentStock = 0;
+          updatedInv.secondaryCurrentStock = 0;
+        } else if (updatedInv.secondaryCurrentStock < 0) {
+          await Inventory.updateOne({ _id: inventory._id }, { $set: { secondaryCurrentStock: 0 } });
+          updatedInv.secondaryCurrentStock = 0;
         }
         if (updatedInv.qcPendingStock < 0) {
-          await Inventory.updateOne({ _id: inventory._id }, { $set: { qcPendingStock: 0 } });
+          await Inventory.updateOne({ _id: inventory._id }, { $set: { qcPendingStock: 0, secondaryQcPendingStock: 0 } });
           updatedInv.qcPendingStock = 0;
+          updatedInv.secondaryQcPendingStock = 0;
+        } else if (updatedInv.secondaryQcPendingStock < 0) {
+          await Inventory.updateOne({ _id: inventory._id }, { $set: { secondaryQcPendingStock: 0 } });
+          updatedInv.secondaryQcPendingStock = 0;
         }
         inventory = updatedInv;
         newStock = updatedInv.currentStock;

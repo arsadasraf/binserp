@@ -52,6 +52,11 @@ export const returnWipToStore = asyncHandler(async (req, res) => {
   } else {
     // If returning RM or BO, increment Main Store Inventory
     const masterType = normalizedType === "bo" ? "BoughtOut" : "RawMaterial";
+    const hasSec = Boolean(req.body.hasSecondaryUnit);
+    const secUnit = req.body.secondaryUnit || "";
+    const convFactor = Number(req.body.conversionFactor) || 1;
+    const secQty = Number(req.body.secondaryQuantity) || (hasSec && convFactor > 0 ? parseFloat((returnQty * convFactor).toFixed(4)) : 0);
+
     await updateInventoryStock(
       req,
       materialId,
@@ -67,15 +72,20 @@ export const returnWipToStore = asyncHandler(async (req, res) => {
         purpose: remarks || `Unused material returned from Shopfloor WIP${mrpNumber ? ` (MRP #${mrpNumber})` : ""}`,
         performedBy: userId,
         performedByName: userName,
-        hasSecondaryUnit: Boolean(req.body.hasSecondaryUnit),
-        secondaryUnit: req.body.secondaryUnit,
-        secondaryQuantity: Number(req.body.secondaryQuantity) || 0,
-        conversionFactor: Number(req.body.conversionFactor) || 1
+        hasSecondaryUnit: hasSec,
+        secondaryUnit: secUnit,
+        secondaryQuantity: secQty,
+        conversionFactor: convFactor
       }
     );
   }
 
   // Also log StockTransaction for audit trail
+  const hasSec = Boolean(req.body.hasSecondaryUnit);
+  const secUnit = req.body.secondaryUnit || "";
+  const convFactor = Number(req.body.conversionFactor) || 1;
+  const secQty = Number(req.body.secondaryQuantity) || (hasSec && convFactor > 0 ? parseFloat((returnQty * convFactor).toFixed(4)) : 0);
+
   await recordStockTransaction(req, {
     itemType: normalizedType === "bo" ? "BoughtOut" : (normalizedType === "fg" ? "Component" : "RawMaterial"),
     item: materialId && isValidObjectId(materialId.toString()) ? materialId : undefined,
@@ -84,10 +94,10 @@ export const returnWipToStore = asyncHandler(async (req, res) => {
     movementType: "INWARD",
     transactionCategory: "WIP_RETURN_TO_STORE",
     quantity: returnQty,
-    hasSecondaryUnit: Boolean(req.body.hasSecondaryUnit),
-    secondaryUnit: req.body.secondaryUnit,
-    secondaryQuantity: Number(req.body.secondaryQuantity) || 0,
-    conversionFactor: Number(req.body.conversionFactor) || 1,
+    hasSecondaryUnit: hasSec,
+    secondaryUnit: secUnit,
+    secondaryQuantity: secQty,
+    conversionFactor: convFactor,
     referenceDocType: "WIPReturn",
     referenceDocNumber: docNumber,
     recipientOrSource: "Main Store Stock",
@@ -290,6 +300,14 @@ export const convertWipMaterialToComponent = asyncHandler(async (req, res) => {
     sourceCategory = "Component";
   }
 
+  const isSourceDual = Boolean(hasSecondaryUnit);
+  const sourceSecFactor = Number(conversionFactor) || 1;
+  const resolvedSourceSecQty = Number(secondaryQuantity) || (isSourceDual && sourceSecFactor > 0 ? parseFloat((sourceQty * sourceSecFactor).toFixed(4)) : 0);
+
+  const isTargetDual = Boolean(targetHasSecondaryUnit);
+  const targetSecFactor = Number(targetConversionFactor) || 1;
+  const resolvedTargetSecQty = Number(targetSecondaryQuantity) || (isTargetDual && targetSecFactor > 0 ? parseFloat((producedQty * targetSecFactor).toFixed(4)) : 0);
+
   // 1. Log Outward RM/BO/FG deduction from Shopfloor WIP
   await recordStockTransaction(req, {
     itemType: sourceCategory,
@@ -299,10 +317,10 @@ export const convertWipMaterialToComponent = asyncHandler(async (req, res) => {
     movementType: "OUTWARD",
     transactionCategory: "WIP_RM_CONVERT_OUTWARD",
     quantity: sourceQty,
-    hasSecondaryUnit: Boolean(hasSecondaryUnit),
-    secondaryUnit: secondaryUnit,
-    secondaryQuantity: Number(secondaryQuantity) || 0,
-    conversionFactor: Number(conversionFactor) || 1,
+    hasSecondaryUnit: isSourceDual,
+    secondaryUnit: secondaryUnit || "",
+    secondaryQuantity: resolvedSourceSecQty,
+    conversionFactor: sourceSecFactor,
     referenceDocType: "WIPConversion",
     referenceDocNumber: docNumber,
     recipientOrSource: `Shopfloor Component WIP (${cleanTargetName})`,
@@ -320,10 +338,10 @@ export const convertWipMaterialToComponent = asyncHandler(async (req, res) => {
     movementType: "INWARD",
     transactionCategory: "WIP_COMPONENT_CONVERT_INWARD",
     quantity: producedQty,
-    hasSecondaryUnit: Boolean(targetHasSecondaryUnit),
-    secondaryUnit: targetSecondaryUnit,
-    secondaryQuantity: Number(targetSecondaryQuantity) || 0,
-    conversionFactor: Number(targetConversionFactor) || 1,
+    hasSecondaryUnit: isTargetDual,
+    secondaryUnit: targetSecondaryUnit || "",
+    secondaryQuantity: resolvedTargetSecQty,
+    conversionFactor: targetSecFactor,
     referenceDocType: "WIPConversion",
     referenceDocNumber: docNumber,
     recipientOrSource: `Shopfloor Conversion (${materialName || "Material"})`,
@@ -489,6 +507,10 @@ export const convertMultipleWipToFg = asyncHandler(async (req, res) => {
       sourceCategory = "Component";
     }
 
+    const isItemDual = Boolean(item.hasSecondaryUnit);
+    const itemSecFactor = Number(item.conversionFactor) || 1;
+    const resolvedItemSecQty = Number(item.secondaryQuantity) || (isItemDual && itemSecFactor > 0 ? parseFloat((consumedQty * itemSecFactor).toFixed(4)) : 0);
+
     const tx = await recordStockTransaction(req, {
       itemType: sourceCategory,
       item: cleanMatId && isValidObjectId(cleanMatId.toString()) ? cleanMatId : undefined,
@@ -497,10 +519,10 @@ export const convertMultipleWipToFg = asyncHandler(async (req, res) => {
       movementType: "OUTWARD",
       transactionCategory: "WIP_RM_CONVERT_OUTWARD",
       quantity: consumedQty,
-      hasSecondaryUnit: Boolean(item.hasSecondaryUnit),
+      hasSecondaryUnit: isItemDual,
       secondaryUnit: item.secondaryUnit || "",
-      secondaryQuantity: Number(item.secondaryQuantity) || 0,
-      conversionFactor: Number(item.conversionFactor) || 1,
+      secondaryQuantity: resolvedItemSecQty,
+      conversionFactor: itemSecFactor,
       referenceDocType: "WIPConversion",
       referenceDocNumber: docNumber,
       recipientOrSource: `Shopfloor Assembly (${cleanTargetName})`,
@@ -511,6 +533,10 @@ export const convertMultipleWipToFg = asyncHandler(async (req, res) => {
     recordedOutwardTransactions.push(tx);
   }
 
+  const isTargetDual = Boolean(targetHasSecondaryUnit);
+  const targetSecFactor = Number(targetConversionFactor) || 1;
+  const resolvedTargetSecQty = Number(targetSecondaryQuantity) || (isTargetDual && targetSecFactor > 0 ? parseFloat((producedQty * targetSecFactor).toFixed(4)) : 0);
+
   // 2. Log Inward WIP FG addition into Shopfloor WIP (Increases WIP Stock Only)
   await recordStockTransaction(req, {
     itemType: resolvedItemType,
@@ -520,10 +546,10 @@ export const convertMultipleWipToFg = asyncHandler(async (req, res) => {
     movementType: "INWARD",
     transactionCategory: "WIP_COMPONENT_CONVERT_INWARD",
     quantity: producedQty,
-    hasSecondaryUnit: Boolean(targetHasSecondaryUnit),
-    secondaryUnit: targetSecondaryUnit,
-    secondaryQuantity: Number(targetSecondaryQuantity) || 0,
-    conversionFactor: Number(targetConversionFactor) || 1,
+    hasSecondaryUnit: isTargetDual,
+    secondaryUnit: targetSecondaryUnit || "",
+    secondaryQuantity: resolvedTargetSecQty,
+    conversionFactor: targetSecFactor,
     referenceDocType: "WIPConversion",
     referenceDocNumber: docNumber,
     recipientOrSource: `Shopfloor Assembly Line (${consumedItems.length} items)`,

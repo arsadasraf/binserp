@@ -12,6 +12,11 @@ const getCompanyId = (req) => {
 const cleanStr = (s) => (s || "").trim().toLowerCase();
 const cleanKey = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
+export const isGenericPlaceholder = (name) => {
+  const s = (name || "").toLowerCase().trim();
+  return !s || s === "finished good" || s === "finish goods" || s === "finished goods" || s === "unspecified fg item";
+};
+
 export const defaultExchangeRates = {
   USD: 86.80,
   EUR: 92.50,
@@ -524,7 +529,7 @@ export const createMRPPlan = async (req, res) => {
               materialCode: b.itemCode || b.code || "",
               description: b.description || b.descriptions || "",
               quantity: Number(b.quantity) || 1,
-              unit: b.unit || "PCS",
+              unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material') ? 'KG' : (b.unit || "NOS"),
               itemType: b.itemType || "Material",
               fgType: b.fgType,
               itemClassification: b.itemClassification,
@@ -552,7 +557,7 @@ export const createMRPPlan = async (req, res) => {
                 materialCode: b.itemCode || b.code || "",
                 description: b.description || b.descriptions || "",
                 quantity: Number(b.quantity) || 1,
-                unit: b.unit || "PCS",
+                unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material') ? 'KG' : (b.unit || "NOS"),
                 itemType: b.itemType || "Material",
                 fgType: b.fgType,
                 itemClassification: b.itemClassification,
@@ -580,7 +585,7 @@ export const createMRPPlan = async (req, res) => {
               materialCode: b.itemCode || b.code || "",
               description: b.description || b.descriptions || "",
               quantity: Number(b.quantity) || 1,
-              unit: b.unit || "PCS",
+              unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material') ? 'KG' : (b.unit || "NOS"),
               itemType: b.itemType || "Material",
               fgType: b.fgType,
               itemClassification: b.itemClassification,
@@ -661,6 +666,26 @@ export const createMRPPlan = async (req, res) => {
 
           const sDesc = subItem.description || matchedFG?.description || matchedFG?.descriptions || rmBo?.description || rmBo?.descriptions || rawMat?.descriptions || rawMat?.description || boughtOut?.descriptions || boughtOut?.description || "";
 
+          const resolvedMat = rmBo || rawMat || boughtOut || matchedFG;
+          const resolvedMatId = resolvedMat?._id || inv?.materialId || inv?._id;
+          const canonicalUnit = (isBO || resolvedItemType === 'BO')
+            ? (boughtOut?.unit || 'NOS')
+            : (resolvedItemType === 'RM' ? (rawMat?.unit || 'KG') : (matchedFG?.unit || 'NOS'));
+
+          const hasSec = Boolean(
+            subItem.hasSecondaryUnit ||
+            resolvedMat?.hasSecondaryUnit ||
+            inv?.hasSecondaryUnit ||
+            (resolvedMat?.secondaryUnit && Number(resolvedMat?.conversionFactor) > 0)
+          );
+          const secUnit = subItem.secondaryUnit || resolvedMat?.secondaryUnit || inv?.secondaryUnit || "";
+          const rawConv = Number(subItem.conversionFactor || resolvedMat?.conversionFactor || inv?.conversionFactor || 1);
+          const convFactor = (!isNaN(rawConv) && rawConv > 0) ? rawConv : 1;
+
+          const secTotalRequired = hasSec ? parseFloat((grossQty * convFactor).toFixed(4)) : 0;
+          const secCurrentStock = hasSec ? parseFloat((currentStock * convFactor).toFixed(4)) : 0;
+          const secShortage = hasSec ? parseFloat((shortage * convFactor).toFixed(4)) : 0;
+
           nestedList.push({
             materialName: sName,
             materialCode: sCode,
@@ -672,14 +697,18 @@ export const createMRPPlan = async (req, res) => {
             totalRequired: grossQty,
             currentStock: currentStock,
             shortage: shortage,
-            unit: unit,
+            unit: canonicalUnit,
+            hasSecondaryUnit: hasSec,
+            secondaryUnit: secUnit,
+            conversionFactor: convFactor,
+            secondaryRequiredQuantity: secTotalRequired,
+            secondaryCurrentStock: secCurrentStock,
+            secondaryShortage: secShortage,
             parentItemName: parentName,
             level: level,
           });
 
           // Consolidate into specific maps using canonical material key
-          const resolvedMat = rmBo || rawMat || boughtOut || matchedFG;
-          const resolvedMatId = resolvedMat?._id || inv?.materialId || inv?._id;
           const itemKey = resolvedMatId
             ? String(resolvedMatId)
             : (cleanStr(sCode) ? `code_${cleanStr(sCode)}` : `name_${cleanKey(sName)}`);
@@ -700,7 +729,13 @@ export const createMRPPlan = async (req, res) => {
               requiredQuantity: 0,
               currentStock: currentStock,
               shortage: 0,
-              unit: unit,
+              unit: canonicalUnit,
+              hasSecondaryUnit: hasSec,
+              secondaryUnit: secUnit,
+              conversionFactor: convFactor,
+              secondaryRequiredQuantity: 0,
+              secondaryCurrentStock: secCurrentStock,
+              secondaryShortage: 0,
               sourceFGName: parentName,
               sourceFGNames: [],
               sourceCustomerPOs: [],
@@ -719,6 +754,11 @@ export const createMRPPlan = async (req, res) => {
           }
           existing.requiredQuantity += grossQty;
           existing.shortage = Math.max(0, existing.requiredQuantity - existing.currentStock);
+          if (existing.hasSecondaryUnit && existing.conversionFactor > 0) {
+            existing.secondaryRequiredQuantity = parseFloat((existing.requiredQuantity * existing.conversionFactor).toFixed(4));
+            existing.secondaryCurrentStock = parseFloat((existing.currentStock * existing.conversionFactor).toFixed(4));
+            existing.secondaryShortage = parseFloat((existing.shortage * existing.conversionFactor).toFixed(4));
+          }
 
           if (!existing.sourceCustomerPOs) existing.sourceCustomerPOs = [];
           if (sourcePoNumber && !existing.sourceCustomerPOs.includes(sourcePoNumber)) {
@@ -741,11 +781,6 @@ export const createMRPPlan = async (req, res) => {
 
     // Deduplicate and aggregate Finished Goods line items with full multi-currency and breakdown tracking
     const mergedFgMap = new Map();
-
-    const isGenericPlaceholder = (name) => {
-      const s = (name || "").toLowerCase().trim();
-      return !s || s === "finished good" || s === "finish goods" || s === "finished goods" || s === "unspecified fg item";
-    };
 
     for (const fg of fgItems) {
       const rawQty = Number(fg.quantity) || 1;
@@ -2543,7 +2578,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
             materialName: b.itemName || b.name || "Material",
             materialCode: b.itemCode || b.code || "",
             quantity: Number(b.quantity) || 1,
-            unit: b.unit || "PCS",
+            unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material') ? 'KG' : (b.unit || "NOS"),
             itemType: b.itemType || "Material",
             fgType: b.fgType,
             itemClassification: b.itemClassification,
@@ -2568,7 +2603,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
               materialName: b.itemName || b.name || "Material",
               materialCode: b.itemCode || b.code || "",
               quantity: Number(b.quantity) || 1,
-              unit: b.unit || "PCS",
+              unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material') ? 'KG' : (b.unit || "NOS"),
               itemType: b.itemType || "Material",
               fgType: b.fgType,
               itemClassification: b.itemClassification,
@@ -2593,7 +2628,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
             materialName: b.itemName || b.name || "Material",
             materialCode: b.itemCode || b.code || "",
             quantity: Number(b.quantity) || 1,
-            unit: b.unit || "PCS",
+            unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material') ? 'KG' : (b.unit || "NOS"),
             itemType: b.itemType || "Material",
             fgType: b.fgType,
             itemClassification: b.itemClassification,
@@ -2712,6 +2747,26 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
 
         const sDesc = subItem.description || matchedFG?.description || matchedFG?.descriptions || rmBo?.description || rmBo?.descriptions || rawMat?.descriptions || rawMat?.description || boughtOut?.descriptions || boughtOut?.description || "";
 
+        const resolvedMat = rmBo || rawMat || boughtOut || matchedFG;
+        const resolvedMatId = resolvedMat?._id || inv?.materialId || inv?._id;
+        const canonicalUnit = (isBO || resolvedItemType === 'BO')
+          ? (boughtOut?.unit || 'NOS')
+          : (resolvedItemType === 'RM' ? (rawMat?.unit || 'KG') : (matchedFG?.unit || 'NOS'));
+
+        const hasSec = Boolean(
+          subItem.hasSecondaryUnit ||
+          resolvedMat?.hasSecondaryUnit ||
+          inv?.hasSecondaryUnit ||
+          (resolvedMat?.secondaryUnit && Number(resolvedMat?.conversionFactor) > 0)
+        );
+        const secUnit = subItem.secondaryUnit || resolvedMat?.secondaryUnit || inv?.secondaryUnit || "";
+        const rawConv = Number(subItem.conversionFactor || resolvedMat?.conversionFactor || inv?.conversionFactor || 1);
+        const convFactor = (!isNaN(rawConv) && rawConv > 0) ? rawConv : 1;
+
+        const secTotalRequired = hasSec ? parseFloat((grossQty * convFactor).toFixed(4)) : 0;
+        const secCurrentStock = hasSec ? parseFloat((currentStock * convFactor).toFixed(4)) : 0;
+        const secShortage = hasSec ? parseFloat((shortage * convFactor).toFixed(4)) : 0;
+
         nestedList.push({
           materialName: sName,
           materialCode: sCode,
@@ -2723,14 +2778,18 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
           totalRequired: grossQty,
           currentStock: currentStock,
           shortage: shortage,
-          unit: unit,
+          unit: canonicalUnit,
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: secUnit,
+          conversionFactor: convFactor,
+          secondaryRequiredQuantity: secTotalRequired,
+          secondaryCurrentStock: secCurrentStock,
+          secondaryShortage: secShortage,
           parentItemName: parentName,
           level: level,
         });
 
         // Consolidate into specific maps using canonical material key
-        const resolvedMat = rmBo || rawMat || boughtOut || matchedFG;
-        const resolvedMatId = resolvedMat?._id || inv?.materialId || inv?._id;
         const itemKey = resolvedMatId
           ? String(resolvedMatId)
           : (cleanStr(sCode) ? `code_${cleanStr(sCode)}` : `name_${cleanKey(sName)}`);
@@ -2751,7 +2810,13 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
             requiredQuantity: 0,
             currentStock: currentStock,
             shortage: 0,
-            unit: unit,
+            unit: canonicalUnit,
+            hasSecondaryUnit: hasSec,
+            secondaryUnit: secUnit,
+            conversionFactor: convFactor,
+            secondaryRequiredQuantity: 0,
+            secondaryCurrentStock: secCurrentStock,
+            secondaryShortage: 0,
             sourceFGName: parentName,
             sourceFGNames: [],
             sourceCustomerPOs: [],
@@ -2770,6 +2835,11 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
         }
         existing.requiredQuantity += grossQty;
         existing.shortage = Math.max(0, existing.requiredQuantity - existing.currentStock);
+        if (existing.hasSecondaryUnit && existing.conversionFactor > 0) {
+          existing.secondaryRequiredQuantity = parseFloat((existing.requiredQuantity * existing.conversionFactor).toFixed(4));
+          existing.secondaryCurrentStock = parseFloat((existing.currentStock * existing.conversionFactor).toFixed(4));
+          existing.secondaryShortage = parseFloat((existing.shortage * existing.conversionFactor).toFixed(4));
+        }
 
         if (!existing.sourceCustomerPOs) existing.sourceCustomerPOs = [];
         if (sourcePoNumber && !existing.sourceCustomerPOs.includes(sourcePoNumber)) {
@@ -3319,7 +3389,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
           requiredQuantity: 0,
           currentStock: oldItem.currentStock || 0,
           shortage: 0,
-          unit: oldItem.unit || "PCS",
+          unit: (itemType === "RM" || oldItem.itemType === "RM") ? "KG" : "NOS",
           status: oldItem.status || "PO Raised",
           poNumber: oldItem.poNumber || "",
           rfqNumber: oldItem.rfqNumber || "",

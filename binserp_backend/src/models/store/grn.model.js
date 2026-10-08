@@ -89,6 +89,9 @@ export const grnSchema = new mongoose.Schema(
         secondaryRejectedQuantity: { type: Number, default: 0 },
         billedQuantity: { type: Number, default: 0 },
         selectedUnit: { type: String, default: "" },
+        rateUnit: { type: String, enum: ["primary", "secondary"], default: "primary" },
+        primaryRate: { type: Number, default: 0 },
+        secondaryRate: { type: Number, default: 0 },
         amount: { type: Number, default: 0 },
         locationId: {
           type: mongoose.Schema.Types.ObjectId,

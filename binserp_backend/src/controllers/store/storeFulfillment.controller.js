@@ -219,7 +219,7 @@ export const planRMRequirement = async (req, res) => {
     const existingItemIds = existingPlans.map(p => p.rmBoItem.toString());
 
     for (const bomItem of fgItem.bom) {
-       if (bomItem.itemType === "Material" && !existingItemIds.includes(bomItem.item.toString())) {
+       if ((bomItem.itemType === "Material" || bomItem.itemType === "RawMaterial" || bomItem.itemType === "BoughtOut") && !existingItemIds.includes(bomItem.item.toString())) {
           rmRequirements.push({
              company: companyId,
              sourceMRP: mrp._id,

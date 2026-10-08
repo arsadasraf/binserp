@@ -377,7 +377,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     const addItem = () => {
         setFormData({
             ...formData,
-            items: [...(formData.items || []), { materialName: "", quantity: "", unit: "PCS" }],
+            items: [...(formData.items || []), { materialName: "", quantity: "", unit: "NOS" }],
         });
     };
 

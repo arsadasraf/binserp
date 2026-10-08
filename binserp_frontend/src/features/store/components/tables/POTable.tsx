@@ -22,6 +22,7 @@ import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 import OutwardPOItemWiseView from '../views/OutwardPOItemWiseView';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
+import { resolveLineItemDisplay } from '@/src/utils/dualUomHelper';
 
 interface POTableProps {
     data: any[];
@@ -2050,13 +2051,9 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                 }]
                                             ).map((it: any, idx: number) => {
                                                 const itemName = getMaterialNameStr(it);
-                                                const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
-                                                const isSecRate = it.rateUnit === 'secondary' && hasSec;
-                                                const convFactor = Number(it.conversionFactor) || 1;
-                                                const activeUnit = isSecRate ? it.secondaryUnit : (it.unit || it.uom || 'PCS');
-                                                const activeQty = isSecRate 
-                                                    ? (Number(it.secondaryQuantity) || (Number(it.quantity || 1) * convFactor))
-                                                    : Number(it.quantity || 1);
+                                                const disp = resolveLineItemDisplay(it);
+                                                const activeUnit = disp.displayUnit;
+                                                const activeQty = disp.displayQty;
                                                 const pieceCount = Number(it.pieceCount || it.count || 0);
                                                 const rawItemDesc = it.description || it.itemDescription || it.remarks || it.specifications || it.material?.description || (idx === 0 ? (selectedPoPreview.description || selectedPoPreview.remarks) : '') || '';
                                                 let itemDesc = rawItemDesc;
@@ -2070,8 +2067,8 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                     itemDesc = itemDesc.replace(/^[|,\s-]+|[|,\s-]+$/g, '');
                                                 }
 
-                                                const rate = Number(it.rate || it.unitPrice || it.price || 0);
-                                                const lineNet = Number(it.lineTotal || it.amount || (activeQty * rate));
+                                                const rate = disp.displayRate;
+                                                const lineNet = disp.lineAmount;
 
                                                 return (
                                                     <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">

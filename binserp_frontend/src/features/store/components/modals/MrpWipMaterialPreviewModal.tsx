@@ -174,6 +174,8 @@ export default function MrpWipMaterialPreviewModal({
                       const consumedNum = Number(it.consumedQty || 0);
                       const isFullyConsumed = pendingNum <= 0 && issuedNum > 0;
                       const isPartial = consumedNum > 0 && pendingNum > 0;
+                      const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+                      const conv = Number(it.conversionFactor) || 1;
 
                       return (
                         <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
@@ -197,15 +199,30 @@ export default function MrpWipMaterialPreviewModal({
                           </td>
 
                           <td className="px-4 py-3.5 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
-                            {issuedNum}
+                            <div>{issuedNum} <span className="text-[10px] font-normal text-slate-400">{it.unit || "PCS"}</span></div>
+                            {hasSec && (
+                              <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                                ({parseFloat((issuedNum * conv).toFixed(2))} {it.secondaryUnit})
+                              </div>
+                            )}
                           </td>
 
                           <td className="px-4 py-3.5 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                            {consumedNum}
+                            <div>{consumedNum} <span className="text-[10px] font-normal text-slate-400">{it.unit || "PCS"}</span></div>
+                            {hasSec && (
+                              <div className="text-[10px] font-semibold text-emerald-500/90 dark:text-emerald-400/90">
+                                ({parseFloat((consumedNum * conv).toFixed(2))} {it.secondaryUnit})
+                              </div>
+                            )}
                           </td>
 
                           <td className="px-4 py-3.5 text-center font-mono font-black text-indigo-700 dark:text-indigo-300">
-                            {pendingNum}
+                            <div>{pendingNum} <span className="text-[10px] font-normal text-slate-400">{it.unit || "PCS"}</span></div>
+                            {hasSec && (
+                              <div className="text-[10px] font-semibold text-indigo-500/90 dark:text-indigo-400/90">
+                                ({parseFloat((pendingNum * conv).toFixed(2))} {it.secondaryUnit})
+                              </div>
+                            )}
                           </td>
 
                           <td className="px-4 py-3.5 text-center font-semibold text-slate-500">

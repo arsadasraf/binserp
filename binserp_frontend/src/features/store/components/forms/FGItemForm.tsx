@@ -1,7 +1,8 @@
 import React, { useMemo, useCallback } from 'react';
 import { Category, Location } from "@/src/features/store/types/store.types";
-import { X, Plus, Trash2, Box, Layers, ShoppingBag, Paperclip, FileText, Upload, AlertTriangle, ChevronDown } from 'lucide-react';
+import { X, Plus, Trash2, Box, Layers, ShoppingBag, Paperclip, FileText, Upload, AlertTriangle, ChevronDown, Lock } from 'lucide-react';
 import SearchableSelect, { SearchableOption } from '../SearchableSelect';
+import { STANDARD_UOMS } from '@/src/constants/uomConfig';
 
 interface FGItemFormProps {
     formData: any;
@@ -132,11 +133,11 @@ export default function FGItemForm({
                     item: '',
                     itemName: '',
                     quantity: 1,
-                    unit: 'Nos',
+                    unit: 'KG',
                     hasSecondaryUnit: false,
                     secondaryUnit: '',
                     conversionFactor: 1,
-                    selectedUnit: 'Nos',
+                    selectedUnit: 'KG',
                     inputQuantity: 1
                 }
             ]
@@ -145,6 +146,7 @@ export default function FGItemForm({
 
     const handleBOMTypeChange = (idx: number, newType: 'RawMaterial' | 'BoughtOut' | 'FGItem') => {
         const newBOM = [...(formData.bom || [])];
+        const defaultUom = newType === 'RawMaterial' ? 'KG' : 'NOS';
         newBOM[idx] = {
             ...newBOM[idx],
             itemType: newType,
@@ -153,12 +155,12 @@ export default function FGItemForm({
             itemDescription: '',
             itemClassification: '',
             itemRevision: '',
-            unit: 'Nos',
+            unit: defaultUom,
             hasSecondaryUnit: false,
             secondaryUnit: '',
             conversionFactor: 1,
             secondaryQuantity: undefined,
-            selectedUnit: 'Nos',
+            selectedUnit: defaultUom,
             inputQuantity: 1,
             quantity: 1
         };
@@ -183,7 +185,8 @@ export default function FGItemForm({
         const hasSec = Boolean(target.hasSecondaryUnit || matchedMaster?.hasSecondaryUnit || (typeof target.item === 'object' && target.item?.hasSecondaryUnit));
         const secUnit = target.secondaryUnit || matchedMaster?.secondaryUnit || (typeof target.item === 'object' ? target.item?.secondaryUnit : '') || '';
         const factor = Number(target.conversionFactor || matchedMaster?.conversionFactor || (typeof target.item === 'object' ? target.item?.conversionFactor : 1)) || 1;
-        const priUnit = target.unit || matchedMaster?.unit || (typeof target.item === 'object' ? target.item?.unit : 'Nos') || 'Nos';
+        const canonicalBase = (t === 'RawMaterial' || t === 'Material') ? 'KG' : 'NOS';
+        const priUnit = matchedMaster?.unit || (typeof target.item === 'object' ? target.item?.unit : '') || canonicalBase;
         const isDual = Boolean(hasSec && secUnit && factor > 0);
 
         target.hasSecondaryUnit = isDual;
@@ -230,7 +233,8 @@ export default function FGItemForm({
         const hasSec = Boolean(target.hasSecondaryUnit || matchedMaster?.hasSecondaryUnit || (typeof target.item === 'object' && target.item?.hasSecondaryUnit));
         const secUnit = target.secondaryUnit || matchedMaster?.secondaryUnit || (typeof target.item === 'object' ? target.item?.secondaryUnit : '') || '';
         const factor = Number(target.conversionFactor || matchedMaster?.conversionFactor || (typeof target.item === 'object' ? target.item?.conversionFactor : 1)) || 1;
-        const priUnit = target.unit || matchedMaster?.unit || (typeof target.item === 'object' ? target.item?.unit : 'Nos') || 'Nos';
+        const canonicalBase = (t === 'RawMaterial' || t === 'Material') ? 'KG' : 'NOS';
+        const priUnit = matchedMaster?.unit || (typeof target.item === 'object' ? target.item?.unit : '') || canonicalBase;
         const isDual = Boolean(hasSec && secUnit && factor > 0);
 
         target.hasSecondaryUnit = isDual;
@@ -262,8 +266,9 @@ export default function FGItemForm({
         
         if (field === 'item') {
             const type = newBOM[idx].itemType || 'RawMaterial';
+            const canonicalBase = (type === 'RawMaterial' || type === 'Material') ? 'KG' : 'NOS';
             let foundName = '';
-            let foundUnit = 'Nos';
+            let foundUnit = canonicalBase;
             let foundDesc = '';
             let foundClassification = '';
             let foundRevision = '';
@@ -276,7 +281,7 @@ export default function FGItemForm({
                 if (mat) {
                     foundName = mat.name || mat.materialName || '';
                     foundDesc = mat.descriptions || mat.description || '';
-                    foundUnit = mat.unit || 'Nos';
+                    foundUnit = mat.unit || 'KG';
                     hasSec = Boolean(mat.hasSecondaryUnit && mat.secondaryUnit && Number(mat.conversionFactor) > 0);
                     secUnit = mat.secondaryUnit || '';
                     factor = Number(mat.conversionFactor) || 1;
@@ -286,7 +291,7 @@ export default function FGItemForm({
                 if (bo) {
                     foundName = bo.name || bo.materialName || '';
                     foundDesc = bo.descriptions || bo.description || '';
-                    foundUnit = bo.unit || 'Nos';
+                    foundUnit = bo.unit || 'NOS';
                     hasSec = Boolean(bo.hasSecondaryUnit && bo.secondaryUnit && Number(bo.conversionFactor) > 0);
                     secUnit = bo.secondaryUnit || '';
                     factor = Number(bo.conversionFactor) || 1;
@@ -296,7 +301,7 @@ export default function FGItemForm({
                 if (fg) {
                     foundName = fg.name || '';
                     foundDesc = fg.description || fg.descriptions || '';
-                    foundUnit = fg.unit || 'Nos';
+                    foundUnit = fg.unit || 'NOS';
                     foundClassification = fg.type || 'Component';
                     foundRevision = fg.revisionNumber || '';
                     hasSec = Boolean(fg.hasSecondaryUnit && fg.secondaryUnit && Number(fg.conversionFactor) > 0);
@@ -598,28 +603,18 @@ export default function FGItemForm({
                         </div>
 
                         <div>
-                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
-                                Unit <span className="text-red-500">*</span>
+                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                                <span>Unit <span className="text-red-500">*</span></span>
+                                <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                    <Lock size={9} /> Fixed
+                                </span>
                             </label>
-                            <input
-                                list="fg-common-units"
-                                type="text"
-                                name="unit"
-                                value={formData.unit || 'Nos'}
-                                onChange={handleChange}
-                                required
-                                className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-gray-900 dark:text-white"
-                                placeholder="Nos"
-                            />
-                            <datalist id="fg-common-units">
-                                <option value="Nos" />
-                                <option value="PCS" />
-                                <option value="Set" />
-                                <option value="KG" />
-                                <option value="Mtr" />
-                                <option value="Box" />
-                                <option value="Pair" />
-                            </datalist>
+                            <div className="w-full px-3 py-2 text-xs sm:text-sm bg-slate-100 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg text-gray-900 dark:text-white font-bold flex items-center justify-between select-none cursor-not-allowed">
+                                <span className="font-mono">NOS</span>
+                                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
+                                    Finished Goods Standard
+                                </span>
+                            </div>
                         </div>
 
                         <div>
@@ -697,27 +692,21 @@ export default function FGItemForm({
                                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                                         2nd Unit (Secondary Unit) <span className="text-red-500">*</span>
                                     </label>
-                                    <input
-                                        list="fg-secondary-units"
-                                        type="text"
+                                    <select
                                         required={formData.hasSecondaryUnit}
                                         value={formData.secondaryUnit || ""}
                                         onChange={(e) => setFormData((prev: any) => ({ ...prev, secondaryUnit: e.target.value }))}
-                                        className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-slate-900 dark:text-white"
-                                        placeholder="e.g. KG, Grams, Mtr, Ltr"
-                                    />
-                                    <datalist id="fg-secondary-units">
-                                        <option value="KG" />
-                                        <option value="Grams" />
-                                        <option value="Mtr" />
-                                        <option value="Ltr" />
-                                        <option value="PCS" />
-                                        <option value="Nos" />
-                                        <option value="Box" />
-                                        <option value="Sheet" />
-                                    </datalist>
+                                        className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-slate-900 dark:text-white font-medium"
+                                    >
+                                        <option value="">-- Select Secondary Unit --</option>
+                                        {STANDARD_UOMS.filter(u => u.value.toUpperCase() !== (formData.unit || 'NOS').toUpperCase()).map((u) => (
+                                            <option key={u.value} value={u.value}>
+                                                {u.label}
+                                            </option>
+                                        ))}
+                                    </select>
                                     <p className="text-[11px] text-slate-500 mt-1">
-                                        Alternate unit (e.g. KG).
+                                        Choose secondary tracking unit from standard list.
                                     </p>
                                 </div>
 
@@ -898,7 +887,8 @@ export default function FGItemForm({
                                 matchedMaster?.hasSecondaryUnit || 
                                 (typeof item.item === 'object' && item.item?.hasSecondaryUnit)
                             );
-                            const priUnitStr = item.unit || matchedMaster?.unit || (typeof item.item === 'object' ? item.item?.unit : 'Nos') || 'Nos';
+                            const canonicalBase = (currentType === 'RawMaterial' || currentType === 'Material') ? 'KG' : 'NOS';
+                            const priUnitStr = matchedMaster?.unit || (typeof item.item === 'object' ? item.item?.unit : '') || canonicalBase;
                             const secUnitStr = item.secondaryUnit || matchedMaster?.secondaryUnit || (typeof item.item === 'object' ? item.item?.secondaryUnit : '') || '';
                             const convFactorNum = Number(item.conversionFactor || matchedMaster?.conversionFactor || (typeof item.item === 'object' ? item.item?.conversionFactor : 1)) || 1;
                             const isDualItem = Boolean(hasSecUnit && secUnitStr && convFactorNum > 0);

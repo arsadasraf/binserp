@@ -22,7 +22,7 @@ export const consumableItemSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Location",
     },
-    unit: { type: String, default: "PCS", trim: true },
+    unit: { type: String, default: "NOS", trim: true },
     hasSecondaryUnit: { type: Boolean, default: false },
     secondaryUnit: { type: String, trim: true, default: "" },
     conversionFactor: { type: Number, default: 1, min: 0 },

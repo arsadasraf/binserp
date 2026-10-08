@@ -254,8 +254,15 @@ export const updateGRN = async (req, res) => {
         const itemAmount = it.amount !== undefined && it.amount !== null && !isNaN(parseFloat(it.amount))
           ? parseFloat(it.amount)
           : Number((billingQty * itemRate).toFixed(2));
+        const convFactor = Number(it.conversionFactor) || 1;
+        const rateUnit = it.rateUnit || (isSecUnit ? 'secondary' : 'primary');
+        const primaryRate = it.primaryRate !== undefined ? Number(it.primaryRate) : (isSecUnit && convFactor > 0 ? Number((itemRate * convFactor).toFixed(3)) : itemRate);
+        const secondaryRate = it.secondaryRate !== undefined ? Number(it.secondaryRate) : (hasSec && convFactor > 0 ? (isSecUnit ? itemRate : Number((itemRate / convFactor).toFixed(3))) : itemRate);
         return {
           ...it,
+          rateUnit,
+          primaryRate,
+          secondaryRate,
           rate: itemRate,
           amount: itemAmount
         };

@@ -251,9 +251,9 @@ export const generateNestedBOMPDF = (data: NestedBOMPDFData) => {
         const isDual = Boolean(m.hasSecondaryUnit && m.secondaryUnit && Number(m.conversionFactor) > 0);
         const convFactor = Number(m.conversionFactor) || 1;
         const fmtDual = (qty: number) => {
-          if (!isDual) return `${qty} ${m.unit || "PCS"}`;
+          if (!isDual) return `${qty} ${m.unit || "NOS"}`;
           const secQty = parseFloat((qty * convFactor).toFixed(3));
-          return `${qty} ${m.unit || "PCS"}\n(${secQty} ${m.secondaryUnit})`;
+          return `${qty} ${m.unit || "NOS"}\n(${secQty} ${m.secondaryUnit})`;
         };
 
         const perFGDual = () => {

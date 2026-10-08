@@ -39,7 +39,17 @@ export const inventorySchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    secondaryCurrentStock: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     qcPendingStock: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    secondaryQcPendingStock: {
       type: Number,
       default: 0,
       min: 0,

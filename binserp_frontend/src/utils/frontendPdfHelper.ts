@@ -6,6 +6,7 @@
 
 import { getCurrencySymbol, convertAmountToWords, formatCurrencyAmount } from "./currencyHelper";
 import { API_BASE_URL } from "./config";
+import { resolveLineItemDisplay, resolveGrnLineItemDisplay } from "./dualUomHelper";
 
 let _memoryCompanyInfo: any = null;
 
@@ -1547,18 +1548,11 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
     const igstRate = isInterState ? (po.igstRate != null ? Number(po.igstRate) : overallTaxRate) : 0;
 
     items.forEach((item: any, idx: number) => {
-        const hasSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
-        const secUnit = item.secondaryUnit || '';
-        const isSecRate = item.rateUnit === 'secondary' && hasSec;
-        const convFactor = Number(item.conversionFactor) || 1;
-
-        const activeUnit = isSecRate ? secUnit : (item.unit || item.uom || 'PCS');
-        const activeQty = isSecRate 
-            ? (Number(item.secondaryQuantity) || (Number(item.quantity || 1) * convFactor))
-            : Number(item.quantity || 1);
-
-        const rate = Number(item.rate || item.unitPrice || 0);
-        const lineNet = Number(item.amount != null ? item.amount : (activeQty * rate));
+        const resolved = resolveLineItemDisplay(item);
+        const activeUnit = resolved.displayUnit;
+        const activeQty = resolved.displayQty;
+        const rate = resolved.displayRate;
+        const lineNet = resolved.lineAmount;
 
         const rawItemDesc = item.description || item.itemDescription || item.remarks || item.specifications || item.material?.description || (idx === 0 ? (po.description || po.remarks) : '') || '';
         let itemDesc = rawItemDesc;
@@ -2608,66 +2602,52 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
     const items = grn.items || [];
 
     items.forEach((item: any, idx: number) => {
-        const qty = Number(item.quantity || item.receivedQuantity || 0);
-        const accQty = Number(item.acceptedQuantity !== undefined ? item.acceptedQuantity : qty);
-        const rejQty = Number(item.rejectedQuantity || 0);
-        const rate = Number(item.rate || item.unitPrice || 0);
-
-        const hasSec = Boolean(item.hasSecondaryUnit);
-        const secUnit = item.secondaryUnit || '';
-        const secQty = Number(item.secondaryQuantity || item.secondaryReceivedQuantity || 0);
-        const secAccQty = Number(item.secondaryAcceptedQuantity !== undefined ? item.secondaryAcceptedQuantity : secQty);
-        const secRejQty = Number(item.secondaryRejectedQuantity || 0);
-
-        const isSecSelected = Boolean(hasSec && item.selectedUnit === secUnit);
-        const billingQty = isSecSelected ? secQty : qty;
-        const lineTotal = typeof item.amount === 'number' && !isNaN(item.amount) && item.amount > 0
-            ? item.amount
-            : (rate > 0 ? (billingQty * rate) : 0);
-
-        totalRcvQty += qty;
-        totalAccQty += accQty;
-        totalRejQty += rejQty;
-        totalVal += lineTotal;
-
+        const disp = resolveGrnLineItemDisplay(item);
         const name = item.materialName || item.itemName || (typeof item.fgItem === 'object' ? item.fgItem?.name : item.fgItem) || 'Item';
         const desc = item.description || item.descriptions || item.material?.description || item.material?.descriptions || '';
+        const hsn = item.hsnCode || item.material?.hsnCode || item.material?.hsn || item.fgItem?.hsnCode || item.component?.hsnCode || '-';
 
-        const rcvDisplay = hasSec && secUnit
-            ? `<div>${qty}</div><div style="font-size: 9px; color: #4f46e5; font-weight: bold;">(${secQty} ${secUnit})</div>`
-            : `${qty}`;
+        totalRcvQty += disp.baseQty;
+        totalAccQty += disp.baseAcceptedQty;
+        totalRejQty += disp.baseRejectedQty;
+        totalVal += disp.lineAmount;
 
-        const accDisplay = hasSec && secUnit
-            ? `<div>${accQty}</div><div style="font-size: 9px; color: #16a34a; font-weight: bold;">(${secAccQty} ${secUnit})</div>`
-            : `${accQty}`;
+        const rcvDisplay = disp.hasSecondaryUnit
+            ? `<div>${disp.displayQty}</div><div style="font-size: 9px; color: #4f46e5; font-weight: bold;">(≈ ${disp.isSecondary ? `${disp.baseQty} ${disp.baseUnit}` : `${disp.secondaryQty} ${disp.secondaryUnit}`})</div>`
+            : `${disp.displayQty}`;
 
-        const rejDisplay = hasSec && secUnit && secRejQty > 0
-            ? `<div>${rejQty}</div><div style="font-size: 9px; color: #dc2626; font-weight: bold;">(${secRejQty} ${secUnit})</div>`
-            : (rejQty > 0 ? `${rejQty}` : '-');
+        const accDisplay = disp.hasSecondaryUnit
+            ? `<div>${disp.displayAcceptedQty}</div><div style="font-size: 9px; color: #16a34a; font-weight: bold;">(≈ ${disp.isSecondary ? `${disp.baseAcceptedQty} ${disp.baseUnit}` : `${disp.secondaryAcceptedQty} ${disp.secondaryUnit}`})</div>`
+            : `${disp.displayAcceptedQty}`;
 
-        const hsn = item.hsnCode || item.material?.hsnCode || item.fgItem?.hsnCode || item.component?.hsnCode || '-';
-        const activeUnitLabel = item.selectedUnit || item.unit || 'PCS';
+        const rejDisplay = disp.displayRejectedQty > 0
+            ? (disp.hasSecondaryUnit
+                ? `<div>${disp.displayRejectedQty}</div><div style="font-size: 9px; color: #dc2626; font-weight: bold;">(≈ ${disp.isSecondary ? `${disp.baseRejectedQty} ${disp.baseUnit}` : `${disp.secondaryRejectedQty} ${disp.secondaryUnit}`})</div>`
+                : `${disp.displayRejectedQty}`)
+            : '-';
+
+        const unitDisplay = `
+            <div>${disp.displayUnit}</div>
+            ${disp.hasSecondaryUnit ? `<div style="font-size: 8.5px; color: #64748b; font-weight: normal;">(1 ${disp.baseUnit} = ${disp.conversionFactor} ${disp.secondaryUnit})</div>` : ''}
+        `;
 
         itemsTableRowsHtml += `
             <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
                 <td style="padding: 6px 8px; text-align: center; font-weight: bold; color: #64748b;">${idx + 1}</td>
                 <td style="padding: 6px 8px;">
                     <div style="font-weight: bold; color: #0f172a;">${name}</div>
-                    ${desc ? `<div style="font-size: 10px; color: #64748b; margin-top: 2px;">📝 ${desc}</div>` : ''}
+                    ${desc ? `<div style="font-size: 10px; color: #64748b; margin-top: 2px; font-style: italic;">📝 ${desc}</div>` : ''}
                 </td>
                 <td style="padding: 6px 8px; text-align: center; font-family: monospace; font-size: 10px; color: #475569;">${hsn}</td>
                 <td style="padding: 6px 8px; text-align: center; font-weight: bold;">${rcvDisplay}</td>
                 <td style="padding: 6px 8px; text-align: center; color: #16a34a; font-weight: bold;">${accDisplay}</td>
-                <td style="padding: 6px 8px; text-align: center; color: ${rejQty > 0 ? '#dc2626' : '#94a3b8'}; font-weight: bold;">${rejDisplay}</td>
-                <td style="padding: 6px 8px; text-align: center; font-weight: 600;">
-                    <div>${item.unit || 'PCS'}</div>
-                    ${hasSec && secUnit ? `<div style="font-size: 9px; color: #4f46e5; font-weight: bold;">(${secUnit})</div>` : ''}
-                </td>
+                <td style="padding: 6px 8px; text-align: center; color: ${disp.displayRejectedQty > 0 ? '#dc2626' : '#94a3b8'}; font-weight: bold;">${rejDisplay}</td>
+                <td style="padding: 6px 8px; text-align: center; font-weight: 600;">${unitDisplay}</td>
                 <td style="padding: 6px 8px; text-align: right;">
-                    ₹${rate.toFixed(2)}
-                    <div style="font-size: 8.5px; color: #64748b;">/${activeUnitLabel}</div>
+                    ₹${disp.displayRate.toFixed(2)}
+                    <div style="font-size: 8.5px; color: #64748b;">/${disp.displayUnit}</div>
                 </td>
-                <td style="padding: 6px 8px; text-align: right; font-weight: bold; color: #0f172a;">₹${lineTotal.toFixed(2)}</td>
+                <td style="padding: 6px 8px; text-align: right; font-weight: bold; color: #0f172a;">₹${disp.lineAmount.toFixed(2)}</td>
             </tr>
         `;
     });

@@ -33,6 +33,7 @@ import path from 'path';
 import { userSchema } from "../../models/user/index.js";
 
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { validateAndResolveDualUomQuantities } from "../../utils/dualUomHelper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -44,40 +45,9 @@ const getCompanyLoginId = (req) => {
 
 const isValidObjectId = (id) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
 
-// Helper to resolve dual-unit quantities and conversions
+// Helper to resolve dual-unit quantities and conversions using central engine
 const resolveDualUnitQuantities = (item, doc, defaultUnit = "PCS") => {
-  const primaryUnit = item.unit || doc?.unit || defaultUnit;
-  const hasSec = Boolean(item.hasSecondaryUnit ?? doc?.hasSecondaryUnit ?? (item.secondaryUnit || doc?.secondaryUnit));
-  const secUnit = item.secondaryUnit || doc?.secondaryUnit || "";
-  const convFactor = Number(item.conversionFactor ?? doc?.conversionFactor ?? 1) || 1;
-  const selectedUnit = item.selectedUnit || primaryUnit;
-
-  let priQty = Number(item.quantity);
-  let secQty = Number(item.secondaryQuantity);
-
-  if (hasSec && secUnit && selectedUnit === secUnit) {
-    if (!isNaN(secQty) && secQty > 0) {
-      priQty = parseFloat((secQty / convFactor).toFixed(4));
-    } else if (!isNaN(priQty) && priQty > 0) {
-      secQty = parseFloat((priQty * convFactor).toFixed(4));
-    } else {
-      priQty = 1;
-      secQty = parseFloat((1 * convFactor).toFixed(4));
-    }
-  } else {
-    priQty = (!isNaN(priQty) && priQty > 0) ? priQty : 1;
-    secQty = hasSec ? parseFloat((priQty * convFactor).toFixed(4)) : 0;
-  }
-
-  return {
-    priQty,
-    primaryUnit,
-    hasSec,
-    secUnit,
-    convFactor,
-    secQty,
-    selectedUnit
-  };
+  return validateAndResolveDualUomQuantities(item, doc, defaultUnit);
 };
 
 // Helper function to update FGItem stock (InHouse)

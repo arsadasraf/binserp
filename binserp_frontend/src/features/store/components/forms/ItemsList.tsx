@@ -63,12 +63,28 @@ export default function ItemsList({ items, activeTab, updateItem, removeItem, ad
 
                     {/* Unit input */}
                     <input
+                        list="items-list-uoms"
                         type="text"
                         placeholder="Unit"
-                        value={item.unit || "PCS"}
+                        value={item.unit || "NOS"}
                         onChange={(e) => updateItem(idx, "unit", e.target.value)}
                         className="input-field w-full sm:w-20"
                     />
+                    <datalist id="items-list-uoms">
+                        <option value="KG" />
+                        <option value="NOS" />
+                        <option value="PCS" />
+                        <option value="Sheet" />
+                        <option value="Meter" />
+                        <option value="Box" />
+                        <option value="Roll" />
+                        <option value="Set" />
+                        <option value="Pair" />
+                        <option value="Ltr" />
+                        <option value="Pkt" />
+                        <option value="Sq.Ft" />
+                        <option value="Sq.Mtr" />
+                    </datalist>
 
                     {/* Rate input - only for PO and Billing */}
                     {(activeTab === "po" || activeTab === "billing") && (

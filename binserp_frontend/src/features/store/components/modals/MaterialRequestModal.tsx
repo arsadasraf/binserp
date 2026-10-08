@@ -222,34 +222,62 @@ export default function MaterialRequestModal({
                     currentStock: comp?.quantity || 0
                 };
             });
-        } else if (Array.isArray(selectedPlan.rmRequirements) && selectedPlan.rmRequirements.length > 0) {
-            populatedItems = selectedPlan.rmRequirements.map((r: any) => {
-                const searchList = formData.type === 'bo' ? effectiveBOList : effectiveRMList;
-                const mat = searchList.find((m: any) => (m._id === r.material || m.name === r.materialName));
-                const hasSec = Boolean(mat?.hasSecondaryUnit);
-                const secUnit = mat?.secondaryUnit || "";
-                const convFactor = Number(mat?.conversionFactor) || 0;
-                const qty = r.shortage > 0 ? r.shortage : (r.requiredQuantity || 1);
-                const secQty = hasSec && convFactor ? parseFloat((qty * convFactor).toFixed(4)) : 0;
-                return {
-                    material: mat?._id || r.material || '',
-                    itemType: formData.type === 'bo' ? 'Bought Out' : 'Raw Material',
-                    materialName: r.materialName,
-                    materialCode: r.materialCode || '',
-                    quantity: qty,
-                    unit: r.unit || 'PCS',
-                    hasSecondaryUnit: hasSec,
-                    secondaryUnit: secUnit,
-                    conversionFactor: convFactor,
-                    secondaryQuantity: secQty,
-                    selectedUnit: r.unit || 'PCS',
-                    purpose: `Demand for MRP: ${selectedPlan.mrpNumber}`,
-                    consumable: undefined,
-                    component: undefined,
-                    fgItem: undefined,
-                    currentStock: mat?.quantity || 0
-                };
-            });
+        } else {
+            // Select appropriate requirement pool from MRP Plan based on selected request type
+            let sourceRequirements: any[] = [];
+            let searchList: any[] = effectiveRMList;
+            let defaultItemType = 'Raw Material';
+
+            if (formData.type === 'bo') {
+                sourceRequirements = (Array.isArray(selectedPlan.boRequirements) && selectedPlan.boRequirements.length > 0)
+                    ? selectedPlan.boRequirements
+                    : (selectedPlan.rmRequirements || []).filter((r: any) => (r.itemType || '').toLowerCase().includes('bo') || (r.category || '').toLowerCase().includes('bought'));
+                searchList = effectiveBOList;
+                defaultItemType = 'Bought Out';
+            } else if (formData.type === 'consumable') {
+                sourceRequirements = selectedPlan.consumableRequirements || [];
+                searchList = consumables || [];
+                defaultItemType = 'Consumable';
+            } else {
+                sourceRequirements = selectedPlan.rmRequirements || [];
+                searchList = effectiveRMList;
+                defaultItemType = 'Raw Material';
+            }
+
+            if (Array.isArray(sourceRequirements) && sourceRequirements.length > 0) {
+                populatedItems = sourceRequirements.map((r: any) => {
+                    const mat = searchList.find((m: any) => (m._id === r.material || m.name === r.materialName || (m.code && m.code === r.materialCode)));
+                    const hasSec = Boolean(mat?.hasSecondaryUnit || r.hasSecondaryUnit);
+                    const secUnit = mat?.secondaryUnit || r.secondaryUnit || "";
+                    const convFactor = Number(mat?.conversionFactor || r.conversionFactor) || 1;
+                    
+                    const totalNeeded = Number(r.requiredQuantity || r.totalRequired || 1);
+                    const liveStock = Number(mat?.quantity ?? mat?.currentStock ?? r.currentStock ?? 0);
+                    // Pre-fill with what can immediately be issued from live stock, or full demand if stock is 0
+                    const qty = liveStock > 0 ? Math.min(totalNeeded, liveStock) : totalNeeded;
+                    const secQty = (hasSec && convFactor > 0) ? parseFloat((qty * convFactor).toFixed(4)) : 0;
+
+                    return {
+                        material: mat?._id || r.material || '',
+                        itemType: defaultItemType,
+                        materialName: r.materialName || mat?.name || '',
+                        materialCode: r.materialCode || mat?.code || '',
+                        materialDescription: r.description || mat?.descriptions || mat?.description || '',
+                        quantity: qty,
+                        unit: r.unit || mat?.unit || 'PCS',
+                        hasSecondaryUnit: hasSec,
+                        secondaryUnit: secUnit,
+                        conversionFactor: convFactor,
+                        secondaryQuantity: secQty,
+                        selectedUnit: r.unit || mat?.unit || 'PCS',
+                        purpose: `Demand for MRP: ${selectedPlan.mrpNumber}`,
+                        consumable: formData.type === 'consumable' ? (mat?._id || r.material) : undefined,
+                        component: undefined,
+                        fgItem: undefined,
+                        currentStock: liveStock
+                    };
+                });
+            }
         }
 
         setFormData(prev => ({
