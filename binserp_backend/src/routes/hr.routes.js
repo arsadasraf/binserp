@@ -35,7 +35,7 @@ import { verifyJWT, restrictExecutive, requirePermission } from "../middlewares/
 import { resolveTenant } from "../middlewares/tenant.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import { trainFace, markAttendance, checkPythonHealth } from "../controllers/hr/index.js";
-import { createSalarySlip, getSalaries, updateSalary, deleteSalary, getSalaryGenerationStats } from "../controllers/hr/index.js";
+import { createSalarySlip, bulkCreateSalaries, getSalaries, updateSalary, deleteSalary, getSalaryGenerationStats } from "../controllers/hr/index.js";
 import { createHoliday, getAllHolidays, updateHoliday, deleteHoliday } from "../controllers/hr/index.js";
 import { bulkImportHrMasters } from "../controllers/hr/index.js";
 
@@ -103,6 +103,7 @@ router.post("/mark-attendance", upload.single("file"), markAttendance);
 router.get("/python-health", checkPythonHealth);
 
 // Salary Routes (Strictly protected)
+router.post("/salary/bulk", requirePermission("HR", "salaries", "create"), bulkCreateSalaries);
 router.post("/salary", requirePermission("HR", "salaries", "create"), createSalarySlip);
 router.get("/salary", requirePermission("HR", "salaries", "read"), getSalaries);
 router.get("/salary/stats", requirePermission("HR", "salaries", "read"), getSalaryGenerationStats);
