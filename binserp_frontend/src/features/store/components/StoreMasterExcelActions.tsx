@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { FileSpreadsheet, ChevronDown, Download, FileDown, Upload } from "lucide-react";
+import { FileSpreadsheet, ChevronDown, Download, FileDown, Upload, RefreshCw } from "lucide-react";
 import { downloadMasterExcelTemplate } from "@/src/utils/excelMasterHelper";
 import MasterExcelImportModal from "./modals/MasterExcelImportModal";
+import SyncMasterUomModal from "./modals/SyncMasterUomModal";
 import * as XLSX from "xlsx";
 
 interface StoreMasterExcelActionsProps {
@@ -21,6 +22,7 @@ export default function StoreMasterExcelActions({
 }: StoreMasterExcelActionsProps) {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -98,6 +100,17 @@ export default function StoreMasterExcelActions({
                             <Upload size={15} />
                             Import from Excel
                         </button>
+                        <div className="my-1 border-t border-gray-100 dark:border-slate-700" />
+                        <button
+                            onClick={() => {
+                                setIsMenuOpen(false);
+                                setIsSyncModalOpen(true);
+                            }}
+                            className="w-full px-3.5 py-2.5 text-left text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 flex items-center gap-2.5 transition-colors"
+                        >
+                            <RefreshCw size={15} />
+                            Sync Master UOMs
+                        </button>
                     </div>
                 )}
             </div>
@@ -114,6 +127,12 @@ export default function StoreMasterExcelActions({
                         window.location.reload();
                     }
                 }}
+            />
+
+            <SyncMasterUomModal
+                isOpen={isSyncModalOpen}
+                onClose={() => setIsSyncModalOpen(false)}
+                onSuccess={onSuccess}
             />
         </>
     );

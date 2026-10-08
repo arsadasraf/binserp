@@ -137,6 +137,9 @@ export default function RawMaterialsPage() {
           });
         } else if ((payload as any)[key] !== undefined && (payload as any)[key] !== null) {
           const val = (payload as any)[key];
+          if (key === 'code' && (val === '-' || val === '--' || val === 'N/A' || val === 'na' || !String(val).trim())) {
+            return;
+          }
           if (typeof val === 'object' && val !== null && '_id' in val) {
             submitData.append(key, (val as any)._id);
           } else {

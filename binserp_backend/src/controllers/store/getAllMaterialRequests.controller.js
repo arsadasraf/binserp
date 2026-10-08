@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, consumableItemSchema, fgItemSchema, rawMaterialSchema, boughtOutSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -83,11 +83,19 @@ export const getAllMaterialRequests = async (req, res) => {
       }
     }
 
+    req.getModel('ConsumableItem', consumableItemSchema);
+    req.getModel('FGItem', fgItemSchema);
+    req.getModel('RawMaterial', rawMaterialSchema);
+    req.getModel('BoughtOut', boughtOutSchema);
+
     const materialRequests = await MaterialRequest.find(query)
       .populate("requestedBy", "name userId department email")
       .populate("approvedBy", "name userId department")
       .populate("issuedBy", "name userId department")
       .populate("salesOrder", "orderNumber status customer poReference")
+      .populate("items.material", "name unit code descriptions hasSecondaryUnit secondaryUnit conversionFactor")
+      .populate("items.consumable", "name unit code descriptions hasSecondaryUnit secondaryUnit conversionFactor")
+      .populate("items.fgItem", "name unit code description hasSecondaryUnit secondaryUnit conversionFactor")
       .lean()
       .sort({ createdAt: -1 });
 
@@ -101,6 +109,25 @@ export const getAllMaterialRequests = async (req, res) => {
           department: reqItem.department || 'Store'
         };
       }
+
+      // Ensure item UOM reflects current master UOM
+      if (Array.isArray(reqItem.items)) {
+        reqItem.items = reqItem.items.map((it) => {
+          const master = it.material || it.consumable || it.fgItem;
+          if (master && typeof master === 'object' && master.unit) {
+            return {
+              ...it,
+              unit: master.unit,
+              hasSecondaryUnit: master.hasSecondaryUnit ?? it.hasSecondaryUnit,
+              secondaryUnit: master.secondaryUnit ?? it.secondaryUnit,
+              conversionFactor: master.conversionFactor ?? it.conversionFactor,
+              descriptions: master.descriptions || master.description || it.descriptions
+            };
+          }
+          return it;
+        });
+      }
+
       return reqItem;
     });
 

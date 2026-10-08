@@ -71,7 +71,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
     }, [masterTab, formData.itemType]);
 
     React.useEffect(() => {
-        if (formData.unit !== defaultBaseUom) {
+        if (!formData.unit) {
             setFormData((prev: any) => ({
                 ...prev,
                 unit: defaultBaseUom

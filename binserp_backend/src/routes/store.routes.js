@@ -303,4 +303,11 @@ router.post("/mrb/receive-replacement", receiveReplacementGoods);
 router.get("/mrb/history", getMRBHistory);
 router.get("/mrb/scrap-ledger", getScrapLedger);
 
+// Master UOM Synchronization & Health Check Routes
+import { auditMasterUoms, syncMasterUoms } from "../controllers/store/index.js";
+router.get("/audit-master-uoms", auditMasterUoms);
+router.post("/sync-master-uoms", syncMasterUoms);
+router.get("/master/audit-uoms", auditMasterUoms);
+router.post("/master/sync-uoms", syncMasterUoms);
+
 export default router;

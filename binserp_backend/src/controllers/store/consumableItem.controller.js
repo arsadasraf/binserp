@@ -6,10 +6,11 @@ import {
   inventorySchema,
   materialIssueSchema,
   grnSchema,
+  materialRequestSchema,
 } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
-import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
+import { validateMasterUniqueness, formatDuplicateKeyError, isPlaceholderCode } from "../../utils/duplicateValidator.helper.js";
 import { checkItemHasTransactions, checkItemStockForDeactivation } from "../../utils/itemLifecycleValidator.helper.js";
 
 const getCompanyId = (req) => {
@@ -34,8 +35,7 @@ export const createConsumableItem = async (req, res) => {
       return res.status(400).json({ message: "Name is required" });
     }
     const cleanName = name.toString().trim();
-    // System Standard: Base UOM for Consumables is strictly immutable (NOS)
-    const itemUnit = 'NOS';
+    const itemUnit = (unit && unit.toString().trim()) || 'NOS';
     const itemHsn = (hsnCode || '').toString().trim();
     const isDualUnit = String(hasSecondaryUnit) === 'true' || hasSecondaryUnit === true;
     const cleanSecondaryUnit = isDualUnit ? (secondaryUnit || '').toString().trim() : '';
@@ -147,8 +147,9 @@ export const createConsumableItem = async (req, res) => {
       }
     }
 
+    const isCodePlaceholder = !code || isPlaceholderCode(code);
     const generatedMatCode = `CON-${Math.floor(10000 + Math.random() * 90000)}`;
-    const finalCode = (code && code.toString().trim()) ? code.toString().trim() : generatedMatCode;
+    const finalCode = isCodePlaceholder ? generatedMatCode : code.toString().trim();
 
     const consumableItem = await ConsumableItem.create({
       name: cleanName,
@@ -405,8 +406,9 @@ export const updateConsumableItem = async (req, res) => {
     const { userId, userName } = getUserAudit(req);
     req.body.updatedBy = userId;
     req.body.updatedByName = userName;
-    // System Standard: Base UOM for Consumables is strictly immutable (NOS)
-    req.body.unit = 'NOS';
+    if (req.body.unit && req.body.unit.toString().trim()) {
+      req.body.unit = req.body.unit.toString().trim();
+    }
 
     if (req.body.hasSecondaryUnit !== undefined) {
       req.body.hasSecondaryUnit = String(req.body.hasSecondaryUnit) === 'true' || req.body.hasSecondaryUnit === true;
@@ -417,6 +419,18 @@ export const updateConsumableItem = async (req, res) => {
         req.body.secondaryUnit = (req.body.secondaryUnit || '').toString().trim();
         req.body.conversionFactor = Number(req.body.conversionFactor) > 0 ? Number(req.body.conversionFactor) : 1;
       }
+    }
+
+    // Sanitize code: If code is a placeholder (e.g. "-", "N/A"), strip it so it doesn't overwrite
+    if (req.body.code && isPlaceholderCode(req.body.code)) {
+      delete req.body.code;
+    }
+
+    const currentDoc = await ConsumableItem.findOne({ _id: id, company: companyId }).lean();
+
+    // If existing item currently has a placeholder code (like "-"), upgrade it to a valid unique code
+    if (currentDoc && isPlaceholderCode(currentDoc.code)) {
+      req.body.code = `CON-${Math.floor(10000 + Math.random() * 90000)}`;
     }
 
     // Pre-validate uniqueness if name or code is being updated
@@ -473,13 +487,46 @@ export const updateConsumableItem = async (req, res) => {
       if (req.body.conversionFactor !== undefined) invUpdates.conversionFactor = req.body.conversionFactor;
 
       if (Object.keys(invUpdates).length > 0) {
-        await Inventory.findOneAndUpdate(
-          { company: companyId, materialId: id },
+        await Inventory.updateMany(
+          { company: companyId, $or: [{ materialId: id }, { materialCode: consumableItem.code }] },
           { $set: invUpdates }
         );
       }
     } catch (invErr) {
       console.warn("Inventory sync error on updateConsumable:", invErr.message);
+    }
+
+    // Auto-propagate UOM & Name changes to open Material Requests
+    if (req.body.unit || req.body.name) {
+      try {
+        const MaterialRequest = req.getModel('MaterialRequest', materialRequestSchema);
+        const newUnit = req.body.unit;
+        const newName = req.body.name;
+        const hasSec = req.body.hasSecondaryUnit ?? consumableItem.hasSecondaryUnit;
+        const secUnit = req.body.secondaryUnit ?? consumableItem.secondaryUnit;
+        const cf = req.body.conversionFactor ?? consumableItem.conversionFactor;
+
+        const mrSet = {};
+        if (newUnit) {
+          mrSet["items.$[elem].unit"] = newUnit;
+          mrSet["items.$[elem].hasSecondaryUnit"] = hasSec;
+          mrSet["items.$[elem].secondaryUnit"] = secUnit || "";
+          mrSet["items.$[elem].conversionFactor"] = cf || 1;
+        }
+        if (newName) mrSet["items.$[elem].materialName"] = newName;
+
+        await MaterialRequest.updateMany(
+          {
+            company: companyId,
+            status: { $in: ["Pending", "Approved", "Partially Issued"] },
+            $or: [{ "items.consumable": id }, { "items.material": id }, { "items.materialCode": consumableItem.code }]
+          },
+          { $set: mrSet },
+          { arrayFilters: [{ $or: [{ "elem.consumable": id }, { "elem.material": id }, { "elem.materialCode": consumableItem.code }] }] }
+        ).catch(() => {});
+      } catch (propErr) {
+        console.warn("MaterialRequest propagation error for consumable:", propErr.message);
+      }
     }
 
     res.status(200).json({ message: "Consumable Item updated successfully", consumableItem });

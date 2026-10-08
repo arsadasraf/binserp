@@ -9,6 +9,25 @@ const escapeRegex = (str) => {
   return (str || '').toString().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
+/**
+ * Checks if a code string is a placeholder (e.g. "-", "N/A", "none") rather than an actual unique identifier.
+ */
+export const isPlaceholderCode = (code) => {
+  if (!code) return true;
+  const s = String(code).trim().toLowerCase();
+  return (
+    s === "" ||
+    s === "-" ||
+    s === "--" ||
+    s === "---" ||
+    s === "n/a" ||
+    s === "na" ||
+    s === "none" ||
+    s === "null" ||
+    s === "undefined"
+  );
+};
+
 export const validateMasterUniqueness = async ({
   Model,
   companyId,
@@ -23,7 +42,8 @@ export const validateMasterUniqueness = async ({
   }
 
   const cleanName = (name || '').toString().trim();
-  const cleanCode = code ? code.toString().trim() : null;
+  const rawCode = code ? code.toString().trim() : null;
+  const cleanCode = isPlaceholderCode(rawCode) ? null : rawCode;
   const cleanRev = revisionNumber !== undefined ? (revisionNumber || '').toString().trim() : undefined;
 
   // 1. Check Name Uniqueness

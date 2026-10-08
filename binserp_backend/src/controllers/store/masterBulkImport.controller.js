@@ -7,6 +7,7 @@ import {
 } from "../../models/store/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { isPlaceholderCode } from "../../utils/duplicateValidator.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -295,7 +296,9 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       }
 
       const defaultPrefix = isConsumable ? 'CON' : (determinedItemType === 'Bought Out' ? 'BO' : 'RM');
-      const materialCode = (item.code || item.materialCode || '').toString().trim() || `${defaultPrefix}-${Math.floor(10000 + Math.random() * 90000)}`;
+      const rawCode = (item.code || item.materialCode || '').toString().trim();
+      const isCodeInvalid = !rawCode || isPlaceholderCode(rawCode);
+      const materialCode = isCodeInvalid ? `${defaultPrefix}-${Math.floor(10000 + Math.random() * 90000)}` : rawCode;
 
       const rmBoDoc = {
         company: companyId,
@@ -436,7 +439,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
 
       // Resolve or autogenerate code
       let finalCode = (item.code || "").toString().trim();
-      if (!finalCode) {
+      if (!finalCode || isPlaceholderCode(finalCode)) {
         finalCode = `${fgPrefix}-${String(++currentCount).padStart(4, '0')}`;
       }
 

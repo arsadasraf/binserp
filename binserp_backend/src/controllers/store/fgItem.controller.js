@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, storeOrderFulfillmentSchema, storePrefixSchema, stockTransactionSchema } from "../../models/store/index.js";
+import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, storeOrderFulfillmentSchema, storePrefixSchema, stockTransactionSchema, inventorySchema } from "../../models/store/index.js";
 import { salesOrderSchema, priceListSchema } from "../../models/sales/index.js";
 import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { recalculateMRPWithLatestBOM } from "../purchase/mrpPlan.controller.js";
@@ -10,6 +10,58 @@ import { checkItemHasTransactions, checkItemStockForDeactivation } from "../../u
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
+};
+
+/**
+ * Resolves canonical master units for BOM components by looking up their underlying master documents
+ */
+const resolveBomComponentUnits = async (req, bomList) => {
+  if (!Array.isArray(bomList) || bomList.length === 0) return [];
+
+  const componentIds = bomList
+    .filter(b => b && b.item && mongoose.Types.ObjectId.isValid(b.item))
+    .map(b => b.item);
+
+  const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
+  const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
+  const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+  const FGItem = req.getModel('FGItem', fgItemSchema);
+
+  const [rms, bos, rmBos, fgs] = await Promise.all([
+    RawMaterial.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor').lean().catch(() => []),
+    BoughtOut.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor').lean().catch(() => []),
+    RmBoItem.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor').lean().catch(() => []),
+    FGItem.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor').lean().catch(() => [])
+  ]);
+
+  const compMap = new Map();
+  [...rms, ...bos, ...rmBos, ...fgs].forEach(item => {
+    if (item && item._id) compMap.set(item._id.toString(), item);
+  });
+
+  return bomList.filter(b => b && b.item && mongoose.Types.ObjectId.isValid(b.item)).map(b => {
+    const normType = b.itemType || 'RawMaterial';
+    const isRM = normType === 'RawMaterial' || normType === 'Material';
+    const defaultUom = isRM ? 'KG' : 'NOS';
+    const masterComp = compMap.get(b.item.toString());
+    const canonicalUom = (masterComp?.unit || b.unit || defaultUom).toString().trim();
+
+    return {
+      itemType: normType,
+      item: b.item,
+      itemName: b.itemName || '',
+      quantity: Number(b.quantity) || 1,
+      unit: canonicalUom,
+      hasSecondaryUnit: Boolean(masterComp?.hasSecondaryUnit ?? b.hasSecondaryUnit),
+      secondaryUnit: (masterComp?.secondaryUnit ?? b.secondaryUnit ?? '').toString().trim(),
+      conversionFactor: Number(masterComp?.conversionFactor ?? b.conversionFactor) || 1,
+      secondaryQuantity: b.secondaryQuantity !== undefined ? Number(b.secondaryQuantity) : undefined,
+      selectedUnit: b.selectedUnit || canonicalUom,
+      inputQuantity: b.inputQuantity !== undefined ? Number(b.inputQuantity) : (Number(b.quantity) || 1),
+      fgType: b.fgType,
+      itemClassification: b.itemClassification
+    };
+  });
 };
 
 export const createFGItem = async (req, res) => {
@@ -66,26 +118,7 @@ export const createFGItem = async (req, res) => {
       try { bom = JSON.parse(bom); } catch(e) { console.error("Failed to parse bom", e); }
     }
     if (Array.isArray(bom)) {
-      cleanedBom = bom.filter(b => b && b.item && mongoose.Types.ObjectId.isValid(b.item)).map(b => {
-        const normType = b.itemType || 'RawMaterial';
-        const isRM = normType === 'RawMaterial' || normType === 'Material';
-        const canonicalUom = isRM ? 'KG' : 'NOS';
-        return {
-          itemType: normType,
-          item: b.item,
-          itemName: b.itemName || '',
-          quantity: Number(b.quantity) || 1,
-          unit: canonicalUom,
-          hasSecondaryUnit: Boolean(b.hasSecondaryUnit),
-          secondaryUnit: (b.secondaryUnit || '').toString().trim(),
-          conversionFactor: Number(b.conversionFactor) || 1,
-          secondaryQuantity: b.secondaryQuantity !== undefined ? Number(b.secondaryQuantity) : undefined,
-          selectedUnit: b.selectedUnit || canonicalUom,
-          inputQuantity: b.inputQuantity !== undefined ? Number(b.inputQuantity) : (Number(b.quantity) || 1),
-          fgType: b.fgType,
-          itemClassification: b.itemClassification
-        };
-      });
+      cleanedBom = await resolveBomComponentUnits(req, bom);
     }
 
     const validLocation = (location && mongoose.Types.ObjectId.isValid(location)) ? location : undefined;
@@ -120,8 +153,7 @@ export const createFGItem = async (req, res) => {
       location: validLocation,
       category: validCategory,
       categoryId: validCategory,
-      // System Standard: Base UOM for Finished Goods is strictly immutable (NOS)
-      unit: "NOS",
+      unit: (unit && unit.toString().trim()) || "NOS",
       hasSecondaryUnit: parsedHasSecondary,
       secondaryUnit: parsedSecondaryUnit,
       conversionFactor: parsedConversionFactor,
@@ -324,8 +356,9 @@ export const updateFGItem = async (req, res) => {
     let { name, code, type, description, location, category, categoryId, unit, bom, revisionNumber, reorderLevel, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor } = req.body;
 
     let updateData = { name, code, type, description, revisionNumber };
-    // System Standard: Base UOM for Finished Goods is strictly immutable (NOS)
-    updateData.unit = "NOS";
+    if (unit && unit.toString().trim()) {
+      updateData.unit = unit.toString().trim();
+    }
     if (hsnCode !== undefined) updateData.hsnCode = (hsnCode || "").toString().trim();
 
     if (hasSecondaryUnit !== undefined) {
@@ -359,26 +392,7 @@ export const updateFGItem = async (req, res) => {
       try { bom = JSON.parse(bom); } catch(e) { console.error("Failed to parse bom", e); }
     }
     if (Array.isArray(bom)) {
-      updateData.bom = bom.filter(b => b && b.item && mongoose.Types.ObjectId.isValid(b.item)).map(b => {
-        const normType = b.itemType || 'RawMaterial';
-        const isRM = normType === 'RawMaterial' || normType === 'Material';
-        const canonicalUom = isRM ? 'KG' : 'NOS';
-        return {
-          itemType: normType,
-          item: b.item,
-          itemName: b.itemName || '',
-          quantity: Number(b.quantity) || 1,
-          unit: canonicalUom,
-          hasSecondaryUnit: Boolean(b.hasSecondaryUnit),
-          secondaryUnit: (b.secondaryUnit || '').toString().trim(),
-          conversionFactor: Number(b.conversionFactor) || 1,
-          secondaryQuantity: b.secondaryQuantity !== undefined ? Number(b.secondaryQuantity) : undefined,
-          selectedUnit: b.selectedUnit || canonicalUom,
-          inputQuantity: b.inputQuantity !== undefined ? Number(b.inputQuantity) : (Number(b.quantity) || 1),
-          fgType: b.fgType,
-          itemClassification: b.itemClassification
-        };
-      });
+      updateData.bom = await resolveBomComponentUnits(req, bom);
     }
     
     // Handle photo uploads
@@ -452,6 +466,27 @@ export const updateFGItem = async (req, res) => {
     );
 
     if (!fgItem) return res.status(404).json({ message: "FG Item not found" });
+
+    // Sync to Inventory for FG item
+    try {
+      const Inventory = req.getModel('Inventory', inventorySchema);
+      const invUpdates = {};
+      if (updateData.name) invUpdates.materialName = updateData.name.toString().trim();
+      if (updateData.unit) invUpdates.unit = updateData.unit.toString().trim();
+      if (updateData.reorderLevel !== undefined) invUpdates.reorderLevel = Number(updateData.reorderLevel);
+      if (updateData.hasSecondaryUnit !== undefined) invUpdates.hasSecondaryUnit = updateData.hasSecondaryUnit;
+      if (updateData.secondaryUnit !== undefined) invUpdates.secondaryUnit = updateData.secondaryUnit;
+      if (updateData.conversionFactor !== undefined) invUpdates.conversionFactor = updateData.conversionFactor;
+
+      if (Object.keys(invUpdates).length > 0) {
+        await Inventory.updateMany(
+          { company: companyId, $or: [{ materialId: id }, { materialCode: fgItem.code }] },
+          { $set: invUpdates }
+        );
+      }
+    } catch (invErr) {
+      console.warn("Inventory sync error on updateFGItem:", invErr.message);
+    }
 
     // If BOM was modified, automatically sync all active MRP plans referencing this FG item
     if (Array.isArray(bom)) {

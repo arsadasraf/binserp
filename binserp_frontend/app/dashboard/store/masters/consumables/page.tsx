@@ -133,6 +133,9 @@ export default function ConsumablesPage() {
           });
         } else if ((payload as any)[key] !== undefined && (payload as any)[key] !== null) {
           const val = (payload as any)[key];
+          if (key === 'code' && (val === '-' || val === '--' || val === 'N/A' || val === 'na' || !String(val).trim())) {
+            return;
+          }
           if (typeof val === 'object' && val !== null && '_id' in val) {
             if ((val as any)._id) submitData.append(key, String((val as any)._id));
           } else if (typeof val === 'string') {

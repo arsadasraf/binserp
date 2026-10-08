@@ -1,8 +1,8 @@
 import mongoose from "mongoose";
-import { rawMaterialSchema, categorySchema, locationSchema, inventorySchema, rmBoItemSchema } from "../../models/store/index.js";
+import { rawMaterialSchema, categorySchema, locationSchema, inventorySchema, rmBoItemSchema, fgItemSchema, bomSchema, materialRequestSchema } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
-import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
+import { validateMasterUniqueness, formatDuplicateKeyError, isPlaceholderCode } from "../../utils/duplicateValidator.helper.js";
 import { checkItemHasTransactions, checkItemStockForDeactivation } from "../../utils/itemLifecycleValidator.helper.js";
 
 const getCompanyId = (req) => {
@@ -30,8 +30,7 @@ export const createRawMaterial = async (req, res) => {
       return res.status(400).json({ message: "Raw Material Name is required" });
     }
     const cleanName = name.toString().trim();
-    // System Standard: Base UOM for Raw Materials is strictly immutable (KG)
-    const itemUnit = 'KG';
+    const itemUnit = (unit && unit.toString().trim()) || 'KG';
     const itemHsn = (hsnCode || '').toString().trim();
     const isDualUnit = String(hasSecondaryUnit) === 'true' || hasSecondaryUnit === true;
     const cleanSecondaryUnit = isDualUnit ? (secondaryUnit || '').toString().trim() : '';
@@ -151,7 +150,8 @@ export const createRawMaterial = async (req, res) => {
       }
     }
 
-    const generatedCode = code ? code.toString().trim() : `RM-${Math.floor(10000 + Math.random() * 90000)}`;
+    const isCodePlaceholder = !code || isPlaceholderCode(code);
+    const generatedCode = isCodePlaceholder ? `RM-${Math.floor(10000 + Math.random() * 90000)}` : code.toString().trim();
 
     const rawMaterial = await RawMaterial.create({
       company: companyId,
@@ -430,8 +430,9 @@ export const updateRawMaterial = async (req, res) => {
     const { userId, userName } = getUserAudit(req);
     req.body.updatedBy = userId;
     req.body.updatedByName = userName;
-    // System Standard: Base UOM for Raw Materials is strictly immutable (KG)
-    req.body.unit = 'KG';
+    if (req.body.unit && req.body.unit.toString().trim()) {
+      req.body.unit = req.body.unit.toString().trim();
+    }
 
     if (req.body.hasSecondaryUnit !== undefined) {
       req.body.hasSecondaryUnit = String(req.body.hasSecondaryUnit) === 'true' || req.body.hasSecondaryUnit === true;
@@ -442,6 +443,19 @@ export const updateRawMaterial = async (req, res) => {
         req.body.secondaryUnit = (req.body.secondaryUnit || '').toString().trim();
         req.body.conversionFactor = Number(req.body.conversionFactor) > 0 ? Number(req.body.conversionFactor) : 1;
       }
+    }
+
+    // Sanitize code: If code is a placeholder (e.g. "-", "N/A"), strip it so it doesn't overwrite
+    if (req.body.code && isPlaceholderCode(req.body.code)) {
+      delete req.body.code;
+    }
+
+    const currentDoc = await RawMaterial.findOne({ _id: id, company: companyId }).lean()
+      || await RmBoItem.findOne({ _id: id, company: companyId }).lean();
+
+    // If existing item currently has a placeholder code (like "-"), upgrade it to a valid unique code
+    if (currentDoc && isPlaceholderCode(currentDoc.code)) {
+      req.body.code = `RM-${Math.floor(10000 + Math.random() * 90000)}`;
     }
 
     // Pre-validate uniqueness if name or code is being updated
@@ -518,13 +532,79 @@ export const updateRawMaterial = async (req, res) => {
       if (req.body.conversionFactor !== undefined) invUpdates.conversionFactor = req.body.conversionFactor;
 
       if (Object.keys(invUpdates).length > 0) {
-        await Inventory.findOneAndUpdate(
-          { company: companyId, materialId: id },
+        await Inventory.updateMany(
+          { company: companyId, $or: [{ materialId: id }, { materialCode: rawMaterial.code }] },
           { $set: invUpdates }
         );
       }
     } catch (invErr) {
       console.warn("Inventory sync error on updateRawMaterial:", invErr.message);
+    }
+
+    // Auto-propagate UOM & Name changes to BOMs and open Material Requests
+    if (req.body.unit || req.body.name) {
+      try {
+        const FGItem = req.getModel('FGItem', fgItemSchema);
+        const BOM = req.getModel('BOM', bomSchema);
+        const MaterialRequest = req.getModel('MaterialRequest', materialRequestSchema);
+
+        const newUnit = req.body.unit;
+        const newName = req.body.name;
+        const hasSec = req.body.hasSecondaryUnit ?? rawMaterial.hasSecondaryUnit;
+        const secUnit = req.body.secondaryUnit ?? rawMaterial.secondaryUnit;
+        const cf = req.body.conversionFactor ?? rawMaterial.conversionFactor;
+
+        // 1. FG Item embedded BOMs
+        const fgSet = {};
+        if (newUnit) {
+          fgSet["bom.$[elem].unit"] = newUnit;
+          fgSet["bom.$[elem].hasSecondaryUnit"] = hasSec;
+          fgSet["bom.$[elem].secondaryUnit"] = secUnit || "";
+          fgSet["bom.$[elem].conversionFactor"] = cf || 1;
+        }
+        if (newName) fgSet["bom.$[elem].itemName"] = newName;
+        await FGItem.updateMany(
+          { company: companyId, "bom.item": id },
+          { $set: fgSet },
+          { arrayFilters: [{ "elem.item": id }] }
+        ).catch(() => {});
+
+        // 2. Standalone BOMs
+        const bomSet = {};
+        if (newUnit) {
+          bomSet["items.$[elem].unit"] = newUnit;
+          bomSet["items.$[elem].hasSecondaryUnit"] = hasSec;
+          bomSet["items.$[elem].secondaryUnit"] = secUnit || "";
+          bomSet["items.$[elem].conversionFactor"] = cf || 1;
+        }
+        if (newName) bomSet["items.$[elem].materialName"] = newName;
+        await BOM.updateMany(
+          { company: companyId, $or: [{ "items.material": id }, { "items.materialCode": rawMaterial.code }] },
+          { $set: bomSet },
+          { arrayFilters: [{ $or: [{ "elem.material": id }, { "elem.materialCode": rawMaterial.code }] }] }
+        ).catch(() => {});
+
+        // 3. Open Material Requests
+        const mrSet = {};
+        if (newUnit) {
+          mrSet["items.$[elem].unit"] = newUnit;
+          mrSet["items.$[elem].hasSecondaryUnit"] = hasSec;
+          mrSet["items.$[elem].secondaryUnit"] = secUnit || "";
+          mrSet["items.$[elem].conversionFactor"] = cf || 1;
+        }
+        if (newName) mrSet["items.$[elem].materialName"] = newName;
+        await MaterialRequest.updateMany(
+          {
+            company: companyId,
+            status: { $in: ["Pending", "Approved", "Partially Issued"] },
+            $or: [{ "items.material": id }, { "items.materialCode": rawMaterial.code }]
+          },
+          { $set: mrSet },
+          { arrayFilters: [{ $or: [{ "elem.material": id }, { "elem.materialCode": rawMaterial.code }] }] }
+        ).catch(() => {});
+      } catch (propErr) {
+        console.warn("BOM/MaterialRequest propagation error:", propErr.message);
+      }
     }
 
     res.status(200).json({ message: "Raw Material updated successfully", rawMaterial, rmBoItem: rawMaterial });
