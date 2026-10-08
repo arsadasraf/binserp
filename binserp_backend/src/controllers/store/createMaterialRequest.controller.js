@@ -89,7 +89,7 @@ export const createMaterialRequest = async (req, res) => {
           materialName: doc?.name || cleanName || 'Consumable Item',
           materialCode: doc?.code || item.materialCode || '',
           quantity: priQty,
-          unit: item.unit || doc?.unit || 'PCS',
+          unit: doc?.unit || item.unit || 'PCS',
           currentStock: curStock,
           hasSecondaryUnit: hasSec,
           secondaryUnit: secUnit,
@@ -147,7 +147,7 @@ export const createMaterialRequest = async (req, res) => {
           materialName: doc?.name || cleanName || 'FG Item',
           materialCode: doc?.code || item.materialCode || '',
           quantity: priQty,
-          unit: item.unit || doc?.unit || 'Nos',
+          unit: doc?.unit || item.unit || 'Nos',
           currentStock: curStock,
           hasSecondaryUnit: hasSec,
           secondaryUnit: secUnit,
@@ -204,7 +204,7 @@ export const createMaterialRequest = async (req, res) => {
           materialName: doc?.name || cleanName || 'Bought Out Item',
           materialCode: doc?.code || item.materialCode || '',
           quantity: priQty,
-          unit: item.unit || doc?.unit || 'PCS',
+          unit: doc?.unit || item.unit || 'PCS',
           currentStock: curStock,
           hasSecondaryUnit: hasSec,
           secondaryUnit: secUnit,
@@ -238,7 +238,7 @@ export const createMaterialRequest = async (req, res) => {
         const hasSec = Boolean(item.hasSecondaryUnit ?? doc?.hasSecondaryUnit ?? false);
         const secUnit = item.secondaryUnit || doc?.secondaryUnit || '';
         const convFactor = Number(item.conversionFactor ?? doc?.conversionFactor ?? 1);
-        const selectedUnit = item.selectedUnit || item.unit || doc?.unit || 'PCS';
+        const selectedUnit = item.selectedUnit || item.unit || doc?.unit || 'KG';
         let priQty = Number(item.quantity) || 0;
         let secQty = Number(item.secondaryQuantity) || 0;
 
@@ -261,7 +261,7 @@ export const createMaterialRequest = async (req, res) => {
           materialName: doc?.name || cleanName || 'Raw Material',
           materialCode: doc?.code || item.materialCode || '',
           quantity: priQty,
-          unit: item.unit || doc?.unit || 'PCS',
+          unit: doc?.unit || item.unit || 'KG',
           currentStock: curStock,
           hasSecondaryUnit: hasSec,
           secondaryUnit: secUnit,

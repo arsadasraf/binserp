@@ -230,18 +230,28 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1 flex items-center justify-between">
                                 <span>Base Unit (Primary UOM) <span className="text-red-500">*</span></span>
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
-                                    <Lock size={10} /> Fixed Standard
-                                </span>
                             </label>
-                            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 font-bold select-none cursor-not-allowed">
-                                <span className="text-sm font-mono tracking-wide">{defaultBaseUom}</span>
-                                <span className="text-xs text-slate-500 dark:text-slate-400 font-normal">
-                                    {defaultBaseUom === 'KG' ? 'Kilograms (Raw Material Standard)' : 'Numbers / Pieces (Count Standard)'}
-                                </span>
-                            </div>
+                            <select
+                                value={formData.unit || defaultBaseUom}
+                                onChange={(e) => {
+                                    const newUnit = e.target.value;
+                                    setFormData({
+                                        ...formData,
+                                        unit: newUnit,
+                                        secondaryUnit: formData.secondaryUnit === newUnit ? "" : formData.secondaryUnit
+                                    });
+                                }}
+                                className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 dark:text-slate-100 text-sm font-medium"
+                                required
+                            >
+                                {STANDARD_UOMS.map((u) => (
+                                    <option key={u.value} value={u.value}>
+                                        {u.label}
+                                    </option>
+                                ))}
+                            </select>
                             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                                Base unit is locked. If you measure, buy, or stock in another unit (e.g. Sheet, Box, Meter), configure <strong>Secondary Unit</strong> below.
+                                Primary unit used for inventory stock and standard transactions.
                             </p>
                         </div>
                         <div>

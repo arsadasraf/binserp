@@ -47,7 +47,7 @@ interface AuditRecord {
   componentName?: string;
   // Material Request specific
   requestNumber?: string;
-  sourceType: "inventory" | "bom" | "mr";
+  sourceType: "master" | "inventory" | "bom" | "mr";
   description?: string;
 }
 
@@ -61,7 +61,7 @@ export default function SyncMasterUomModal({
   const [syncing, setSyncing] = useState(false);
   const [auditData, setAuditData] = useState<any>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"all" | "inventory" | "bom" | "mr">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "master" | "inventory" | "bom" | "mr">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [syncStats, setSyncStats] = useState<any>(null);
 
@@ -107,6 +107,7 @@ export default function SyncMasterUomModal({
         <div class="text-left text-xs sm:text-sm text-slate-600 dark:text-slate-300 space-y-2">
           <p>This action will harmonize Unit of Measure definitions across your entire system:</p>
           <ul class="list-disc pl-5 space-y-1 font-medium text-slate-700 dark:text-slate-200">
+            <li><strong>${auditData?.masterMismatchesCount || 0}</strong> Master catalog items will have their primary UOM corrected to standard (e.g. Bought Out to PCS).</li>
             <li><strong>${auditData?.inventoryMismatchesCount || 0}</strong> Inventory stock records will be matched to their master UOM.</li>
             <li><strong>${auditData?.bomMismatchesCount || 0}</strong> Attached BOM component lines will adopt their true master UOM.</li>
             <li><strong>${auditData?.materialRequestMismatchesCount || 0}</strong> Open Material Request items will reflect current canonical UOMs.</li>
@@ -146,7 +147,11 @@ export default function SyncMasterUomModal({
         html: `
           <div class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 space-y-2">
             <p class="font-bold text-emerald-600 dark:text-emerald-400">All master UOM definitions have been successfully aligned!</p>
-            <div class="grid grid-cols-3 gap-2 bg-slate-50 dark:bg-slate-800 p-2.5 rounded-lg text-center mt-3 text-xs">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 dark:bg-slate-800 p-2.5 rounded-lg text-center mt-3 text-xs">
+              <div>
+                <div class="font-bold text-slate-800 dark:text-slate-100 text-base">${data.stats?.mastersFixed || 0}</div>
+                <div class="text-[10px] text-slate-500">Masters Fixed</div>
+              </div>
               <div>
                 <div class="font-bold text-slate-800 dark:text-slate-100 text-base">${data.stats?.inventoryFixed || 0}</div>
                 <div class="text-[10px] text-slate-500">Inventory Fixed</div>
@@ -192,6 +197,19 @@ export default function SyncMasterUomModal({
   const allMismatches = useMemo<AuditRecord[]>(() => {
     if (!auditData) return [];
     const list: AuditRecord[] = [];
+
+    (auditData.masterMismatches || []).forEach((m: any) => {
+      list.push({
+        id: m.id,
+        materialCode: m.materialCode,
+        materialName: m.materialName,
+        itemType: m.itemType || "Master Catalog",
+        currentUnit: m.currentUnit,
+        masterUnit: m.masterUnit,
+        locationSource: m.locationSource || "Master Catalog",
+        sourceType: "master",
+      });
+    });
 
     (auditData.inventoryMismatches || []).forEach((inv: any) => {
       list.push({
@@ -266,6 +284,7 @@ export default function SyncMasterUomModal({
   if (!isOpen || !mounted) return null;
 
   const totalDiscrepancies = auditData?.totalDiscrepancies || 0;
+  const masterCount = auditData?.masterMismatchesCount || 0;
   const invCount = auditData?.inventoryMismatchesCount || 0;
   const bomCount = auditData?.bomMismatchesCount || 0;
   const mrCount = auditData?.materialRequestMismatchesCount || 0;
@@ -289,7 +308,7 @@ export default function SyncMasterUomModal({
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Automatically identifies and rectifies unit discrepancies across Inventory, BOMs, and Material Requests.
+                Automatically identifies and rectifies unit discrepancies across Master Catalog, Inventory, BOMs, and Material Requests.
               </p>
             </div>
           </div>
@@ -317,7 +336,7 @@ export default function SyncMasterUomModal({
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
           {/* Audit Metrics Banner */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 sm:gap-3">
             {/* Metric 1 */}
             <div className="p-3 bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 rounded-xl">
               <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
@@ -365,7 +384,21 @@ export default function SyncMasterUomModal({
             {/* Metric 3 */}
             <div className="p-3 bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 rounded-xl">
               <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                <span className="text-[11px] font-semibold uppercase tracking-wider">Inventory Mismatch</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wider">Master Items</span>
+                <Sparkles size={14} className="text-purple-500" />
+              </div>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+                  {loadingAudit ? "..." : masterCount}
+                </span>
+                <span className="text-[10px] text-slate-500">to fix</span>
+              </div>
+            </div>
+
+            {/* Metric 4 */}
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 rounded-xl">
+              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                <span className="text-[11px] font-semibold uppercase tracking-wider">Inventory</span>
                 <Layers size={14} className="text-blue-500" />
               </div>
               <div className="mt-1 flex items-baseline gap-2">
@@ -376,10 +409,10 @@ export default function SyncMasterUomModal({
               </div>
             </div>
 
-            {/* Metric 4 */}
+            {/* Metric 5 */}
             <div className="p-3 bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 rounded-xl">
               <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-                <span className="text-[11px] font-semibold uppercase tracking-wider">BOM / MR Mismatch</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wider">BOM / MR</span>
                 <ClipboardList size={14} className="text-violet-500" />
               </div>
               <div className="mt-1 flex items-baseline gap-2">
@@ -452,6 +485,16 @@ export default function SyncMasterUomModal({
                 }`}
               >
                 All Mismatches ({allMismatches.length})
+              </button>
+              <button
+                onClick={() => setActiveTab("master")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === "master"
+                    ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                Master Items ({masterCount})
               </button>
               <button
                 onClick={() => setActiveTab("inventory")}

@@ -83,6 +83,31 @@ export default function MaterialRequestModal({
         }]
     });
 
+    const [autoLoadBom, setAutoLoadBom] = useState<boolean>(false);
+
+    const createBlankItem = (t: RequestInventoryType = formData.type, mrpNum = formData.mrpNumber) => {
+        const defaultUnit = t === 'rm' ? 'KG' : (t === 'fg' ? 'Nos' : 'PCS');
+        return {
+            material: "",
+            itemType: t === 'bo' ? 'Bought Out' : (t === 'fg' ? 'FG Item' : (t === 'consumable' ? 'Consumable' : 'Raw Material')),
+            materialName: "",
+            materialCode: "",
+            materialDescription: "" as string | undefined,
+            quantity: 1,
+            unit: defaultUnit,
+            hasSecondaryUnit: false,
+            secondaryUnit: "",
+            conversionFactor: 0,
+            secondaryQuantity: 0,
+            selectedUnit: defaultUnit,
+            purpose: mrpNum ? `Demand for MRP: ${mrpNum}` : "",
+            component: undefined as string | undefined,
+            consumable: undefined as string | undefined,
+            fgItem: undefined as string | undefined,
+            currentStock: 0
+        };
+    };
+
     const generateRequestNumber = () => {
         const now = new Date();
         const timeStr = now.toISOString().replace(/[-:T.Z]/g, "").slice(0, 12);
@@ -91,6 +116,7 @@ export default function MaterialRequestModal({
 
     useEffect(() => {
         if (isOpen) {
+            setAutoLoadBom(false);
             const currentInitial: RequestInventoryType = (
                 defaultType === 'inhouse' ? 'fg' : (defaultType as RequestInventoryType) || 'consumable'
             );
@@ -102,25 +128,7 @@ export default function MaterialRequestModal({
                 soNumber: "",
                 mrpPlan: "",
                 mrpNumber: "",
-                items: [{
-                    material: "",
-                    itemType: undefined,
-                    materialName: "",
-                    materialCode: "",
-                    materialDescription: "" as string | undefined,
-                    quantity: 1,
-                    unit: currentInitial === 'fg' ? "Nos" : "PCS",
-                    hasSecondaryUnit: false,
-                    secondaryUnit: "",
-                    conversionFactor: 0,
-                    secondaryQuantity: 0,
-                    selectedUnit: currentInitial === 'fg' ? "Nos" : "PCS",
-                    purpose: "",
-                    component: undefined,
-                    consumable: undefined,
-                    fgItem: undefined,
-                    currentStock: 0
-                }]
+                items: [createBlankItem(currentInitial, "")]
             });
 
             // Fetch active MRP plans
@@ -186,16 +194,15 @@ export default function MaterialRequestModal({
         return inHouseComponents || [];
     }, [fgItems, inHouseComponents]);
 
-    const handleSelectMRPPlan = (planId: string) => {
-        const selectedPlan = mrpPlans.find(p => p._id === planId);
-        if (!selectedPlan) {
-            setFormData(prev => ({ ...prev, mrpPlan: '', mrpNumber: '' }));
-            return;
-        }
+    const activeSelectedPlan = useMemo(() => {
+        if (!formData.mrpPlan) return null;
+        return (mrpPlans || []).find((p: any) => p._id === formData.mrpPlan) || null;
+    }, [formData.mrpPlan, mrpPlans]);
 
-        // Auto-fill required items from this MRP plan if available
+    const getMrpBomItems = (selectedPlan: any, reqType: RequestInventoryType): any[] => {
+        if (!selectedPlan) return [];
         let populatedItems: any[] = [];
-        if (formData.type === 'fg' && Array.isArray(selectedPlan.fgItems) && selectedPlan.fgItems.length > 0) {
+        if (reqType === 'fg' && Array.isArray(selectedPlan.fgItems) && selectedPlan.fgItems.length > 0) {
             populatedItems = selectedPlan.fgItems.map((f: any) => {
                 const comp = effectiveFGList.find((c: any) => (c._id === f.fgItem || c.name === f.fgItemName));
                 const hasSec = Boolean(comp?.hasSecondaryUnit);
@@ -208,6 +215,7 @@ export default function MaterialRequestModal({
                     itemType: 'FG Item',
                     materialName: f.fgItemName,
                     materialCode: f.fgItemCode || '',
+                    materialDescription: comp?.description || '',
                     quantity: qty,
                     unit: f.unit || 'Nos',
                     hasSecondaryUnit: hasSec,
@@ -223,18 +231,17 @@ export default function MaterialRequestModal({
                 };
             });
         } else {
-            // Select appropriate requirement pool from MRP Plan based on selected request type
             let sourceRequirements: any[] = [];
             let searchList: any[] = effectiveRMList;
             let defaultItemType = 'Raw Material';
 
-            if (formData.type === 'bo') {
+            if (reqType === 'bo') {
                 sourceRequirements = (Array.isArray(selectedPlan.boRequirements) && selectedPlan.boRequirements.length > 0)
                     ? selectedPlan.boRequirements
                     : (selectedPlan.rmRequirements || []).filter((r: any) => (r.itemType || '').toLowerCase().includes('bo') || (r.category || '').toLowerCase().includes('bought'));
                 searchList = effectiveBOList;
                 defaultItemType = 'Bought Out';
-            } else if (formData.type === 'consumable') {
+            } else if (reqType === 'consumable') {
                 sourceRequirements = selectedPlan.consumableRequirements || [];
                 searchList = consumables || [];
                 defaultItemType = 'Consumable';
@@ -253,10 +260,10 @@ export default function MaterialRequestModal({
                     
                     const totalNeeded = Number(r.requiredQuantity || r.totalRequired || 1);
                     const liveStock = Number(mat?.quantity ?? mat?.currentStock ?? r.currentStock ?? 0);
-                    // Pre-fill with what can immediately be issued from live stock, or full demand if stock is 0
                     const qty = liveStock > 0 ? Math.min(totalNeeded, liveStock) : totalNeeded;
                     const secQty = (hasSec && convFactor > 0) ? parseFloat((qty * convFactor).toFixed(4)) : 0;
 
+                    const itemUnit = (mat?.unit || r.unit || (defaultItemType === 'Raw Material' ? 'KG' : 'PCS')).toString().trim();
                     return {
                         material: mat?._id || r.material || '',
                         itemType: defaultItemType,
@@ -264,14 +271,14 @@ export default function MaterialRequestModal({
                         materialCode: r.materialCode || mat?.code || '',
                         materialDescription: r.description || mat?.descriptions || mat?.description || '',
                         quantity: qty,
-                        unit: r.unit || mat?.unit || 'PCS',
+                        unit: itemUnit,
                         hasSecondaryUnit: hasSec,
                         secondaryUnit: secUnit,
                         conversionFactor: convFactor,
                         secondaryQuantity: secQty,
-                        selectedUnit: r.unit || mat?.unit || 'PCS',
+                        selectedUnit: itemUnit,
                         purpose: `Demand for MRP: ${selectedPlan.mrpNumber}`,
-                        consumable: formData.type === 'consumable' ? (mat?._id || r.material) : undefined,
+                        consumable: reqType === 'consumable' ? (mat?._id || r.material) : undefined,
                         component: undefined,
                         fgItem: undefined,
                         currentStock: liveStock
@@ -279,14 +286,110 @@ export default function MaterialRequestModal({
                 });
             }
         }
+        return populatedItems;
+    };
 
-        setFormData(prev => ({
-            ...prev,
-            mrpPlan: selectedPlan._id,
-            mrpNumber: selectedPlan.mrpNumber,
-            soNumber: prev.soNumber || selectedPlan.customerName || selectedPlan.remarks || '',
-            items: populatedItems.length > 0 ? populatedItems : prev.items
-        }));
+    const availableBomCount = useMemo(() => {
+        if (!activeSelectedPlan) return 0;
+        if (formData.type === 'fg') {
+            return (activeSelectedPlan.fgItems || []).length;
+        }
+        if (formData.type === 'bo') {
+            const boReq = (Array.isArray(activeSelectedPlan.boRequirements) && activeSelectedPlan.boRequirements.length > 0)
+                ? activeSelectedPlan.boRequirements
+                : (activeSelectedPlan.rmRequirements || []).filter((r: any) => (r.itemType || '').toLowerCase().includes('bo') || (r.category || '').toLowerCase().includes('bought'));
+            return boReq.length;
+        }
+        if (formData.type === 'consumable') {
+            return (activeSelectedPlan.consumableRequirements || []).length;
+        }
+        return (activeSelectedPlan.rmRequirements || []).length;
+    }, [activeSelectedPlan, formData.type]);
+
+    const mrpRequirementMap = useMemo(() => {
+        const map = new Map<string, { reqQty: number; unit: string }>();
+        if (!activeSelectedPlan) return map;
+        let reqs: any[] = [];
+        if (formData.type === 'fg') {
+            (activeSelectedPlan.fgItems || []).forEach((f: any) => {
+                const qty = f.quantity || 1;
+                const u = f.unit || 'Nos';
+                if (f.fgItem) map.set(f.fgItem.toString(), { reqQty: qty, unit: u });
+                if (f.fgItemName) map.set(f.fgItemName.toLowerCase().trim(), { reqQty: qty, unit: u });
+            });
+            return map;
+        }
+        if (formData.type === 'bo') {
+            reqs = (Array.isArray(activeSelectedPlan.boRequirements) && activeSelectedPlan.boRequirements.length > 0)
+                ? activeSelectedPlan.boRequirements
+                : (activeSelectedPlan.rmRequirements || []).filter((r: any) => (r.itemType || '').toLowerCase().includes('bo') || (r.category || '').toLowerCase().includes('bought'));
+        } else if (formData.type === 'consumable') {
+            reqs = activeSelectedPlan.consumableRequirements || [];
+        } else {
+            reqs = activeSelectedPlan.rmRequirements || [];
+        }
+
+        reqs.forEach((r: any) => {
+            const qty = Number(r.requiredQuantity || r.totalRequired || 1);
+            const u = r.unit || '';
+            if (r.material) map.set(r.material.toString(), { reqQty: qty, unit: u });
+            if (r.materialCode) map.set(r.materialCode.toLowerCase().trim(), { reqQty: qty, unit: u });
+            if (r.materialName) map.set(r.materialName.toLowerCase().trim(), { reqQty: qty, unit: u });
+        });
+        return map;
+    }, [activeSelectedPlan, formData.type]);
+
+    const handleSelectMRPPlan = (planId: string) => {
+        const selectedPlan = (mrpPlans || []).find(p => p._id === planId);
+        if (!selectedPlan) {
+            setFormData(prev => ({ ...prev, mrpPlan: '', mrpNumber: '' }));
+            return;
+        }
+
+        setFormData(prev => {
+            let updatedItems = prev.items;
+            if (autoLoadBom) {
+                const bomItems = getMrpBomItems(selectedPlan, prev.type);
+                if (bomItems.length > 0) {
+                    updatedItems = bomItems;
+                }
+            } else {
+                if (updatedItems.length === 1 && !updatedItems[0].material) {
+                    updatedItems = [{
+                        ...updatedItems[0],
+                        purpose: `Demand for MRP: ${selectedPlan.mrpNumber}`
+                    }];
+                }
+            }
+
+            return {
+                ...prev,
+                mrpPlan: selectedPlan._id,
+                mrpNumber: selectedPlan.mrpNumber,
+                soNumber: prev.soNumber || selectedPlan.customerName || selectedPlan.remarks || '',
+                items: updatedItems
+            };
+        });
+    };
+
+    const handleToggleAutoLoadBom = (enable: boolean) => {
+        setAutoLoadBom(enable);
+        if (enable) {
+            if (activeSelectedPlan) {
+                const bomItems = getMrpBomItems(activeSelectedPlan, formData.type);
+                if (bomItems.length > 0) {
+                    setFormData(prev => ({
+                        ...prev,
+                        items: bomItems
+                    }));
+                }
+            }
+        } else {
+            setFormData(prev => ({
+                ...prev,
+                items: [createBlankItem(prev.type, prev.mrpNumber)]
+            }));
+        }
     };
 
     const getStock = (materialId: string, materialCode?: string, materialName?: string) => {
@@ -355,19 +458,22 @@ export default function MaterialRequestModal({
             selectedItem = effectiveBOList.find((m: any) => m._id === materialId);
         }
 
-        const unitVal = (formData.type === 'consumable'
-            ? (selectedItem?.unit || "PCS")
-            : formData.type === 'fg'
-                ? (selectedItem?.unit || "Nos")
-                : (typeof selectedItem?.categoryId === 'object' ? (selectedItem.categoryId as any)?.unit : selectedItem?.unit || "PCS")
-        ) || "PCS";
+        // Always strictly prioritize the item's canonical master unit
+        const masterUnit = (selectedItem?.unit || '').toString().trim();
+        const fallbackUnit = formData.type === 'rm' ? 'KG' : (formData.type === 'fg' ? 'Nos' : 'PCS');
+        const unitVal = masterUnit || fallbackUnit;
 
         const currentStock = getStock(materialId, selectedItem?.code || selectedItem?.componentCode, selectedItem?.name || selectedItem?.componentName);
-        const materialDesc = selectedItem?.description || selectedItem?.specification || selectedItem?.grade || "";
+        const materialDesc = selectedItem?.descriptions || selectedItem?.description || selectedItem?.specification || selectedItem?.grade || "";
         const hasSecondaryUnit = Boolean(selectedItem?.hasSecondaryUnit);
         const secondaryUnit = selectedItem?.secondaryUnit || "";
         const conversionFactor = Number(selectedItem?.conversionFactor) || 0;
-        const currentQty = formData.items[index]?.quantity || 1;
+        const mrpReq = mrpRequirementMap.get(materialId) ||
+                       (selectedItem?.code ? mrpRequirementMap.get(selectedItem.code.toLowerCase().trim()) : null) ||
+                       (selectedItem?.name ? mrpRequirementMap.get(selectedItem.name.toLowerCase().trim()) : null);
+        const plannedQty = mrpReq ? mrpReq.reqQty : 1;
+        const existingQty = formData.items[index]?.quantity;
+        const currentQty = (existingQty && existingQty !== 1) ? existingQty : plannedQty;
         const secondaryQuantity = hasSecondaryUnit && conversionFactor ? parseFloat((currentQty * conversionFactor).toFixed(4)) : 0;
 
         const newItems = [...formData.items];
@@ -399,25 +505,7 @@ export default function MaterialRequestModal({
     };
 
     const addItem = (insertAfterIndex?: number) => {
-        const newItem = {
-            material: "",
-            itemType: undefined as string | undefined,
-            materialName: "",
-            materialCode: "",
-            materialDescription: "",
-            quantity: 1,
-            unit: formData.type === 'fg' ? "Nos" : "PCS",
-            hasSecondaryUnit: false,
-            secondaryUnit: "",
-            conversionFactor: 0,
-            secondaryQuantity: 0,
-            selectedUnit: formData.type === 'fg' ? "Nos" : "PCS",
-            purpose: "",
-            component: undefined,
-            consumable: undefined,
-            fgItem: undefined,
-            currentStock: 0
-        };
+        const newItem = createBlankItem(formData.type, formData.mrpNumber);
 
         if (typeof insertAfterIndex === 'number' && insertAfterIndex >= 0 && insertAfterIndex < formData.items.length) {
             const newItems = [...formData.items];
@@ -437,28 +525,11 @@ export default function MaterialRequestModal({
     };
 
     const switchType = (newType: RequestInventoryType) => {
+        setAutoLoadBom(false);
         setFormData(prev => ({
             ...prev,
             type: newType,
-            items: [{
-                material: "",
-                itemType: undefined as string | undefined,
-                materialName: "",
-                materialCode: "",
-                materialDescription: "",
-                quantity: 1,
-                unit: newType === 'fg' ? "Nos" : "PCS",
-                hasSecondaryUnit: false,
-                secondaryUnit: "",
-                conversionFactor: 0,
-                secondaryQuantity: 0,
-                selectedUnit: newType === 'fg' ? "Nos" : "PCS",
-                purpose: "",
-                component: undefined,
-                consumable: undefined,
-                fgItem: undefined,
-                currentStock: 0
-            }]
+            items: [createBlankItem(newType, prev.mrpNumber)]
         }));
     };
 
@@ -599,6 +670,49 @@ export default function MaterialRequestModal({
                                     ⚠️ Please select an active MRP Plan to proceed with this {formData.type.toUpperCase()} request.
                                 </p>
                             )}
+
+                            {/* When an active MRP is selected: Show BOM Available Count & Auto-Load Toggle */}
+                            {Boolean(formData.mrpPlan) && (
+                                <div className="mt-2.5 pt-2.5 border-t border-indigo-200/60 dark:border-indigo-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                            BOM in Plan:
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 dark:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                            {availableBomCount} {formData.type === 'fg' ? 'FG' : formData.type === 'bo' ? 'Bought Out' : formData.type === 'consumable' ? 'Consumables' : 'Raw Material'} items
+                                        </span>
+                                    </div>
+
+                                    {/* Auto-Load Toggle Switch */}
+                                    <div className="flex items-center gap-2.5">
+                                        <label 
+                                            htmlFor="auto-load-bom-toggle"
+                                            className="text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none"
+                                        >
+                                            Auto-load all BOM items
+                                        </label>
+                                        <button
+                                            id="auto-load-bom-toggle"
+                                            type="button"
+                                            role="switch"
+                                            aria-checked={autoLoadBom}
+                                            onClick={() => handleToggleAutoLoadBom(!autoLoadBom)}
+                                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                                                autoLoadBom ? 'bg-indigo-600 shadow-xs' : 'bg-slate-300 dark:bg-slate-700'
+                                            }`}
+                                        >
+                                            <span
+                                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                                                    autoLoadBom ? 'translate-x-5' : 'translate-x-0'
+                                                }`}
+                                            />
+                                        </button>
+                                        <span className={`text-[11px] font-black uppercase ${autoLoadBom ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}>
+                                            {autoLoadBom ? 'On' : 'Off'}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -634,30 +748,43 @@ export default function MaterialRequestModal({
                                     )
                                 );
 
+                                const getItemOptionDesc = (itemObj: any) => {
+                                    const baseDesc = getDescStr(itemObj);
+                                    if (!formData.mrpPlan) return baseDesc;
+                                    const mrpReq = mrpRequirementMap.get(itemObj._id?.toString()) ||
+                                                   (itemObj.code ? mrpRequirementMap.get(itemObj.code.toLowerCase().trim()) : null) ||
+                                                   (itemObj.name ? mrpRequirementMap.get(itemObj.name.toLowerCase().trim()) : null);
+                                    if (mrpReq) {
+                                        const reqBadge = `★ In MRP BOM (${mrpReq.reqQty} ${mrpReq.unit || itemObj.unit || ''})`;
+                                        return baseDesc ? `${baseDesc} • ${reqBadge}` : reqBadge;
+                                    }
+                                    return baseDesc;
+                                };
+
                                 // Options generation strictly filtered per category with Name and Description ONLY
                                 const currentOptions = (
                                     formData.type === 'consumable'
                                         ? (consumables || []).map((c: any) => ({
                                             value: c._id,
                                             label: c.name || '',
-                                            description: getDescStr(c)
+                                            description: getItemOptionDesc(c)
                                         }))
                                         : formData.type === 'fg'
                                             ? effectiveFGList.map((c: any) => ({
                                                 value: c._id,
                                                 label: c.name || c.componentName || '',
-                                                description: getDescStr(c)
+                                                description: getItemOptionDesc(c)
                                             }))
                                             : formData.type === 'bo'
                                                 ? effectiveBOList.map((b: any) => ({
                                                     value: b._id,
                                                     label: b.name || '',
-                                                    description: getDescStr(b)
+                                                    description: getItemOptionDesc(b)
                                                 }))
                                                 : effectiveRMList.map((r: any) => ({
                                                     value: r._id,
                                                     label: r.name || '',
-                                                    description: getDescStr(r)
+                                                    description: getItemOptionDesc(r)
                                                 }))
                                 );
 

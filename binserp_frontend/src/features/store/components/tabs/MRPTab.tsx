@@ -17,6 +17,7 @@ import MRPProcurementWorkbench from './MRPProcurementWorkbench';
 import MRP360WipDrawer from '../modals/MRP360WipDrawer';
 import MRPItemWiseView from '../views/MRPItemWiseView';
 import MRPHistoryView from '../views/MRPHistoryView';
+import MRPDemandTab from './MRPDemandTab';
 import { calculateMRPLockStatus } from '@/src/features/mrp/utils/mrpStatusHelper';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
@@ -29,7 +30,8 @@ interface MRPTabProps {
 
 export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabProps) {
   const [loading, setLoading] = useState(true);
-  const [mainView, setMainView] = useState<'plans' | 'workbench' | 'history'>('plans');
+  const [mainView, setMainView] = useState<'demand' | 'plans' | 'workbench' | 'history'>('demand');
+  const [preselectedPoIds, setPreselectedPoIds] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'plans' | 'items'>('plans');
   const [showPlansDashboard, setShowPlansDashboard] = useState<boolean>(false);
   const [showItemsDashboard, setShowItemsDashboard] = useState<boolean>(false);
@@ -720,6 +722,18 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
       <div className="shrink-0 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 overflow-x-auto scroll-smooth touch-pan-x py-0.5 no-scrollbar">
           <button
+            onClick={() => setMainView('demand')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+              mainView === 'demand'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40'
+            }`}
+          >
+            <TrendingUp size={14} />
+            <span>📊 Demand & Customer POs</span>
+          </button>
+
+          <button
             onClick={() => setMainView('plans')}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
               mainView === 'plans'
@@ -762,6 +776,30 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
           </button>
         </div>
       </div>
+
+      {/* VIEW 0: DEMAND INTAKE & MONTH-WISE PLANNING */}
+      {mainView === 'demand' && (
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <MRPDemandTab
+            token={token}
+            mrpPlans={mrpPlans}
+            onPlanSinglePo={(po) => {
+              setPreselectedPoIds([po._id]);
+              setIsCreateModalOpen(true);
+            }}
+            onPlanConsolidatedPos={(poIds) => {
+              setPreselectedPoIds(poIds);
+              setIsCreateModalOpen(true);
+            }}
+            onViewPlanDetails={(plan) => {
+              setSelectedPlanForDetails(plan);
+              setIsDetailsModalOpen(true);
+            }}
+            onError={onError}
+            onSuccess={onSuccess}
+          />
+        </div>
+      )}
 
       {/* VIEW 2: PROCUREMENT WORKBENCH */}
       {mainView === 'workbench' && (
@@ -2621,14 +2659,30 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
           onClose={() => {
             setIsCreateModalOpen(false);
             setEditingPlan(null);
+            setPreselectedPoIds([]);
           }}
           onSuccess={() => {
             fetchData();
             setIsCreateModalOpen(false);
             setEditingPlan(null);
+            setPreselectedPoIds([]);
+            Swal.fire({
+              icon: 'success',
+              title: 'MRP Demand Plan Created!',
+              text: 'BOM exploded and procurement requirements calculated successfully.',
+              confirmButtonText: 'View in MRP Plans',
+              showCancelButton: true,
+              cancelButtonText: 'Stay in Demand Hub',
+              confirmButtonColor: '#4f46e5'
+            }).then((res) => {
+              if (res.isConfirmed) {
+                setMainView('plans');
+              }
+            });
           }}
           token={token}
           initialData={editingPlan}
+          preselectedPoIds={preselectedPoIds}
         />
       )}
 

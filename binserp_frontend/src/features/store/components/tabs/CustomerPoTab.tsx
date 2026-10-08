@@ -12,7 +12,6 @@ import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
 import SearchableMultiSelect from '../SearchableMultiSelect';
 import OrderAcknowledgementModal from '../modals/OrderAcknowledgementModal';
-import MRPModal from '../modals/MRPModal';
 import MRPDetailsModal from '../modals/MRPDetailsModal';
 import CustomerPOItemWiseView from '../views/CustomerPOItemWiseView';
 import { generateFrontendOrderAcknowledgementPDF } from '@/src/utils/generateOrderAcknowledgementPDF';
@@ -847,32 +846,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
         };
     }, [filteredPoList, convertToINR]);
 
-    // Consolidated MRP Creation from Multi-PO Selection
-    const [selectedPoIds, setSelectedPoIds] = useState<string[]>([]);
-    const [isMrpModalOpen, setIsMrpModalOpen] = useState(false);
 
-    // Selected POs Financials in INR
-    const selectedFinancials = useMemo(() => {
-        let selectedInr = 0;
-        const selectedCurrencies: Record<string, number> = {};
-        const selectedPos = (Array.isArray(poList) ? poList : []).filter(p => selectedPoIds.includes(p._id));
-
-        selectedPos.forEach(po => {
-            const amount = Number(po.totalAmount || po.subtotal || 0);
-            const curr = (po.currency || 'INR').trim().toUpperCase();
-            selectedCurrencies[curr] = (selectedCurrencies[curr] || 0) + amount;
-            const inr = convertToINR(amount, curr);
-            selectedInr += inr.inrAmount;
-        });
-
-        return {
-            count: selectedPos.length,
-            selectedInr,
-            formattedSelectedInr: `₹${selectedInr.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-            selectedCurrencies,
-            hasForeign: Object.keys(selectedCurrencies).some(c => c !== 'INR' && selectedCurrencies[c] > 0)
-        };
-    }, [poList, selectedPoIds, convertToINR]);
 
     const handleViewMrpPlan = async (po: any) => {
         const mrpId = po.mrpPlan?._id || (typeof po.mrpPlan === 'string' ? po.mrpPlan : null);
@@ -906,31 +880,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
         }
     };
 
-    const isPoEligibleForMRP = (po: any) => {
-        return po && (po.status === 'Received' || po.status === 'Accepted');
-    };
 
-    const eligibleFilteredPOs = useMemo(() => {
-        return (Array.isArray(filteredPoList) ? filteredPoList : []).filter(isPoEligibleForMRP);
-    }, [filteredPoList]);
-
-    const allFilteredSelected = filteredPoList.length > 0 && filteredPoList.every(po => selectedPoIds.includes(po._id));
-    const allEligibleSelected = allFilteredSelected;
-
-    const toggleSelectAllFiltered = () => {
-        if (allFilteredSelected) {
-            const filteredIds = new Set(filteredPoList.map(p => p._id));
-            setSelectedPoIds(prev => prev.filter(id => !filteredIds.has(id)));
-        } else {
-            const toAdd = filteredPoList.map(p => p._id);
-            setSelectedPoIds(prev => Array.from(new Set([...prev, ...toAdd])));
-        }
-    };
-    const toggleSelectAllEligible = toggleSelectAllFiltered;
-
-    const toggleSelectPo = (poId: string) => {
-        setSelectedPoIds(prev => prev.includes(poId) ? prev.filter(id => id !== poId) : [...prev, poId]);
-    };
 
     return (
         <div className="space-y-4 pb-20 sm:pb-16 animate-in fade-in duration-300">
@@ -1107,44 +1057,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
             <div className="space-y-3">
 
-                {/* Dynamic Selection Summary Banner (when 1+ POs selected) */}
-                {selectedPoIds.length > 0 && (
-                    <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 text-white p-3.5 sm:p-4 rounded-2xl shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
-                        <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                                <span className="w-2.5 h-2.5 rounded-full bg-white animate-pulse"></span>
-                                <span className="font-extrabold text-xs uppercase tracking-wider text-blue-100">Active Multi-PO Selection</span>
-                            </div>
-                            <div className="flex items-baseline gap-2 flex-wrap">
-                                <span className="text-2xl font-black font-mono">{selectedFinancials.formattedSelectedInr}</span>
-                                <span className="text-xs text-blue-100 font-bold">({selectedFinancials.count} Customer PO{selectedFinancials.count > 1 ? 's' : ''} Selected)</span>
-                            </div>
-                            {selectedFinancials.hasForeign && (
-                                <div className="text-[10px] text-blue-100 font-mono">
-                                    Converted into INR using Store Prefix Settings rates
-                                </div>
-                            )}
-                        </div>
 
-                        <div className="flex items-center gap-2 flex-wrap self-end md:self-center">
-                            <button
-                                type="button"
-                                onClick={() => setIsMrpModalOpen(true)}
-                                className="px-4 py-2 bg-white hover:bg-blue-50 text-indigo-700 font-extrabold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-all transform hover:scale-[1.02] cursor-pointer"
-                            >
-                                <Layers size={14} className="text-indigo-600" />
-                                <span>Create Consolidated MRP ({selectedFinancials.count})</span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setSelectedPoIds([])}
-                                className="px-3 py-2 bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
-                            >
-                                Clear Selection
-                            </button>
-                        </div>
-                    </div>
-                )}
             </div>
 
             {/* Search, Filter & Action Toolbar */}
@@ -1342,22 +1255,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                             <span className="hidden sm:inline">{showDashboard ? "Hide" : "Dashboard"}</span>
                         </button>
 
-                        {/* Consolidated MRP Button */}
-                        <button
-                            type="button"
-                            onClick={() => setIsMrpModalOpen(true)}
-                            className={`px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
-                                selectedPoIds.length > 0 
-                                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm' 
-                                    : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
-                            }`}
-                            title="Create Single Consolidated MRP from multiple Customer POs"
-                        >
-                            <Layers size={14} />
-                            <span className="hidden xl:inline">Consolidated MRP</span>
-                            <span className="xl:hidden">MRP</span>
-                            {selectedPoIds.length > 0 ? ` (${selectedPoIds.length})` : ''}
-                        </button>
+
 
                         {/* Log Customer PO Button */}
                         <button
@@ -1588,16 +1486,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                         <table className="w-full text-sm text-left relative">
                             <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 shadow-2xs">
                                 <tr>
-                                    <th className="px-3 py-3.5 w-10 text-center">
-                                        <input
-                                            type="checkbox"
-                                            checked={allFilteredSelected}
-                                            onChange={toggleSelectAllFiltered}
-                                            disabled={filteredPoList.length === 0}
-                                            title={filteredPoList.length === 0 ? "No Customer POs to select" : "Select all POs in current view"}
-                                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4 disabled:opacity-30 disabled:cursor-not-allowed"
-                                        />
-                                    </th>
+
                                     <th className="px-4 py-3.5">Customer PO #</th>
                                     <th className="px-4 py-3.5">Customer Name</th>
                                     <th className="px-4 py-3.5 text-center">PO Date</th>
@@ -1619,20 +1508,9 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                     const remDays = commitDate
                                         ? Math.ceil((new Date(commitDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
                                         : null;
-                                    const isSelected = selectedPoIds.includes(po._id);
-                                    const isEligible = isPoEligibleForMRP(po);
 
                                     return (
-                                        <tr key={po._id || po.poNumber} className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors ${isSelected ? 'bg-blue-50/70 dark:bg-blue-950/30' : ''}`}>
-                                            <td className="px-3 py-3.5 text-center">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={isSelected}
-                                                    onChange={() => toggleSelectPo(po._id)}
-                                                    title={po.mrpNumber ? `Linked to MRP #${po.mrpNumber}` : "Select Customer PO"}
-                                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4"
-                                                />
-                                            </td>
+                                        <tr key={po._id || po.poNumber} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
                                             <td className="px-4 py-3.5 font-mono font-bold text-blue-600 dark:text-blue-400">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                     <span>{po.poNumber}</span>
@@ -1919,26 +1797,15 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                 ? Math.max(0, Math.round((new Date(commitDate).getTime() - new Date(po.date).getTime()) / (1000 * 60 * 60 * 24)))
                                 : null;
 
-                            const isSelected = selectedPoIds.includes(po._id);
-                            const isEligible = isPoEligibleForMRP(po);
-
                             return (
                                 <div
                                     key={po._id || po.poNumber}
-                                    className={`bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-3 transition-colors ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50/20' : ''}`}
+                                    className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-3 transition-colors"
                                 >
                                     <div className="flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2.5">
-                                        <div className="flex items-start gap-2.5">
-                                            <input
-                                                type="checkbox"
-                                                checked={isSelected}
-                                                onChange={() => toggleSelectPo(po._id)}
-                                                title={po.mrpNumber ? `Linked to MRP #${po.mrpNumber}` : "Select Customer PO"}
-                                                className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4"
-                                            />
-                                            <div>
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                    <span className="font-mono font-bold text-blue-600 dark:text-blue-400 text-sm">{po.poNumber}</span>
+                                        <div>
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="font-mono font-bold text-blue-600 dark:text-blue-400 text-sm">{po.poNumber}</span>
                                                 {(po.pdf || (Array.isArray(po.photos) && po.photos.length > 0)) && (
                                                     <a
                                                         href={po.pdf || po.photos[0]}
@@ -2031,8 +1898,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 );
                                             })()}
                                         </div>
-                                    </div>
-                                    <select
+                                        <select
                                             value={po.status || 'Received'}
                                             onChange={(e) => handleStatusChange(po._id, e.target.value)}
                                             className={`px-2.5 py-1 rounded-full text-xs font-bold border-none outline-none cursor-pointer ${
@@ -3333,47 +3199,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                 />
             )}
 
-            {/* Floating Bulk Action Bar for Consolidated MRP Creation */}
-            {selectedPoIds.length > 0 && (
-                <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-40 bg-slate-900/95 text-white dark:bg-slate-800/95 border border-slate-700 shadow-2xl backdrop-blur-md px-5 py-3 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-200">
-                    <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
-                        <span className="text-xs font-bold text-slate-200">
-                            <span className="text-white font-black text-sm">{selectedPoIds.length}</span> Customer PO{selectedPoIds.length > 1 ? 's' : ''} Selected
-                        </span>
-                    </div>
-                    <div className="h-4 w-px bg-slate-700" />
-                    <button
-                        type="button"
-                        onClick={() => setIsMrpModalOpen(true)}
-                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all transform hover:scale-[1.02] cursor-pointer"
-                    >
-                        <Layers size={14} /> Create Consolidated MRP ({selectedPoIds.length})
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setSelectedPoIds([])}
-                        className="text-xs text-slate-400 hover:text-white px-2 py-1 transition-colors cursor-pointer"
-                    >
-                        Clear
-                    </button>
-                </div>
-            )}
 
-            {/* Consolidated / Single MRP Modal */}
-            {isMrpModalOpen && (
-                <MRPModal
-                    isOpen={isMrpModalOpen}
-                    onClose={() => setIsMrpModalOpen(false)}
-                    onSuccess={() => {
-                        setSelectedPoIds([]);
-                        fetchData();
-                        onSuccess("MRP Plan created successfully!");
-                    }}
-                    token={token || ''}
-                    preselectedPoIds={selectedPoIds}
-                />
-            )}
 
             {/* Linked MRP Plan Details Modal */}
             {viewingMrpPlan && (

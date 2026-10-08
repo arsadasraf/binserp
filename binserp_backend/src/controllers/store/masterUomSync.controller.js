@@ -21,9 +21,10 @@ const getCompanyId = (req) => {
 const normalizeUom = (val) => {
   if (!val) return "";
   const s = String(val).trim().toUpperCase();
-  if (s === "PCS" || s === "PC" || s === "PIECE" || s === "PIECES" || s === "NO") return "NOS";
+  if (s === "PC" || s === "PIECE" || s === "PIECES") return "PCS";
+  if (s === "NO" || s === "NUMBERS" || s === "NUMBER") return "NOS";
   if (s === "KGS" || s === "KILOGRAM" || s === "KILOGRAMS") return "KG";
-  return String(val).trim();
+  return String(val).trim().toUpperCase();
 };
 
 /**
@@ -50,7 +51,7 @@ const getMasterItemsMap = async (req, companyId) => {
 
   const registerMaster = (doc, itemType, defaultUom) => {
     if (!doc || !doc._id) return;
-    const cleanUnit = (doc.unit || defaultUom || "NOS").toString().trim();
+    const cleanUnit = (doc.unit || defaultUom || "PCS").toString().trim();
     const isBadCode = isPlaceholderCode(doc.code);
     const cleanCode = isBadCode ? "" : (doc.code || "").toString().trim();
     const entry = {
@@ -77,7 +78,7 @@ const getMasterItemsMap = async (req, companyId) => {
 
   // Register all items
   rawMaterials.forEach((item) => registerMaster(item, "Raw Material", "KG"));
-  boughtOuts.forEach((item) => registerMaster(item, "Bought Out", "NOS"));
+  boughtOuts.forEach((item) => registerMaster(item, "Bought Out", "PCS"));
   consumables.forEach((item) => registerMaster(item, "Consumable", "NOS"));
   fgItems.forEach((item) => registerMaster(item, "FG Item", "Nos"));
 
@@ -85,7 +86,7 @@ const getMasterItemsMap = async (req, companyId) => {
   rmBoItems.forEach((item) => {
     if (!byId.has(item._id.toString())) {
       const type = item.itemType === "Bought Out" ? "Bought Out" : "Raw Material";
-      const defUom = type === "Bought Out" ? "NOS" : "KG";
+      const defUom = type === "Bought Out" ? "PCS" : "KG";
       registerMaster(item, type, defUom);
     }
   });
@@ -130,9 +131,44 @@ export const auditMasterUoms = async (req, res) => {
       MaterialRequest.find({ company: companyId, status: { $ne: "Rejected" } }).lean()
     ]);
 
+    const masterMismatches = [];
     const inventoryMismatches = [];
     const bomMismatches = [];
     const materialRequestMismatches = [];
+
+    // 0. Audit Master Collections (Bought Out items where unit is NOS or missing, RM where unit is missing)
+    for (const bo of (masterMaps.boughtOuts || [])) {
+      const currUnit = (bo.unit || '').trim();
+      const normCurr = normalizeUom(currUnit);
+      if (normCurr === 'NOS' || !currUnit) {
+        masterMismatches.push({
+          id: bo._id,
+          materialCode: bo.code || '-',
+          materialName: bo.name,
+          itemType: 'Bought Out Master',
+          currentUnit: bo.unit || 'NOS',
+          masterUnit: 'PCS',
+          sourceType: 'master',
+          locationSource: 'Bought Out Master Catalog'
+        });
+      }
+    }
+
+    for (const rm of (masterMaps.rawMaterials || [])) {
+      const currUnit = (rm.unit || '').trim();
+      if (!currUnit) {
+        masterMismatches.push({
+          id: rm._id,
+          materialCode: rm.code || '-',
+          materialName: rm.name,
+          itemType: 'Raw Material Master',
+          currentUnit: '—',
+          masterUnit: 'KG',
+          sourceType: 'master',
+          locationSource: 'Raw Material Master Catalog'
+        });
+      }
+    }
 
     // 1. Audit Inventory
     for (const inv of inventories) {
@@ -260,15 +296,17 @@ export const auditMasterUoms = async (req, res) => {
     }
 
     const totalMastersCount = masterMaps.byId.size;
-    const totalDiscrepancies = inventoryMismatches.length + bomMismatches.length + materialRequestMismatches.length;
+    const totalDiscrepancies = masterMismatches.length + inventoryMismatches.length + bomMismatches.length + materialRequestMismatches.length;
 
     res.status(200).json({
       success: true,
       totalMasters: totalMastersCount,
       totalDiscrepancies,
+      masterMismatchesCount: masterMismatches.length,
       inventoryMismatchesCount: inventoryMismatches.length,
       bomMismatchesCount: bomMismatches.length,
       materialRequestMismatchesCount: materialRequestMismatches.length,
+      masterMismatches,
       inventoryMismatches,
       bomMismatches,
       materialRequestMismatches
@@ -281,21 +319,46 @@ export const auditMasterUoms = async (req, res) => {
 
 /**
  * POST /api/store/sync-master-uoms
- * Performs bulk correction across Inventory, BOMs, and Material Requests
+ * Performs bulk correction across Master Items, Inventory, BOMs, and Material Requests
  */
 export const syncMasterUoms = async (req, res) => {
   try {
     const companyId = getCompanyId(req);
-    const masterMaps = await getMasterItemsMap(req, companyId);
 
+    const BoughtOut = req.getModel("BoughtOut", boughtOutSchema);
+    const RmBoItem = req.getModel("RmBoItem", rmBoItemSchema);
     const Inventory = req.getModel("Inventory", inventorySchema);
     const FGItem = req.getModel("FGItem", fgItemSchema);
     const BOM = req.getModel("BOM", bomSchema);
     const MaterialRequest = req.getModel("MaterialRequest", materialRequestSchema);
 
+    let mastersFixedCount = 0;
     let inventoryFixedCount = 0;
     let bomItemsFixedCount = 0;
     let materialRequestsFixedCount = 0;
+
+    // 0. Update Master Items: Standardize legacy Bought Out items from NOS to PCS and Raw Materials to KG
+    const RawMaterial = req.getModel("RawMaterial", rawMaterialSchema);
+    const boUpdateResult = await BoughtOut.updateMany(
+      { company: companyId, $or: [{ unit: { $in: ["NOS", "Nos", "nos", "", null] } }, { unit: { $exists: false } }] },
+      { $set: { unit: "PCS" } }
+    );
+    const rmBoUpdateResult = await RmBoItem.updateMany(
+      { company: companyId, itemType: { $in: ["Bought Out", "BO", "bought-out"] }, $or: [{ unit: { $in: ["NOS", "Nos", "nos", "", null] } }, { unit: { $exists: false } }] },
+      { $set: { unit: "PCS" } }
+    );
+    const rmUpdateResult = await RawMaterial.updateMany(
+      { company: companyId, $or: [{ unit: { $in: ["", null] } }, { unit: { $exists: false } }] },
+      { $set: { unit: "KG" } }
+    );
+    const rmBoRmUpdateResult = await RmBoItem.updateMany(
+      { company: companyId, itemType: { $in: ["Raw Material", "RM", "raw-material"] }, $or: [{ unit: { $in: ["", null] } }, { unit: { $exists: false } }] },
+      { $set: { unit: "KG" } }
+    );
+    mastersFixedCount = (boUpdateResult.modifiedCount || 0) + (rmBoUpdateResult.modifiedCount || 0) + (rmUpdateResult.modifiedCount || 0) + (rmBoRmUpdateResult.modifiedCount || 0);
+
+    // Refresh master maps with newly updated units
+    const masterMaps = await getMasterItemsMap(req, companyId);
 
     // 1. Sync Inventory Records
     // Iterate over all canonical master items and update their corresponding Inventory records
@@ -428,8 +491,9 @@ export const syncMasterUoms = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Master UOM synchronization successfully completed! Synchronized ${inventoryFixedCount} Inventory records, ${bomItemsFixedCount} BOM component items, and ${materialRequestsFixedCount} Material Request line items.`,
+      message: `Master UOM synchronization successfully completed! Updated ${mastersFixedCount} Master items to PCS, synchronized ${inventoryFixedCount} Inventory records, ${bomItemsFixedCount} BOM component items, and ${materialRequestsFixedCount} Material Request line items.`,
       stats: {
+        mastersFixed: mastersFixedCount,
         inventoryFixed: inventoryFixedCount,
         bomItemsFixed: bomItemsFixedCount,
         materialRequestsFixed: materialRequestsFixedCount,

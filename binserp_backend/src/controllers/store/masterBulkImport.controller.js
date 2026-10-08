@@ -276,8 +276,8 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       }
 
       // 3. Upsert or Create Record in Dedicated Collection and sync to RmBoItem
-      // System Standard: Base UOM is strictly immutable (RM: KG, BO: NOS, Consumable: NOS)
-      const defaultBaseUnit = isConsumable ? 'NOS' : (determinedItemType === 'Bought Out' ? 'NOS' : 'KG');
+      // System Standard: Base UOM (RM: KG, BO: PCS, Consumable: NOS)
+      const defaultBaseUnit = isConsumable ? 'NOS' : (determinedItemType === 'Bought Out' ? 'PCS' : 'KG');
       const inputUnit = (item.unit || '').toString().trim();
       const rawHsn = (item.hsnCode || item.hsn || '').toString().trim();
       const rawStatus = (item.status || 'Active').toString().trim();
@@ -286,12 +286,16 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
 
       const rawHasSecUnit = (item.hasSecondaryUnit ?? item.secondaryUnitApplicable ?? '').toString().trim().toLowerCase();
       let isDualUnit = rawHasSecUnit === 'true' || rawHasSecUnit === 'yes' || rawHasSecUnit === 'y' || item.hasSecondaryUnit === true;
-      let secUnit = isDualUnit ? (item.secondaryUnit || '').toString().trim() : '';
-      let convFactor = isDualUnit && Number(item.conversionFactor) > 0 ? Number(item.conversionFactor) : 1;
+      let secUnit = (item.secondaryUnit || '').toString().trim();
+      let convFactor = Number(item.conversionFactor) > 0 ? Number(item.conversionFactor) : 1;
 
-      // If imported file specified an alternate unit in Unit column, map it gracefully to secondaryUnit
-      if (inputUnit && inputUnit.toUpperCase() !== defaultBaseUnit && !secUnit) {
-        secUnit = inputUnit;
+      // Base unit: prioritize inputUnit if provided, fallback to defaultBaseUnit
+      let baseUnit = inputUnit ? inputUnit.toUpperCase() : defaultBaseUnit;
+      if (determinedItemType === 'Bought Out' && (!inputUnit || inputUnit.toUpperCase() === 'NOS')) {
+        baseUnit = 'PCS';
+      }
+
+      if (secUnit) {
         isDualUnit = true;
       }
 
@@ -309,7 +313,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         itemType: determinedItemType,
         descriptions: item.descriptions || item.description || '',
         minimumStock: Number(item.minStock ?? item.minimumStock ?? 0),
-        unit: defaultBaseUnit,
+        unit: baseUnit,
         hasSecondaryUnit: isDualUnit,
         secondaryUnit: secUnit,
         conversionFactor: convFactor,
@@ -362,7 +366,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         materialCode,
         materialName: itemName,
         itemType: isConsumable ? 'Consumable' : determinedItemType,
-        unit: rawUnit,
+        unit: baseUnit,
         status: finalStatus,
         isActive: finalActive,
         currentStock: Number(item.openingStock ?? item.currentStock ?? 0),
@@ -565,6 +569,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
                 company: companyId,
                 name: bName,
                 code: boCode,
+                unit: bUnit || 'PCS',
                 categoryId: defaultBOCat?._id,
                 descriptions: bItem.description || 'Auto-created bought out item from FG BOM import'
               });
@@ -573,7 +578,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
                 company: companyId,
                 materialCode: boCode,
                 materialName: bName,
-                unit: bUnit,
+                unit: boItem.unit || bUnit || 'PCS',
                 currentStock: 0,
                 reorderLevel: 0,
                 reorderQuantity: 0,
@@ -591,7 +596,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
               item: boItem._id,
               itemName: boItem.name,
               quantity: bQty,
-              unit: bUnit || 'Nos'
+              unit: boItem.unit || bUnit || 'PCS'
             });
           }
         } else {
@@ -614,6 +619,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
                 company: companyId,
                 name: bName,
                 code: matCode,
+                unit: bUnit || 'KG',
                 categoryId: defaultRMCat?._id,
                 descriptions: bItem.description || 'Auto-created raw material from FG BOM import'
               });
@@ -622,7 +628,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
                 company: companyId,
                 materialCode: matCode,
                 materialName: bName,
-                unit: bUnit,
+                unit: rmItem.unit || bUnit || 'KG',
                 currentStock: 0,
                 reorderLevel: 0,
                 reorderQuantity: 0,
@@ -640,7 +646,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
               item: rmItem._id,
               itemName: rmItem.name,
               quantity: bQty,
-              unit: bUnit || 'Nos'
+              unit: rmItem.unit || bUnit || 'KG'
             });
           }
         }

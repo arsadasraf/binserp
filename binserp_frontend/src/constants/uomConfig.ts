@@ -3,7 +3,7 @@
  * 
  * Standard Base Units:
  * - Raw Material (RM): "KG"
- * - Bought Out (BO): "NOS"
+ * - Bought Out (BO): "PCS"
  * - Consumables: "NOS"
  * - Finished Goods (FG) / Sub-Assembly: "NOS"
  */
@@ -17,11 +17,11 @@ export interface UomOption {
 
 export const DEFAULT_BASE_UOMS = {
   RM: 'KG',
-  BO: 'NOS',
+  BO: 'PCS',
   CONSUMABLE: 'NOS',
   FG: 'NOS',
   SUB_ASSEMBLY: 'NOS',
-  INHOUSE: 'NOS'
+  INHOUSE: 'PCS'
 } as const;
 
 export const STANDARD_UOMS: UomOption[] = [

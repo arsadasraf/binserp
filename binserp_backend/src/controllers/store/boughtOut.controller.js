@@ -30,7 +30,7 @@ export const createBoughtOut = async (req, res) => {
       return res.status(400).json({ message: "Bought Out Item Name is required" });
     }
     const cleanName = name.toString().trim();
-    const itemUnit = (unit && unit.toString().trim()) || 'NOS';
+    const itemUnit = (unit && unit.toString().trim()) || 'PCS';
     const itemHsn = (hsnCode || '').toString().trim();
     const isDualUnit = String(hasSecondaryUnit) === 'true' || hasSecondaryUnit === true;
     const cleanSecondaryUnit = isDualUnit ? (secondaryUnit || '').toString().trim() : '';
