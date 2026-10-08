@@ -2,12 +2,16 @@
 
 import { useState, useEffect } from "react";
 import axios from "axios";
-import { UserCheck, Clock, Calendar, Search, FileDown, FileSpreadsheet } from "lucide-react";
+import { UserCheck, Clock, Calendar, Search, FileDown, FileSpreadsheet, RotateCcw, Loader2 } from "lucide-react";
 import { API_BASE_URL } from "@/src/utils/config";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { formatWorkDuration } from "@/src/utils/attendanceUtils";
+import {
+    exportMonthlyAttendanceExcel,
+    exportMonthlyAttendancePDF
+} from "@/src/utils/monthlyAttendanceExportHelper";
 
 interface AttendanceRecord {
     _id: string;
@@ -16,6 +20,8 @@ interface AttendanceRecord {
         name: string;
         employeeId: string;
         department: string;
+        designation?: string;
+        employeeType?: string;
     };
     date: string;
     checkIn?: {
@@ -42,6 +48,17 @@ export default function PresentTab() {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState("all");
+
+    // Advanced Filters: Department, Designation, Employee Type
+    const [departments, setDepartments] = useState<string[]>([]);
+    const [designations, setDesignations] = useState<string[]>([]);
+    const [employeeTypes, setEmployeeTypes] = useState<string[]>([]);
+    const [employees, setEmployees] = useState<any[]>([]);
+
+    const [selectedDepartment, setSelectedDepartment] = useState("all");
+    const [selectedDesignation, setSelectedDesignation] = useState("all");
+    const [selectedEmployeeType, setSelectedEmployeeType] = useState("all");
+    const [isExporting, setIsExporting] = useState(false);
 
     // Default to current month YYYY-MM
     const getCurrentMonth = () => {
@@ -81,6 +98,59 @@ export default function PresentTab() {
         fetchCompanyDetails();
     }, []);
 
+    // Load filter options: Employees, Departments, Designations, Employee Types
+    useEffect(() => {
+        const fetchFiltersData = async () => {
+            try {
+                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                if (!token) return;
+
+                const [empRes, deptRes, desigRes, typeRes] = await Promise.all([
+                    axios.get(`${API_BASE_URL}/api/hr/employee`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => ({ data: { employees: [] } })),
+                    axios.get(`${API_BASE_URL}/api/hr/department`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => ({ data: [] })),
+                    axios.get(`${API_BASE_URL}/api/hr/designation`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => ({ data: [] })),
+                    axios.get(`${API_BASE_URL}/api/hr/employee-type`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => ({ data: [] }))
+                ]);
+
+                const loadedEmployees = empRes?.data?.employees || empRes?.data || [];
+                setEmployees(Array.isArray(loadedEmployees) ? loadedEmployees : []);
+
+                // Collect departments
+                const deptSet = new Set<string>();
+                if (Array.isArray(deptRes?.data)) {
+                    deptRes.data.forEach((d: any) => { if (d?.name) deptSet.add(d.name.trim()); });
+                }
+                if (Array.isArray(loadedEmployees)) {
+                    loadedEmployees.forEach((e: any) => { if (e?.department) deptSet.add(e.department.trim()); });
+                }
+                setDepartments(Array.from(deptSet).sort());
+
+                // Collect designations
+                const desigSet = new Set<string>();
+                if (Array.isArray(desigRes?.data)) {
+                    desigRes.data.forEach((d: any) => { if (d?.name) desigSet.add(d.name.trim()); });
+                }
+                if (Array.isArray(loadedEmployees)) {
+                    loadedEmployees.forEach((e: any) => { if (e?.designation) desigSet.add(e.designation.trim()); });
+                }
+                setDesignations(Array.from(desigSet).sort());
+
+                // Collect employee types
+                const typeSet = new Set<string>();
+                if (Array.isArray(typeRes?.data)) {
+                    typeRes.data.forEach((t: any) => { if (t?.name) typeSet.add(t.name.trim()); });
+                }
+                if (Array.isArray(loadedEmployees)) {
+                    loadedEmployees.forEach((e: any) => { if (e?.employeeType) typeSet.add(e.employeeType.trim()); });
+                }
+                setEmployeeTypes(Array.from(typeSet).sort());
+            } catch (err) {
+                console.error("Error loading filter options:", err);
+            }
+        };
+        fetchFiltersData();
+    }, []);
+
     useEffect(() => {
         fetchAttendance();
     }, [selectedMonth, selectedDate, filterType]);
@@ -94,6 +164,28 @@ export default function PresentTab() {
             filtered = filtered.filter(record => record.checkOut?.time);
         }
 
+        if (selectedDepartment !== "all") {
+            filtered = filtered.filter(record =>
+                (record.employee?.department || "").toLowerCase() === selectedDepartment.toLowerCase()
+            );
+        }
+
+        if (selectedDesignation !== "all") {
+            filtered = filtered.filter(record => {
+                const emp = employees.find(e => e._id === record.employee?._id || e.employeeId === record.employee?.employeeId);
+                const desig = record.employee?.designation || emp?.designation || "";
+                return desig.toLowerCase() === selectedDesignation.toLowerCase();
+            });
+        }
+
+        if (selectedEmployeeType !== "all") {
+            filtered = filtered.filter(record => {
+                const emp = employees.find(e => e._id === record.employee?._id || e.employeeId === record.employee?.employeeId);
+                const empType = record.employee?.employeeType || emp?.employeeType || "";
+                return empType.toLowerCase() === selectedEmployeeType.toLowerCase();
+            });
+        }
+
         if (searchTerm) {
             const lowerTerm = searchTerm.toLowerCase();
             filtered = filtered.filter(
@@ -104,7 +196,7 @@ export default function PresentTab() {
             );
         }
         setFilteredAttendance(filtered);
-    }, [searchTerm, statusFilter, attendance]);
+    }, [searchTerm, statusFilter, selectedDepartment, selectedDesignation, selectedEmployeeType, attendance, employees]);
 
     const fetchAttendance = async () => {
         try {
@@ -174,63 +266,56 @@ export default function PresentTab() {
         };
     };
 
-    const downloadPDF = () => {
+    // Daily Fallback Exports
+    const downloadDailyPDF = () => {
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const pageW = doc.internal.pageSize.getWidth();
         const pageH = doc.internal.pageSize.getHeight();
         const margin = 10;
-        const periodText = filterType === 'month' ? selectedMonth : selectedDate;
+        const periodText = selectedDate;
 
-        const drawHeader = () => {
-            doc.setFillColor(37, 99, 235);
-            doc.rect(0, 0, pageW, 20, 'F');
+        doc.setFillColor(37, 99, 235);
+        doc.rect(0, 0, pageW, 20, 'F');
+        doc.setTextColor(255, 255, 255);
 
-            doc.setTextColor(255, 255, 255);
+        const hasLogo = !!companyLogo;
+        const logoSize = 14; 
+        const logoX = margin;
+        const logoY = 3;
 
-            const hasLogo = !!companyLogo;
-            const logoSize = 14; 
-            const logoX = margin;
-            const logoY = 3;
+        if (hasLogo) {
+            try {
+                doc.addImage(companyLogo, 'JPEG', logoX, logoY, logoSize, logoSize, undefined, 'FAST');
+            } catch { /* skip */ }
+        }
 
-            if (hasLogo) {
-                try {
-                    doc.addImage(companyLogo, 'JPEG', logoX, logoY, logoSize, logoSize, undefined, 'FAST');
-                } catch { /* skip if load fails */ }
-            }
+        const nameX = hasLogo ? margin + logoSize + 3 : margin;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(13);
+        doc.text(companyName || 'Company', nameX, 10);
 
-            const nameX = hasLogo ? margin + logoSize + 3 : margin;
-
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(13);
-            doc.text(companyName || 'Company', nameX, 10);
-
-            if (companyAddress) {
-                doc.setFont('helvetica', 'normal');
-                doc.setFontSize(6.5);
-                doc.text(companyAddress, nameX, 16, { maxWidth: 75 });
-            }
-
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(10);
-            doc.text('Attendance Report', pageW / 2, 10, { align: 'center' });
-
+        if (companyAddress) {
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(8);
-            doc.text(periodText, pageW - margin, 10, { align: 'right' });
-            doc.setFontSize(7);
-            doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, pageW - margin, 16, { align: 'right' });
+            doc.setFontSize(6.5);
+            doc.text(companyAddress, nameX, 16, { maxWidth: 75 });
+        }
 
-            // Light blue strip
-            doc.setFillColor(219, 234, 254);
-            doc.rect(0, 20, pageW, 8, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text('Daily Attendance Log', pageW / 2, 10, { align: 'center' });
 
-            doc.setTextColor(30, 58, 138); 
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(8);
-            doc.text(`Total Records: ${filteredAttendance.length}`, margin, 25);
-        };
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.text(periodText, pageW - margin, 10, { align: 'right' });
+        doc.setFontSize(7);
+        doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, pageW - margin, 16, { align: 'right' });
 
-        drawHeader();
+        doc.setFillColor(219, 234, 254);
+        doc.rect(0, 20, pageW, 8, 'F');
+        doc.setTextColor(30, 58, 138); 
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.text(`Total Records: ${filteredAttendance.length}`, margin, 25);
 
         const tableBody = filteredAttendance.map((record, idx) => [
             String(idx + 1),
@@ -250,59 +335,24 @@ export default function PresentTab() {
             head: [['#', 'Date', 'ID', 'Name', 'Dept', 'Check In', 'Check Out', 'Hours', 'Status']],
             body: tableBody,
             theme: 'grid',
-            styles: {
-                fontSize: 6.5,
-                cellPadding: 1.2,
-                halign: 'center',
-                valign: 'middle',
-                overflow: 'linebreak',
-            },
-            headStyles: {
-                fillColor: [37, 99, 235],
-                textColor: 255,
-                fontStyle: 'bold',
-                fontSize: 7,
-                cellPadding: 1.5,
-            },
-            didParseCell: (data) => {
-                if (data.section === 'body' && data.column.index === 8) {
-                    const status = data.cell.raw;
-                    if (status === 'Completed' || status === 'Present')  data.cell.styles.textColor = [22, 163, 74];
-                    else if (status === 'Check-In Only') data.cell.styles.textColor = [217, 119, 6];
-                    else data.cell.styles.textColor = [220, 38, 38];
-                }
-            },
+            styles: { fontSize: 6.5, cellPadding: 1.2, halign: 'center', valign: 'middle', overflow: 'linebreak' },
+            headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold', fontSize: 7, cellPadding: 1.5 },
         });
 
-        const finalY = (doc as any).lastAutoTable?.finalY || pageH - 15;
-        if (finalY + 14 < pageH) {
-            doc.setDrawColor(200, 200, 200);
-            doc.line(margin, finalY + 6, pageW - margin, finalY + 6);
-            doc.setFontSize(7);
-            doc.setTextColor(160);
-            doc.text('This is a system-generated document.', margin, finalY + 11);
-            doc.text(companyName || '', pageW - margin, finalY + 11, { align: 'right' });
-        }
-
-        doc.save(`Attendance_${periodText}.pdf`);
+        doc.save(`Attendance_Daily_${periodText}.pdf`);
     };
 
-    const downloadExcel = () => {
-        const periodText = filterType === 'month' ? selectedMonth : selectedDate;
-
+    const downloadDailyExcel = () => {
+        const periodText = selectedDate;
         const aoa: any[][] = [];
 
-        // Branding Header
         aoa.push([companyName || 'Company', '', '', '', '', `Generated: ${new Date().toLocaleDateString('en-IN')}`]);
         if (companyAddress) aoa.push([companyAddress]);
-        aoa.push([]); 
-        
-        // Title & Period
-        aoa.push(['ATTENDANCE REPORT', '', '', '', '', periodText]);
+        aoa.push([]);
+        aoa.push(['DAILY ATTENDANCE REPORT', '', '', '', '', periodText]);
         aoa.push([`Total Records: ${filteredAttendance.length}`]);
         aoa.push([]);
 
-        // Table Header
         aoa.push(['#', 'Date', 'Employee ID', 'Name', 'Department', 'Check In', 'Check Out', 'Hours', 'Status']);
         
         filteredAttendance.forEach((record, idx) => {
@@ -319,46 +369,96 @@ export default function PresentTab() {
             ]);
         });
 
-        aoa.push([]);
-        aoa.push(['This is a system-generated document.']);
-
         const ws = XLSX.utils.aoa_to_sheet(aoa);
-
         ws['!cols'] = [
-            { wch: 6 },  // #
-            { wch: 15 }, // Date
-            { wch: 15 }, // ID
-            { wch: 25 }, // Name
-            { wch: 20 }, // Dept
-            { wch: 15 }, // Check In
-            { wch: 15 }, // Check Out
-            { wch: 20 }, // Hours
-            { wch: 18 }  // Status
+            { wch: 6 }, { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 20 },
+            { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 18 }
         ];
 
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Attendance Report");
-        XLSX.writeFile(wb, `Attendance_${periodText}.xlsx`);
+        XLSX.utils.book_append_sheet(wb, ws, "Daily Attendance");
+        XLSX.writeFile(wb, `Attendance_Daily_${periodText}.xlsx`);
+    };
+
+    // Primary PDF and Excel Handlers
+    const handleExportPDF = async () => {
+        setIsExporting(true);
+        try {
+            if (filterType === "month") {
+                exportMonthlyAttendancePDF(
+                    attendance,
+                    employees,
+                    selectedMonth,
+                    { companyName, companyLogo, companyAddress },
+                    {
+                        department: selectedDepartment,
+                        designation: selectedDesignation,
+                        employeeType: selectedEmployeeType,
+                        searchTerm
+                    }
+                );
+            } else {
+                downloadDailyPDF();
+            }
+        } catch (error) {
+            console.error("Error generating PDF:", error);
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleExportExcel = async () => {
+        setIsExporting(true);
+        try {
+            if (filterType === "month") {
+                exportMonthlyAttendanceExcel(
+                    attendance,
+                    employees,
+                    selectedMonth,
+                    { companyName, companyLogo, companyAddress },
+                    {
+                        department: selectedDepartment,
+                        designation: selectedDesignation,
+                        employeeType: selectedEmployeeType,
+                        searchTerm
+                    }
+                );
+            } else {
+                downloadDailyExcel();
+            }
+        } catch (error) {
+            console.error("Error generating Excel:", error);
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const hasActiveFilters = Boolean(
+        selectedDepartment !== "all" ||
+        selectedDesignation !== "all" ||
+        selectedEmployeeType !== "all" ||
+        statusFilter !== "all" ||
+        searchTerm
+    );
+
+    const resetFilters = () => {
+        setSelectedDepartment("all");
+        setSelectedDesignation("all");
+        setSelectedEmployeeType("all");
+        setStatusFilter("all");
+        setSearchTerm("");
     };
 
     return (
         <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 overflow-hidden rounded-xl shadow-sm">
-            <div className="bg-gray-50 border-b border-gray-100 dark:bg-slate-800/50 dark:border-slate-700 flex flex-col gap-4 justify-between lg:flex-row lg:items-center p-6">
-                <div className="hidden md:block">
-                    <h3 className="dark:text-gray-100 flex font-bold gap-2 items-center text-gray-800 text-lg">
-                        <UserCheck className="text-green-600" size={20} />
-                        Attendance Records
-                    </h3>
-                    <p className="dark:text-gray-400 text-gray-500 text-sm">View and export chronological attendance logs (ordered by Check-In)</p>
-                </div>
-
-                <div className="flex flex-col gap-3 lg:w-auto md:flex-row w-full">
-
+            <div className="bg-gray-50 border-b border-gray-100 dark:bg-slate-800/50 dark:border-slate-700 p-3 sm:p-4">
+                {/* Single-Line Controls: Filters, Search & Export Icons */}
+                <div className="flex flex-wrap items-center gap-2 w-full">
                     {/* Filter Type Toggle */}
-                    <div className="bg-gray-100 dark:bg-slate-700 flex p-1 rounded-lg">
+                    <div className="bg-gray-200/70 dark:bg-slate-700 flex p-0.5 rounded-lg shrink-0">
                         <button
                             onClick={() => setFilterType("month")}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${filterType === "month"
+                            className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all ${filterType === "month"
                                 ? "bg-white text-gray-800 dark:bg-slate-800 dark:text-white shadow-sm"
                                 : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                                 }`}
@@ -367,7 +467,7 @@ export default function PresentTab() {
                         </button>
                         <button
                             onClick={() => setFilterType("day")}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${filterType === "day"
+                            className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all ${filterType === "day"
                                 ? "bg-white text-gray-800 dark:bg-slate-800 dark:text-white shadow-sm"
                                 : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                                 }`}
@@ -382,60 +482,126 @@ export default function PresentTab() {
                             type="month"
                             value={selectedMonth}
                             onChange={(e) => setSelectedMonth(e.target.value)}
-                            className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 px-3 py-2 rounded-lg shadow-sm text-sm"
+                            className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 px-2.5 py-1 rounded-lg shadow-sm text-xs font-medium bg-white dark:bg-slate-700 dark:text-white h-[34px] shrink-0"
                         />
                     ) : (
                         <input
                             type="date"
                             value={selectedDate}
                             onChange={(e) => setSelectedDate(e.target.value)}
-                            className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 px-3 py-2 rounded-lg shadow-sm text-sm"
+                            className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 px-2.5 py-1 rounded-lg shadow-sm text-xs font-medium bg-white dark:bg-slate-700 dark:text-white h-[34px] shrink-0"
                         />
                     )}
 
+                    {/* Department Filter */}
+                    <div className="relative shrink-0">
+                        <select
+                            value={selectedDepartment}
+                            onChange={(e) => setSelectedDepartment(e.target.value)}
+                            className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 px-2.5 py-1 rounded-lg shadow-sm text-xs font-medium appearance-none bg-white dark:bg-slate-700 dark:text-white pr-6 h-[34px]"
+                        >
+                            <option value="all">All Departments</option>
+                            {departments.map((dept) => (
+                                <option key={dept} value={dept}>{dept}</option>
+                            ))}
+                        </select>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-gray-400">
+                            <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                        </div>
+                    </div>
+
+                    {/* Designation Filter */}
+                    <div className="relative shrink-0">
+                        <select
+                            value={selectedDesignation}
+                            onChange={(e) => setSelectedDesignation(e.target.value)}
+                            className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 px-2.5 py-1 rounded-lg shadow-sm text-xs font-medium appearance-none bg-white dark:bg-slate-700 dark:text-white pr-6 h-[34px]"
+                        >
+                            <option value="all">All Designations</option>
+                            {designations.map((desig) => (
+                                <option key={desig} value={desig}>{desig}</option>
+                            ))}
+                        </select>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-gray-400">
+                            <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                        </div>
+                    </div>
+
+                    {/* Employee Type Filter */}
+                    <div className="relative shrink-0">
+                        <select
+                            value={selectedEmployeeType}
+                            onChange={(e) => setSelectedEmployeeType(e.target.value)}
+                            className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 px-2.5 py-1 rounded-lg shadow-sm text-xs font-medium appearance-none bg-white dark:bg-slate-700 dark:text-white pr-6 h-[34px]"
+                        >
+                            <option value="all">All Types</option>
+                            {employeeTypes.map((type) => (
+                                <option key={type} value={type}>{type}</option>
+                            ))}
+                        </select>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-gray-400">
+                            <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                        </div>
+                    </div>
+
                     {/* Status Filter */}
-                    <div className="relative">
+                    <div className="relative shrink-0">
                         <select
                             value={statusFilter}
                             onChange={(e) => setStatusFilter(e.target.value)}
-                            className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 px-3 py-2 rounded-lg shadow-sm text-sm appearance-none bg-white dark:bg-slate-700 dark:text-white pr-8 h-[38px]"
+                            className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 px-2.5 py-1 rounded-lg shadow-sm text-xs font-medium appearance-none bg-white dark:bg-slate-700 dark:text-white pr-6 h-[34px]"
                         >
                             <option value="all">All Status</option>
-                            <option value="in_only">Check-In Only (Active)</option>
+                            <option value="in_only">In-Only</option>
                             <option value="completed">Completed</option>
                         </select>
-                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                            <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-gray-400">
+                            <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
                         </div>
                     </div>
 
                     {/* Search */}
-                    <div className="md:w-64 relative w-full">
-                        <Search className="-translate-y-1/2 absolute dark:text-gray-500 left-3 text-gray-400 top-1/2" size={16} />
+                    <div className="relative flex-1 min-w-[130px]">
+                        <Search className="-translate-y-1/2 absolute dark:text-gray-500 left-2.5 text-gray-400 top-1/2" size={14} />
                         <input
                             type="text"
-                            placeholder="Search by Name, ID, Dept..."
+                            placeholder="Search Name, ID..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 pl-9 pr-4 py-2 rounded-lg shadow-sm text-sm w-full"
+                            className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 pl-8 pr-2.5 py-1 rounded-lg shadow-sm text-xs bg-white dark:bg-slate-700 dark:text-white w-full h-[34px]"
                         />
                     </div>
 
-                    {/* Actions */}
-                    <div className="flex gap-2">
+                    {/* Reset Filters Button */}
+                    {hasActiveFilters && (
                         <button
-                            onClick={downloadPDF}
-                            className="bg-red-50 border border-red-100 flex font-medium gap-2 hover:bg-red-100 items-center px-3 py-2 rounded-lg text-red-600 text-sm transition-colors"
-                            title="Export PDF"
+                            onClick={resetFilters}
+                            className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-200/60 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer shrink-0"
+                            title="Reset All Filters"
                         >
-                            <FileDown size={18} /> PDF
+                            <RotateCcw size={15} />
+                        </button>
+                    )}
+
+                    {/* Export Actions (Icon Buttons with responsive text) */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                            onClick={handleExportPDF}
+                            disabled={isExporting}
+                            className="bg-red-50 border border-red-200 dark:bg-red-950/40 dark:border-red-800/60 dark:text-red-400 flex font-medium gap-1 hover:bg-red-100 dark:hover:bg-red-950/70 disabled:opacity-50 items-center px-2.5 py-1.5 rounded-lg text-red-600 text-xs transition-colors shadow-sm cursor-pointer h-[34px]"
+                            title={filterType === "month" ? "Export Monthly PDF (1 Page Per Employee)" : "Export Daily PDF"}
+                        >
+                            {isExporting ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />}
+                            <span className="hidden md:inline">{filterType === "month" ? "PDF" : "PDF"}</span>
                         </button>
                         <button
-                            onClick={downloadExcel}
-                            className="bg-green-50 border border-green-100 flex font-medium gap-2 hover:bg-green-100 items-center px-3 py-2 rounded-lg text-green-600 text-sm transition-colors"
-                            title="Export Excel"
+                            onClick={handleExportExcel}
+                            disabled={isExporting}
+                            className="bg-green-50 border border-green-200 dark:bg-green-950/40 dark:border-green-800/60 dark:text-green-400 flex font-medium gap-1 hover:bg-green-100 dark:hover:bg-green-950/70 disabled:opacity-50 items-center px-2.5 py-1.5 rounded-lg text-green-700 text-xs transition-colors shadow-sm cursor-pointer h-[34px]"
+                            title={filterType === "month" ? "Export Monthly Excel (All Employees in 1 Sheet with Spacing)" : "Export Daily Excel"}
                         >
-                            <FileSpreadsheet size={18} /> Excel
+                            {isExporting ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}
+                            <span className="hidden md:inline">{filterType === "month" ? "Excel" : "Excel"}</span>
                         </button>
                     </div>
                 </div>
