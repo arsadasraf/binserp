@@ -740,17 +740,24 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
   const componentMap = new Map();
   const subAssemblyMap = new Map();
   const assemblyMap = new Map();
-  // Build map of committed PO amounts per MRP Plan
+  // Build map of committed PO amounts per MRP Plan (strictly deduplicated by unique po._id)
   const poCommittedByPlan = new Map();
+  const planNumToId = new Map((activeMrpPlans || []).map(p => [p.mrpNumber, String(p._id)]));
+
   (openPOs || []).forEach(po => {
+    const poIdStr = String(po._id);
     const amt = Number(po.grandTotal != null ? po.grandTotal : (po.totalAmount != null ? po.totalAmount : 0)) || 0;
-    if (po.mrpPlanId) {
-      const idStr = String(po.mrpPlanId);
-      poCommittedByPlan.set(idStr, (poCommittedByPlan.get(idStr) || 0) + amt);
+    
+    const targetPlanIds = new Set();
+    if (po.mrpPlanId) targetPlanIds.add(String(po.mrpPlanId));
+    if (po.mrpNumber && planNumToId.has(po.mrpNumber)) {
+      targetPlanIds.add(planNumToId.get(po.mrpNumber));
     }
-    if (po.mrpNumber) {
-      poCommittedByPlan.set(po.mrpNumber, (poCommittedByPlan.get(po.mrpNumber) || 0) + amt);
-    }
+
+    targetPlanIds.forEach(pId => {
+      if (!poCommittedByPlan.has(pId)) poCommittedByPlan.set(pId, new Map());
+      poCommittedByPlan.get(pId).set(poIdStr, amt);
+    });
   });
 
   // Fetch active purchase item mappings for this company
@@ -1179,9 +1186,20 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
           nMatPlanningStatus = "Not Planned";
         }
 
+        const itemPoNum = matPoNumber || nMat.poNumber || (processed.openPOs?.[0]?.poNumber || "");
+        const itemPoNums = Array.from(new Set([
+          ...(Array.isArray(nMat.poNumbers) ? nMat.poNumbers : []),
+          ...(processed.openPOs?.map(p => p.poNumber) || []),
+          itemPoNum
+        ].filter(Boolean)));
+
         return {
           ...nMat.toObject?.() || nMat,
           ...withBucket,
+          poNumber: itemPoNum,
+          poNumbers: itemPoNums,
+          openPOs: processed.openPOs || [],
+          inTransitPOs: processed.openPOs || [],
           materialPlanningStatus: nMatPlanningStatus,
           quantityPerFG: qtyPerFG,
           secondaryQuantityPerFG
@@ -1214,7 +1232,14 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
             ? "PO In-Transit"
             : (planTotalInTransit > 0 ? "Partially Planned" : "Not Planned"));
 
-    const liveCommitted = Math.round(((poCommittedByPlan.get(String(plan._id)) || 0) + (poCommittedByPlan.get(plan.mrpNumber) || 0)) * 100) / 100;
+    const planLinkedMap = poCommittedByPlan.get(String(plan._id));
+    let sumAmt = 0;
+    if (planLinkedMap) {
+      for (const amt of planLinkedMap.values()) {
+        sumAmt += amt;
+      }
+    }
+    const liveCommitted = Math.round(sumAmt * 100) / 100;
     const targetExpense = Number(plan.targetExpense || 0);
     const estimatedExp = Number(plan.totalEstimatedExpense || 0);
     let planBudgetStatus = plan.budgetStatus || "Unset";

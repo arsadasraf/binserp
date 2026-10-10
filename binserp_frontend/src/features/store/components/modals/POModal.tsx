@@ -94,6 +94,7 @@ export default function POModal({
     const [roundingMode, setRoundingMode] = useState<'nearest' | 'floor' | 'ceil' | 'none'>('nearest');
     const [mrpNumber, setMrpNumber] = useState<string>('');
     const [mrpPlanId, setMrpPlanId] = useState<string>('');
+    const [mrpPlanList, setMrpPlanList] = useState<any[]>([]);
 
     // 3 distinct inventory feeds
     const [rawMaterialsList, setRawMaterialsList] = useState<any[]>([]);
@@ -171,7 +172,8 @@ export default function POModal({
                 apiGet('/api/store/prefix', token).catch(() => null),
                 apiGet('/api/store/category', token).catch(() => []),
                 apiGet('/api/store/location', token).catch(() => []),
-            ]).then(([rmRes, boRes, conRes, plRes, prefixRes, catRes, locRes]) => {
+                apiGet('/api/purchase/mrp/plan', token).catch(() => ({ data: [] })),
+            ]).then(([rmRes, boRes, conRes, plRes, prefixRes, catRes, locRes, mrpRes]) => {
                 setRawMaterialsList(Array.isArray(rmRes) ? rmRes : (rmRes?.rawMaterials || []));
                 setBoughtOutsList(Array.isArray(boRes) ? boRes : (boRes?.boughtOuts || []));
                 setConsumablesList(Array.isArray(conRes) ? conRes : (conRes?.consumables || conRes?.consumableItems || []));
@@ -179,6 +181,8 @@ export default function POModal({
                 setFetchedPriceLists(pl);
                 setCategoriesList(Array.isArray(catRes) ? catRes : (catRes?.categories || []));
                 setLocationsList(Array.isArray(locRes) ? locRes : (locRes?.locations || []));
+                const plans = Array.isArray(mrpRes?.data) ? mrpRes.data : (Array.isArray(mrpRes) ? mrpRes : []);
+                setMrpPlanList(plans);
 
                 // If not editing an existing PO, generate fresh PO number using outward prefix setting
                 if (!initialData || !initialData.poNumber) {
@@ -401,6 +405,16 @@ export default function POModal({
         });
         return list;
     }, [allVendors]);
+
+    // MRP Plan Dropdown Options
+    const mrpPlanOptions = useMemo(() => {
+        return mrpPlanList.map((p: any) => ({
+            value: p.mrpNumber || String(p._id),
+            label: `${p.mrpNumber} — ${p.customerName || 'Internal Demand'} (${p.status || 'Active'})`,
+            planId: String(p._id),
+            mrpNumber: p.mrpNumber
+        }));
+    }, [mrpPlanList]);
 
     // Open Quick Vendor Master Modal
     const handleOpenQuickVendorModal = (initialName: string = '') => {
@@ -1292,6 +1306,48 @@ export default function POModal({
                                 {hasAttemptedSubmit && !vendor && (
                                     <p className="text-[11px] font-semibold text-rose-600 mt-1">Please select a vendor / supplier.</p>
                                 )}
+                            </div>
+
+                            {/* Linked MRP Plan Selector */}
+                            <div className="sm:col-span-2">
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                        <Layers size={13} className="text-cyan-600" />
+                                        <span>Linked MRP Plan (Optional)</span>
+                                    </label>
+                                    {mrpNumber && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setMrpNumber('');
+                                                setMrpPlanId('');
+                                            }}
+                                            className="text-[11px] font-semibold text-rose-600 hover:underline cursor-pointer"
+                                        >
+                                            Clear MRP Link
+                                        </button>
+                                    )}
+                                </div>
+                                <SearchableSelect
+                                    options={mrpPlanOptions}
+                                    value={mrpNumber}
+                                    displayLabel={mrpNumber ? `${mrpNumber}${mrpPlanList.find(p => p.mrpNumber === mrpNumber)?.customerName ? ` — ${mrpPlanList.find(p => p.mrpNumber === mrpNumber)?.customerName}` : ''}` : undefined}
+                                    allowCustom={true}
+                                    onCreateCustom={(typedQuery) => {
+                                        setMrpNumber(typedQuery);
+                                        const matched = mrpPlanList.find(p => p.mrpNumber?.toLowerCase() === typedQuery.toLowerCase());
+                                        setMrpPlanId(matched ? (matched._id || matched.id) : '');
+                                    }}
+                                    onChange={(val: any) => {
+                                        setMrpNumber(val);
+                                        const matched = mrpPlanList.find(p => p.mrpNumber === val || p._id === val);
+                                        setMrpPlanId(matched ? (matched._id || matched.id) : '');
+                                    }}
+                                    placeholder="Select active MRP Plan or type MRP Number..."
+                                />
+                                <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1">
+                                    Linking commits this PO's amount directly into the MRP Plan's committed financials and procurement workbench.
+                                </p>
                             </div>
                         </div>
                     </div>

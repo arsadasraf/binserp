@@ -13,12 +13,18 @@ import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 import { useExchangeRates } from '@/src/hooks/useExchangeRates';
 import { getCurrencySymbol } from '@/src/utils/currencyHelper';
 import { getPoOaNumber } from '@/src/utils/oaHelper';
+import SearchableMultiSelect, { MultiSelectOption } from '../SearchableMultiSelect';
 
 export interface MRPDemandTabProps {
   token?: string | null;
   mrpPlans?: any[];
   onPlanSinglePo: (po: any) => void;
   onPlanConsolidatedPos: (poIds: string[]) => void;
+  onPlanMatrixDemand?: (payload: {
+    poIds: string[];
+    selectedMonths: string[];
+    initialPlanData: any;
+  }) => void;
   onViewPlanDetails?: (plan: any) => void;
   onViewCustomerPoDetails?: (po: any) => void;
   onError?: (msg: string) => void;
@@ -36,6 +42,7 @@ interface MonthBucket {
 interface MatrixItemRow {
   fgId: string;
   name: string;
+  code?: string;
   description: string;
   unit: string;
   hsnCode?: string;
@@ -43,6 +50,7 @@ interface MatrixItemRow {
   totalDemandQty: number;
   plannedQty: number;
   balanceQty: number;
+  linkedMrpNumbers?: string[];
   contributingPOs: Array<{
     poId: string;
     poNumber: string;
@@ -64,6 +72,7 @@ export default function MRPDemandTab({
   mrpPlans = [],
   onPlanSinglePo,
   onPlanConsolidatedPos,
+  onPlanMatrixDemand,
   onViewPlanDetails,
   onViewCustomerPoDetails,
   onError,
@@ -84,11 +93,15 @@ export default function MRPDemandTab({
   // Filter & Search states
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'unplanned' | 'partially_planned' | 'mrp_done'>('all');
-  const [customerFilter, setCustomerFilter] = useState<string>('all');
+  const [filterCustomers, setFilterCustomers] = useState<string[]>([]);
   const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>('all');
 
-  // Multi-PO Selection for Consolidated MRP Planning
+  // Multi-PO Selection for Consolidated MRP Planning (in 'pos' sub-tab)
   const [selectedPoIds, setSelectedPoIds] = useState<string[]>([]);
+
+  // Multi-Item & Multi-Month Selection for Matrix MRP Planning (in 'monthMatrix' sub-tab)
+  // Format of key: `${fgId}::${monthKey}`
+  const [selectedMatrixCells, setSelectedMatrixCells] = useState<Set<string>>(new Set());
 
   // Expandable Row States
   const [expandedPoIds, setExpandedPoIds] = useState<Set<string>>(new Set());
@@ -140,6 +153,38 @@ export default function MRPDemandTab({
   useEffect(() => {
     fetchDemandData();
   }, [token]);
+
+  // Formatted Customer options for SearchableMultiSelect (from master & loaded POs)
+  const customerOptions: MultiSelectOption[] = useMemo(() => {
+    const map = new Map<string, MultiSelectOption>();
+
+    // 1. From customers master
+    (Array.isArray(customers) ? customers : []).forEach((c: any) => {
+      const id = (c._id || c.id)?.toString();
+      if (id) {
+        map.set(id, {
+          value: id,
+          label: c.name || c.companyName || 'Customer',
+          subLabel: c.code ? `Code: ${c.code}` : undefined
+        });
+      }
+    });
+
+    // 2. Fallback from customerPOs for comprehensive coverage
+    (Array.isArray(customerPOs) ? customerPOs : []).forEach((po: any) => {
+      const id = (po.customer?._id || po.customer?.id || po.customer)?.toString();
+      if (id && !map.has(id)) {
+        const name = po.customerName || po.customer?.name || po.customer?.companyName || 'Customer';
+        map.set(id, {
+          value: id,
+          label: name,
+          subLabel: po.customer?.code ? `Code: ${po.customer.code}` : undefined
+        });
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [customers, customerPOs]);
 
   // Compute 6-month calendar buckets starting from current month + offset
   const monthBuckets: MonthBucket[] = useMemo(() => {
@@ -215,10 +260,10 @@ export default function MRPDemandTab({
       if (statusFilter === 'mrp_done' && mrpInfo.status !== 'MRP Generated') return false;
       if (statusFilter === 'partially_planned' && mrpInfo.status !== 'Partially Planned') return false;
 
-      // Customer Filter
-      if (customerFilter !== 'all') {
-        const cId = po.customer?._id || po.customer?.id || po.customer;
-        if (String(cId) !== String(customerFilter)) return false;
+      // Customer Multi-Select Filter
+      if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) {
+        const custId = (po.customer?._id || po.customer?.id || po.customer)?.toString();
+        if (!filterCustomers.includes(custId)) return false;
       }
 
       // Delivery Month Filter
@@ -257,9 +302,9 @@ export default function MRPDemandTab({
 
       return true;
     });
-  }, [customerPOs, statusFilter, customerFilter, selectedMonthFilter, searchTerm, mrpPlans]);
+  }, [customerPOs, statusFilter, filterCustomers, selectedMonthFilter, searchTerm, mrpPlans]);
 
-  // Financials & KPI Stats
+  // Financials & KPI Stats (dynamically reflected for selected customers)
   const kpiStats = useMemo(() => {
     let totalDemandedQty = 0;
     let totalDemandValuationInr = 0;
@@ -267,9 +312,16 @@ export default function MRPDemandTab({
     let plannedCount = 0;
     const distinctItemKeys = new Set<string>();
 
-    (Array.isArray(customerPOs) ? customerPOs : []).forEach((po) => {
-      if (po.status === 'Cancelled') return;
+    const targetPOs = (Array.isArray(customerPOs) ? customerPOs : []).filter((po) => {
+      if (po.status === 'Cancelled') return false;
+      if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) {
+        const custId = (po.customer?._id || po.customer?.id || po.customer)?.toString();
+        if (!filterCustomers.includes(custId)) return false;
+      }
+      return true;
+    });
 
+    targetPOs.forEach((po) => {
       const mrpInfo = getPoMRPStatus(po);
       if (mrpInfo.status === 'MRP Generated') {
         plannedCount++;
@@ -295,7 +347,7 @@ export default function MRPDemandTab({
     });
 
     return {
-      totalOpenPOs: customerPOs.filter((p) => p.status !== 'Cancelled').length,
+      totalOpenPOs: targetPOs.length,
       unplannedCount,
       plannedCount,
       totalDemandedQty,
@@ -303,7 +355,7 @@ export default function MRPDemandTab({
       totalDemandValuationInr,
       formattedValuation: `₹${Math.round(totalDemandValuationInr).toLocaleString('en-IN')}`
     };
-  }, [customerPOs, mrpPlans, convertToINR]);
+  }, [customerPOs, filterCustomers, mrpPlans, convertToINR]);
 
   // Selected POs Summary for Floating Bulk Action Bar
   const selectedFinancials = useMemo(() => {
@@ -338,16 +390,35 @@ export default function MRPDemandTab({
     (Array.isArray(customerPOs) ? customerPOs : []).forEach((po) => {
       if (po.status === 'Cancelled') return;
 
+      // Customer Multi-Select Filter applied to Month-Wise Item Matrix
+      if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) {
+        const custId = (po.customer?._id || po.customer?.id || po.customer)?.toString();
+        if (!filterCustomers.includes(custId)) return;
+      }
+
       const poMRP = getPoMRPStatus(po);
       const defaultPoDate = po.committedDispatchDate || po.date;
 
       (po.items || []).forEach((it: any) => {
         const fgObj = it.fgItem && typeof it.fgItem === 'object' ? it.fgItem : null;
-        const fgId = String(fgObj?._id || (typeof it.fgItem === 'string' ? it.fgItem : ''));
+        const rawFgId = String(fgObj?._id || (typeof it.fgItem === 'string' ? it.fgItem : ''));
+        const isValidHex = /^[0-9a-fA-F]{24}$/.test(rawFgId);
+        let fgId = isValidHex ? rawFgId : '';
+
+        // If fgId is not a valid ObjectId, try lookup in fgItems catalog by item name or code
+        const name = it.productName || fgObj?.name || 'Finished Good';
+        if (!fgId) {
+          const matchByName = fgItems.find((f: any) =>
+            (f.name && f.name.toLowerCase().trim() === name.toLowerCase().trim()) ||
+            (f.code && f.code.toLowerCase().trim() === (it.productCode || '').toLowerCase().trim())
+          );
+          if (matchByName?._id && /^[0-9a-fA-F]{24}$/.test(String(matchByName._id))) {
+            fgId = String(matchByName._id);
+          }
+        }
         const masterFg = fgId ? masterFgMap.get(fgId) : null;
 
         // Resolve Item Name & Technical Description strictly per workspace rule
-        const name = it.productName || fgObj?.name || masterFg?.name || 'Finished Good';
         const description =
           it.description ||
           fgObj?.description ||
@@ -380,6 +451,7 @@ export default function MRPDemandTab({
           map.set(key, {
             fgId: fgId || key,
             name,
+            code: it.productCode || fgObj?.code || masterFg?.code || '',
             description,
             unit,
             hsnCode,
@@ -416,11 +488,31 @@ export default function MRPDemandTab({
       });
     });
 
-    // Compute balance quantities
-    const rows = Array.from(map.values()).map((row) => ({
-      ...row,
-      balanceQty: Math.max(0, row.totalDemandQty - row.plannedQty)
-    }));
+    // Compute balance quantities & resolve all linked MRP Plan numbers prominently
+    const rows = Array.from(map.values()).map((row) => {
+      // 1. MRP numbers from contributing POs
+      const mrpNumsFromPOs = row.contributingPOs.map((c) => c.mrpNumber).filter(Boolean) as string[];
+      // 2. MRP numbers from mrpPlans directly referencing this item
+      const mrpNumsFromPlans = (mrpPlans || [])
+        .filter((p: any) =>
+          Array.isArray(p.fgItems) &&
+          p.fgItems.some(
+            (f: any) =>
+              String(f.fgItem?._id || f.fgItem) === String(row.fgId) ||
+              (f.fgItemName && f.fgItemName.trim().toLowerCase() === row.name.trim().toLowerCase())
+          )
+        )
+        .map((p: any) => p.mrpNumber)
+        .filter(Boolean) as string[];
+
+      const allUniqueMrpNumbers = Array.from(new Set([...mrpNumsFromPOs, ...mrpNumsFromPlans]));
+
+      return {
+        ...row,
+        balanceQty: Math.max(0, row.totalDemandQty - row.plannedQty),
+        linkedMrpNumbers: allUniqueMrpNumbers
+      };
+    });
 
     // Filter matrix rows based on search
     if (searchTerm.trim()) {
@@ -428,7 +520,7 @@ export default function MRPDemandTab({
     }
 
     return rows;
-  }, [customerPOs, fgItems, mrpPlans, searchTerm]);
+  }, [customerPOs, fgItems, mrpPlans, searchTerm, filterCustomers]);
 
   // Selection handlers
   const toggleSelectPo = (poId: string) => {
@@ -463,6 +555,245 @@ export default function MRPDemandTab({
       else next.add(itemKey);
       return next;
     });
+  };
+
+  // Matrix Multi-Item & Multi-Month Selection Helpers
+  const isMonthFullySelected = (monthKey: string) => {
+    const demandingRows = monthMatrixData.filter((r) => (r.monthlyQuantities[monthKey] || 0) > 0);
+    return (
+      demandingRows.length > 0 &&
+      demandingRows.every((r) => selectedMatrixCells.has(`${r.fgId}::${monthKey}`))
+    );
+  };
+
+  const isMonthPartiallySelected = (monthKey: string) => {
+    const demandingRows = monthMatrixData.filter((r) => (r.monthlyQuantities[monthKey] || 0) > 0);
+    return (
+      demandingRows.some((r) => selectedMatrixCells.has(`${r.fgId}::${monthKey}`)) &&
+      !demandingRows.every((r) => selectedMatrixCells.has(`${r.fgId}::${monthKey}`))
+    );
+  };
+
+  const toggleMatrixCell = (fgId: string, monthKey: string) => {
+    const key = `${fgId}::${monthKey}`;
+    setSelectedMatrixCells((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleMatrixRow = (fgId: string, monthlyQuantities: Record<string, number>) => {
+    const activeMonthKeys = Object.entries(monthlyQuantities)
+      .filter(([_, q]) => q > 0)
+      .map(([mKey]) => mKey);
+
+    if (activeMonthKeys.length === 0) return;
+
+    setSelectedMatrixCells((prev) => {
+      const next = new Set(prev);
+      const allSelected = activeMonthKeys.every((mKey) => next.has(`${fgId}::${mKey}`));
+
+      if (allSelected) {
+        activeMonthKeys.forEach((mKey) => next.delete(`${fgId}::${mKey}`));
+      } else {
+        activeMonthKeys.forEach((mKey) => next.add(`${fgId}::${mKey}`));
+      }
+      return next;
+    });
+  };
+
+  const toggleMatrixMonthColumn = (monthKey: string) => {
+    const demandingRows = monthMatrixData.filter((r) => (r.monthlyQuantities[monthKey] || 0) > 0);
+    if (demandingRows.length === 0) return;
+
+    setSelectedMatrixCells((prev) => {
+      const next = new Set(prev);
+      const allSelected = demandingRows.every((r) => next.has(`${r.fgId}::${monthKey}`));
+
+      if (allSelected) {
+        demandingRows.forEach((r) => next.delete(`${r.fgId}::${monthKey}`));
+      } else {
+        demandingRows.forEach((r) => next.add(`${r.fgId}::${monthKey}`));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllMatrix = () => {
+    const allCells: string[] = [];
+    monthMatrixData.forEach((row) => {
+      Object.entries(row.monthlyQuantities).forEach(([mKey, q]) => {
+        if (q > 0) allCells.push(`${row.fgId}::${mKey}`);
+      });
+    });
+
+    if (allCells.length === 0) return;
+
+    const areAllSelected = allCells.every((k) => selectedMatrixCells.has(k));
+    if (areAllSelected) {
+      setSelectedMatrixCells(new Set());
+    } else {
+      setSelectedMatrixCells(new Set(allCells));
+    }
+  };
+
+  const clearMatrixSelection = () => {
+    setSelectedMatrixCells(new Set());
+  };
+
+  // Aggregated Summary of Selected Matrix Cells for Planning
+  const matrixSelectedSummary = useMemo(() => {
+    if (selectedMatrixCells.size === 0) {
+      return {
+        distinctItemCount: 0,
+        distinctMonthsCount: 0,
+        distinctMonthsList: [] as string[],
+        totalQuantity: 0,
+        totalValuationInr: 0,
+        inrFormatted: '₹0',
+        contributingPoIds: [] as string[],
+        contributingPOsList: [] as any[],
+        consolidatedFGItems: [] as any[]
+      };
+    }
+
+    const itemMap = new Map<string, any>();
+    const monthSet = new Set<string>();
+    const poMap = new Map<string, any>();
+    let totalQty = 0;
+    let totalValuation = 0;
+
+    monthMatrixData.forEach((row) => {
+      Object.entries(row.monthlyQuantities).forEach(([mKey, qty]) => {
+        if (qty > 0 && selectedMatrixCells.has(`${row.fgId}::${mKey}`)) {
+          monthSet.add(mKey);
+          totalQty += qty;
+
+          if (!itemMap.has(row.fgId)) {
+            let validFgObjectId = /^[0-9a-fA-F]{24}$/.test(String(row.fgId || '')) ? row.fgId : '';
+            if (!validFgObjectId) {
+              const matchedMaster = fgItems.find((f: any) =>
+                (f.name && f.name.toLowerCase().trim() === row.name.toLowerCase().trim()) ||
+                (f.code && row.code && f.code.toLowerCase().trim() === row.code.toLowerCase().trim())
+              );
+              if (matchedMaster?._id && /^[0-9a-fA-F]{24}$/.test(String(matchedMaster._id))) {
+                validFgObjectId = String(matchedMaster._id);
+              }
+            }
+
+            itemMap.set(row.fgId, {
+              fgItem: validFgObjectId || undefined,
+              fgItemName: row.name,
+              description: row.description,
+              unit: row.unit,
+              quantity: 0,
+              sellingPrice: 0,
+              totalPrice: 0,
+              hsnCode: row.hsnCode,
+              earliestDate: '',
+              sourceCustomerPOs: new Set<string>(),
+              sourceBreakdown: [] as any[]
+            });
+          }
+
+          const itemEntry = itemMap.get(row.fgId)!;
+          itemEntry.quantity += qty;
+
+          // Find contributing POs for this item & month
+          const matchedPOs = row.contributingPOs.filter((c) => c.monthKey === mKey);
+          matchedPOs.forEach((c) => {
+            if (c.poId) {
+              poMap.set(String(c.poId), c.poRaw || { _id: c.poId, poNumber: c.poNumber, customerName: c.customerName });
+              itemEntry.sourceCustomerPOs.add(String(c.poId));
+            }
+            if (c.deliveryDate) {
+              if (!itemEntry.earliestDate || c.deliveryDate < itemEntry.earliestDate) {
+                itemEntry.earliestDate = c.deliveryDate;
+              }
+            }
+
+            const poItemMatch = (c.poRaw?.items || []).find((it: any) => {
+              const fId = it.fgItem?._id || it.fgItem;
+              return String(fId) === String(row.fgId) || it.productName === row.name;
+            });
+            const rate = Number(poItemMatch?.rate || 0);
+            const curr = (c.poRaw?.currency || 'INR').trim().toUpperCase();
+            const inrVal = convertToINR(rate * c.quantity, curr).inrAmount;
+            totalValuation += inrVal;
+
+            itemEntry.sourceBreakdown.push({
+              customerPo: /^[0-9a-fA-F]{24}$/.test(String(c.poId || '')) ? c.poId : undefined,
+              customerPoNumber: c.poNumber,
+              customerName: c.customerName,
+              quantity: c.quantity,
+              monthKey: mKey,
+              currency: curr,
+              originalRate: rate
+            });
+          });
+        }
+      });
+    });
+
+    const consolidatedFGItems = Array.from(itemMap.values()).map((it) => ({
+      fgItem: it.fgItem,
+      fgItemName: it.fgItemName,
+      description: it.description,
+      unit: it.unit,
+      quantity: it.quantity,
+      sellingPrice: it.quantity > 0 ? Math.round((totalValuation / totalQty) * 100) / 100 : 0,
+      totalPrice: Math.round((it.quantity * (it.quantity > 0 ? totalValuation / totalQty : 0)) * 100) / 100,
+      targetDate: it.earliestDate || new Date().toISOString().slice(0, 10),
+      sourceCustomerPOs: Array.from(it.sourceCustomerPOs),
+      sourceBreakdown: it.sourceBreakdown
+    }));
+
+    const contributingPoIds = Array.from(poMap.keys());
+    const contributingPOsList = Array.from(poMap.values());
+    const monthsSorted = Array.from(monthSet).sort();
+
+    return {
+      distinctItemCount: itemMap.size,
+      distinctMonthsCount: monthSet.size,
+      distinctMonthsList: monthsSorted,
+      totalQuantity: totalQty,
+      totalValuationInr: totalValuation,
+      inrFormatted: `₹${Math.round(totalValuation).toLocaleString('en-IN')}`,
+      contributingPoIds,
+      contributingPOsList,
+      consolidatedFGItems
+    };
+  }, [selectedMatrixCells, monthMatrixData, convertToINR]);
+
+  const handlePlanMatrixDemand = () => {
+    if (matrixSelectedSummary.distinctItemCount === 0) return;
+
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+
+    const validPoIds = matrixSelectedSummary.contributingPoIds.filter((id) => /^[0-9a-fA-F]{24}$/.test(String(id)));
+
+    const payload = {
+      poIds: validPoIds,
+      selectedMonths: matrixSelectedSummary.distinctMonthsList,
+      initialPlanData: {
+        isConsolidated: true,
+        mrpNumber: `MRP-DEMAND-${dateStr}-${randomSuffix}`,
+        customerPOs: matrixSelectedSummary.contributingPOsList,
+        customerPoIds: validPoIds,
+        fgItems: matrixSelectedSummary.consolidatedFGItems,
+        remarks: `Planned from Month-Wise Item Matrix for months: ${matrixSelectedSummary.distinctMonthsList.join(', ')}`
+      }
+    };
+
+    if (onPlanMatrixDemand) {
+      onPlanMatrixDemand(payload);
+    } else {
+      onPlanConsolidatedPos(matrixSelectedSummary.contributingPoIds);
+    }
   };
 
   return (
@@ -500,6 +831,11 @@ export default function MRPDemandTab({
             <span className={`px-1.5 py-0.2 rounded text-[10px] ${activeView === 'monthMatrix' ? 'bg-indigo-800 text-indigo-100' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}>
               {monthMatrixData.length}
             </span>
+            {selectedMatrixCells.size > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-violet-200 text-violet-800 dark:bg-violet-900 dark:text-violet-200 animate-pulse">
+                {matrixSelectedSummary.distinctItemCount} selected
+              </span>
+            )}
           </button>
         </div>
 
@@ -623,19 +959,15 @@ export default function MRPDemandTab({
             <option value="mrp_done">🟢 MRP Generated</option>
           </select>
 
-          {/* Customer Filter */}
-          <select
-            value={customerFilter}
-            onChange={(e) => setCustomerFilter(e.target.value)}
-            className="px-3 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 outline-none cursor-pointer max-w-[160px] truncate"
-          >
-            <option value="all">All Customers</option>
-            {(Array.isArray(customers) ? customers : []).map((c: any) => (
-              <option key={c._id || c.id} value={c._id || c.id}>
-                {c.name || c.companyName || 'Customer'}
-              </option>
-            ))}
-          </select>
+          {/* Customer Multi-Select Filter */}
+          <SearchableMultiSelect
+            options={customerOptions}
+            selectedValues={filterCustomers}
+            onChange={setFilterCustomers}
+            placeholder="All Customers"
+            searchPlaceholder="Search customer..."
+            className="w-44 sm:w-52"
+          />
 
           {/* Month Filter */}
           <select
@@ -652,12 +984,12 @@ export default function MRPDemandTab({
           </select>
 
           {/* Reset Filters */}
-          {(searchTerm || statusFilter !== 'all' || customerFilter !== 'all' || selectedMonthFilter !== 'all') && (
+          {(searchTerm || statusFilter !== 'all' || filterCustomers.length > 0 || selectedMonthFilter !== 'all') && (
             <button
               onClick={() => {
                 setSearchTerm('');
                 setStatusFilter('all');
-                setCustomerFilter('all');
+                setFilterCustomers([]);
                 setSelectedMonthFilter('all');
               }}
               className="px-2.5 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 rounded-xl border border-rose-200 hover:bg-rose-100 transition-colors cursor-pointer"
@@ -1015,27 +1347,85 @@ export default function MRPDemandTab({
                 <table className="w-full text-xs text-left border-collapse">
                   <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 shadow-2xs">
                     <tr>
+                      {/* Master Checkbox */}
+                      <th className="px-3 py-3 w-10 text-center">
+                        <input
+                          type="checkbox"
+                          checked={
+                            monthMatrixData.length > 0 &&
+                            monthMatrixData.some((r) => Object.values(r.monthlyQuantities).some((q) => q > 0)) &&
+                            monthMatrixData.every((r) =>
+                              Object.entries(r.monthlyQuantities).every(
+                                ([mKey, q]) => q === 0 || selectedMatrixCells.has(`${r.fgId}::${mKey}`)
+                              )
+                            )
+                          }
+                          onChange={toggleSelectAllMatrix}
+                          title="Select / deselect all demanding items & active months"
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
+                        />
+                      </th>
                       <th className="px-4 py-3 min-w-[280px]">Finished Good & Description</th>
-                      {monthBuckets.map((b) => (
-                        <th key={b.key} className="px-3 py-3 text-center min-w-[100px]">
-                          {b.shortLabel}
-                        </th>
-                      ))}
+                      {monthBuckets.map((b) => {
+                        const isColFullySelected = isMonthFullySelected(b.key);
+                        const isColPartially = isMonthPartiallySelected(b.key);
+                        return (
+                          <th key={b.key} className="px-2 py-2 text-center min-w-[110px]">
+                            <button
+                              type="button"
+                              onClick={() => toggleMatrixMonthColumn(b.key)}
+                              className={`w-full py-1 px-1.5 rounded-lg text-[10px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 border ${
+                                isColFullySelected
+                                  ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs ring-1 ring-indigo-400'
+                                  : isColPartially
+                                  ? 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300'
+                                  : 'bg-white/90 dark:bg-slate-700/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:bg-slate-200'
+                              }`}
+                              title={`Click to select/deselect ${b.label} for all demanding items`}
+                            >
+                              <span>{b.shortLabel}</span>
+                            </button>
+                          </th>
+                        );
+                      })}
                       <th className="px-3 py-3 text-right min-w-[100px]">Total Demand</th>
-                      <th className="px-3 py-3 text-right min-w-[90px]">In MRP</th>
+                      <th className="px-3 py-3 text-right min-w-[110px]">In MRP</th>
                       <th className="px-3 py-3 text-right min-w-[100px]">Net Balance</th>
-                      <th className="px-3 py-3 text-center min-w-[80px]">Details</th>
+                      <th className="px-3 py-3 text-center min-w-[70px]">Details</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {monthMatrixData.map((row) => {
                       const isExpanded = expandedMatrixItems.has(row.fgId);
                       const isFullyPlanned = row.balanceQty === 0 && row.totalDemandQty > 0;
+                      const activeMonthKeys = Object.entries(row.monthlyQuantities)
+                        .filter(([_, q]) => q > 0)
+                        .map(([mKey]) => mKey);
+                      const isRowFullySelected =
+                        activeMonthKeys.length > 0 &&
+                        activeMonthKeys.every((mKey) => selectedMatrixCells.has(`${row.fgId}::${mKey}`));
+                      const isRowPartiallySelected =
+                        activeMonthKeys.some((mKey) => selectedMatrixCells.has(`${row.fgId}::${mKey}`)) &&
+                        !isRowFullySelected;
 
                       return (
                         <React.Fragment key={row.fgId}>
-                          <tr className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
-                            {/* Item Identity - Name prominently + Technical Description in italic */}
+                          <tr className={`transition-colors ${isRowFullySelected ? 'bg-indigo-50/50 dark:bg-indigo-950/30' : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/50'}`}>
+                            {/* Row Checkbox */}
+                            <td className="px-3 py-3 w-10 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isRowFullySelected}
+                                ref={(el) => {
+                                  if (el) el.indeterminate = isRowPartiallySelected;
+                                }}
+                                onChange={() => toggleMatrixRow(row.fgId, row.monthlyQuantities)}
+                                title={`Select / deselect all active months for ${row.name}`}
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
+                              />
+                            </td>
+
+                            {/* Item Identity - Name prominently + Technical Description in italic + Prominent MRP Badges */}
                             <td className="px-4 py-3">
                               <div className="font-bold text-xs text-slate-900 dark:text-white">
                                 {row.name}
@@ -1045,20 +1435,71 @@ export default function MRPDemandTab({
                                   {row.description}
                                 </div>
                               )}
-                              <span className="inline-block mt-1 px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                                UOM: {row.unit}
-                              </span>
+                              <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                  UOM: {row.unit}
+                                </span>
+                                {/* Prominently Visible MRP Number Badges on Item */}
+                                {row.linkedMrpNumbers && row.linkedMrpNumbers.length > 0 ? (
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    <span className="text-[10px] font-bold text-slate-400">MRP:</span>
+                                    {row.linkedMrpNumbers.map((mNum) => {
+                                      const planObj = (mrpPlans || []).find((p) => p.mrpNumber === mNum);
+                                      return (
+                                        <button
+                                          key={mNum}
+                                          type="button"
+                                          onClick={() => {
+                                            if (planObj && onViewPlanDetails) onViewPlanDetails(planObj);
+                                          }}
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-mono font-black bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 shadow-2xs cursor-pointer transition-colors"
+                                          title="Linked MRP Demand Plan - Click to view plan details"
+                                        >
+                                          <Sparkles size={9} className="text-indigo-500 shrink-0" />
+                                          <span>{mNum}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 italic font-medium">Unplanned</span>
+                                )}
+                              </div>
                             </td>
 
-                            {/* 6 Month Columns */}
+                            {/* 6 Month Columns with Selectable Badges & MRP Status Tag */}
                             {monthBuckets.map((b) => {
                               const qty = row.monthlyQuantities[b.key] || 0;
+                              const isCellSelected = selectedMatrixCells.has(`${row.fgId}::${b.key}`);
+                              const monthPOs = row.contributingPOs.filter((c) => c.monthKey === b.key);
+                              const isMonthPlanned = monthPOs.length > 0 && monthPOs.every((c) => c.isPlanned);
+                              const monthMrpNumbers = Array.from(new Set(monthPOs.map((c) => c.mrpNumber).filter(Boolean)));
+
                               return (
-                                <td key={b.key} className="px-3 py-3 text-center">
+                                <td key={b.key} className="px-2 py-3 text-center">
                                   {qty > 0 ? (
-                                    <span className="inline-block px-2 py-1 rounded-lg font-mono font-bold text-[11px] bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shadow-2xs">
-                                      {qty.toLocaleString()}
-                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleMatrixCell(row.fgId, b.key)}
+                                      className={`inline-flex flex-col items-center justify-center px-2 py-1 rounded-xl font-mono text-[11px] font-black border transition-all cursor-pointer ${
+                                        isCellSelected
+                                          ? 'bg-indigo-600 text-white border-indigo-700 shadow-md ring-2 ring-indigo-400/40 transform scale-105'
+                                          : isMonthPlanned
+                                          ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300'
+                                          : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200 hover:border-indigo-400'
+                                      }`}
+                                      title={`Click to select/deselect ${qty.toLocaleString()} ${row.unit} for ${b.shortLabel}${monthMrpNumbers.length > 0 ? ` (Linked: ${monthMrpNumbers.join(', ')})` : ''}`}
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        {isCellSelected && <Check size={11} strokeWidth={3} />}
+                                        <span>{qty.toLocaleString()}</span>
+                                      </div>
+                                      {monthMrpNumbers.length > 0 && (
+                                        <span className={`text-[8px] font-mono leading-none mt-0.5 truncate max-w-[70px] ${isCellSelected ? 'text-indigo-100' : 'text-indigo-600 dark:text-indigo-400 font-extrabold'}`}>
+                                          {monthMrpNumbers[0]}
+                                        </span>
+                                      )}
+                                    </button>
                                   ) : (
                                     <span className="text-slate-300 dark:text-slate-600 font-mono">-</span>
                                   )}
@@ -1071,9 +1512,17 @@ export default function MRPDemandTab({
                               {row.totalDemandQty.toLocaleString()} {row.unit}
                             </td>
 
-                            {/* In MRP */}
-                            <td className="px-3 py-3 text-right font-mono text-emerald-600 dark:text-emerald-400 font-bold text-xs">
-                              {row.plannedQty.toLocaleString()}
+                            {/* In MRP with Primary Linked Plan Number */}
+                            <td className="px-3 py-3 text-right">
+                              <div className="font-mono text-emerald-600 dark:text-emerald-400 font-bold text-xs">
+                                {row.plannedQty.toLocaleString()} {row.unit}
+                              </div>
+                              {row.linkedMrpNumbers && row.linkedMrpNumbers.length > 0 && (
+                                <div className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-extrabold truncate max-w-[110px] ml-auto mt-0.5" title={row.linkedMrpNumbers.join(', ')}>
+                                  {row.linkedMrpNumbers[0]}
+                                  {row.linkedMrpNumbers.length > 1 && ` (+${row.linkedMrpNumbers.length - 1})`}
+                                </div>
+                              )}
                             </td>
 
                             {/* Net Balance */}
@@ -1103,7 +1552,7 @@ export default function MRPDemandTab({
                           {/* Matrix Contributing POs Breakdown */}
                           {isExpanded && (
                             <tr className="bg-slate-50/70 dark:bg-slate-900/50">
-                              <td colSpan={11} className="p-3 sm:p-4">
+                              <td colSpan={12} className="p-3 sm:p-4">
                                 <div className="bg-white dark:bg-slate-800/90 rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
                                   <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-2">
                                     <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
@@ -1143,9 +1592,20 @@ export default function MRPDemandTab({
                                             </td>
                                             <td className="py-1.5 px-2 text-center">
                                               {cPo.isPlanned ? (
-                                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                                  ✓ {cPo.mrpNumber || 'Planned'}
-                                                </span>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    if (cPo.mrpPlanId && onViewPlanDetails) {
+                                                      const p = (mrpPlans || []).find((mp) => mp._id === cPo.mrpPlanId || mp.mrpNumber === cPo.mrpNumber);
+                                                      if (p) onViewPlanDetails(p);
+                                                    }
+                                                  }}
+                                                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-black bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 cursor-pointer shadow-2xs"
+                                                  title="Click to view linked MRP plan details"
+                                                >
+                                                  <CheckCircle2 size={10} className="text-emerald-600" />
+                                                  <span>{cPo.mrpNumber || 'Planned'}</span>
+                                                </button>
                                               ) : (
                                                 <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
                                                   Unplanned
@@ -1181,8 +1641,8 @@ export default function MRPDemandTab({
         )}
       </div>
 
-      {/* 5. FLOATING CONSOLIDATED ACTION BAR (When 1+ POs selected) */}
-      {selectedPoIds.length > 0 && (
+      {/* 5. FLOATING CONSOLIDATED ACTION BAR (When 1+ POs selected in 'pos' view) */}
+      {activeView === 'pos' && selectedPoIds.length > 0 && (
         <div className="shrink-0 bg-slate-900/95 dark:bg-slate-800/95 text-white border border-slate-700 shadow-2xl backdrop-blur-md px-4 py-3 rounded-2xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-bottom-3 duration-200">
           <div className="flex items-center gap-3">
             <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse"></span>
@@ -1209,6 +1669,48 @@ export default function MRPDemandTab({
             <button
               type="button"
               onClick={() => setSelectedPoIds([])}
+              className="px-3 py-2 text-xs font-bold text-slate-400 hover:text-white transition-colors cursor-pointer"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 6. FLOATING ACTION BAR FOR MONTH-WISE MATRIX DEMAND PLANNING (When 1+ cells selected) */}
+      {activeView === 'monthMatrix' && selectedMatrixCells.size > 0 && (
+        <div className="shrink-0 bg-slate-900/95 dark:bg-slate-800/95 text-white border border-slate-700 shadow-2xl backdrop-blur-md px-4 py-3 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <div className="flex items-center gap-3">
+            <span className="w-2.5 h-2.5 rounded-full bg-violet-400 animate-pulse shrink-0"></span>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-black text-white">
+                  {matrixSelectedSummary.distinctItemCount} Finished Good{matrixSelectedSummary.distinctItemCount !== 1 ? 's' : ''} Selected
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-violet-500/30 text-violet-200 border border-violet-400/40">
+                  {matrixSelectedSummary.distinctMonthsCount} Month{matrixSelectedSummary.distinctMonthsCount !== 1 ? 's' : ''} ({matrixSelectedSummary.distinctMonthsList.join(', ')})
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-300 font-mono mt-0.5">
+                Total Qty: <strong className="text-white">{matrixSelectedSummary.totalQuantity.toLocaleString()}</strong> • Valuation: <strong className="text-emerald-300">{matrixSelectedSummary.inrFormatted}</strong> • From <strong className="text-indigo-300">{matrixSelectedSummary.contributingPoIds.length}</strong> Customer PO{matrixSelectedSummary.contributingPoIds.length !== 1 ? 's' : ''}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-center">
+            <button
+              type="button"
+              onClick={handlePlanMatrixDemand}
+              className="px-4 py-2 bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 hover:from-violet-700 hover:to-blue-700 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all transform hover:scale-[1.02] cursor-pointer"
+              title="Generate MRP Demand Plan directly for the selected items and months"
+            >
+              <Sparkles size={14} />
+              <span>Generate MRP Plan ({matrixSelectedSummary.distinctItemCount} Item{matrixSelectedSummary.distinctItemCount !== 1 ? 's' : ''})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={clearMatrixSelection}
               className="px-3 py-2 text-xs font-bold text-slate-400 hover:text-white transition-colors cursor-pointer"
             >
               Clear

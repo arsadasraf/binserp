@@ -5,10 +5,11 @@ import {
   Plus, CheckSquare, Square, ChevronDown, ChevronRight, ChevronLeft,
   TrendingDown, FileText, Sparkles, Send, Boxes, GitBranch,
   Factory, Package, Check, Eye, Clock, Calendar, Download, Printer, Tag, X, RotateCcw, Target,
-  BarChart3
+  BarChart3, FileSpreadsheet
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiPatch } from '@/src/lib/api';
 import { generateNestedBOMPDF } from '@/src/utils/generateNestedBOMPDF';
+import { generateNestedBOMExcel } from '@/src/utils/generateNestedBOMExcel';
 import ConvertToPurchaseBucketModal from '@/src/features/store/components/modals/ConvertToPurchaseBucketModal';
 import ColumnFilter from '../tables/ColumnFilter';
 import Swal from 'sweetalert2';
@@ -123,6 +124,7 @@ export default function MRPProcurementWorkbench({
   const [numCondShortage, setNumCondShortage] = useState<'all' | 'gt0' | 'eq0'>('all');
   const [colFilterPreferredSupplier, setColFilterPreferredSupplier] = useState<string[]>([]);
   const [colFilterPlanningRemark, setColFilterPlanningRemark] = useState<string[]>([]);
+  const [colFilterPONumber, setColFilterPONumber] = useState<string[]>([]);
   const [colFilterBOMStatus, setColFilterBOMStatus] = useState<string[]>([]);
   const [tableSortConfig, setTableSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
@@ -404,6 +406,11 @@ export default function MRPProcurementWorkbench({
         existing.estimatedValue = (Number(existing.netShortage) || 0) * (existing.bestVendor?.rate || existing.estimatedRate || 0);
         if (!existing.description && item.description) existing.description = item.description;
         if (!existing.materialCode && item.materialCode) existing.materialCode = item.materialCode;
+        if (!existing.poNumber && item.poNumber) existing.poNumber = item.poNumber;
+        if (item.poNumbers && item.poNumbers.length > 0) {
+          existing.poNumbers = Array.from(new Set([...(existing.poNumbers || []), ...item.poNumbers]));
+          if (!existing.poNumber && existing.poNumbers.length > 0) existing.poNumber = existing.poNumbers[0];
+        }
         if (Array.isArray(item.mrpSources)) {
           item.mrpSources.forEach((src: any) => {
             const foundSrc = existing.mrpSources.find((s: any) => s.mrpNumber === src.mrpNumber || String(s.mrpId) === String(src.mrpId));
@@ -510,7 +517,11 @@ export default function MRPProcurementWorkbench({
     const remark = item.materialPlanningStatus || (shortage === 0 ? 'Stock Covered' : 'Not Planned');
     if (colFilterPlanningRemark.length > 0 && !colFilterPlanningRemark.includes(remark)) return false;
 
-    // 9. BOM Item Status
+    // 9. PO Number
+    const poNum = item.poNumber || (Array.isArray(item.poNumbers) ? item.poNumbers[0] : '') || 'No PO';
+    if (colFilterPONumber.length > 0 && !colFilterPONumber.includes(poNum)) return false;
+
+    // 10. BOM Item Status
     const st = item.status || 'Pending';
     if (colFilterBOMStatus.length > 0 && !colFilterBOMStatus.includes(st)) return false;
 
@@ -565,6 +576,11 @@ export default function MRPProcurementWorkbench({
         valB = b.materialPlanningStatus || (Number(b.netShortage || 0) === 0 ? 'Stock Covered' : 'Not Planned');
         return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
       }
+      if (key === 'poNumber') {
+        valA = a.poNumber || (Array.isArray(a.poNumbers) ? a.poNumbers[0] : '') || '';
+        valB = b.poNumber || (Array.isArray(b.poNumbers) ? b.poNumbers[0] : '') || '';
+        return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
       if (key === 'status') {
         valA = a.status || 'Pending';
         valB = b.status || 'Pending';
@@ -593,6 +609,7 @@ export default function MRPProcurementWorkbench({
       colFilterShortage.length > 0 || numCondShortage !== 'all' ||
       colFilterPreferredSupplier.length > 0 ||
       colFilterPlanningRemark.length > 0 ||
+      colFilterPONumber.length > 0 ||
       colFilterBOMStatus.length > 0 ||
       Boolean(tableSortConfig)
     );
@@ -603,7 +620,7 @@ export default function MRPProcurementWorkbench({
     colFilterInTransit, numCondInTransit,
     colFilterShortage, numCondShortage,
     colFilterPreferredSupplier, colFilterPlanningRemark,
-    colFilterBOMStatus, tableSortConfig
+    colFilterPONumber, colFilterBOMStatus, tableSortConfig
   ]);
 
   const handleResetExcelFilters = () => {
@@ -619,6 +636,7 @@ export default function MRPProcurementWorkbench({
     setNumCondShortage('all');
     setColFilterPreferredSupplier([]);
     setColFilterPlanningRemark([]);
+    setColFilterPONumber([]);
     setColFilterBOMStatus([]);
     setTableSortConfig(null);
   };
@@ -982,6 +1000,16 @@ export default function MRPProcurementWorkbench({
       status: selectedPlan.status,
       fgItems: selectedPlan.fgItems || [],
       companyInfo
+    });
+  };
+
+  // Excel Export for Nested Multi-Level BOM Tree & Type Classification (RM, BO, Components)
+  const handleExportBOMExcel = () => {
+    if (!selectedPlan) return;
+    generateNestedBOMExcel({
+      plan: selectedPlan,
+      nestedMaterials: allPlanNestedMaterials,
+      classifiedLists: classifiedLists
     });
   };
 
@@ -2499,6 +2527,18 @@ export default function MRPProcurementWorkbench({
                   </th>
                   <th className="p-3 text-center">
                     <ColumnFilter
+                      column="poNumber"
+                      title="PO Number"
+                      data={activeDatasetForFilters}
+                      currentFilters={colFilterPONumber}
+                      onFilterChange={setColFilterPONumber}
+                      getValue={(item) => item.poNumber || (Array.isArray(item.poNumbers) ? item.poNumbers[0] : '') || 'No PO'}
+                      sortConfig={tableSortConfig}
+                      onSortChange={handleSortChange}
+                    />
+                  </th>
+                  <th className="p-3 text-center">
+                    <ColumnFilter
                       column="status"
                       title="BOM Item Status"
                       data={activeDatasetForFilters}
@@ -2514,7 +2554,7 @@ export default function MRPProcurementWorkbench({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredConsolidatedList.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="p-8 text-center text-slate-400">
+                    <td colSpan={11} className="p-8 text-center text-slate-400">
                       No {activeTypeTab.toUpperCase()} items found matching the selected filters.
                     </td>
                   </tr>
@@ -2790,6 +2830,27 @@ export default function MRPProcurementWorkbench({
                           })()}
                         </td>
 
+                        {/* PO Number */}
+                        <td className="p-3 text-center">
+                          {item.poNumber || (Array.isArray(item.poNumbers) && item.poNumbers.length > 0) ? (
+                            <div className="inline-flex flex-col items-center gap-0.5">
+                              <span 
+                                className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shadow-2xs whitespace-nowrap"
+                                title={`PO Number: ${item.poNumbers?.join(', ') || item.poNumber}`}
+                              >
+                                📄 {item.poNumber || item.poNumbers?.[0]}
+                              </span>
+                              {Array.isArray(item.poNumbers) && item.poNumbers.length > 1 && (
+                                <span className="text-[9px] text-slate-400 font-mono">
+                                  +{item.poNumbers.length - 1} more
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 font-mono text-[11px]">-</span>
+                          )}
+                        </td>
+
                         {/* Interactive Manual Status Selector (Last Column) */}
                         <td className="p-3 text-center">
                           <div className="inline-block relative">
@@ -3006,6 +3067,16 @@ export default function MRPProcurementWorkbench({
                         ) : (
                           <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 inline-flex items-center gap-1">
                             <AlertTriangle size={10} /> ⚠️ Not Planned
+                          </span>
+                        )}
+
+                        {/* PO Number Badge */}
+                        {(item.poNumber || (Array.isArray(item.poNumbers) && item.poNumbers.length > 0)) && (
+                          <span 
+                            className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                            title={`PO Number: ${item.poNumbers?.join(', ') || item.poNumber}`}
+                          >
+                            📄 {item.poNumber || item.poNumbers?.[0]}
                           </span>
                         )}
 
@@ -4020,6 +4091,16 @@ export default function MRPProcurementWorkbench({
                 </button>
               )}
 
+              {/* Excel Export Button (Export Multi-Level BOM & Classification sheets) */}
+              <button
+                onClick={handleExportBOMExcel}
+                className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0 whitespace-nowrap"
+                title="Export Nested BOM & Type Classification (RM, BO, Components) to Excel"
+              >
+                <FileSpreadsheet size={13} />
+                <span>Export BOM Excel</span>
+              </button>
+
               {/* Sync Plan (BOM, Customer PO & Sales Price) Button */}
               <button
                 onClick={handleSyncBOM}
@@ -4168,6 +4249,12 @@ export default function MRPProcurementWorkbench({
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-md text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
                     Remark: <strong>{colFilterPlanningRemark.join(', ')}</strong>
                     <button onClick={() => setColFilterPlanningRemark([])} className="hover:text-rose-600 cursor-pointer">×</button>
+                  </span>
+                )}
+                {colFilterPONumber.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-md text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                    PO: <strong>{colFilterPONumber.join(', ')}</strong>
+                    <button onClick={() => setColFilterPONumber([])} className="hover:text-rose-600 cursor-pointer">×</button>
                   </span>
                 )}
                 {colFilterBOMStatus.length > 0 && (
@@ -4367,6 +4454,18 @@ export default function MRPProcurementWorkbench({
                                 </th>
                                 <th className="p-3 text-center">
                                   <ColumnFilter
+                                    column="poNumber"
+                                    title="PO Number"
+                                    data={activeDatasetForFilters}
+                                    currentFilters={colFilterPONumber}
+                                    onFilterChange={setColFilterPONumber}
+                                    getValue={(item) => item.poNumber || (Array.isArray(item.poNumbers) ? item.poNumbers[0] : '') || 'No PO'}
+                                    sortConfig={tableSortConfig}
+                                    onSortChange={handleSortChange}
+                                  />
+                                </th>
+                                <th className="p-3 text-center">
+                                  <ColumnFilter
                                     column="status"
                                     title="BOM Item Status"
                                     data={activeDatasetForFilters}
@@ -4382,7 +4481,7 @@ export default function MRPProcurementWorkbench({
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                               {displayedMaterials.length === 0 ? (
                                 <tr>
-                                  <td colSpan={9} className="p-8 text-center text-slate-400 italic">
+                                  <td colSpan={10} className="p-8 text-center text-slate-400 italic">
                                     No nested materials match the active column filters.
                                   </td>
                                 </tr>
@@ -4544,7 +4643,28 @@ export default function MRPProcurementWorkbench({
                                         })()}
                                       </td>
 
-                                      {/* 9. BOM Item Status */}
+                                      {/* 9. PO Number */}
+                                      <td className="p-3 text-center">
+                                        {nMat.poNumber || (Array.isArray(nMat.poNumbers) && nMat.poNumbers.length > 0) ? (
+                                          <div className="inline-flex flex-col items-center gap-0.5">
+                                            <span 
+                                              className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shadow-2xs whitespace-nowrap"
+                                              title={`PO Number: ${nMat.poNumbers?.join(', ') || nMat.poNumber}`}
+                                            >
+                                              📄 {nMat.poNumber || nMat.poNumbers?.[0]}
+                                            </span>
+                                            {Array.isArray(nMat.poNumbers) && nMat.poNumbers.length > 1 && (
+                                              <span className="text-[9px] text-slate-400 font-mono">
+                                                +{nMat.poNumbers.length - 1} more
+                                              </span>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-400 font-mono text-[11px]">-</span>
+                                        )}
+                                      </td>
+
+                                      {/* 10. BOM Item Status */}
                                       <td className="p-3 text-center">
                                         <div className="inline-block relative">
                                           <select
@@ -4631,7 +4751,7 @@ export default function MRPProcurementWorkbench({
                                   </div>
 
                                   <div className="flex items-center justify-between gap-2 pt-1">
-                                    <div>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
                                       {(() => {
                                         const pStatus = nMat.materialPlanningStatus || (Number(nMat.netShortage || 0) === 0 ? 'Stock Covered' : 'Not Planned');
                                         return (
@@ -4640,6 +4760,14 @@ export default function MRPProcurementWorkbench({
                                           </span>
                                         );
                                       })()}
+                                      {(nMat.poNumber || (Array.isArray(nMat.poNumbers) && nMat.poNumbers.length > 0)) && (
+                                        <span 
+                                          className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                                          title={`PO Number: ${nMat.poNumbers?.join(', ') || nMat.poNumber}`}
+                                        >
+                                          📄 {nMat.poNumber || nMat.poNumbers?.[0]}
+                                        </span>
+                                      )}
                                     </div>
                                     <div className="inline-block relative">
                                       <select

@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck, Plus, Lock, Package, ChevronDown, Check, Layers, IndianRupee, BarChart3, MessageSquare, Send } from 'lucide-react';
+import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck, Plus, Lock, Package, ChevronDown, Check, Layers, IndianRupee, BarChart3, MessageSquare, Send, Link2, Link2Off, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { generateDocument } from '@/src/utils/documentHelper';
 import { generateFrontendPoPDF } from '@/src/utils/frontendPdfHelper';
@@ -23,6 +23,7 @@ import OutwardPOItemWiseView from '../views/OutwardPOItemWiseView';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 import { resolveLineItemDisplay } from '@/src/utils/dualUomHelper';
+import SearchableSelect, { SearchableOption } from '../SearchableSelect';
 
 interface POTableProps {
     data: any[];
@@ -33,6 +34,7 @@ interface POTableProps {
     onDelete: (id: string) => void;
     onCreatePO?: () => void;
     onStatusChange?: (id: string, newStatus: string) => Promise<void>;
+    onRefresh?: () => void;
 }
 
 const isWithin24Hours = (createdAt: string | Date): boolean => {
@@ -137,6 +139,15 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
     const [newCommentCategory, setNewCommentCategory] = useState('General');
     const [isSubmittingComment, setIsSubmittingComment] = useState(false);
     const [localFollowUpsMap, setLocalFollowUpsMap] = useState<Record<string, any[]>>({});
+
+    // MRP Quick Linking modal state
+    const [linkingPO, setLinkingPO] = useState<any | null>(null);
+    const [linkingMrpNumber, setLinkingMrpNumber] = useState<string>('');
+    const [linkingMrpPlanId, setLinkingMrpPlanId] = useState<string>('');
+    const [isSavingLinkMrp, setIsSavingLinkMrp] = useState(false);
+    const [mrpPlanList, setMrpPlanList] = useState<any[]>([]);
+    const [isLoadingMrpPlans, setIsLoadingMrpPlans] = useState(false);
+    const [localMrpMap, setLocalMrpMap] = useState<Record<string, { mrpNumber?: string; mrpPlanId?: any }>>({});
 
     const statusDropdownRef = useRef<HTMLDivElement>(null);
     const vendorDropdownRef = useRef<HTMLDivElement>(null);
@@ -511,6 +522,156 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         return 'RM';
     };
 
+    const getResolvedMrp = (item: any): string => {
+        if (!item) return '';
+        const poId = item._id || item.id;
+        if (poId && localMrpMap[poId]?.mrpNumber !== undefined) {
+            return localMrpMap[poId]?.mrpNumber || '';
+        }
+        return item.mrpNumber || 
+               (typeof item.mrpPlanId === 'object' ? (item.mrpPlanId?.mrpNumber || item.mrpPlanId?.planNumber) : null) || 
+               (typeof item.mrpPlan === 'object' ? item.mrpPlan?.mrpNumber : null) || 
+               (`${item.notes || ''} ${item.remarks || ''} ${item.description || ''}`).match(/\bMRP[-/A-Za-z0-9_]+\b/i)?.[0] || '';
+    };
+
+    const mrpPlanOptions = useMemo<SearchableOption[]>(() => {
+        return (mrpPlanList || []).map((plan: any) => {
+            const num = plan.mrpNumber || plan.planNumber || 'MRP';
+            const title = plan.planNumber || plan.title || 'MRP Plan';
+            const st = plan.status || 'Active';
+            const cust = plan.customerName ? ` (${plan.customerName})` : '';
+            return {
+                value: num,
+                label: `${num} — ${title}${cust}`,
+                badge: st,
+                description: plan.description || `Target: ${plan.targetMonth || plan.targetDate || 'N/A'}`
+            };
+        });
+    }, [mrpPlanList]);
+
+    const handleOpenLinkMrp = (item: any) => {
+        setLinkingPO(item);
+        const currentMrp = getResolvedMrp(item);
+        setLinkingMrpNumber(currentMrp || '');
+        const curPlanId = item.mrpPlanId && typeof item.mrpPlanId === 'object' 
+            ? (item.mrpPlanId._id || item.mrpPlanId.id) 
+            : (item.mrpPlanId || '');
+        setLinkingMrpPlanId(curPlanId || '');
+
+        if (mrpPlanList.length === 0) {
+            setIsLoadingMrpPlans(true);
+            const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+            fetch(`${API_BASE_URL}/api/purchase/mrp/plan`, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            })
+            .then(res => res.json())
+            .then(json => {
+                const plans = Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []);
+                setMrpPlanList(plans);
+            })
+            .catch(err => console.error("Failed to load MRP plans:", err))
+            .finally(() => setIsLoadingMrpPlans(false));
+        }
+    };
+
+    const handleSaveLinkMrp = async () => {
+        if (!linkingPO) return;
+        setIsSavingLinkMrp(true);
+        const poId = linkingPO._id || linkingPO.id;
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/purchase/po/${poId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                    mrpNumber: linkingMrpNumber.trim(),
+                    mrpPlanId: linkingMrpPlanId || null
+                })
+            });
+
+            if (res.ok) {
+                setLocalMrpMap(prev => ({
+                    ...prev,
+                    [poId]: {
+                        mrpNumber: linkingMrpNumber.trim(),
+                        mrpPlanId: linkingMrpPlanId || null
+                    }
+                }));
+
+                if (selectedPoPreview && (selectedPoPreview._id === poId || selectedPoPreview.id === poId)) {
+                    setSelectedPoPreview((prev: any) => ({
+                        ...prev,
+                        mrpNumber: linkingMrpNumber.trim(),
+                        mrpPlanId: linkingMrpPlanId || null
+                    }));
+                }
+
+                setLinkingPO(null);
+            } else {
+                const errJson = await res.json().catch(() => ({}));
+                alert(errJson.message || "Failed to update MRP link.");
+            }
+        } catch (e) {
+            console.error("Failed to save MRP link:", e);
+            alert("Error connecting to server to link MRP.");
+        } finally {
+            setIsSavingLinkMrp(false);
+        }
+    };
+
+    const handleUnlinkMrp = async () => {
+        if (!linkingPO) return;
+        if (!window.confirm("Are you sure you want to unlink this PO from the MRP Plan? The committed expense on the plan will be deducted accordingly.")) {
+            return;
+        }
+        setIsSavingLinkMrp(true);
+        const poId = linkingPO._id || linkingPO.id;
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/purchase/po/${poId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                    mrpNumber: '',
+                    mrpPlanId: null
+                })
+            });
+
+            if (res.ok) {
+                setLocalMrpMap(prev => ({
+                    ...prev,
+                    [poId]: { mrpNumber: '', mrpPlanId: null }
+                }));
+
+                if (selectedPoPreview && (selectedPoPreview._id === poId || selectedPoPreview.id === poId)) {
+                    setSelectedPoPreview((prev: any) => ({
+                        ...prev,
+                        mrpNumber: '',
+                        mrpPlanId: null
+                    }));
+                }
+
+                setLinkingPO(null);
+            } else {
+                const errJson = await res.json().catch(() => ({}));
+                alert(errJson.message || "Failed to unlink MRP Plan.");
+            }
+        } catch (e) {
+            console.error("Failed to unlink MRP Plan:", e);
+            alert("Network error unlinking MRP Plan.");
+        } finally {
+            setIsSavingLinkMrp(false);
+        }
+    };
+
     const [filterType, setFilterType] = useState<string>('All');
 
     const filteredData = useMemo(() => {
@@ -519,10 +680,12 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             const vName = getVendorNameStr(item);
             const mName = getMaterialNameStr(item);
             const poNo = item.poNumber || '';
+            const mrpNo = getResolvedMrp(item);
 
             const matchSearch = 
                 !searchTerm ||
                 poNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                mrpNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 vName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 mName.toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -544,7 +707,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
             return matchSearch && matchStatus && matchVendor && matchType;
         });
-    }, [data, searchTerm, selectedStatuses, selectedVendors, filterType]);
+    }, [data, searchTerm, selectedStatuses, selectedVendors, filterType, localMrpMap]);
 
     const metrics = useMemo(() => {
         let totalItemsCount = 0;
@@ -1099,6 +1262,35 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                         PO #{item.poNumber || '-'}
                                                     </span>
                                                     <span className="text-xs text-gray-500 font-medium mt-0.5">{poDate}</span>
+                                                    {(() => {
+                                                        const currentMrp = getResolvedMrp(item);
+                                                        return currentMrp ? (
+                                                            <div className="mt-1 flex items-center gap-1.5">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => { e.stopPropagation(); handleOpenLinkMrp(item); }}
+                                                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-mono font-bold bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800 transition-colors cursor-pointer group shadow-2xs"
+                                                                    title="Click to change or view linked MRP Plan"
+                                                                >
+                                                                    <Link2 size={10} className="text-purple-600 dark:text-purple-400 shrink-0" />
+                                                                    <span className="truncate max-w-[130px]">MRP: {currentMrp}</span>
+                                                                    <Edit2 size={9} className="opacity-0 group-hover:opacity-100 transition-opacity ml-0.5 text-purple-500 shrink-0" />
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="mt-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => { e.stopPropagation(); handleOpenLinkMrp(item); }}
+                                                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-slate-800 rounded border border-dashed border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                                                                    title="Link this PO to an MRP Plan"
+                                                                >
+                                                                    <Plus size={10} />
+                                                                    <span>Link MRP</span>
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })()}
                                                     {(item.createdByName || item.createdBy?.name) && (
                                                         <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
                                                             <User size={10} className="shrink-0" />
@@ -1408,6 +1600,32 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                     {category === 'BO' ? 'Bought Out' : category === 'Consumable' ? 'Consumable' : 'Raw Material'}
                                                 </span>
                                             </div>
+                                            {(() => {
+                                                const currentMrp = getResolvedMrp(item);
+                                                return currentMrp ? (
+                                                    <div className="mt-0.5 flex items-center">
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => { e.stopPropagation(); handleOpenLinkMrp(item); }}
+                                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800 cursor-pointer"
+                                                        >
+                                                            <Link2 size={10} className="text-purple-600" />
+                                                            <span>MRP: {currentMrp}</span>
+                                                            <Edit2 size={9} className="text-purple-500 ml-0.5" />
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="mt-0.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => { e.stopPropagation(); handleOpenLinkMrp(item); }}
+                                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold text-slate-400 hover:text-purple-600 rounded border border-dashed border-slate-200 dark:border-slate-700 cursor-pointer"
+                                                        >
+                                                            <Plus size={10} /> Link MRP
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })()}
                                             <h4 className="font-bold text-gray-900 dark:text-white text-sm">{vendorName}</h4>
                                             <div className="text-[11px] text-gray-500 dark:text-slate-400 font-medium">{poDate}</div>
                                             {(item.createdByName || item.createdBy?.name) && (
@@ -1686,18 +1904,32 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                             {selectedPoPreview.quotationNumber && <span>• <b>Ref Quote:</b> {selectedPoPreview.quotationNumber}</span>}
                                         </div>
                                         {(() => {
-                                            const previewMrp = selectedPoPreview.mrpNumber || 
-                                                               (typeof selectedPoPreview.mrpPlanId === 'object' ? (selectedPoPreview.mrpPlanId?.mrpNumber || selectedPoPreview.mrpPlanId?.planNumber) : null) || 
-                                                               (typeof selectedPoPreview.mrpPlan === 'object' ? selectedPoPreview.mrpPlan?.mrpNumber : null) || 
-                                                               (`${selectedPoPreview.notes || ''} ${selectedPoPreview.remarks || ''} ${selectedPoPreview.description || ''}`).match(/\bMRP[-/A-Za-z0-9_]+\b/i)?.[0];
-                                            return previewMrp ? (
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="font-bold text-slate-600 dark:text-slate-400">MRP No:</span>
-                                                    <span className="bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 px-2 py-0.5 rounded font-mono font-extrabold text-[11px] border border-purple-300 dark:border-purple-800">
-                                                        {previewMrp}
-                                                    </span>
+                                            const previewMrp = getResolvedMrp(selectedPoPreview);
+                                            return (
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <span className="font-bold text-slate-600 dark:text-slate-400">MRP Plan:</span>
+                                                    {previewMrp ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleOpenLinkMrp(selectedPoPreview)}
+                                                            className="bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 px-2 py-0.5 rounded font-mono font-extrabold text-[11px] border border-purple-300 dark:border-purple-800 flex items-center gap-1.5 cursor-pointer shadow-2xs group"
+                                                            title="Click to edit or unlink MRP Plan"
+                                                        >
+                                                            <Link2 size={11} className="text-purple-600" />
+                                                            <span>{previewMrp}</span>
+                                                            <Edit2 size={10} className="text-purple-600 opacity-60 group-hover:opacity-100" />
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleOpenLinkMrp(selectedPoPreview)}
+                                                            className="px-2 py-0.5 bg-slate-100 hover:bg-purple-50 text-slate-600 hover:text-purple-600 dark:bg-slate-800 dark:text-slate-300 rounded font-bold text-[11px] border border-dashed border-slate-300 dark:border-slate-700 flex items-center gap-1 cursor-pointer transition-colors"
+                                                        >
+                                                            <Plus size={11} /> Link to MRP Plan
+                                                        </button>
+                                                    )}
                                                 </div>
-                                            ) : null;
+                                            );
                                         })()}
                                     </div>
                                 </div>
@@ -2241,6 +2473,152 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             )}
                         </div>
 
+                    </div>
+                </div>
+            )}
+
+            {/* Link PO to MRP Plan Quick Modal */}
+            {linkingPO && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-lg overflow-hidden flex flex-col">
+                        {/* Header */}
+                        <div className="p-4 bg-gradient-to-r from-purple-500/10 via-purple-500/5 to-transparent border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="p-2 bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 rounded-xl">
+                                    <Link2 size={18} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                                        Link PO to MRP Plan
+                                    </h3>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                        Assign this Outward PO to an active Material Requirement Plan
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setLinkingPO(null)}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-5 space-y-4">
+                            {/* Target PO Summary Pill */}
+                            <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200/80 dark:border-slate-700 space-y-1.5 text-xs">
+                                <div className="flex justify-between items-center">
+                                    <span className="font-mono font-black text-purple-600 dark:text-purple-400 text-sm">
+                                        PO #{linkingPO.poNumber || '-'}
+                                    </span>
+                                    <span className="font-extrabold font-mono text-slate-900 dark:text-white">
+                                        ₹ {Number(linkingPO.grandTotal || linkingPO.totalAmount || linkingPO.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between text-slate-500 dark:text-slate-400 text-[11px]">
+                                    <span>Vendor: <strong className="text-slate-700 dark:text-slate-300">{getVendorNameStr(linkingPO)}</strong></span>
+                                    <span>Date: {new Date(linkingPO.date || linkingPO.createdAt || Date.now()).toLocaleDateString('en-GB')}</span>
+                                </div>
+                            </div>
+
+                            {/* Help Box */}
+                            <div className="bg-purple-50/70 dark:bg-purple-950/30 p-3 rounded-xl border border-purple-200 dark:border-purple-800/60 text-xs text-purple-900 dark:text-purple-200 space-y-1">
+                                <div className="font-bold flex items-center gap-1.5 text-[11.5px]">
+                                    <span>Financial & Procurement Impact</span>
+                                </div>
+                                <p className="text-[11px] text-purple-800/90 dark:text-purple-300/90 leading-relaxed">
+                                    Linking commits this PO's total expense directly into the selected MRP Plan's committed financials and displays this PO # on child materials in the Procurement Workbench.
+                                </p>
+                            </div>
+
+                            {/* Select MRP Plan */}
+                            <div className="space-y-1.5">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                        Select MRP Plan or Type MRP Number
+                                    </label>
+                                    {linkingMrpNumber && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setLinkingMrpNumber('');
+                                                setLinkingMrpPlanId('');
+                                            }}
+                                            className="text-[10.5px] font-semibold text-rose-600 hover:underline cursor-pointer"
+                                        >
+                                            Clear Selection
+                                        </button>
+                                    )}
+                                </div>
+                                <SearchableSelect
+                                    options={mrpPlanOptions}
+                                    value={linkingMrpNumber}
+                                    displayLabel={linkingMrpNumber ? `${linkingMrpNumber}${mrpPlanList.find(p => p.mrpNumber === linkingMrpNumber)?.customerName ? ` — ${mrpPlanList.find(p => p.mrpNumber === linkingMrpNumber)?.customerName}` : ''}` : undefined}
+                                    allowCustom={true}
+                                    onCreateCustom={(typedQuery) => {
+                                        setLinkingMrpNumber(typedQuery);
+                                        const matched = mrpPlanList.find(p => p.mrpNumber?.toLowerCase() === typedQuery.toLowerCase());
+                                        setLinkingMrpPlanId(matched ? (matched._id || matched.id) : '');
+                                    }}
+                                    onChange={(val: any) => {
+                                        setLinkingMrpNumber(val);
+                                        const matched = mrpPlanList.find(p => p.mrpNumber === val || p._id === val);
+                                        setLinkingMrpPlanId(matched ? (matched._id || matched.id) : '');
+                                    }}
+                                    placeholder={isLoadingMrpPlans ? "Loading active MRP Plans..." : "Select active MRP Plan or type MRP Number..."}
+                                    disabled={isLoadingMrpPlans || isSavingLinkMrp}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center gap-2">
+                            <div>
+                                {getResolvedMrp(linkingPO) && (
+                                    <button
+                                        type="button"
+                                        onClick={handleUnlinkMrp}
+                                        disabled={isSavingLinkMrp}
+                                        className="px-3 py-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl text-xs font-bold border border-rose-200 dark:border-rose-800/60 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                        title="Unlink this PO from its current MRP Plan"
+                                    >
+                                        <Link2Off size={13} />
+                                        <span>Unlink MRP</span>
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setLinkingPO(null)}
+                                    disabled={isSavingLinkMrp}
+                                    className="px-4 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSaveLinkMrp}
+                                    disabled={isSavingLinkMrp || !linkingMrpNumber.trim()}
+                                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white rounded-xl text-xs font-bold shadow-md shadow-purple-600/20 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {isSavingLinkMrp ? (
+                                        <>
+                                            <Loader2 size={13} className="animate-spin" />
+                                            <span>Saving...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Check size={14} />
+                                            <span>Save & Link MRP</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

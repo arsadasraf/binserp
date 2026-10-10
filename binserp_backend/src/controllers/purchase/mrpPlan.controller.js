@@ -12,6 +12,15 @@ const getCompanyId = (req) => {
 const cleanStr = (s) => (s || "").trim().toLowerCase();
 const cleanKey = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
+export const toValidObjectId = (val) => {
+  if (!val) return undefined;
+  const str = typeof val === "object" && val._id ? String(val._id) : String(val).trim();
+  if (/^[0-9a-fA-F]{24}$/.test(str)) {
+    return new mongoose.Types.ObjectId(str);
+  }
+  return undefined;
+};
+
 export const isGenericPlaceholder = (name) => {
   const s = (name || "").toLowerCase().trim();
   return !s || s === "finished good" || s === "finish goods" || s === "finished goods" || s === "unspecified fg item";
@@ -87,9 +96,9 @@ export const createMRPPlan = async (req, res) => {
         const exRate = p.exchangeRate || resolveExchangeRateToINR(cCode, prefixSettings);
         const totAmt = Number(p.totalAmount || 0);
         return {
-          customerPo: p.customerPo || p._id || p.id,
+          customerPo: toValidObjectId(p.customerPo || p._id || p.id),
           customerPoNumber: p.customerPoNumber || p.poNumber || "",
-          customer: p.customer?._id || p.customer,
+          customer: toValidObjectId(p.customer?._id || p.customer),
           customerName: p.customerName || p.customer?.name || "",
           poDate: p.poDate ? new Date(p.poDate) : undefined,
           targetDate: p.targetDate ? new Date(p.targetDate) : undefined,
@@ -100,19 +109,20 @@ export const createMRPPlan = async (req, res) => {
         };
       });
     } else if (Array.isArray(customerPoIds) && customerPoIds.length > 0) {
-      const fetchedPOs = await IncomingPO.find({
+      const validPoIds = customerPoIds.map(toValidObjectId).filter(Boolean);
+      const fetchedPOs = validPoIds.length > 0 ? await IncomingPO.find({
         company: companyId,
-        _id: { $in: customerPoIds },
-      }).populate("customer", "name code");
+        _id: { $in: validPoIds },
+      }).populate("customer", "name code") : [];
 
       resolvedCustomerPOs = fetchedPOs.map((p) => {
         const cCode = p.currency || "INR";
         const exRate = resolveExchangeRateToINR(cCode, prefixSettings);
         const totAmt = Number(p.totalAmount || 0);
         return {
-          customerPo: p._id,
+          customerPo: toValidObjectId(p._id),
           customerPoNumber: p.poNumber || "",
-          customer: p.customer?._id || p.customer,
+          customer: toValidObjectId(p.customer?._id || p.customer),
           customerName: p.customer?.name || p.customerName || "",
           poDate: p.date ? new Date(p.date) : undefined,
           targetDate: p.committedDispatchDate || p.deliveryDate || p.date,
@@ -123,8 +133,9 @@ export const createMRPPlan = async (req, res) => {
         };
       });
     } else if (customerPo || customerPoNumber) {
-      const fetchedPO = (customerPo && mongoose.Types.ObjectId.isValid(customerPo))
-        ? await IncomingPO.findOne({ company: companyId, _id: customerPo }).lean().catch(() => null)
+      const validPoId = toValidObjectId(customerPo);
+      const fetchedPO = validPoId
+        ? await IncomingPO.findOne({ company: companyId, _id: validPoId }).lean().catch(() => null)
         : await IncomingPO.findOne({ company: companyId, poNumber: customerPoNumber }).lean().catch(() => null);
 
       const cCode = fetchedPO?.currency || req.body.currency || "INR";
@@ -133,7 +144,7 @@ export const createMRPPlan = async (req, res) => {
 
       resolvedCustomerPOs = [
         {
-          customerPo: customerPo && mongoose.Types.ObjectId.isValid(customerPo) ? customerPo : fetchedPO?._id,
+          customerPo: toValidObjectId(customerPo || fetchedPO?._id),
           customerPoNumber: customerPoNumber || fetchedPO?.poNumber || "",
           customerName: customerName || fetchedPO?.customerName || "",
           poDate: poDate ? new Date(poDate) : (fetchedPO?.date ? new Date(fetchedPO.date) : undefined),
@@ -801,19 +812,20 @@ export const createMRPPlan = async (req, res) => {
       ).trim();
       const fgId = typeof fg.fgItem === 'object' && fg.fgItem !== null ? fg.fgItem._id : (fg.fgItem || fg._id);
 
-      const freshFG = (fgId && fgById.get(String(fgId))) ||
+      const freshFG = (fgId && toValidObjectId(fgId) && fgById.get(String(toValidObjectId(fgId)))) ||
                       (rawName && fgByName.get(cleanStr(rawName))) ||
                       (fgCode && fgByCode.get(cleanStr(fgCode))) ||
                       (rawName && allFGItems.find(f => cleanStr(f.name) === cleanStr(rawName))) ||
                       (fgCode && allFGItems.find(f => cleanStr(f.code) === cleanStr(fgCode)));
 
       const fgName = (freshFG?.name || (!isGenericPlaceholder(rawName) ? rawName : "") || (fgCode ? `Item ${fgCode}` : "") || (freshFG?.code ? `Item ${freshFG.code}` : "") || "FG Item").trim();
-      const resolvedFGId = freshFG?._id || fgId;
-      const itemKey = resolvedFGId ? String(resolvedFGId) : (fgCode || fgName).toLowerCase();
+      const rawFGId = freshFG?._id || fgId;
+      const resolvedFGId = toValidObjectId(rawFGId);
+      const itemKey = resolvedFGId ? String(resolvedFGId) : (rawFGId ? String(rawFGId) : (fgCode || fgName).toLowerCase());
       if (!itemKey) continue;
 
       const fgPoNumber = fg.customerPoNumber || (resolvedCustomerPOs.length === 1 ? resolvedCustomerPOs[0].customerPoNumber : "");
-      const fgPoId = fg.customerPo || (resolvedCustomerPOs.length === 1 ? resolvedCustomerPOs[0].customerPo : undefined);
+      const fgPoId = toValidObjectId(fg.customerPo || (resolvedCustomerPOs.length === 1 ? resolvedCustomerPOs[0].customerPo : undefined));
       const fgCustName = fg.customerName || (resolvedCustomerPOs.length === 1 ? resolvedCustomerPOs[0].customerName : "");
       const fgTargetDate = fg.targetDate ? new Date(fg.targetDate) : undefined;
       const fgPoDate = fg.poDeliveryDate ? new Date(fg.poDeliveryDate) : undefined;
@@ -841,7 +853,7 @@ export const createMRPPlan = async (req, res) => {
           const amtInINR = Math.round(bQty * inrRate * 100) / 100;
 
           return {
-            customerPo: b.customerPo || priceMatch?.customerPo,
+            customerPo: toValidObjectId(b.customerPo || priceMatch?.customerPo),
             customerPoNumber: b.customerPoNumber || priceMatch?.customerPoNumber || "",
             customerName: b.customerName || priceMatch?.customerName || "",
             quantity: bQty,
@@ -871,7 +883,7 @@ export const createMRPPlan = async (req, res) => {
         const amtInINR = Math.round(rawQty * inrRate * 100) / 100;
 
         incomingBreakdown = [{
-          customerPo: fgPoId || priceMatch?.customerPo,
+          customerPo: toValidObjectId(fgPoId || priceMatch?.customerPo),
           customerPoNumber: fgPoNumber || priceMatch?.customerPoNumber || "",
           customerName: fgCustName || priceMatch?.customerName || "",
           quantity: rawQty,
@@ -898,7 +910,7 @@ export const createMRPPlan = async (req, res) => {
           customerPo: fgPoId,
           customerPoNumber: fgPoNumber,
           customerName: fgCustName,
-          bomId: fg.bomId || freshFG?.bomId,
+          bomId: toValidObjectId(fg.bomId || freshFG?.bomId),
           bomNumber: fg.bomNumber || (freshFG?.bom?.length > 0 ? `BOM-${freshFG.code || freshFG.name}` : undefined),
           sourceBreakdown: [],
           sourceCustomerPOs: [],
@@ -992,7 +1004,7 @@ export const createMRPPlan = async (req, res) => {
       }
 
       enrichedFgItems.push({
-        fgItem: fgId,
+        fgItem: toValidObjectId(fgId),
         fgItemName: fgName,
         fgItemCode: fgCode,
         description: fgDesc,
@@ -1006,12 +1018,15 @@ export const createMRPPlan = async (req, res) => {
         priceSource: resolvedPriceSource,
         poDeliveryDate: fg.poDeliveryDate,
         targetDate: fgTargetDate,
-        customerPo: fg.customerPo,
+        customerPo: toValidObjectId(fg.customerPo),
         customerPoNumber: combinedPoNumbers,
         customerName: fg.customerName,
-        bomId: bomDoc?._id || fg.bomId,
+        bomId: toValidObjectId(bomDoc?._id || fg.bomId),
         bomNumber: bomDoc?.bomNumber || fg.bomNumber || (nestedMaterials.length > 0 ? "BOM-Active" : "BOM-Auto"),
-        sourceBreakdown: fg.sourceBreakdown,
+        sourceBreakdown: (fg.sourceBreakdown || []).map((b) => ({
+          ...b,
+          customerPo: toValidObjectId(b.customerPo),
+        })),
         sourceCustomerPOs: fg.sourceCustomerPOs,
         nestedMaterials: nestedMaterials,
       });
@@ -1095,7 +1110,7 @@ export const createMRPPlan = async (req, res) => {
       company: companyId,
       mrpNumber,
       customerPoNumber: displayPoNumber,
-      customerPo: resolvedCustomerPOs.length === 1 ? resolvedCustomerPOs[0].customerPo : undefined,
+      customerPo: resolvedCustomerPOs.length === 1 ? toValidObjectId(resolvedCustomerPOs[0].customerPo) : undefined,
       customerName: displayCustomerName,
       isConsolidated,
       customerPOs: resolvedCustomerPOs,
@@ -1217,21 +1232,24 @@ export const getAllMRPPlans = async (req, res) => {
       ]
     }).select("mrpPlanId mrpNumber poNumber status grandTotal totalAmount").lean().catch(() => []);
 
-    const poPlanIdMap = new Map();
-    const poPlanNumMap = new Map();
-    const poCommittedAmountMap = new Map();
+    // Map from plan ID string -> Map<poId, amount> to strictly deduplicate POs per plan
+    const planUniquePOsMap = new Map();
+    const planNumToId = new Map(mrpPlans.map(p => [p.mrpNumber, String(p._id)]));
 
     (linkedPOs || []).forEach(po => {
+      const poIdStr = String(po._id);
       const amt = Number(po.grandTotal != null ? po.grandTotal : (po.totalAmount != null ? po.totalAmount : 0)) || 0;
-      if (po.mrpPlanId) {
-        const idStr = String(po.mrpPlanId);
-        poPlanIdMap.set(idStr, (poPlanIdMap.get(idStr) || 0) + 1);
-        poCommittedAmountMap.set(idStr, (poCommittedAmountMap.get(idStr) || 0) + amt);
+      
+      const targetPlanIds = new Set();
+      if (po.mrpPlanId) targetPlanIds.add(String(po.mrpPlanId));
+      if (po.mrpNumber && planNumToId.has(po.mrpNumber)) {
+        targetPlanIds.add(planNumToId.get(po.mrpNumber));
       }
-      if (po.mrpNumber) {
-        poPlanNumMap.set(po.mrpNumber, (poPlanNumMap.get(po.mrpNumber) || 0) + 1);
-        poCommittedAmountMap.set(po.mrpNumber, (poCommittedAmountMap.get(po.mrpNumber) || 0) + amt);
-      }
+
+      targetPlanIds.forEach(pId => {
+        if (!planUniquePOsMap.has(pId)) planUniquePOsMap.set(pId, new Map());
+        planUniquePOsMap.get(pId).set(poIdStr, amt);
+      });
     });
 
     // Resolve company time-lock policy for mrpPlan
@@ -1260,8 +1278,15 @@ export const getAllMRPPlans = async (req, res) => {
         fgItems: cleanFgItems
       };
 
-      const poCount = (poPlanIdMap.get(String(p._id)) || 0) + (poPlanNumMap.get(p.mrpNumber) || 0);
-      const liveCommitted = Math.round(((poCommittedAmountMap.get(String(p._id)) || 0) + (poCommittedAmountMap.get(p.mrpNumber) || 0)) * 100) / 100;
+      const planLinkedMap = planUniquePOsMap.get(String(p._id));
+      const poCount = planLinkedMap ? planLinkedMap.size : 0;
+      let sumAmt = 0;
+      if (planLinkedMap) {
+        for (const amt of planLinkedMap.values()) {
+          sumAmt += amt;
+        }
+      }
+      const liveCommitted = Math.round(sumAmt * 100) / 100;
       const targetExpense = Number(p.targetExpense || 0);
       const estimatedExp = Number(p.totalEstimatedExpense || 0);
 
@@ -3008,6 +3033,8 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
           const totAmt = Number(livePO.totalAmount || 0);
           return {
             ...cpoEntry,
+            customerPo: toValidObjectId(cpoEntry.customerPo || livePO._id),
+            customer: toValidObjectId(cpoEntry.customer || livePO.customer?._id || livePO.customer),
             customerName: livePO.customerName || (typeof livePO.customer === 'object' ? livePO.customer?.name : "") || cpoEntry.customerName,
             customerPoNumber: livePO.poNumber || cpoEntry.customerPoNumber,
             poDate: livePO.date ? new Date(livePO.date) : cpoEntry.poDate,
@@ -3018,7 +3045,11 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
             totalAmountInINR: Math.round(totAmt * exRate * 100) / 100,
           };
         }
-        return cpoEntry;
+        return {
+          ...cpoEntry,
+          customerPo: toValidObjectId(cpoEntry.customerPo),
+          customer: toValidObjectId(cpoEntry.customer)
+        };
       });
     }
   }
@@ -3101,12 +3132,13 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     ).trim();
     const fgId = typeof fg.fgItem === 'object' && fg.fgItem !== null ? fg.fgItem._id : (fg.fgItem || fg._id);
 
-    const freshFG = (fgId && fgById.get(String(fgId))) ||
+    const freshFG = (fgId && toValidObjectId(fgId) && fgById.get(String(toValidObjectId(fgId)))) ||
                     (rawName && fgByName.get(cleanStr(rawName))) ||
                     (fgCode && fgByCode.get(cleanStr(fgCode)));
 
-    const resolvedFGId = freshFG?._id || fgId;
-    const itemKey = resolvedFGId ? String(resolvedFGId) : (cleanStr(fgCode) ? `code_${cleanStr(fgCode)}` : `name_${cleanKey(rawName)}`);
+    const rawFGId = freshFG?._id || fgId;
+    const resolvedFGId = toValidObjectId(rawFGId);
+    const itemKey = resolvedFGId ? String(resolvedFGId) : (rawFGId ? String(rawFGId) : (cleanStr(fgCode) ? `code_${cleanStr(fgCode)}` : `name_${cleanKey(rawName)}`));
     if (!itemKey) continue;
 
     if (!mergedWorkingFgMap.has(itemKey)) {
@@ -3194,7 +3226,8 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
 
     const resolvedFGName = (freshFG?.name || (!isGenericPlaceholder(rawName) ? rawName : "") || (fgCode ? `Item ${fgCode}` : "") || (freshFG?.code ? `Item ${freshFG.code}` : "") || "FG Item").trim();
     const resolvedFGCode = freshFG?.code || fgCode;
-    const resolvedFGId = freshFG?._id || fgId;
+    const rawFGId = freshFG?._id || fgId;
+    const resolvedFGId = toValidObjectId(rawFGId);
     const resolvedDesc = freshFG?.description || freshFG?.descriptions || freshFG?.specification || (!isGenericPlaceholder(fg.description) ? fg.description : "") || "";
 
     const combinedPoNumbers = Array.isArray(fg.sourceCustomerPOs) && fg.sourceCustomerPOs.length > 0
@@ -3339,12 +3372,15 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
       priceSource: resolvedPriceSource || (combinedPoNumbers ? "Customer PO" : "Sales Price List"),
       poDeliveryDate: fg.poDeliveryDate ? new Date(fg.poDeliveryDate) : undefined,
       targetDate: fg.targetDate ? new Date(fg.targetDate) : undefined,
-      customerPo: fg.customerPo || undefined,
+      customerPo: toValidObjectId(fg.customerPo),
       customerPoNumber: combinedPoNumbers,
       customerName: fg.customerName || plan.customerName || "",
-      bomId: bomDoc?._id || fg.bomId,
+      bomId: toValidObjectId(bomDoc?._id || fg.bomId),
       bomNumber: bomDoc?.bomNumber || (nestedMaterials.length > 0 ? "BOM-Active" : "BOM-Auto"),
-      sourceBreakdown: updatedBreakdown,
+      sourceBreakdown: (updatedBreakdown || []).map((b) => ({
+        ...b,
+        customerPo: toValidObjectId(b.customerPo),
+      })),
       sourceCustomerPOs: fg.sourceCustomerPOs || [],
       nestedMaterials: nestedMaterials,
     });

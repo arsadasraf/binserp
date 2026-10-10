@@ -791,6 +791,11 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
               setPreselectedPoIds(poIds);
               setIsCreateModalOpen(true);
             }}
+            onPlanMatrixDemand={(matrixPayload) => {
+              setPreselectedPoIds(matrixPayload.poIds);
+              setEditingPlan(matrixPayload.initialPlanData);
+              setIsCreateModalOpen(true);
+            }}
             onViewPlanDetails={(plan) => {
               setSelectedPlanForDetails(plan);
               setIsDetailsModalOpen(true);

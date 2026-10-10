@@ -1,4 +1,4 @@
-import { purchaseOrderSchema } from "../../models/purchase/index.js";
+import { purchaseOrderSchema, mrpPlanSchema } from "../../models/purchase/index.js";
 import { vendorSchema, grnSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
@@ -632,9 +632,9 @@ export const updatePO = asyncHandler(async (req, res) => {
     throw new ApiError(404, "PO not found");
   }
 
-  // Check if this update is purely a follow-up comment or status progression
+  // Check if this update is purely a follow-up comment, status progression, or MRP plan linking
   const bodyKeys = Object.keys(req.body);
-  const isOnlyFollowUpOrStatus = bodyKeys.length > 0 && bodyKeys.every(k => ['newFollowUp', 'followUps', 'status', 'remarks'].includes(k));
+  const isOnlyFollowUpOrStatus = bodyKeys.length > 0 && bodyKeys.every(k => ['newFollowUp', 'followUps', 'status', 'remarks', 'mrpNumber', 'mrpPlanId'].includes(k));
 
   if (!isOnlyFollowUpOrStatus) {
     // 1. Check if GRN exists for this PO
@@ -661,6 +661,23 @@ export const updatePO = asyncHandler(async (req, res) => {
 
   if (req.body.vendor) {
     updateData.vendor = isValidObjectId(req.body.vendor) ? req.body.vendor : existingPO.vendor;
+  }
+
+  // Handle explicit or manual MRP Plan linking
+  if (req.body.mrpNumber !== undefined || req.body.mrpPlanId !== undefined) {
+    const rawNum = req.body.mrpNumber ? String(req.body.mrpNumber).trim() : "";
+    updateData.mrpNumber = rawNum || undefined;
+    if (isValidObjectId(req.body.mrpPlanId)) {
+      updateData.mrpPlanId = req.body.mrpPlanId;
+    } else if (rawNum) {
+      const MRPPlan = req.getModel('MRPPlan', mrpPlanSchema);
+      const planDoc = await MRPPlan.findOne({ company: companyId, mrpNumber: rawNum }).select('_id').lean();
+      if (planDoc?._id) {
+        updateData.mrpPlanId = planDoc._id;
+      }
+    } else {
+      updateData.mrpPlanId = undefined;
+    }
   }
 
   if (Array.isArray(req.body.items) && req.body.items.length > 0) {

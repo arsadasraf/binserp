@@ -221,8 +221,20 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 ? (isForeign ? `Customer PO (${poCurrency} @ ₹${exRate})` : 'Customer PO')
                 : (fgObj?.sellingPrice ? 'Master Catalog' : 'Unset');
 
+            const rawFgId = fgObj?._id || (typeof item.fgItem === 'object' ? item.fgItem?._id : item.fgItem) || '';
+            let resolvedFgId = /^[0-9a-fA-F]{24}$/.test(String(rawFgId)) ? String(rawFgId) : '';
+            if (!resolvedFgId) {
+                const match = fgList.find((f: any) =>
+                    (f.name && f.name.toLowerCase().trim() === (pName || '').toLowerCase().trim()) ||
+                    (f.code && f.code.toLowerCase().trim() === (pCode || '').toLowerCase().trim())
+                );
+                if (match?._id && /^[0-9a-fA-F]{24}$/.test(String(match._id))) {
+                    resolvedFgId = String(match._id);
+                }
+            }
+
             return {
-                fgItem: fgObj?._id || (typeof item.fgItem === 'object' ? item.fgItem?._id : item.fgItem) || '',
+                fgItem: resolvedFgId,
                 fgItemName: fgObj?.name || pName || 'Finished Good',
                 fgItemCode: fgObj?.code || pCode || '',
                 description: item.description || fgObj?.description || fgObj?.descriptions || '',
@@ -237,10 +249,10 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 poDeliveryDate: itemPoDate,
                 targetDate: itemCommittedDate,
                 isFromOA,
-                customerPo: po._id,
+                customerPo: /^[0-9a-fA-F]{24}$/.test(String(po._id || '')) ? po._id : undefined,
                 customerPoNumber: po.poNumber || '',
                 customerName: cName,
-                bomId: matchedBom?._id,
+                bomId: /^[0-9a-fA-F]{24}$/.test(String(matchedBom?._id || '')) ? matchedBom._id : undefined,
                 bomNumber: matchedBom?.bomNumber || (fgObj?.bom?.length > 0 ? `BOM-${fgObj.code || fgObj.name}` : undefined)
             };
         });
@@ -409,24 +421,40 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                     });
                 }
                 if (Array.isArray(initialData.fgItems) && initialData.fgItems.length > 0) {
-                    setFgRows(initialData.fgItems.map((f: any) => ({
-                        fgItem: f.fgItem?._id || f.fgItem || '',
-                        fgItemName: f.fgItemName || f.fgItem?.name || '',
-                        fgItemCode: f.fgItemCode || f.fgItem?.code || '',
-                        description: f.description || '',
-                        quantity: Number(f.quantity) || 1,
-                        unit: f.unit || 'PCS',
-                        sellingPrice: Number(f.sellingPrice) || 0,
-                        totalPrice: Number(f.totalPrice) || Math.round((Number(f.quantity) || 1) * (Number(f.sellingPrice) || 0) * 100) / 100,
-                        priceSource: f.priceSource || '',
-                        poDeliveryDate: f.poDeliveryDate ? new Date(f.poDeliveryDate).toISOString().split('T')[0] : '',
-                        targetDate: f.targetDate ? new Date(f.targetDate).toISOString().split('T')[0] : '',
-                        customerPo: f.customerPo || undefined,
-                        customerPoNumber: f.customerPoNumber || '',
-                        customerName: f.customerName || '',
-                        bomId: f.bomId || '',
-                        bomNumber: f.bomNumber || ''
-                    })));
+                    setFgRows(initialData.fgItems.map((f: any) => {
+                        const rawId = f.fgItem?._id || f.fgItem || '';
+                        let cleanId = /^[0-9a-fA-F]{24}$/.test(String(rawId)) ? String(rawId) : '';
+                        if (!cleanId) {
+                            const match = fgItemList.find(
+                                (m: any) =>
+                                    (m.name && m.name.toLowerCase().trim() === (f.fgItemName || '').toLowerCase().trim()) ||
+                                    (m.code && m.code.toLowerCase().trim() === (f.fgItemCode || '').toLowerCase().trim())
+                            );
+                            if (match?._id && /^[0-9a-fA-F]{24}$/.test(String(match._id))) {
+                                cleanId = String(match._id);
+                            }
+                        }
+                        return {
+                            fgItem: cleanId,
+                            fgItemName: f.fgItemName || f.fgItem?.name || '',
+                            fgItemCode: f.fgItemCode || f.fgItem?.code || '',
+                            description: f.description || '',
+                            quantity: Number(f.quantity) || 1,
+                            unit: f.unit || 'PCS',
+                            sellingPrice: Number(f.sellingPrice) || 0,
+                            totalPrice: Number(f.totalPrice) || Math.round((Number(f.quantity) || 1) * (Number(f.sellingPrice) || 0) * 100) / 100,
+                            priceSource: f.priceSource || '',
+                            poDeliveryDate: f.poDeliveryDate ? new Date(f.poDeliveryDate).toISOString().split('T')[0] : '',
+                            targetDate: f.targetDate ? new Date(f.targetDate).toISOString().split('T')[0] : '',
+                            customerPo: /^[0-9a-fA-F]{24}$/.test(String(f.customerPo || '')) ? f.customerPo : undefined,
+                            customerPoNumber: f.customerPoNumber || '',
+                            customerName: f.customerName || '',
+                            bomId: /^[0-9a-fA-F]{24}$/.test(String(f.bomId || '')) ? f.bomId : '',
+                            bomNumber: f.bomNumber || '',
+                            sourceBreakdown: f.sourceBreakdown,
+                            sourceCustomerPOs: f.sourceCustomerPOs
+                        };
+                    }));
                 }
             } else if (preselectedPoIds && preselectedPoIds.length > 0) {
                 setPlanMode('consolidated');
@@ -995,27 +1023,56 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             return;
         }
 
+        const isHexId = (val: any) => Boolean(val && /^[0-9a-fA-F]{24}$/.test(String(val)));
+        const sanitizedFgItems = validItems.map((r) => {
+            let cleanFgId = isHexId(r.fgItem) ? String(r.fgItem) : undefined;
+            if (!cleanFgId) {
+                const match = fgItemList.find(
+                    (f: any) =>
+                        (f.name && f.name.toLowerCase().trim() === (r.fgItemName || '').toLowerCase().trim()) ||
+                        (f.code && f.code.toLowerCase().trim() === (r.fgItemCode || '').toLowerCase().trim())
+                );
+                if (match?._id && isHexId(match._id)) {
+                    cleanFgId = String(match._id);
+                }
+            }
+
+            return {
+                ...r,
+                fgItem: cleanFgId,
+                customerPo: isHexId(r.customerPo) ? r.customerPo : undefined,
+                bomId: isHexId(r.bomId) ? r.bomId : undefined,
+                sourceBreakdown: Array.isArray(r.sourceBreakdown)
+                    ? r.sourceBreakdown.map((b: any) => ({
+                        ...b,
+                        customerPo: isHexId(b.customerPo) ? b.customerPo : undefined
+                    }))
+                    : r.sourceBreakdown
+            };
+        });
+
         setSubmitting(true);
         try {
             const isConsolidated = planMode === 'consolidated' || selectedMultiPoIds.length > 1;
+            const validMultiPoIds = selectedMultiPoIds.filter(isHexId);
             const payload: any = {
                 mrpNumber,
                 isConsolidated,
                 targetDate,
                 remarks,
                 targetExpense: targetExpense ? Number(targetExpense) : undefined,
-                fgItems: validItems
+                fgItems: sanitizedFgItems
             };
 
-            if (isConsolidated && selectedMultiPoIds.length > 0) {
-                payload.customerPoIds = selectedMultiPoIds;
+            if (isConsolidated && validMultiPoIds.length > 0) {
+                payload.customerPoIds = validMultiPoIds;
                 const contributingPOs = incomingPOs.filter((p) =>
-                    selectedMultiPoIds.some((id) => String(id) === String(p._id || p.id))
+                    validMultiPoIds.some((id) => String(id) === String(p._id || p.id))
                 );
                 payload.customerPOs = contributingPOs.map((p) => ({
                     customerPo: p._id,
                     customerPoNumber: p.poNumber || '',
-                    customer: p.customer?._id || p.customer,
+                    customer: isHexId(p.customer?._id || p.customer) ? (p.customer?._id || p.customer) : undefined,
                     customerName: p.customerName || (typeof p.customer === 'object' ? p.customer?.name : '') || '',
                     poDate: p.date,
                     targetDate: p.committedDispatchDate || p.deliveryDate || p.date,
