@@ -5,14 +5,23 @@ const protectedRoutes = ["/dashboard"];
 // Which departments can access each route prefix.
 // Empty array = open to all authenticated users.
 const departmentAccess: Record<string, string[]> = {
-  "/dashboard/hr": ["HR", "HR EXECUTIVE"],
-  "/dashboard/store": ["STORE", "STORE EXECUTIVE", "PURCHASE"],
-  "/dashboard/ppc": ["PPC", "PPC EXECUTIVE", "PRODUCTION"],
-  "/dashboard/accounts": ["ACCOUNTS", "FINANCE"],
+  "/dashboard/hr": ["HR", "HR EXECUTIVE", "HUMAN RESOURCES"],
+  "/dashboard/store": [
+    "STORE",
+    "STORES",
+    "STORE EXECUTIVE",
+    "PURCHASE",
+    "PURCHASE EXECUTIVE",
+    "INVENTORY",
+    "WAREHOUSE",
+    "GENERAL STORE",
+  ],
+  "/dashboard/ppc": ["PPC", "PPC EXECUTIVE", "PRODUCTION", "MANUFACTURING"],
+  "/dashboard/accounts": ["ACCOUNTS", "FINANCE", "ACCOUNTANT"],
   "/dashboard/reports": ["REPORTS"],
   "/dashboard/maintenance": ["MAINTENANCE", "ENGINEERING"],
-  "/dashboard/quality": ["QUALITY", "QA", "QC"],
-  "/dashboard/gate-entry": ["SECURITY", "GATE"],
+  "/dashboard/quality": ["QUALITY", "QA", "QC", "QUALITY ASSURANCE", "QUALITY CONTROL"],
+  "/dashboard/gate-entry": ["SECURITY", "GATE", "SECURITY GUARD"],
   "/dashboard/crm": ["CRM", "SALES", "MARKETING"],
   "/dashboard/material-requests": [], // open to all authenticated
 };
@@ -87,7 +96,13 @@ export function proxy(request: NextRequest) {
       if (!pathname.startsWith(route)) continue;
       // Empty array means open to all authenticated users
       if (allowedDepts.length === 0) break;
-      if (!allowedDepts.includes(department)) {
+      const isAllowed = allowedDepts.some(
+        (allowed) =>
+          department === allowed ||
+          department.includes(allowed) ||
+          allowed.includes(department)
+      );
+      if (!isAllowed) {
         return NextResponse.redirect(new URL("/dashboard", request.url));
       }
       break;

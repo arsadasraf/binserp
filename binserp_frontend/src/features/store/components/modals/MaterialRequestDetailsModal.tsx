@@ -4,15 +4,17 @@ import { formatDateTime } from '../tables/MaterialIssueHistoryTable';
 import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 import { generateSingleMaterialRequestSlipPDF } from '@/src/utils/generateMaterialRequestReportPDF';
 import { API_BASE_URL } from '@/src/utils/config';
+import { evaluateItemStock } from '@/src/utils/stockValidationHelper';
 
 interface MaterialRequestDetailsModalProps {
     isOpen: boolean;
     onClose: () => void;
     request: any;
     onApprove?: (requestId: string) => Promise<void>;
+    storeData?: any;
 }
 
-export default function MaterialRequestDetailsModal({ isOpen, onClose, request, onApprove }: MaterialRequestDetailsModalProps) {
+export default function MaterialRequestDetailsModal({ isOpen, onClose, request, onApprove, storeData }: MaterialRequestDetailsModalProps) {
     const [currentRequest, setCurrentRequest] = useState<any>(request);
     const [isApproving, setIsApproving] = useState(false);
 
@@ -190,6 +192,7 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                                     {(currentRequest.items || []).map((item: any, idx: number) => {
                                         const desc = item.materialDescription || item.description || item.specification || item.grade || '';
+                                        const stockEval = storeData ? evaluateItemStock(item, storeData) : null;
                                         return (
                                             <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition-colors">
                                                 <td className="px-4 py-3">
@@ -223,6 +226,25 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                                                                 <span>↳ = {item.quantity || (item.conversionFactor ? Math.round(Number(item.secondaryQuantity || 0) / item.conversionFactor * 100) / 100 : item.secondaryQuantity)} {item.unit}</span>
                                                             ) : (
                                                                 <span>↳ = {item.secondaryQuantity || Math.round(Number(item.quantity || 0) * (item.conversionFactor || 1) * 100) / 100} {item.secondaryUnit}</span>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    {stockEval && (
+                                                        <div className="mt-1 flex items-center justify-center">
+                                                            {stockEval.status === 'out-of-stock' && (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 inline-flex items-center gap-1">
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse" /> Out of Stock (0 {stockEval.unit})
+                                                                </span>
+                                                            )}
+                                                            {stockEval.status === 'partial' && (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 inline-flex items-center gap-1">
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Shortage ({stockEval.availableStock}/{stockEval.requestedQuantity} {stockEval.unit})
+                                                                </span>
+                                                            )}
+                                                            {stockEval.status === 'in-stock' && (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60 inline-flex items-center gap-1">
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> In Stock ({stockEval.availableStock} {stockEval.unit})
+                                                                </span>
                                                             )}
                                                         </div>
                                                     )}

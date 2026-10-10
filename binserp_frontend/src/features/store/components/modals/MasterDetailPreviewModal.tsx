@@ -5,11 +5,20 @@ import {
     X, Download, Edit3, Trash2, Building2, User, Phone, Mail, Globe, 
     MapPin, CreditCard, ShieldCheck, Tag, Layers, Box, Package, 
     Calendar, CheckCircle2, AlertCircle, FileText, Printer, FileSpreadsheet,
-    Eye, ExternalLink, Hash, Info, Layers3, ChevronRight, ChevronDown, ChevronsUpDown, Sparkles
+    Eye, ExternalLink, Hash, Info, Layers3, ChevronRight, ChevronDown, ChevronsUpDown, Sparkles,
+    GitFork, List, ListFilter, ArrowDownToLine, Check
 } from 'lucide-react';
 import { generateMasterRecordPDF } from '@/src/utils/masterPdfHelper';
 import { useGetStoreDataQuery } from '@/src/store/services/storeService';
-import { explodeFGBOMHierarchy, ExplodedBOMNode, ExplodedBOMResult } from '@/src/utils/bomHierarchyHelper';
+import { 
+    explodeFGBOMHierarchy, 
+    ExplodedBOMNode, 
+    ExplodedBOMResult,
+    BOMFilterType,
+    consolidateBOMItems,
+    ConsolidatedBOMItem,
+    filterNestedBOMTree
+} from '@/src/utils/bomHierarchyHelper';
 
 export interface MasterDetailPreviewModalProps {
     isOpen: boolean;
@@ -58,6 +67,23 @@ export default function MasterDetailPreviewModal({
         if (!isFG || !item) return null;
         return explodeFGBOMHierarchy(item, fgList, rmList, boList);
     }, [isFG, item, fgList, rmList, boList]);
+
+    // BOM Filter state and dual view mode
+    const [activeBOMFilter, setActiveBOMFilter] = useState<BOMFilterType>('ALL');
+    const [bomViewMode, setBomViewMode] = useState<'tree' | 'table'>('tree');
+    const [isPdfDropdownOpen, setIsPdfDropdownOpen] = useState(false);
+
+    // Consolidated items for the active filter (for Consolidated Summary Table)
+    const consolidatedItems = useMemo(() => {
+        if (!explodedBOM) return [];
+        return consolidateBOMItems(explodedBOM.flatTree, activeBOMFilter);
+    }, [explodedBOM, activeBOMFilter]);
+
+    // Filtered nested tree for Tree view
+    const filteredNestedTree = useMemo(() => {
+        if (!explodedBOM) return [];
+        return filterNestedBOMTree(explodedBOM.nestedTree, activeBOMFilter);
+    }, [explodedBOM, activeBOMFilter]);
 
     // Tree collapse state for parent sub-assemblies
     const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
@@ -206,7 +232,8 @@ export default function MasterDetailPreviewModal({
 
     const Icon = theme.icon;
 
-    const handleDownloadPDF = () => {
+    const handleDownloadPDF = (filterType: BOMFilterType = activeBOMFilter) => {
+        setIsPdfDropdownOpen(false);
         generateMasterRecordPDF({ 
             masterTab, 
             item, 
@@ -214,8 +241,20 @@ export default function MasterDetailPreviewModal({
             allFGItems: fgList,
             allRMItems: rmList,
             allBOItems: boList,
-            explodedBOM: explodedBOM || undefined
+            explodedBOM: explodedBOM || undefined,
+            bomFilterType: filterType
         });
+    };
+
+    const getDownloadButtonLabel = () => {
+        if (!isFG) return "Download PDF";
+        switch (activeBOMFilter) {
+            case 'RM': return 'Download RM PDF';
+            case 'BO': return 'Download BO PDF';
+            case 'COMPONENT': return 'Download Component PDF';
+            case 'SUBASSEMBLY': return 'Download Sub-Assy PDF';
+            default: return 'Download Full BOM PDF';
+        }
     };
 
     return (
@@ -244,15 +283,101 @@ export default function MasterDetailPreviewModal({
                     </div>
 
                     {/* Header Action Buttons */}
-                    <div className="flex items-center gap-2 shrink-0">
-                        <button
-                            onClick={handleDownloadPDF}
-                            className={`px-3.5 py-2 ${theme.btnBg} text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-1.5 border border-white/20 hover:scale-105 active:scale-95`}
-                            title="Generate & Download Printable PDF Specification Sheet"
-                        >
-                            <Download size={15} />
-                            <span className="hidden sm:inline">Download PDF</span>
-                        </button>
+                    <div className="flex items-center gap-2 shrink-0 relative">
+                        {isFG ? (
+                            <div className="relative flex items-center">
+                                <button
+                                    onClick={() => handleDownloadPDF(activeBOMFilter)}
+                                    className={`px-3.5 py-2 ${theme.btnBg} text-white text-xs font-bold rounded-l-xl transition-all shadow-md flex items-center gap-1.5 border border-white/20 hover:brightness-110 active:scale-95`}
+                                    title="Generate & Download Printable PDF for current view"
+                                >
+                                    <Download size={15} />
+                                    <span className="hidden sm:inline">{getDownloadButtonLabel()}</span>
+                                    <span className="sm:hidden">PDF</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsPdfDropdownOpen(!isPdfDropdownOpen)}
+                                    className={`px-2 py-2 ${theme.btnBg} text-white text-xs font-bold rounded-r-xl transition-all shadow-md flex items-center border-y border-r border-white/20 border-l border-white/10 hover:brightness-110`}
+                                    title="Choose specific BOM category PDF to download"
+                                >
+                                    <ChevronDown size={14} className={`transition-transform duration-200 ${isPdfDropdownOpen ? 'rotate-180' : ''}`} />
+                                </button>
+
+                                {/* PDF Dropdown Menu */}
+                                {isPdfDropdownOpen && (
+                                    <div className="absolute right-0 top-full mt-1.5 w-60 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 py-1.5 z-[210] animate-in fade-in slide-in-from-top-1 text-slate-800 dark:text-slate-100">
+                                        <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                                            Export Specification PDF
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDownloadPDF('ALL')}
+                                            className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-purple-50 dark:hover:bg-purple-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <Layers3 size={14} className="text-purple-500" />
+                                                <span>Full Multi-Level BOM</span>
+                                            </span>
+                                            {activeBOMFilter === 'ALL' && <Check size={13} className="text-purple-600" />}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDownloadPDF('RM')}
+                                            className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-blue-50 dark:hover:bg-blue-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <Box size={14} className="text-blue-500" />
+                                                <span>Raw Materials (RM)</span>
+                                            </span>
+                                            {activeBOMFilter === 'RM' && <Check size={13} className="text-blue-600" />}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDownloadPDF('BO')}
+                                            className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <Package size={14} className="text-amber-500" />
+                                                <span>Bought Out (BO) Items</span>
+                                            </span>
+                                            {activeBOMFilter === 'BO' && <Check size={13} className="text-amber-600" />}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDownloadPDF('COMPONENT')}
+                                            className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-sky-50 dark:hover:bg-sky-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-sky-600 dark:hover:text-sky-400 transition-colors"
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <Layers size={14} className="text-sky-500" />
+                                                <span>In-House Components</span>
+                                            </span>
+                                            {activeBOMFilter === 'COMPONENT' && <Check size={13} className="text-sky-600" />}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDownloadPDF('SUBASSEMBLY')}
+                                            className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <GitFork size={14} className="text-indigo-500" />
+                                                <span>Sub-Assemblies</span>
+                                            </span>
+                                            {activeBOMFilter === 'SUBASSEMBLY' && <Check size={13} className="text-indigo-600" />}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => handleDownloadPDF()}
+                                className={`px-3.5 py-2 ${theme.btnBg} text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-1.5 border border-white/20 hover:scale-105 active:scale-95`}
+                                title="Generate & Download Printable PDF Specification Sheet"
+                            >
+                                <Download size={15} />
+                                <span className="hidden sm:inline">Download PDF</span>
+                            </button>
+                        )}
 
                         {onEdit && (
                             <button
@@ -648,194 +773,390 @@ export default function MasterDetailPreviewModal({
                                 </div>
                             </div>
 
-                            {/* Multi-Level Nested Bill of Materials (BOM) Tree */}
+                            {/* Multi-Level Nested Bill of Materials (BOM) Section */}
                             {explodedBOM && explodedBOM.flatTree.length > 0 ? (
                                 <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-4">
-                                    {/* Header & Hierarchy Summary */}
+                                    {/* Section Title & Description */}
                                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
                                         <div>
                                             <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                                                <Layers3 size={15} className="text-purple-500" /> Multi-Level Engineering BOM Tree
+                                                <Layers3 size={15} className="text-purple-500" /> Multi-Level Engineering BOM Breakdown
                                             </div>
                                             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                                Recursive explosion of assemblies, sub-assemblies, components, bought-outs & raw materials.
+                                                Filter and export by category (RM, BO, Components, Sub-Assemblies) or view the full hierarchical structure.
                                             </p>
                                         </div>
 
-                                        {/* Action Toggles: Expand/Collapse All */}
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={handleExpandAll}
-                                                className="px-2.5 py-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors"
-                                            >
-                                                Expand All
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={handleCollapseAll}
-                                                className="px-2.5 py-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
-                                            >
-                                                Collapse All
-                                            </button>
+                                        {/* View Mode Toggle (Tree View vs Consolidated Table) */}
+                                        <div className="flex items-center gap-2 self-stretch sm:self-auto justify-between sm:justify-end">
+                                            <div className="flex items-center bg-slate-200/70 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setBomViewMode('tree')}
+                                                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                                        bomViewMode === 'tree'
+                                                            ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-2xs font-extrabold'
+                                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                                    }`}
+                                                >
+                                                    <GitFork size={13} />
+                                                    <span>Tree View</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setBomViewMode('table')}
+                                                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                                        bomViewMode === 'table'
+                                                            ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-2xs font-extrabold'
+                                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                                    }`}
+                                                >
+                                                    <List size={13} />
+                                                    <span>Consolidated Table</span>
+                                                </button>
+                                            </div>
+
+                                            {/* Expand/Collapse All (Only in Tree Mode) */}
+                                            {bomViewMode === 'tree' && (
+                                                <div className="flex items-center gap-1.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleExpandAll}
+                                                        className="px-2 py-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors"
+                                                    >
+                                                        Expand All
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleCollapseAll}
+                                                        className="px-2 py-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
+                                                    >
+                                                        Collapse All
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 
-                                    {/* Hierarchy Metric Badges */}
+                                    {/* BOM Type Filter Chips with Real-time Count Badges and Quick Download Buttons */}
                                     <div className="flex flex-wrap gap-2 text-xs">
-                                        <div className="px-2.5 py-1 bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800/60 rounded-lg text-purple-700 dark:text-purple-300 font-bold text-[11px]">
-                                            Levels: <span className="font-mono">{explodedBOM.summary.totalLevels}</span>
-                                        </div>
-                                        <div className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 rounded-lg text-indigo-700 dark:text-indigo-300 font-bold text-[11px]">
-                                            Sub-Assemblies: <span className="font-mono">{explodedBOM.summary.subAssemblyCount}</span>
-                                        </div>
-                                        <div className="px-2.5 py-1 bg-sky-50 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800/60 rounded-lg text-sky-700 dark:text-sky-300 font-bold text-[11px]">
-                                            In-House Components: <span className="font-mono">{explodedBOM.summary.componentCount}</span>
-                                        </div>
-                                        <div className="px-2.5 py-1 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/60 rounded-lg text-amber-700 dark:text-amber-300 font-bold text-[11px]">
-                                            Bought Out (BO): <span className="font-mono">{explodedBOM.summary.boCount}</span>
-                                        </div>
-                                        <div className="px-2.5 py-1 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800/60 rounded-lg text-blue-700 dark:text-blue-300 font-bold text-[11px]">
-                                            Raw Materials (RM): <span className="font-mono">{explodedBOM.summary.rmCount}</span>
-                                        </div>
-                                        <div className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300 font-bold text-[11px] ml-auto">
-                                            Total BOM Items: <span className="font-mono text-indigo-600 dark:text-indigo-400">{explodedBOM.summary.totalItemCount}</span>
-                                        </div>
+                                        {[
+                                            {
+                                                key: 'ALL' as BOMFilterType,
+                                                label: 'All Items',
+                                                count: explodedBOM.summary.totalItemCount,
+                                                icon: Layers3,
+                                                color: 'text-purple-600 dark:text-purple-400',
+                                                activeClass: 'bg-purple-600 text-white shadow-sm border-purple-600'
+                                            },
+                                            {
+                                                key: 'RM' as BOMFilterType,
+                                                label: 'Raw Materials (RM)',
+                                                count: explodedBOM.summary.rmCount,
+                                                icon: Box,
+                                                color: 'text-blue-600 dark:text-blue-400',
+                                                activeClass: 'bg-blue-600 text-white shadow-sm border-blue-600'
+                                            },
+                                            {
+                                                key: 'BO' as BOMFilterType,
+                                                label: 'Bought Out (BO)',
+                                                count: explodedBOM.summary.boCount,
+                                                icon: Package,
+                                                color: 'text-amber-600 dark:text-amber-400',
+                                                activeClass: 'bg-amber-600 text-white shadow-sm border-amber-600'
+                                            },
+                                            {
+                                                key: 'COMPONENT' as BOMFilterType,
+                                                label: 'Components',
+                                                count: explodedBOM.summary.componentCount,
+                                                icon: Layers,
+                                                color: 'text-sky-600 dark:text-sky-400',
+                                                activeClass: 'bg-sky-600 text-white shadow-sm border-sky-600'
+                                            },
+                                            {
+                                                key: 'SUBASSEMBLY' as BOMFilterType,
+                                                label: 'Sub-Assemblies',
+                                                count: explodedBOM.summary.subAssemblyCount,
+                                                icon: GitFork,
+                                                color: 'text-indigo-600 dark:text-indigo-400',
+                                                activeClass: 'bg-indigo-600 text-white shadow-sm border-indigo-600'
+                                            }
+                                        ].map((tab) => {
+                                            const isActive = activeBOMFilter === tab.key;
+                                            const TabIcon = tab.icon;
+
+                                            return (
+                                                <div
+                                                    key={tab.key}
+                                                    onClick={() => setActiveBOMFilter(tab.key)}
+                                                    className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                                                        isActive 
+                                                            ? tab.activeClass 
+                                                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800'
+                                                    }`}
+                                                >
+                                                    <TabIcon size={14} className={isActive ? 'text-white' : tab.color} />
+                                                    <span>{tab.label}</span>
+                                                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                                                        isActive 
+                                                            ? 'bg-white/20 text-white font-extrabold' 
+                                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                                                    }`}>
+                                                        {tab.count}
+                                                    </span>
+
+                                                    {/* Quick PDF Download Button on Tab */}
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDownloadPDF(tab.key);
+                                                        }}
+                                                        className={`ml-1 p-1 rounded-lg transition-colors ${
+                                                            isActive 
+                                                                ? 'hover:bg-white/20 text-white/90 hover:text-white' 
+                                                                : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                                        }`}
+                                                        title={`Download ${tab.label} PDF`}
+                                                    >
+                                                        <Download size={12} />
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
 
-                                    {/* Multi-Level BOM Tree Table */}
-                                    <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900/60">
-                                        <table className="w-full text-xs text-left">
-                                            <thead className="text-[10px] text-slate-500 dark:text-slate-400 uppercase bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700/80">
-                                                <tr>
-                                                    <th className="px-3 py-2.5 text-center w-14">Level</th>
-                                                    <th className="px-3 py-2.5">Component / Item Name & Description</th>
-                                                    <th className="px-3 py-2.5 text-center w-36">Classification</th>
-                                                    <th className="px-3 py-2.5 text-right w-32">Qty / Parent</th>
-                                                    <th className="px-3 py-2.5 text-right w-32">Cumulative Qty</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                                {(() => {
-                                                    const renderTreeRows = (nodes: ExplodedBOMNode[]): React.ReactNode => {
-                                                        return nodes.map((node) => {
-                                                            const isCollapsed = collapsedKeys.has(node.key);
-                                                            const hasChildren = node.hasChildren && node.children.length > 0;
-                                                            const indentPadding = Math.max(0, (node.level - 2) * 20 + 8);
-
+                                    {/* Mode 1: Consolidated Summary Table View */}
+                                    {bomViewMode === 'table' ? (
+                                        <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900/60">
+                                            <table className="w-full text-xs text-left">
+                                                <thead className="text-[10px] text-slate-500 dark:text-slate-400 uppercase bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700/80">
+                                                    <tr>
+                                                        <th className="px-3 py-2.5 text-center w-12">#</th>
+                                                        <th className="px-3 py-2.5">Component / Item Name & Description</th>
+                                                        <th className="px-3 py-2.5 text-center w-36">Classification</th>
+                                                        <th className="px-3 py-2.5 w-64">Parent Assemblies & Usages</th>
+                                                        <th className="px-3 py-2.5 text-right w-36">Total Required (1 FG)</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                    {consolidatedItems.length > 0 ? (
+                                                        consolidatedItems.map((cItem, idx) => {
                                                             let typeBadgeClass = 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60';
                                                             let typeText = 'Raw Material (RM)';
-                                                            if (node.itemType === 'SubAssembly') {
+                                                            if (cItem.itemType === 'SubAssembly') {
                                                                 typeBadgeClass = 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60';
-                                                                typeText = '🧩 FG Sub-Assembly';
-                                                            } else if (node.itemType === 'Assembly') {
+                                                                typeText = '🧩 Sub-Assembly';
+                                                            } else if (cItem.itemType === 'Assembly') {
                                                                 typeBadgeClass = 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60';
-                                                                typeText = '⚙️ FG Assembly';
-                                                            } else if (node.itemType === 'Component') {
+                                                                typeText = '⚙️ Assembly';
+                                                            } else if (cItem.itemType === 'Component') {
                                                                 typeBadgeClass = 'bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800/60';
                                                                 typeText = '🔧 In-House Component';
-                                                            } else if (node.itemType === 'BO') {
+                                                            } else if (cItem.itemType === 'BO') {
                                                                 typeBadgeClass = 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60';
                                                                 typeText = '📦 Bought Out (BO)';
                                                             }
 
                                                             return (
-                                                                <React.Fragment key={node.key}>
-                                                                    <tr className={`transition-colors ${
-                                                                        hasChildren 
-                                                                            ? 'bg-slate-50/70 dark:bg-slate-800/40 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/30 font-medium' 
-                                                                            : 'hover:bg-slate-50 dark:hover:bg-slate-800/30'
-                                                                    }`}>
-                                                                        {/* Level Badge */}
-                                                                        <td className="px-3 py-2.5 text-center">
-                                                                            <span className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
-                                                                                node.level === 2 
-                                                                                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700' 
-                                                                                    : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800'
-                                                                            }`}>
-                                                                                L{node.level}
-                                                                            </span>
-                                                                        </td>
+                                                                <tr key={cItem.id || cItem.materialName} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                                                    <td className="px-3 py-2.5 text-center font-bold text-slate-400 text-[11px]">
+                                                                        {idx + 1}
+                                                                    </td>
+                                                                    <td className="px-3 py-2.5">
+                                                                        <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                                                                            {cItem.materialName || 'N/A'}
+                                                                        </div>
+                                                                        {cItem.description && (
+                                                                            <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
+                                                                                {cItem.description}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                                                        <span className={`px-2 py-0.5 font-bold rounded text-[10px] border ${typeBadgeClass}`}>
+                                                                            {typeText}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="px-3 py-2.5">
+                                                                        <div className="flex flex-wrap gap-1">
+                                                                            {cItem.usages.map((u, uIdx) => (
+                                                                                <span 
+                                                                                    key={uIdx}
+                                                                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[10px] text-slate-700 dark:text-slate-300"
+                                                                                >
+                                                                                    <span className="font-medium">{u.parentName}:</span>
+                                                                                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{u.quantityPerParent} {u.unit}</span>
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                                                        <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs sm:text-sm">
+                                                                            {cItem.totalCumulativeQuantity} {cItem.unit}
+                                                                        </div>
+                                                                        {cItem.hasSecondaryUnit && cItem.totalSecondaryCumulativeQuantity !== undefined && cItem.totalSecondaryCumulativeQuantity > 0 && (
+                                                                            <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 font-mono">
+                                                                                (= {cItem.totalSecondaryCumulativeQuantity} {cItem.secondaryUnit})
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })
+                                                    ) : (
+                                                        <tr>
+                                                            <td colSpan={5} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
+                                                                No items match the "{activeBOMFilter}" category filter.
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ) : (
+                                        /* Mode 2: Multi-Level BOM Tree Table View */
+                                        <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900/60">
+                                            <table className="w-full text-xs text-left">
+                                                <thead className="text-[10px] text-slate-500 dark:text-slate-400 uppercase bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700/80">
+                                                    <tr>
+                                                        <th className="px-3 py-2.5 text-center w-14">Level</th>
+                                                        <th className="px-3 py-2.5">Component / Item Name & Description</th>
+                                                        <th className="px-3 py-2.5 text-center w-36">Classification</th>
+                                                        <th className="px-3 py-2.5 text-right w-32">Qty / Parent</th>
+                                                        <th className="px-3 py-2.5 text-right w-32">Cumulative Qty</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                    {(() => {
+                                                        const renderTreeRows = (nodes: ExplodedBOMNode[]): React.ReactNode => {
+                                                            return nodes.map((node) => {
+                                                                const isCollapsed = collapsedKeys.has(node.key);
+                                                                const hasChildren = node.hasChildren && node.children.length > 0;
+                                                                const indentPadding = Math.max(0, (node.level - 2) * 20 + 8);
 
-                                                                        {/* Item Name & Description with Tree Indentation */}
-                                                                        <td className="px-3 py-2.5" style={{ paddingLeft: `${indentPadding}px` }}>
-                                                                            <div className="flex items-start gap-2">
-                                                                                {hasChildren ? (
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        onClick={() => toggleCollapse(node.key)}
-                                                                                        className="p-1 -ml-1 mt-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors shrink-0"
-                                                                                        title={isCollapsed ? "Expand nested BOM" : "Collapse nested BOM"}
-                                                                                    >
-                                                                                        {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
-                                                                                    </button>
-                                                                                ) : (
-                                                                                    node.level > 2 && (
-                                                                                        <span className="text-slate-400 font-mono text-xs select-none mt-0.5 shrink-0">↳</span>
-                                                                                    )
-                                                                                )}
-                                                                                <div className="min-w-0 flex-1">
-                                                                                    <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
-                                                                                        <span>{node.materialName || 'N/A'}</span>
-                                                                                        {hasChildren && (
-                                                                                            <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200/60 dark:border-indigo-800/60">
-                                                                                                {node.children.length} sub-items
-                                                                                            </span>
+                                                                let typeBadgeClass = 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60';
+                                                                let typeText = 'Raw Material (RM)';
+                                                                if (node.itemType === 'SubAssembly') {
+                                                                    typeBadgeClass = 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60';
+                                                                    typeText = '🧩 FG Sub-Assembly';
+                                                                } else if (node.itemType === 'Assembly') {
+                                                                    typeBadgeClass = 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60';
+                                                                    typeText = '⚙️ FG Assembly';
+                                                                } else if (node.itemType === 'Component') {
+                                                                    typeBadgeClass = 'bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800/60';
+                                                                    typeText = '🔧 In-House Component';
+                                                                } else if (node.itemType === 'BO') {
+                                                                    typeBadgeClass = 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60';
+                                                                    typeText = '📦 Bought Out (BO)';
+                                                                }
+
+                                                                return (
+                                                                    <React.Fragment key={node.key}>
+                                                                        <tr className={`transition-colors ${
+                                                                            hasChildren 
+                                                                                ? 'bg-slate-50/70 dark:bg-slate-800/40 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/30 font-medium' 
+                                                                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/30'
+                                                                        }`}>
+                                                                            {/* Level Badge */}
+                                                                            <td className="px-3 py-2.5 text-center">
+                                                                                <span className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                                                                                    node.level === 2 
+                                                                                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700' 
+                                                                                        : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800'
+                                                                                }`}>
+                                                                                    L{node.level}
+                                                                                </span>
+                                                                            </td>
+
+                                                                            {/* Item Name & Description with Tree Indentation */}
+                                                                            <td className="px-3 py-2.5" style={{ paddingLeft: `${indentPadding}px` }}>
+                                                                                <div className="flex items-start gap-2">
+                                                                                    {hasChildren ? (
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => toggleCollapse(node.key)}
+                                                                                            className="p-1 -ml-1 mt-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors shrink-0"
+                                                                                            title={isCollapsed ? "Expand nested BOM" : "Collapse nested BOM"}
+                                                                                        >
+                                                                                            {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                                                                                        </button>
+                                                                                    ) : (
+                                                                                        node.level > 2 && (
+                                                                                            <span className="text-slate-400 font-mono text-xs select-none mt-0.5 shrink-0">↳</span>
+                                                                                        )
+                                                                                    )}
+                                                                                    <div className="min-w-0 flex-1">
+                                                                                        <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                                                                                            <span>{node.materialName || 'N/A'}</span>
+                                                                                            {hasChildren && (
+                                                                                                <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200/60 dark:border-indigo-800/60">
+                                                                                                    {node.children.length} sub-items
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </div>
+                                                                                        {node.description && (
+                                                                                            <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
+                                                                                                {node.description}
+                                                                                            </div>
                                                                                         )}
                                                                                     </div>
-                                                                                    {node.description && (
-                                                                                        <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
-                                                                                            {node.description}
-                                                                                        </div>
-                                                                                    )}
                                                                                 </div>
-                                                                            </div>
-                                                                        </td>
+                                                                            </td>
 
-                                                                        {/* Classification */}
-                                                                        <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                                                                            <span className={`px-2 py-0.5 font-bold rounded text-[10px] border ${typeBadgeClass}`}>
-                                                                                {typeText}
-                                                                            </span>
-                                                                        </td>
+                                                                            {/* Classification */}
+                                                                            <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                                                                <span className={`px-2 py-0.5 font-bold rounded text-[10px] border ${typeBadgeClass}`}>
+                                                                                    {typeText}
+                                                                                </span>
+                                                                            </td>
 
-                                                                        {/* Qty Per Parent */}
-                                                                        <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                                                                            <div className="font-mono font-bold text-slate-900 dark:text-white text-xs">
-                                                                                {node.quantityPerParent} {node.unit}
-                                                                            </div>
-                                                                            {node.hasSecondaryUnit && node.secondaryQuantityPerParent !== undefined && (
-                                                                                <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 font-mono">
-                                                                                    (= {node.secondaryQuantityPerParent} {node.secondaryUnit})
+                                                                            {/* Qty Per Parent */}
+                                                                            <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                                                                <div className="font-mono font-bold text-slate-900 dark:text-white text-xs">
+                                                                                    {node.quantityPerParent} {node.unit}
                                                                                 </div>
-                                                                            )}
-                                                                        </td>
+                                                                                {node.hasSecondaryUnit && node.secondaryQuantityPerParent !== undefined && (
+                                                                                    <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 font-mono">
+                                                                                        (= {node.secondaryQuantityPerParent} {node.secondaryUnit})
+                                                                                    </div>
+                                                                                )}
+                                                                            </td>
 
-                                                                        {/* Cumulative Qty */}
-                                                                        <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                                                                            <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs">
-                                                                                {node.cumulativeQuantity} {node.unit}
-                                                                            </div>
-                                                                            {node.hasSecondaryUnit && node.secondaryCumulativeQuantity !== undefined && (
-                                                                                <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 font-mono">
-                                                                                    (= {node.secondaryCumulativeQuantity} {node.secondaryUnit})
+                                                                            {/* Cumulative Qty */}
+                                                                            <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                                                                <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs">
+                                                                                    {node.cumulativeQuantity} {node.unit}
                                                                                 </div>
-                                                                            )}
-                                                                        </td>
-                                                                    </tr>
+                                                                                {node.hasSecondaryUnit && node.secondaryCumulativeQuantity !== undefined && (
+                                                                                    <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 font-mono">
+                                                                                        (= {node.secondaryCumulativeQuantity} {node.secondaryUnit})
+                                                                                    </div>
+                                                                                )}
+                                                                            </td>
+                                                                        </tr>
 
-                                                                    {/* Recursively render child items if expanded */}
-                                                                    {!isCollapsed && hasChildren && renderTreeRows(node.children)}
-                                                                </React.Fragment>
-                                                            );
-                                                        });
-                                                    };
+                                                                        {/* Recursively render child items if expanded */}
+                                                                        {!isCollapsed && hasChildren && renderTreeRows(node.children)}
+                                                                    </React.Fragment>
+                                                                );
+                                                            });
+                                                        };
 
-                                                    return renderTreeRows(explodedBOM.nestedTree);
-                                                })()}
-                                            </tbody>
-                                        </table>
-                                    </div>
+                                                        return filteredNestedTree.length > 0 ? (
+                                                            renderTreeRows(filteredNestedTree)
+                                                        ) : (
+                                                            <tr>
+                                                                <td colSpan={5} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
+                                                                    No items match the "{activeBOMFilter}" category filter in the tree hierarchy.
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })()}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-500 dark:text-slate-400">

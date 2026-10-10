@@ -93,7 +93,7 @@
                                     <td colspan="2" style="border: none;">Vehicle No: <%= doc.vehicleNo || '-' %></td>
                                 </tr>
                                 <tr>
-                                    <td colspan="2" style="border: none;">Estimated wt. in kgs: <%= doc.estimatedWeight || '-' %> &nbsp;|&nbsp; Est. Value: ₹<%= doc.estimatedPrice || '-' %></td>
+                                    <td colspan="2" style="border: none;">Estimated wt. in kgs: <%= doc.estimatedWeight || '-' %> &nbsp;|&nbsp; Est. Mat. Value: ₹<%= doc.estimatedPrice || '-' %><% if (doc.totalJobWorkCharges) { %><br><b>Total Job Work Charges: ₹<%= Number(doc.totalJobWorkCharges).toFixed(2) %></b><% } %></td>
                                 </tr>
                             </table>
                         </div>
@@ -102,62 +102,182 @@
                     <table class="items-table">
                         <thead>
                             <tr>
-                                <th style="width: 5%;">Sl.<br>No</th>
-                                <th style="width: 25%;">Items Sent</th>
+                                <th style="width: 4%;">Sl.<br>No</th>
+                                <th style="width: 22%;">Items Sent</th>
                                 <th style="width: 10%;">Sent Qty</th>
-                                <th style="width: 25%;">Items to be Received</th>
+                                <th style="width: 22%;">Items to be Received</th>
                                 <th style="width: 10%;">Expected Qty</th>
-                                <th style="width: 10%;">Unit<br>Price</th>
-                                <th style="width: 15%;">Process / Remarks</th>
+                                <th style="width: 10%;">JW Rate<br>(₹)</th>
+                                <th style="width: 10%;">JW Amount<br>(₹)</th>
+                                <th style="width: 12%;">Process / Purpose</th>
                             </tr>
                         </thead>
                         <tbody>
                             <% 
                                let totalSentQty = 0;
                                let totalRecvQty = 0;
+                               let totalJwAmount = 0;
                                let rowCount = 0;
-                               if (doc.items && doc.items.length > 0) { 
-                                   doc.items.forEach((item, idx) => { 
-                                       totalSentQty += Number(item.quantitySent || 0);
-                                       const retList = (item.returningItems && item.returningItems.length > 0) ? item.returningItems : [{
-                                           receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
-                                           quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
-                                           receivingUnit: item.receivingUnit || item.unit || 'PCS'
-                                       }];
+                               const isAssembly = doc.operationMode === 'assembly';
 
-                                       retList.forEach((ret, rIdx) => {
+                               if (doc.items && doc.items.length > 0) { 
+                                   if (isAssembly && doc.assemblyOutputItem) {
+                                       const out = doc.assemblyOutputItem;
+                                       const outExpQty = Number(out.quantityToBeReceived) || 0;
+                                       totalRecvQty += outExpQty;
+                                       const outRate = Number(out.processRate) || 0;
+                                       const outAmt = (out.processAmount !== undefined && out.processAmount !== null && Number(out.processAmount) > 0) 
+                                           ? Number(out.processAmount) 
+                                           : (outRate * outExpQty);
+                                       totalJwAmount += outAmt;
+
+                                       doc.items.forEach((item, idx) => {
                                            rowCount++;
-                                           totalRecvQty += Number(ret.quantityToBeReceived || 0);
+                                           totalSentQty += Number(item.quantitySent || 0);
                             %>
                             <tr>
-                                <% if (rIdx === 0) { %>
-                                    <td rowspan="<%= retList.length %>"><%= idx + 1 %></td>
-                                    <td rowspan="<%= retList.length %>" style="text-align: left;"><%= item.itemName || (item.item ? item.item.name : '') || '' %></td>
-                                    <td rowspan="<%= retList.length %>"><%= item.quantitySent %> <%= item.unit || 'PCS' %></td>
-                                <% } %>
-                                <td style="text-align: left;"><%= ret.receivedItemName || '' %></td>
-                                <td><%= ret.quantityToBeReceived %> <%= ret.receivingUnit || 'PCS' %></td>
-                                <% if (rIdx === 0) { %>
-                                    <td rowspan="<%= retList.length %>"><%= item.unitPrice ? '₹' + item.unitPrice : '-' %></td>
-                                    <td rowspan="<%= retList.length %>"><%= item.processType ? item.processType : '' %> <%= item.description ? '(' + item.description + ')' : '' %></td>
+                                <td><%= idx + 1 %></td>
+                                <td style="text-align: left;">
+                                    <b><%= item.itemName || (item.item ? item.item.name : '') || '' %></b>
+                                    <% if (item.description) { %>
+                                        <div style="font-size: 9px; color: #555; font-style: italic; margin-top: 2px;"><%= item.description %></div>
+                                    <% } %>
+                                </td>
+                                <td>
+                                    <b><%= item.quantitySent %> <%= item.unit || 'PCS' %></b>
+                                    <% if (item.hasSecondaryUnit && item.secondaryUnit && (item.secondaryQuantitySent || item.conversionFactor)) { 
+                                       const secSent = item.secondaryQuantitySent || (Number(item.quantitySent) * Number(item.conversionFactor || 1));
+                                    %>
+                                        <div style="font-size: 9px; color: #555; margin-top: 2px;">↳ <%= secSent %> <%= item.secondaryUnit %></div>
+                                    <% } %>
+                                </td>
+                                <% if (idx === 0) { %>
+                                    <td rowspan="<%= doc.items.length %>" style="text-align: left;">
+                                        <b><%= out.itemName || 'Assembled Product' %></b>
+                                        <% if (out.description) { %>
+                                            <div style="font-size: 9px; color: #555; font-style: italic; margin-top: 2px;"><%= out.description %></div>
+                                        <% } %>
+                                    </td>
+                                    <td rowspan="<%= doc.items.length %>">
+                                        <b><%= out.quantityToBeReceived %> <%= out.receivingUnit || 'PCS' %></b>
+                                        <% if (out.hasSecondaryUnit && out.secondaryUnit && (out.secondaryQuantityToBeReceived || out.conversionFactor)) { 
+                                           const secRecv = out.secondaryQuantityToBeReceived || (Number(out.quantityToBeReceived) * Number(out.conversionFactor || 1));
+                                        %>
+                                            <div style="font-size: 9px; color: #555; margin-top: 2px;">↳ <%= secRecv %> <%= out.secondaryUnit %></div>
+                                        <% } %>
+                                    </td>
+                                    <td rowspan="<%= doc.items.length %>" style="text-align: right; padding-right: 5px;">
+                                        <%= outRate > 0 ? '₹' + outRate.toFixed(2) : '-' %>
+                                    </td>
+                                    <td rowspan="<%= doc.items.length %>" style="text-align: right; padding-right: 5px;">
+                                        <%= outAmt > 0 ? '₹' + outAmt.toFixed(2) : '-' %>
+                                    </td>
+                                    <td rowspan="<%= doc.items.length %>" style="text-align: left;">
+                                        <div><%= out.processType || doc.purpose || 'Assembly' %></div>
+                                    </td>
                                 <% } %>
                             </tr>
                             <% 
                                        });
-                                   });
+                                   } else {
+                                       doc.items.forEach((item, idx) => { 
+                                           totalSentQty += Number(item.quantitySent || 0);
+                                           const retList = (item.returningItems && item.returningItems.length > 0) ? item.returningItems : [{
+                                               receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
+                                               quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
+                                               receivingUnit: item.receivingUnit || item.unit || 'PCS',
+                                               hasSecondaryUnit: item.hasSecondaryUnit,
+                                               secondaryUnit: item.secondaryUnit,
+                                               conversionFactor: item.conversionFactor,
+                                               secondaryQuantityToBeReceived: item.secondaryQuantityToBeReceived,
+                                               processRate: item.processRate,
+                                               processAmount: item.processAmount,
+                                               description: item.description
+                                           }];
+
+                                           retList.forEach((ret, rIdx) => {
+                                               rowCount++;
+                                               const retExpQty = Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : (retList.length === 1 ? (item.quantityToBeReceived || item.quantitySent) : 0)) || 0;
+                                               totalRecvQty += retExpQty;
+                                               const retRate = Number(
+                                                   ret.processRate != null 
+                                                       ? ret.processRate 
+                                                       : (rIdx === 0 && retList.length === 1 ? (item.processRate != null ? item.processRate : item.unitPrice) : 0)
+                                               ) || 0;
+                                               const retAmt = (ret.processAmount !== undefined && ret.processAmount !== null && Number(ret.processAmount) > 0)
+                                                   ? Number(ret.processAmount)
+                                                   : (retRate * retExpQty);
+                                               totalJwAmount += retAmt;
+                            %>
+                            <tr>
+                                <% if (rIdx === 0) { %>
+                                    <td rowspan="<%= retList.length %>"><%= idx + 1 %></td>
+                                    <td rowspan="<%= retList.length %>" style="text-align: left;">
+                                        <b><%= item.itemName || (item.item ? item.item.name : '') || '' %></b>
+                                        <% if (item.description) { %>
+                                            <div style="font-size: 9px; color: #555; font-style: italic; margin-top: 2px;"><%= item.description %></div>
+                                        <% } %>
+                                    </td>
+                                    <td rowspan="<%= retList.length %>">
+                                        <b><%= item.quantitySent %> <%= item.unit || 'PCS' %></b>
+                                        <% if (item.hasSecondaryUnit && item.secondaryUnit && (item.secondaryQuantitySent || item.conversionFactor)) { 
+                                           const secSent = item.secondaryQuantitySent || (Number(item.quantitySent) * Number(item.conversionFactor || 1));
+                                        %>
+                                            <div style="font-size: 9px; color: #555; margin-top: 2px;">↳ <%= secSent %> <%= item.secondaryUnit %></div>
+                                        <% } %>
+                                    </td>
+                                <% } %>
+                                <td style="text-align: left;">
+                                    <b><%= ret.receivedItemName || '' %></b>
+                                    <% if (ret.description) { %>
+                                        <div style="font-size: 9px; color: #555; font-style: italic; margin-top: 2px;"><%= ret.description %></div>
+                                    <% } %>
+                                </td>
+                                <td>
+                                    <b><%= ret.quantityToBeReceived %> <%= ret.receivingUnit || 'PCS' %></b>
+                                    <% if (ret.hasSecondaryUnit && ret.secondaryUnit && (ret.secondaryQuantityToBeReceived || ret.conversionFactor)) { 
+                                       const secRecv = ret.secondaryQuantityToBeReceived || (Number(ret.quantityToBeReceived) * Number(ret.conversionFactor || 1));
+                                    %>
+                                        <div style="font-size: 9px; color: #555; margin-top: 2px;">↳ <%= secRecv %> <%= ret.secondaryUnit %></div>
+                                    <% } %>
+                                </td>
+                                <td style="text-align: right; padding-right: 5px;">
+                                    <%= retRate > 0 ? '₹' + retRate.toFixed(2) : '-' %>
+                                </td>
+                                <td style="text-align: right; padding-right: 5px;">
+                                    <%= retAmt > 0 ? '₹' + retAmt.toFixed(2) : '-' %>
+                                </td>
+                                <% if (rIdx === 0) { %>
+                                    <td rowspan="<%= retList.length %>" style="text-align: left;">
+                                        <div><%= item.processType || doc.purpose || 'Job Work' %></div>
+                                        <% if (item.purpose && item.purpose !== item.processType) { %>
+                                            <div style="font-size: 9px; color: #555;"><%= item.purpose %></div>
+                                        <% } %>
+                                        <% if (item.unitPrice && Number(item.unitPrice) > 0) { %>
+                                            <div style="font-size: 9px; color: #444; margin-top: 3px;">
+                                                Mat Val: ₹<%= Number(item.unitPrice).toFixed(2) %>/<%= item.unit || 'unit' %>
+                                            </div>
+                                        <% } %>
+                                    </td>
+                                <% } %>
+                            </tr>
+                            <% 
+                                           });
+                                       });
+                                   }
                                    
                                    // Fill empty rows to make it look like a full page table
                                    for(let i = rowCount; i < 5; i++) {
                             %>
                             <tr>
-                                <td style="height: 30px;"></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                                <td style="height: 30px;"></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
                             </tr>
                             <% 
                                    }
                                } else { 
                             %>
                             <tr>
-                                <td colspan="7" style="height: 150px;">No Items</td>
+                                <td colspan="8" style="height: 150px;">No Items</td>
                             </tr>
                             <% } %>
                         </tbody>
@@ -167,7 +287,9 @@
                                 <td style="text-align: center; border-left: none;"><%= totalSentQty %></td>
                                 <td style="border-right: none;">Total Expected Qty =</td>
                                 <td style="text-align: center; border-left: none;"><%= totalRecvQty %></td>
-                                <td colspan="2"></td>
+                                <td style="text-align: right; padding-right: 5px;">Total JW:</td>
+                                <td style="text-align: right; padding-right: 5px;">₹<%= totalJwAmount.toFixed(2) %></td>
+                                <td></td>
                             </tr>
                         </tfoot>
                     </table>

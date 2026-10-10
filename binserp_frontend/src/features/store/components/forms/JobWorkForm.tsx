@@ -464,22 +464,45 @@ export default function JobWorkForm({
                     if (Array.isArray(it.returningItems) && it.returningItems.length > 0) {
                         retItems = it.returningItems.map((r: any) => {
                             const retId = typeof r.receivedItem === 'object' && r.receivedItem !== null ? (r.receivedItem._id || '') : (r.receivedItem || '');
+                            const retQty = Number(r.quantityToBeReceived) || 1;
+                            const retRate = Number(r.processRate != null ? r.processRate : (r.rate != null ? r.rate : 0)) || 0;
+                            const retAmount = Number(r.processAmount) != null && !isNaN(Number(r.processAmount)) && Number(r.processAmount) > 0
+                                ? Number(r.processAmount)
+                                : parseFloat((retQty * retRate).toFixed(2));
                             return {
                                 receivedItem: retId,
                                 receivedItemName: r.receivedItemName || r.itemName || '',
                                 receivedItemType: r.receivedItemType || 'fg',
-                                quantityToBeReceived: Number(r.quantityToBeReceived) || 1,
-                                receivingUnit: r.receivingUnit || 'PCS'
+                                quantityToBeReceived: retQty,
+                                receivingUnit: r.receivingUnit || 'PCS',
+                                hasSecondaryUnit: Boolean(r.hasSecondaryUnit),
+                                secondaryUnit: r.secondaryUnit || '',
+                                conversionFactor: Number(r.conversionFactor) || 1,
+                                secondaryQuantityToBeReceived: Number(r.secondaryQuantityToBeReceived) || 0,
+                                selectedUnit: r.selectedUnit || r.receivingUnit || 'PCS',
+                                processRate: retRate,
+                                processAmount: retAmount,
+                                description: r.description || ''
                             };
                         });
                     } else {
                         const legacyRetId = typeof it.receivedItem === 'object' && it.receivedItem !== null ? (it.receivedItem._id || '') : (it.receivedItem || '');
+                        const retQty = Number(it.quantityToBeReceived) || Number(it.quantitySent) || 1;
+                        const legacyRate = Number(it.processRate != null ? it.processRate : 0);
                         retItems = [{
                             receivedItem: legacyRetId,
                             receivedItemName: it.receivedItemName || it.itemToBeReceived || it.itemName || '',
                             receivedItemType: it.receivedItemType || 'fg',
-                            quantityToBeReceived: Number(it.quantityToBeReceived) || Number(it.quantitySent) || 1,
-                            receivingUnit: it.receivingUnit || it.unit || 'PCS'
+                            quantityToBeReceived: retQty,
+                            receivingUnit: it.receivingUnit || it.unit || 'PCS',
+                            hasSecondaryUnit: Boolean(it.hasSecondaryUnit),
+                            secondaryUnit: it.secondaryUnit || '',
+                            conversionFactor: Number(it.conversionFactor) || 1,
+                            secondaryQuantityToBeReceived: Number(it.secondaryQuantityToBeReceived) || 0,
+                            selectedUnit: it.selectedUnit || it.receivingUnit || it.unit || 'PCS',
+                            processRate: legacyRate,
+                            processAmount: parseFloat((retQty * legacyRate).toFixed(2)),
+                            description: it.description || ''
                         }];
                     }
 
@@ -787,6 +810,7 @@ export default function JobWorkForm({
             if (found) {
                 currentRet.receivedItemName = found.materialName || found.name || found.componentName || 'Returning Material';
                 currentRet.receivingUnit = found.unit || (found as any).categoryId?.unit || 'PCS';
+                currentRet.description = found.descriptions || found.description || found.specification || '';
                 const hasSec = Boolean(found.hasSecondaryUnit || (found.secondaryUnit && Number(found.conversionFactor) > 0));
                 currentRet.hasSecondaryUnit = hasSec;
                 currentRet.secondaryUnit = found.secondaryUnit || '';
@@ -804,19 +828,31 @@ export default function JobWorkForm({
             currentRet.selectedUnit = value;
         }
 
+        if (field === 'processRate') {
+            const r = Number(value) || 0;
+            currentRet.processRate = r;
+            const q = Number(currentRet.quantityToBeReceived) || 0;
+            currentRet.processAmount = parseFloat((q * r).toFixed(2));
+        }
+
         if (field === 'quantityToBeReceived') {
             const num = Number(value) || 0;
             currentRet.quantityToBeReceived = value;
             if (currentRet.hasSecondaryUnit && Number(currentRet.conversionFactor) > 0) {
                 currentRet.secondaryQuantityToBeReceived = parseFloat((num * Number(currentRet.conversionFactor)).toFixed(4));
             }
+            const r = Number(currentRet.processRate) || 0;
+            currentRet.processAmount = parseFloat((num * r).toFixed(2));
         }
 
         if (field === 'secondaryQuantityToBeReceived') {
             const secNum = Number(value) || 0;
             currentRet.secondaryQuantityToBeReceived = value;
             const conv = Number(currentRet.conversionFactor) || 1;
-            currentRet.quantityToBeReceived = (conv > 0 && secNum > 0) ? parseFloat((secNum / conv).toFixed(4)) : 0;
+            const priVal = (conv > 0 && secNum > 0) ? parseFloat((secNum / conv).toFixed(4)) : 0;
+            currentRet.quantityToBeReceived = priVal;
+            const r = Number(currentRet.processRate) || 0;
+            currentRet.processAmount = parseFloat((priVal * r).toFixed(2));
         }
 
         if (field === 'receivedItemType') {
@@ -826,12 +862,28 @@ export default function JobWorkForm({
             currentRet.secondaryUnit = '';
             currentRet.conversionFactor = 1;
             currentRet.secondaryQuantityToBeReceived = 0;
+            currentRet.processRate = 0;
+            currentRet.processAmount = 0;
         }
 
         newRetList[retIdx] = currentRet;
         currentSent.returningItems = newRetList;
+
+        // Sum returning items JW amounts for this sent item
+        currentSent.processAmount = newRetList.reduce((sum, r) => sum + (Number(r.processAmount) || 0), 0);
         newItems[itemIdx] = currentSent;
-        setFormData({ ...formData, items: newItems });
+
+        // Calculate total JW charges across all items
+        const totalJW = newItems.reduce((acc, it) => {
+            const lineCharges = (it.returningItems || []).reduce((subAcc: number, r: any) => subAcc + (Number(r.processAmount) || 0), 0);
+            return acc + lineCharges;
+        }, 0);
+
+        setFormData(prev => ({ 
+            ...prev, 
+            items: newItems,
+            totalJobWorkCharges: parseFloat(totalJW.toFixed(2))
+        }));
     };
 
     // Synchronize assemblyGroups with formData (flattened items and estimatedPrice)
@@ -1316,7 +1368,10 @@ export default function JobWorkForm({
                 receivedItemName: '',
                 receivedItemType: defaultRetType,
                 quantityToBeReceived: 1,
-                receivingUnit: currentSent.unit || 'PCS'
+                receivingUnit: currentSent.unit || 'PCS',
+                processRate: 0,
+                processAmount: 0,
+                description: ''
             }
         ];
         newItems[itemIdx] = currentSent;
@@ -1328,8 +1383,17 @@ export default function JobWorkForm({
         const currentSent = { ...newItems[itemIdx] };
         if (currentSent.returningItems.length <= 1) return;
         currentSent.returningItems = currentSent.returningItems.filter((_, i) => i !== retIdx);
+        currentSent.processAmount = currentSent.returningItems.reduce((sum, r) => sum + (Number(r.processAmount) || 0), 0);
         newItems[itemIdx] = currentSent;
-        setFormData({ ...formData, items: newItems });
+        const totalJW = newItems.reduce((acc, it) => {
+            const lineCharges = (it.returningItems || []).reduce((subAcc: number, r: any) => subAcc + (Number(r.processAmount) || 0), 0);
+            return acc + lineCharges;
+        }, 0);
+        setFormData(prev => ({ 
+            ...prev, 
+            items: newItems,
+            totalJobWorkCharges: parseFloat(totalJW.toFixed(2))
+        }));
     };
 
     // Form Submission with Strict Stock Validation & Real-Time Error Mapping
@@ -1467,6 +1531,10 @@ export default function JobWorkForm({
                 });
             }
 
+            const calculatedTotalCharges = formData.operationMode === 'assembly'
+                ? (formData.assemblyGroups || []).reduce((acc, g) => acc + (Number(g.assemblyOutputItem?.processAmount) || 0), 0)
+                : (formData.items || []).reduce((acc, it) => acc + (it.returningItems || []).reduce((subAcc: number, r: any) => subAcc + (Number(r.processAmount) || 0), 0), 0);
+
             const payload = {
                 ...formData,
                 items: submitItems,
@@ -1474,6 +1542,7 @@ export default function JobWorkForm({
                 assemblyOutputItem: formData.operationMode === 'assembly' && formData.assemblyGroups && formData.assemblyGroups.length > 0
                     ? formData.assemblyGroups[0].assemblyOutputItem
                     : formData.assemblyOutputItem,
+                totalJobWorkCharges: calculatedTotalCharges > 0 ? calculatedTotalCharges : (formData.totalJobWorkCharges || 0),
                 mrpPlan: formData.mrpPlan ? formData.mrpPlan : undefined,
                 mrpNumber: formData.mrpNumber ? formData.mrpNumber : undefined,
             };
@@ -2624,30 +2693,31 @@ export default function JobWorkForm({
                                                         )}
                                                     </div>
 
-                                                    {/* Process Price (₹) - Only 1 Price Field */}
+                                                    {/* Material Value (₹) - Sent Item Declared / Transit Valuation */}
                                                     <div className="sm:col-span-1 lg:col-span-1 xl:col-span-1">
-                                                        <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                            <span>Price</span>
+                                                        <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between" title="Material value declared for transit insurance / E-Way Bill">
+                                                            <span>Mat Value</span>
                                                             <span className="text-[9px] text-slate-400 font-normal">₹/{sentItem.unit || 'unit'}</span>
                                                         </label>
                                                         <input
                                                             type="number"
                                                             min="0"
                                                             step="any"
-                                                            value={sentItem.processRate !== undefined ? sentItem.processRate : ''}
-                                                            onChange={(e) => handleSentItemChange(itemIdx, 'processRate', e.target.value)}
+                                                            value={sentItem.unitPrice !== undefined ? sentItem.unitPrice : (sentItem.processRate !== undefined ? sentItem.processRate : '')}
+                                                            onChange={(e) => handleSentItemChange(itemIdx, 'unitPrice', e.target.value)}
                                                             placeholder="0.00"
-                                                            className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-right bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                            title="Declared Material Value for Transit / Insurance"
+                                                            className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-right bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500/20 outline-none"
                                                         />
                                                     </div>
 
-                                                    {/* Process Value Subtotal */}
+                                                    {/* Material Value Subtotal */}
                                                     <div className="sm:col-span-2 lg:col-span-1 xl:col-span-1 flex flex-col justify-center">
-                                                        <label className="block text-[9px] font-semibold text-slate-400 uppercase tracking-tight mb-1 text-right">
-                                                            Amount
+                                                        <label className="block text-[9px] font-semibold text-slate-400 uppercase tracking-tight mb-1 text-right" title="Material Declared Value">
+                                                            Mat Value
                                                         </label>
                                                         <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-slate-700 dark:text-slate-200 truncate">
-                                                            ₹{((Number(sentItem.quantitySent) || 0) * (Number(sentItem.processRate != null ? sentItem.processRate : sentItem.unitPrice) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                            ₹{((Number(sentItem.quantitySent) || 0) * (Number(sentItem.unitPrice != null ? sentItem.unitPrice : sentItem.processRate) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -2701,9 +2771,9 @@ export default function JobWorkForm({
                                                                 </div>
 
                                                                 {/* Return Item Selector */}
-                                                                <div className={retItem.hasSecondaryUnit && retItem.secondaryUnit ? "sm:col-span-4 lg:col-span-4" : "sm:col-span-5 lg:col-span-6"} data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}>
+                                                                <div className="sm:col-span-4 lg:col-span-3" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}>
                                                                     <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                                        <span>Converted Returning Item <span className="text-red-500">*</span></span>
+                                                                        <span>Returning Item <span className="text-red-500">*</span></span>
                                                                         {formErrors[`item_${itemIdx}_ret_${retIdx}_item`] && (
                                                                             <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
                                                                                 {formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}
@@ -2723,12 +2793,17 @@ export default function JobWorkForm({
                                                                             handleReturningItemChange(itemIdx, retIdx, 'receivedItem', val);
                                                                             if (val) clearError(`item_${itemIdx}_ret_${retIdx}_item`);
                                                                         }}
-                                                                        placeholder="Select or enter Converted Returning Item..."
+                                                                        placeholder="Select Returning Item..."
                                                                     />
+                                                                    {retItem.description && (
+                                                                        <div className="text-[10px] text-slate-500 italic mt-0.5 line-clamp-1">
+                                                                            {retItem.description}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
 
                                                                 {/* Receiving Unit Selector / Display */}
-                                                                <div className={retItem.hasSecondaryUnit && retItem.secondaryUnit ? "sm:col-span-2 lg:col-span-2" : "sm:col-span-2 lg:col-span-1"}>
+                                                                <div className="sm:col-span-2 lg:col-span-1">
                                                                     <label className="block text-[10px] font-semibold text-slate-500 mb-1">
                                                                         Unit {retItem.hasSecondaryUnit && <span className="text-[9px] text-amber-600 font-bold">(Dual)</span>}
                                                                     </label>
@@ -2736,7 +2811,7 @@ export default function JobWorkForm({
                                                                         <select
                                                                             value={retItem.selectedUnit || retItem.receivingUnit || 'PCS'}
                                                                             onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'selectedUnit', e.target.value)}
-                                                                            className="w-full h-9 px-2 border border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 rounded-xl text-xs font-bold outline-none cursor-pointer"
+                                                                            className="w-full h-9 px-1 border border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 rounded-xl text-xs font-bold outline-none cursor-pointer"
                                                                         >
                                                                             <option value={retItem.receivingUnit || 'PCS'}>Pri: {retItem.receivingUnit || 'PCS'}</option>
                                                                             <option value={retItem.secondaryUnit}>Sec: {retItem.secondaryUnit}</option>
@@ -2752,7 +2827,7 @@ export default function JobWorkForm({
                                                                 </div>
 
                                                                 {/* Quantity To Receive with Dual Unit live conversion */}
-                                                                <div className={retItem.hasSecondaryUnit && retItem.secondaryUnit ? "sm:col-span-3 lg:col-span-3" : "sm:col-span-2 lg:col-span-2"} data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]}>
+                                                                <div className="sm:col-span-2 lg:col-span-2" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]}>
                                                                     <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
                                                                         <span>Return Qty <span className="text-red-500">*</span></span>
                                                                         {formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`] && (
@@ -2804,6 +2879,33 @@ export default function JobWorkForm({
                                                                     )}
                                                                 </div>
 
+                                                                {/* Job Work Rate (₹/unit) for this Returning Item */}
+                                                                <div className="sm:col-span-2 lg:col-span-2">
+                                                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                                        <span>JW Rate</span>
+                                                                        <span className="text-[9px] text-slate-400 font-mono">₹/{retItem.selectedUnit || retItem.receivingUnit || 'unit'}</span>
+                                                                    </label>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0"
+                                                                        step="any"
+                                                                        value={retItem.processRate !== undefined ? retItem.processRate : ''}
+                                                                        onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'processRate', e.target.value)}
+                                                                        placeholder="0.00"
+                                                                        className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-right bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                                    />
+                                                                </div>
+
+                                                                {/* Job Work Amount Subtotal */}
+                                                                <div className="sm:col-span-2 lg:col-span-1 flex flex-col justify-center">
+                                                                    <label className="block text-[9px] font-semibold text-slate-400 uppercase tracking-tight mb-1 text-right">
+                                                                        JW Amount
+                                                                    </label>
+                                                                    <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400 truncate">
+                                                                        ₹{((Number(retItem.quantityToBeReceived) || 0) * (Number(retItem.processRate) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </div>
+                                                                </div>
+
                                                                 {/* Action Delete */}
                                                                 <div className="sm:col-span-1 lg:col-span-1 flex items-center justify-center">
                                                                     {sentItem.returningItems.length > 1 && (
@@ -2843,7 +2945,7 @@ export default function JobWorkForm({
 
                     {/* Section 3: Logistics & Valuation */}
                     <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200/80 dark:border-slate-700/60">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                             <div>
                                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
                                     Freight Terms
@@ -2873,7 +2975,7 @@ export default function JobWorkForm({
                             </div>
 
                             <div>
-                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1" title="Declared Value for Transit / Insurance">
                                     Est. Material Valuation (₹)
                                 </label>
                                 <input
@@ -2884,6 +2986,16 @@ export default function JobWorkForm({
                                     onChange={(e) => setFormData({ ...formData, estimatedPrice: Number(e.target.value) })}
                                     className="w-full h-9 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-indigo-500/20 outline-none"
                                 />
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mb-1 flex items-center justify-between">
+                                    <span>Total Job Work Charges</span>
+                                    <span className="text-[10px] text-indigo-500 font-bold">Auto</span>
+                                </label>
+                                <div className="w-full h-9 px-3 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-mono font-black text-indigo-700 dark:text-indigo-300 flex items-center justify-end">
+                                    ₹{(Number(formData.totalJobWorkCharges) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </div>
                             </div>
                         </div>
                     </div>

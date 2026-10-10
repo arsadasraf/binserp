@@ -77,6 +77,7 @@ export const receiveJobWorkItems = async (req, res) => {
       let matchedItemName = "Returned Item";
       let targetItemDoc = null;
       let targetItemType = "fg";
+      let matchedItemRate = 0;
 
       // 1. Locate returning item and update inward counters on Challan
       if (jobWork.operationMode === "assembly") {
@@ -96,6 +97,7 @@ export const receiveJobWorkItems = async (req, res) => {
           matchedItemName = matchedGrp.assemblyOutputItem.itemName || matchedItemName;
           targetItemDoc = matchedGrp.assemblyOutputItem.item;
           targetItemType = (matchedGrp.assemblyOutputItem.itemType || "fg").toLowerCase();
+          matchedItemRate = Number(matchedGrp.assemblyOutputItem.processRate) || 0;
 
           matchedGrp.assemblyOutputItem.quantityReceived = (matchedGrp.assemblyOutputItem.quantityReceived || 0) + qtyNum;
           if (matchedGrp.assemblyOutputItem.quantityReceived >= matchedGrp.assemblyOutputItem.quantityToBeReceived) {
@@ -128,6 +130,7 @@ export const receiveJobWorkItems = async (req, res) => {
           matchedItemName = jobWork.assemblyOutputItem.itemName || matchedItemName;
           targetItemDoc = jobWork.assemblyOutputItem.item;
           targetItemType = (jobWork.assemblyOutputItem.itemType || "fg").toLowerCase();
+          matchedItemRate = Number(jobWork.assemblyOutputItem.processRate) || 0;
 
           jobWork.assemblyOutputItem.quantityReceived = (jobWork.assemblyOutputItem.quantityReceived || 0) + qtyNum;
           if (jobWork.assemblyOutputItem.quantityReceived >= jobWork.assemblyOutputItem.quantityToBeReceived) {
@@ -161,6 +164,7 @@ export const receiveJobWorkItems = async (req, res) => {
               matchedItemName = retDoc.receivedItemName || jwItem.itemName || matchedItemName;
               targetItemDoc = retDoc.receivedItem;
               targetItemType = (retDoc.receivedItemType || "fg").toLowerCase();
+              matchedItemRate = Number(retDoc.processRate != null ? retDoc.processRate : (jwItem.processRate || 0)) || 0;
 
               retDoc.quantityReceived = (retDoc.quantityReceived || 0) + qtyNum;
               if (retDoc.quantityReceived >= retDoc.quantityToBeReceived) {
@@ -182,6 +186,7 @@ export const receiveJobWorkItems = async (req, res) => {
             matchedItemName = jwItem.itemName || matchedItemName;
             targetItemDoc = jwItem.receivedItem || jwItem.item;
             targetItemType = (jwItem.receivedItemType || jwItem.itemType || "fg").toLowerCase();
+            matchedItemRate = Number(jwItem.processRate) || 0;
 
             jwItem.quantityReceived = (jwItem.quantityReceived || 0) + qtyNum;
             const targetQty = jwItem.quantityToBeReceived || jwItem.quantitySent;
@@ -371,6 +376,8 @@ export const receiveJobWorkItems = async (req, res) => {
         masterItemId: (targetItemDoc && mongoose.Types.ObjectId.isValid(targetItemDoc)) ? targetItemDoc : undefined,
         itemName: matchedItemName,
         quantity: qtyNum,
+        rate: matchedItemRate,
+        amount: qtyNum * matchedItemRate,
         acceptedQuantity: qcRequired ? 0 : qtyNum,
         rejectedQuantity: 0,
         reworkQuantity: 0,

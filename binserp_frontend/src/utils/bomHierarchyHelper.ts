@@ -30,6 +30,35 @@ export interface ExplodedBOMNode {
   hasChildren: boolean;
 }
 
+export type BOMFilterType = 'ALL' | 'RM' | 'BO' | 'COMPONENT' | 'SUBASSEMBLY';
+
+export interface BOMUsageDetail {
+  parentName: string;
+  parentId?: string;
+  level: number;
+  quantityPerParent: number;
+  cumulativeQuantity: number;
+  unit: string;
+  secondaryCumulativeQuantity?: number;
+  secondaryUnit?: string;
+}
+
+export interface ConsolidatedBOMItem {
+  id: string;
+  materialName: string;
+  materialCode?: string;
+  description?: string;
+  itemType: 'SubAssembly' | 'Assembly' | 'Component' | 'BO' | 'RM';
+  categoryLabel: string;
+  unit: string;
+  hasSecondaryUnit?: boolean;
+  secondaryUnit?: string;
+  conversionFactor?: number;
+  totalCumulativeQuantity: number;
+  totalSecondaryCumulativeQuantity?: number;
+  usages: BOMUsageDetail[];
+}
+
 export interface ExplodedBOMResult {
   rootItem: any;
   flatTree: ExplodedBOMNode[];
@@ -303,3 +332,108 @@ export function explodeFGBOMHierarchy(
     }
   };
 }
+
+/**
+ * Checks whether an exploded node matches a selected BOM category filter.
+ */
+export function matchesBOMFilter(node: ExplodedBOMNode, filterType: BOMFilterType): boolean {
+  if (!filterType || filterType === 'ALL') return true;
+  if (filterType === 'RM') return node.itemType === 'RM';
+  if (filterType === 'BO') return node.itemType === 'BO';
+  if (filterType === 'COMPONENT') return node.itemType === 'Component';
+  if (filterType === 'SUBASSEMBLY') return node.itemType === 'SubAssembly' || node.itemType === 'Assembly';
+  return true;
+}
+
+/**
+ * Aggregates all BOM occurrences into unique items with total cumulative quantity needed
+ * per 1 unit of root FG, accompanied by a breakdown of parent assembly usages.
+ */
+export function consolidateBOMItems(
+  nodes: ExplodedBOMNode[],
+  filterType: BOMFilterType = 'ALL'
+): ConsolidatedBOMItem[] {
+  const map = new Map<string, ConsolidatedBOMItem>();
+
+  (nodes || []).forEach((node) => {
+    if (!matchesBOMFilter(node, filterType)) return;
+
+    // Key by ID or normalized name
+    const key = (node.id && node.id !== 'undefined' ? String(node.id) : '') || node.materialName.toLowerCase().trim();
+    if (!key) return;
+
+    let existing = map.get(key);
+    if (!existing) {
+      existing = {
+        id: node.id,
+        materialName: node.materialName,
+        materialCode: node.materialCode,
+        description: node.description,
+        itemType: node.itemType,
+        categoryLabel: node.categoryLabel,
+        unit: node.unit,
+        hasSecondaryUnit: node.hasSecondaryUnit,
+        secondaryUnit: node.secondaryUnit,
+        conversionFactor: node.conversionFactor,
+        totalCumulativeQuantity: 0,
+        totalSecondaryCumulativeQuantity: 0,
+        usages: []
+      };
+      map.set(key, existing);
+    }
+
+    // Add cumulative quantities
+    existing.totalCumulativeQuantity = Number(
+      (existing.totalCumulativeQuantity + (Number(node.cumulativeQuantity) || 0)).toFixed(4)
+    );
+
+    if (node.hasSecondaryUnit && node.secondaryCumulativeQuantity !== undefined) {
+      existing.totalSecondaryCumulativeQuantity = Number(
+        (((existing.totalSecondaryCumulativeQuantity || 0) + (Number(node.secondaryCumulativeQuantity) || 0))).toFixed(4)
+      );
+    }
+
+    // Record usage
+    existing.usages.push({
+      parentName: node.parentName || 'Root Product',
+      parentId: node.parentId,
+      level: node.level,
+      quantityPerParent: node.quantityPerParent,
+      cumulativeQuantity: node.cumulativeQuantity,
+      unit: node.unit,
+      secondaryCumulativeQuantity: node.secondaryCumulativeQuantity,
+      secondaryUnit: node.secondaryUnit
+    });
+  });
+
+  return Array.from(map.values()).sort((a, b) => a.materialName.localeCompare(b.materialName));
+}
+
+/**
+ * Filters a recursive nested tree keeping matching nodes and any ancestors needed to display them.
+ */
+export function filterNestedBOMTree(
+  nodes: ExplodedBOMNode[],
+  filterType: BOMFilterType
+): ExplodedBOMNode[] {
+  if (!filterType || filterType === 'ALL') return nodes;
+
+  const result: ExplodedBOMNode[] = [];
+
+  (nodes || []).forEach((node) => {
+    const isSelfMatch = matchesBOMFilter(node, filterType);
+    const filteredChildren = filterNestedBOMTree(node.children || [], filterType);
+
+    // Keep node if it matches directly OR if it contains matching descendants
+    if (isSelfMatch || filteredChildren.length > 0) {
+      result.push({
+        ...node,
+        children: filteredChildren,
+        hasChildren: filteredChildren.length > 0
+      });
+    }
+  });
+
+  return result;
+}
+

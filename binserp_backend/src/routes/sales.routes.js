@@ -36,6 +36,7 @@ import {
   acknowledgeIncomingPO,
   backfillOANumbers,
   getIncomingPODispatchHistory,
+  updatePODeliverySchedule,
   createOrUpdatePriceList,
   getAllPriceLists,
   deletePriceList
@@ -74,6 +75,8 @@ router.delete("/incoming-po/:id", deleteIncomingPO);
 router.get("/incoming-po/:id/dispatch-history", getIncomingPODispatchHistory);
 router.post("/incoming-po/:id/generate-order", generateSalesOrderFromPO);
 router.post("/incoming-po/:id/acknowledge", acknowledgeIncomingPO);
+router.patch("/incoming-po/:id/delivery-schedule", updatePODeliverySchedule);
+router.put("/incoming-po/:id/delivery-schedule", updatePODeliverySchedule);
 
 // Sales Order routes (Internal Order)
 router.post("/order", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), createSalesOrder);

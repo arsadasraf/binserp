@@ -585,3 +585,101 @@ export const backfillOANumbers = asyncHandler(async (req, res) => {
   });
 });
 
+export const updatePODeliverySchedule = asyncHandler(async (req, res) => {
+  const IncomingPO = req.getModel("IncomingPO", incomingPOSchema);
+  const companyId = getCompanyId(req);
+  const { id } = req.params;
+  const { items } = req.body;
+
+  if (!Array.isArray(items)) {
+    return res.status(400).json({ message: "Items array is required" });
+  }
+
+  const incomingPO = await IncomingPO.findOne({ _id: id, company: companyId });
+  if (!incomingPO) {
+    return res.status(404).json({ message: "Customer PO not found" });
+  }
+
+  // Update deliverySchedule on matching items by item ID or index
+  items.forEach((updateItem, index) => {
+    let target = null;
+    if (updateItem._id || updateItem.itemId) {
+      const matchId = String(updateItem._id || updateItem.itemId);
+      target = incomingPO.items.find(it => String(it._id) === matchId);
+    }
+    if (!target && incomingPO.items[index]) {
+      target = incomingPO.items[index];
+    }
+
+    if (target && Array.isArray(updateItem.deliverySchedule)) {
+      const existingMap = new Map();
+      (target.deliverySchedule || []).forEach(es => {
+        if (es.monthKey) existingMap.set(es.monthKey, es);
+      });
+
+      target.deliverySchedule = updateItem.deliverySchedule
+        .map(s => {
+          const prev = existingMap.get(s.monthKey);
+          const newQty = Math.max(0, Number(s.quantity) || 0);
+          const plannedQty = s.plannedQuantity != null 
+            ? Number(s.plannedQuantity) 
+            : (prev?.plannedQuantity != null ? Number(prev.plannedQuantity) : (prev?.isPlanned ? Number(prev.quantity || 0) : 0));
+          const linkedMrps = Array.isArray(s.linkedMrps) && s.linkedMrps.length > 0
+            ? s.linkedMrps
+            : (Array.isArray(prev?.linkedMrps) ? prev.linkedMrps : []);
+          const mrpPlan = s.mrpPlan || prev?.mrpPlan;
+          const mrpNumber = s.mrpNumber || prev?.mrpNumber || (linkedMrps[linkedMrps.length - 1]?.mrpNumber || "");
+          const isPlanned = plannedQty >= newQty && newQty > 0;
+
+          return {
+            monthKey: s.monthKey,
+            monthLabel: s.monthLabel || s.monthKey,
+            quantity: newQty,
+            plannedQuantity: plannedQty,
+            targetDate: s.targetDate ? new Date(s.targetDate) : undefined,
+            notes: s.notes || "",
+            isPlanned,
+            mrpPlan,
+            mrpNumber,
+            linkedMrps,
+          };
+        })
+        .filter(s => s.quantity > 0 || s.monthKey);
+    }
+  });
+
+  // Re-evaluate Customer PO overall status based on planned vs total demanded
+  let totalPoDemanded = 0;
+  let totalPoPlanned = 0;
+  (incomingPO.items || []).forEach(it => {
+    const itQty = Number(it.quantity || 0);
+    totalPoDemanded += itQty;
+    if (Array.isArray(it.deliverySchedule) && it.deliverySchedule.length > 0) {
+      it.deliverySchedule.forEach(s => {
+        totalPoPlanned += Number(s.plannedQuantity || (s.isPlanned ? s.quantity : 0) || 0);
+      });
+    } else {
+      totalPoPlanned += Number(it.plannedQuantity || 0);
+    }
+  });
+
+  if (totalPoPlanned >= totalPoDemanded && totalPoDemanded > 0) {
+    incomingPO.status = "MRP Done";
+  } else if (totalPoPlanned > 0) {
+    incomingPO.status = "Partially Planned";
+  }
+
+  incomingPO.updatedBy = req.user?.id || req.user?._id;
+  await incomingPO.save();
+
+  const populated = await IncomingPO.findById(incomingPO._id)
+    .populate("customer", "name email phone address gstin code")
+    .populate("items.fgItem", "name unit description descriptions specification category sellingPrice hsnCode");
+
+  res.status(200).json({
+    success: true,
+    message: "Monthly delivery schedule saved successfully",
+    incomingPO: populated,
+  });
+});
+

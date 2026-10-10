@@ -10,7 +10,14 @@
  * - Item Categories
  */
 
-import { explodeFGBOMHierarchy, ExplodedBOMNode, ExplodedBOMResult } from '@/src/utils/bomHierarchyHelper';
+import { 
+    explodeFGBOMHierarchy, 
+    ExplodedBOMNode, 
+    ExplodedBOMResult,
+    BOMFilterType,
+    consolidateBOMItems,
+    ConsolidatedBOMItem
+} from '@/src/utils/bomHierarchyHelper';
 
 interface GenerateMasterPdfProps {
     masterTab: string;
@@ -20,6 +27,7 @@ interface GenerateMasterPdfProps {
     allRMItems?: any[];
     allBOItems?: any[];
     explodedBOM?: ExplodedBOMResult;
+    bomFilterType?: BOMFilterType;
 }
 
 export const generateMasterRecordPDF = ({ 
@@ -29,7 +37,8 @@ export const generateMasterRecordPDF = ({
     allFGItems,
     allRMItems,
     allBOItems,
-    explodedBOM
+    explodedBOM,
+    bomFilterType = 'ALL'
 }: GenerateMasterPdfProps) => {
     if (!item) {
         alert("No record data provided for PDF generation");
@@ -354,10 +363,57 @@ export const generateMasterRecordPDF = ({
             </div>
         `;
     } else if (tabKey === 'fg-items' || tabKey === 'fg-item' || tabKey === 'finished-goods') {
-        docTitle = 'FINISHED GOODS PRODUCT SPECIFICATION & BOM';
-        docThemeColor = '#7c3aed'; // Purple
         const fg = item;
         const locName = typeof fg.location === 'object' ? fg.location?.name : (typeof fg.locationId === 'object' ? fg.locationId?.name : (fg.location || '-'));
+        const isFiltered = Boolean(bomFilterType && bomFilterType !== 'ALL');
+        
+        let filterLabel = 'MULTI-LEVEL BILL OF MATERIALS (BOM EXPLOSION)';
+        let sectionBg = '#f5f3ff';
+        let sectionBorderColor = '#7c3aed';
+        let sectionTextColor = '#5b21b6';
+        let headerThBg = '#ede9fe';
+        let headerThColor = '#4c1d95';
+
+        if (bomFilterType === 'RM') {
+            docTitle = 'FINISHED GOODS RAW MATERIALS (RM) SPECIFICATION & PROCUREMENT BILL';
+            docThemeColor = '#1d4ed8'; // Blue
+            filterLabel = 'RAW MATERIALS (RM) PROCUREMENT BILL OF MATERIALS';
+            sectionBg = '#eff6ff';
+            sectionBorderColor = '#1d4ed8';
+            sectionTextColor = '#1e40af';
+            headerThBg = '#dbeafe';
+            headerThColor = '#1e3a8a';
+        } else if (bomFilterType === 'BO') {
+            docTitle = 'FINISHED GOODS BOUGHT-OUT (BO) COMPONENTS SPECIFICATION & BOM';
+            docThemeColor = '#b45309'; // Amber
+            filterLabel = 'BOUGHT-OUT (BO) COMPONENTS SPECIFICATION & BILL OF MATERIALS';
+            sectionBg = '#fffbeb';
+            sectionBorderColor = '#b45309';
+            sectionTextColor = '#92400e';
+            headerThBg = '#fef3c7';
+            headerThColor = '#78350f';
+        } else if (bomFilterType === 'COMPONENT') {
+            docTitle = 'FINISHED GOODS IN-HOUSE COMPONENTS MANUFACTURING BREAKDOWN';
+            docThemeColor = '#0284c7'; // Sky
+            filterLabel = 'IN-HOUSE COMPONENTS MANUFACTURING BREAKDOWN';
+            sectionBg = '#f0f9ff';
+            sectionBorderColor = '#0284c7';
+            sectionTextColor = '#0369a1';
+            headerThBg = '#e0f2fe';
+            headerThColor = '#075985';
+        } else if (bomFilterType === 'SUBASSEMBLY') {
+            docTitle = 'FINISHED GOODS SUB-ASSEMBLY HIERARCHY & SPECIFICATION';
+            docThemeColor = '#4338ca'; // Indigo
+            filterLabel = 'SUB-ASSEMBLY HIERARCHY & ASSEMBLY SPECIFICATION';
+            sectionBg = '#eef2ff';
+            sectionBorderColor = '#4338ca';
+            sectionTextColor = '#3730a3';
+            headerThBg = '#e0e7ff';
+            headerThColor = '#312e81';
+        } else {
+            docTitle = 'FINISHED GOODS PRODUCT SPECIFICATION & BOM';
+            docThemeColor = '#7c3aed'; // Purple
+        }
         
         // Explode nested BOM hierarchy recursively
         const explodedResult: ExplodedBOMResult = explodedBOM || explodeFGBOMHierarchy(
@@ -376,74 +432,166 @@ export const generateMasterRecordPDF = ({
             totalItemCount: 0
         };
 
+        const consolidatedItems = isFiltered ? consolidateBOMItems(explodedNodes, bomFilterType) : [];
+
+        let bomTheadHtml = '';
         let bomRowsHtml = '';
-        if (explodedNodes.length > 0) {
-            explodedNodes.forEach((node: ExplodedBOMNode, idx: number) => {
-                let typeLabel = 'Raw Material (RM)';
-                let typeBg = '#eff6ff';
-                let typeColor = '#1d4ed8';
 
-                if (node.itemType === 'SubAssembly') {
-                    typeLabel = '🧩 Sub-Assembly';
-                    typeBg = '#e0e7ff';
-                    typeColor = '#4338ca';
-                } else if (node.itemType === 'Assembly') {
-                    typeLabel = '⚙️ Assembly';
-                    typeBg = '#f3e8ff';
-                    typeColor = '#7e22ce';
-                } else if (node.itemType === 'Component') {
-                    typeLabel = '🔧 In-House Component';
-                    typeBg = '#e0f2fe';
-                    typeColor = '#0369a1';
-                } else if (node.itemType === 'BO') {
-                    typeLabel = '📦 Bought Out (BO)';
-                    typeBg = '#fef3c7';
-                    typeColor = '#b45309';
-                }
+        if (isFiltered) {
+            // Consolidated filtered table layout
+            bomTheadHtml = `
+                <tr style="background: ${headerThBg}; color: ${headerThColor};">
+                    <th style="width: 5%; padding: 6px 4px; border: 1px solid #cbd5e1; text-align: center;">#</th>
+                    <th style="width: 36%; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left;">Component / Item Name & Description</th>
+                    <th style="width: 15%; padding: 6px 4px; border: 1px solid #cbd5e1; text-align: center;">Classification</th>
+                    <th style="width: 26%; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left;">Parent Assemblies & Usages</th>
+                    <th style="width: 18%; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right;">Total Required Qty (1 FG)</th>
+                </tr>
+            `;
 
-                const indentPx = Math.max(0, (node.level - 2) * 16 + 6);
-                const hasIndent = node.level > 2;
+            if (consolidatedItems.length > 0) {
+                consolidatedItems.forEach((cItem: ConsolidatedBOMItem, idx: number) => {
+                    let typeLabel = 'Raw Material (RM)';
+                    let typeBg = '#eff6ff';
+                    let typeColor = '#1d4ed8';
 
-                const secPerParentStr = node.hasSecondaryUnit && node.secondaryQuantityPerParent !== undefined
-                    ? `<div style="font-size: 9px; color: #6366f1; font-family: monospace;">(${node.secondaryQuantityPerParent} ${node.secondaryUnit})</div>`
-                    : '';
+                    if (cItem.itemType === 'SubAssembly') {
+                        typeLabel = '🧩 Sub-Assembly';
+                        typeBg = '#e0e7ff';
+                        typeColor = '#4338ca';
+                    } else if (cItem.itemType === 'Assembly') {
+                        typeLabel = '⚙️ Assembly';
+                        typeBg = '#f3e8ff';
+                        typeColor = '#7e22ce';
+                    } else if (cItem.itemType === 'Component') {
+                        typeLabel = '🔧 Component';
+                        typeBg = '#e0f2fe';
+                        typeColor = '#0369a1';
+                    } else if (cItem.itemType === 'BO') {
+                        typeLabel = '📦 Bought Out (BO)';
+                        typeBg = '#fef3c7';
+                        typeColor = '#b45309';
+                    }
 
-                const secCumStr = node.hasSecondaryUnit && node.secondaryCumulativeQuantity !== undefined
-                    ? `<div style="font-size: 9px; color: #6366f1; font-family: monospace;">(${node.secondaryCumulativeQuantity} ${node.secondaryUnit})</div>`
-                    : '';
+                    const usageChipsHtml = (cItem.usages || []).map((u) => {
+                        return `<span style="display: inline-block; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 1.5px 5px; font-size: 9px; margin: 1px 2px;">
+                            ${u.parentName}: <b>${u.quantityPerParent} ${u.unit}</b>
+                        </span>`;
+                    }).join(' ');
 
-                bomRowsHtml += `
-                    <tr style="${hasIndent ? 'background: #fafafa;' : ''}">
-                        <td style="text-align: center; padding: 6px 4px; border: 1px solid #e2e8f0;">
-                            <span style="background: ${node.level === 2 ? '#f1f5f9' : '#e0e7ff'}; color: ${node.level === 2 ? '#475569' : '#3730a3'}; padding: 2px 5px; border-radius: 4px; font-size: 9px; font-weight: bold;">
-                                L${node.level}
-                            </span>
-                        </td>
-                        <td style="padding: 6px 8px 6px ${indentPx}px; border: 1px solid #e2e8f0;">
-                            <div style="font-weight: bold; color: #0f172a; font-size: 11px; display: flex; align-items: center; gap: 4px;">
-                                ${hasIndent ? '<span style="color: #8b5cf6; font-family: monospace; font-weight: bold;">↳</span>' : ''}
-                                <span>${node.materialName || '-'}</span>
-                            </div>
-                            ${node.description ? `<div style="font-size: 9.5px; color: #64748b; font-style: italic; margin-top: 2px; line-height: 1.3;">${node.description}</div>` : ''}
-                        </td>
-                        <td style="text-align: center; padding: 6px 4px; border: 1px solid #e2e8f0;">
-                            <span style="background: ${typeBg}; color: ${typeColor}; padding: 2.5px 6px; border-radius: 4px; font-size: 9.5px; font-weight: bold; white-space: nowrap;">
-                                ${typeLabel}
-                            </span>
-                        </td>
-                        <td style="text-align: right; padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: bold; color: #1e293b; font-size: 11px;">
-                            <div>${node.quantityPerParent} ${node.unit || 'Nos'}</div>
-                            ${secPerParentStr}
-                        </td>
-                        <td style="text-align: right; padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: bold; color: #4338ca; font-size: 11px;">
-                            <div>${node.cumulativeQuantity} ${node.unit || 'Nos'}</div>
-                            ${secCumStr}
-                        </td>
-                    </tr>
-                `;
-            });
+                    const secCumStr = cItem.hasSecondaryUnit && cItem.totalSecondaryCumulativeQuantity !== undefined && cItem.totalSecondaryCumulativeQuantity > 0
+                        ? `<div style="font-size: 9px; color: #6366f1; font-family: monospace;">(= ${cItem.totalSecondaryCumulativeQuantity} ${cItem.secondaryUnit})</div>`
+                        : '';
+
+                    bomRowsHtml += `
+                        <tr style="${idx % 2 === 1 ? 'background: #f8fafc;' : ''}">
+                            <td style="text-align: center; padding: 6px 4px; border: 1px solid #e2e8f0; font-weight: bold; color: #64748b; font-size: 10px;">
+                                ${idx + 1}
+                            </td>
+                            <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">
+                                <div style="font-weight: bold; color: #0f172a; font-size: 11px;">
+                                    ${cItem.materialName || '-'}
+                                </div>
+                                ${cItem.description ? `<div style="font-size: 9.5px; color: #64748b; font-style: italic; margin-top: 2px; line-height: 1.3;">${cItem.description}</div>` : ''}
+                            </td>
+                            <td style="text-align: center; padding: 6px 4px; border: 1px solid #e2e8f0;">
+                                <span style="background: ${typeBg}; color: ${typeColor}; padding: 2px 6px; border-radius: 4px; font-size: 9.5px; font-weight: bold; white-space: nowrap;">
+                                    ${typeLabel}
+                                </span>
+                            </td>
+                            <td style="padding: 6px 6px; border: 1px solid #e2e8f0; font-size: 9.5px; line-height: 1.4;">
+                                ${usageChipsHtml || '<span style="color: #94a3b8;">Direct FG Usage</span>'}
+                            </td>
+                            <td style="text-align: right; padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: bold; color: ${docThemeColor}; font-size: 11px;">
+                                <div>${cItem.totalCumulativeQuantity} ${cItem.unit || 'Nos'}</div>
+                                ${secCumStr}
+                            </td>
+                        </tr>
+                    `;
+                });
+            } else {
+                bomRowsHtml = `<tr><td colspan="5" style="text-align: center; padding: 18px; color: #64748b; border: 1px solid #e2e8f0;">No ${bomFilterType} items present in this finished product's BOM tree.</td></tr>`;
+            }
         } else {
-            bomRowsHtml = `<tr><td colspan="5" style="text-align: center; padding: 16px; color: #64748b; border: 1px solid #e2e8f0;">No BOM components configured for this finished product.</td></tr>`;
+            // Full multi-level recursive tree layout
+            bomTheadHtml = `
+                <tr style="background: ${headerThBg}; color: ${headerThColor};">
+                    <th style="width: 6%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Level</th>
+                    <th style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: left;">Component / Item Name & Description</th>
+                    <th style="width: 20%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Classification</th>
+                    <th style="width: 17%; padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">Qty / Parent</th>
+                    <th style="width: 17%; padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">Cumulative Qty</th>
+                </tr>
+            `;
+
+            if (explodedNodes.length > 0) {
+                explodedNodes.forEach((node: ExplodedBOMNode) => {
+                    let typeLabel = 'Raw Material (RM)';
+                    let typeBg = '#eff6ff';
+                    let typeColor = '#1d4ed8';
+
+                    if (node.itemType === 'SubAssembly') {
+                        typeLabel = '🧩 Sub-Assembly';
+                        typeBg = '#e0e7ff';
+                        typeColor = '#4338ca';
+                    } else if (node.itemType === 'Assembly') {
+                        typeLabel = '⚙️ Assembly';
+                        typeBg = '#f3e8ff';
+                        typeColor = '#7e22ce';
+                    } else if (node.itemType === 'Component') {
+                        typeLabel = '🔧 In-House Component';
+                        typeBg = '#e0f2fe';
+                        typeColor = '#0369a1';
+                    } else if (node.itemType === 'BO') {
+                        typeLabel = '📦 Bought Out (BO)';
+                        typeBg = '#fef3c7';
+                        typeColor = '#b45309';
+                    }
+
+                    const indentPx = Math.max(0, (node.level - 2) * 16 + 6);
+                    const hasIndent = node.level > 2;
+
+                    const secPerParentStr = node.hasSecondaryUnit && node.secondaryQuantityPerParent !== undefined
+                        ? `<div style="font-size: 9px; color: #6366f1; font-family: monospace;">(${node.secondaryQuantityPerParent} ${node.secondaryUnit})</div>`
+                        : '';
+
+                    const secCumStr = node.hasSecondaryUnit && node.secondaryCumulativeQuantity !== undefined
+                        ? `<div style="font-size: 9px; color: #6366f1; font-family: monospace;">(${node.secondaryCumulativeQuantity} ${node.secondaryUnit})</div>`
+                        : '';
+
+                    bomRowsHtml += `
+                        <tr style="${hasIndent ? 'background: #fafafa;' : ''}">
+                            <td style="text-align: center; padding: 6px 4px; border: 1px solid #e2e8f0;">
+                                <span style="background: ${node.level === 2 ? '#f1f5f9' : '#e0e7ff'}; color: ${node.level === 2 ? '#475569' : '#3730a3'}; padding: 2px 5px; border-radius: 4px; font-size: 9px; font-weight: bold;">
+                                    L${node.level}
+                                </span>
+                            </td>
+                            <td style="padding: 6px 8px 6px ${indentPx}px; border: 1px solid #e2e8f0;">
+                                <div style="font-weight: bold; color: #0f172a; font-size: 11px; display: flex; align-items: center; gap: 4px;">
+                                    ${hasIndent ? '<span style="color: #8b5cf6; font-family: monospace; font-weight: bold;">↳</span>' : ''}
+                                    <span>${node.materialName || '-'}</span>
+                                </div>
+                                ${node.description ? `<div style="font-size: 9.5px; color: #64748b; font-style: italic; margin-top: 2px; line-height: 1.3;">${node.description}</div>` : ''}
+                            </td>
+                            <td style="text-align: center; padding: 6px 4px; border: 1px solid #e2e8f0;">
+                                <span style="background: ${typeBg}; color: ${typeColor}; padding: 2.5px 6px; border-radius: 4px; font-size: 9.5px; font-weight: bold; white-space: nowrap;">
+                                    ${typeLabel}
+                                </span>
+                            </td>
+                            <td style="text-align: right; padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: bold; color: #1e293b; font-size: 11px;">
+                                <div>${node.quantityPerParent} ${node.unit || 'Nos'}</div>
+                                ${secPerParentStr}
+                            </td>
+                            <td style="text-align: right; padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: bold; color: #4338ca; font-size: 11px;">
+                                <div>${node.cumulativeQuantity} ${node.unit || 'Nos'}</div>
+                                ${secCumStr}
+                            </td>
+                        </tr>
+                    `;
+                });
+            } else {
+                bomRowsHtml = `<tr><td colspan="5" style="text-align: center; padding: 16px; color: #64748b; border: 1px solid #e2e8f0;">No BOM components configured for this finished product.</td></tr>`;
+            }
         }
 
         specificContentHtml = `
@@ -494,22 +642,16 @@ export const generateMasterRecordPDF = ({
 
             <!-- Bill of Materials (BOM) -->
             <div style="margin-bottom: 16px;">
-                <div style="background: #f5f3ff; border-left: 4px solid #7c3aed; padding: 6px 10px; font-weight: bold; font-size: 12px; color: #5b21b6; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
-                    <span>2. MULTI-LEVEL BILL OF MATERIALS (BOM EXPLOSION)</span>
-                    <span style="font-size: 10px; font-weight: normal; color: #6d28d9;">
-                        ${summary.totalLevels} Levels • ${summary.subAssemblyCount} Sub-Assy • ${summary.componentCount} Comp • ${summary.boCount} BO • ${summary.rmCount} RM
+                <div style="background: ${sectionBg}; border-left: 4px solid ${sectionBorderColor}; padding: 6px 10px; font-weight: bold; font-size: 12px; color: ${sectionTextColor}; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                    <span>2. ${filterLabel}</span>
+                    <span style="font-size: 10px; font-weight: normal; color: ${sectionTextColor};">
+                        ${isFiltered ? `${consolidatedItems.length} Unique Items • Category: ${bomFilterType}` : `${summary.totalLevels} Levels • ${summary.subAssemblyCount} Sub-Assy • ${summary.componentCount} Comp • ${summary.boCount} BO • ${summary.rmCount} RM`}
                     </span>
                 </div>
                 
                 <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
                     <thead>
-                        <tr style="background: #ede9fe; color: #4c1d95;">
-                            <th style="width: 6%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Level</th>
-                            <th style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: left;">Component / Item Name & Description</th>
-                            <th style="width: 20%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Classification</th>
-                            <th style="width: 17%; padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">Qty / Parent</th>
-                            <th style="width: 17%; padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">Cumulative Qty</th>
-                        </tr>
+                        ${bomTheadHtml}
                     </thead>
                     <tbody>
                         ${bomRowsHtml}

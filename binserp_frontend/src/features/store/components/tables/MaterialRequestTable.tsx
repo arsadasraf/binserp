@@ -1,15 +1,17 @@
 import React from 'react';
-import { BadgeCheck, XCircle, Clock, Eye, Calendar, ArrowRight, FileText, Layers, ShoppingCart, Package, Boxes, User } from 'lucide-react';
+import { BadgeCheck, XCircle, Clock, Eye, Calendar, ArrowRight, FileText, Layers, ShoppingCart, Package, Boxes, User, AlertTriangle } from 'lucide-react';
 import { formatDateTime } from './MaterialIssueHistoryTable';
+import { evaluateItemStock, evaluateRequestStock } from '@/src/utils/stockValidationHelper';
 
 interface MaterialRequestTableProps {
     requests: any[];
     onIssue: (request: any) => void;
     onReject: (request: any) => void;
     onView: (request: any) => void;
+    storeData?: any;
 }
 
-export default function MaterialRequestTable({ requests, onIssue, onReject, onView }: MaterialRequestTableProps) {
+export default function MaterialRequestTable({ requests, onIssue, onReject, onView, storeData }: MaterialRequestTableProps) {
     if (!requests || requests.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 h-64">
@@ -116,6 +118,7 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                     <div className="flex flex-col gap-1.5 max-w-xs">
                                         {(request.items || []).slice(0, 2).map((item: any, i: number) => {
                                             const desc = item.materialDescription || item.description || item.descriptions;
+                                            const stockEval = storeData ? evaluateItemStock(item, storeData) : null;
                                             return (
                                                 <div key={i} className="p-1.5 rounded-lg bg-gray-50 dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 text-xs">
                                                     <div className="flex items-center justify-between gap-1 font-bold text-gray-800 dark:text-gray-200">
@@ -127,6 +130,25 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                                     {desc && (
                                                         <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
                                                             {desc}
+                                                        </div>
+                                                    )}
+                                                    {stockEval && (
+                                                        <div className="mt-1 flex items-center justify-between gap-1 pt-1 border-t border-gray-200/60 dark:border-gray-700/60 text-[10px]">
+                                                            {stockEval.status === 'out-of-stock' && (
+                                                                <span className="inline-flex items-center gap-1 font-extrabold text-rose-600 dark:text-rose-400">
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse" /> Out of Stock (0 {stockEval.unit})
+                                                                </span>
+                                                            )}
+                                                            {stockEval.status === 'partial' && (
+                                                                <span className="inline-flex items-center gap-1 font-extrabold text-amber-600 dark:text-amber-400">
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Stock Shortage ({stockEval.availableStock}/{stockEval.requestedQuantity} {stockEval.unit})
+                                                                </span>
+                                                            )}
+                                                            {stockEval.status === 'in-stock' && (
+                                                                <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> In Stock ({stockEval.availableStock} {stockEval.unit})
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </div>
@@ -155,12 +177,24 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                         >
                                             <XCircle size={17} />
                                         </button>
-                                        <button
-                                            onClick={() => onIssue(request)}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs text-xs font-bold transition-all transform active:scale-95 cursor-pointer"
-                                        >
-                                            Issue Items <ArrowRight size={13} />
-                                        </button>
+                                        {(() => {
+                                            const reqStockEval = storeData ? evaluateRequestStock(request, storeData) : null;
+                                            const hasShortage = reqStockEval?.hasShortage || false;
+                                            return (
+                                                <button
+                                                    onClick={() => onIssue(request)}
+                                                    className={`flex items-center gap-1.5 px-3 py-1.5 text-white rounded-xl shadow-xs text-xs font-bold transition-all transform active:scale-95 cursor-pointer ${
+                                                        hasShortage
+                                                            ? 'bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-400/40'
+                                                            : 'bg-blue-600 hover:bg-blue-700'
+                                                    }`}
+                                                    title={hasShortage ? "Warning: Insufficient warehouse stock to fulfill this request" : "Issue Items"}
+                                                >
+                                                    {hasShortage && <AlertTriangle size={13} className="text-amber-200" />}
+                                                    Issue Items <ArrowRight size={13} />
+                                                </button>
+                                            );
+                                        })()}
                                     </div>
                                 </td>
                             </tr>
@@ -239,6 +273,7 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                         <div className="space-y-1.5">
                             {(request.items || []).slice(0, 3).map((item: any, i: number) => {
                                 const desc = item.materialDescription || item.description || item.descriptions;
+                                const stockEval = storeData ? evaluateItemStock(item, storeData) : null;
                                 return (
                                     <div key={i} className="p-2 rounded-xl bg-white dark:bg-slate-850 border border-slate-100 dark:border-slate-800 shadow-2xs">
                                         <div className="flex items-start justify-between gap-2">
@@ -263,6 +298,25 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                                 )}
                                             </div>
                                         </div>
+                                        {stockEval && (
+                                            <div className="mt-1 flex items-center justify-between gap-1 pt-1 border-t border-gray-100 dark:border-gray-800 text-[10px]">
+                                                {stockEval.status === 'out-of-stock' && (
+                                                    <span className="inline-flex items-center gap-1 font-extrabold text-rose-600 dark:text-rose-400">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse" /> Out of Stock (0 {stockEval.unit})
+                                                    </span>
+                                                )}
+                                                {stockEval.status === 'partial' && (
+                                                    <span className="inline-flex items-center gap-1 font-extrabold text-amber-600 dark:text-amber-400">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Stock Shortage ({stockEval.availableStock}/{stockEval.requestedQuantity} {stockEval.unit})
+                                                    </span>
+                                                )}
+                                                {stockEval.status === 'in-stock' && (
+                                                    <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> In Stock ({stockEval.availableStock} {stockEval.unit})
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
@@ -289,13 +343,25 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                 <XCircle size={14} />
                                 <span>Reject</span>
                             </button>
-                            <button
-                                onClick={() => onIssue(request)}
-                                className="h-10 px-2 text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 shadow-sm transition-all active:scale-95 cursor-pointer"
-                            >
-                                <span>Issue</span>
-                                <ArrowRight size={14} />
-                            </button>
+                            {(() => {
+                                const reqStockEval = storeData ? evaluateRequestStock(request, storeData) : null;
+                                const hasShortage = reqStockEval?.hasShortage || false;
+                                return (
+                                    <button
+                                        onClick={() => onIssue(request)}
+                                        className={`h-10 px-2 text-white rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 shadow-sm transition-all active:scale-95 cursor-pointer ${
+                                            hasShortage
+                                                ? 'bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-400/40'
+                                                : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700'
+                                        }`}
+                                        title={hasShortage ? "Warning: Insufficient warehouse stock to fulfill this request" : "Issue Items"}
+                                    >
+                                        {hasShortage && <AlertTriangle size={13} className="text-amber-200" />}
+                                        <span>Issue</span>
+                                        <ArrowRight size={14} />
+                                    </button>
+                                );
+                            })()}
                         </div>
                     </div>
                 ))}

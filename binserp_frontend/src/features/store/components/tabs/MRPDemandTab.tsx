@@ -14,11 +14,12 @@ import { useExchangeRates } from '@/src/hooks/useExchangeRates';
 import { getCurrencySymbol } from '@/src/utils/currencyHelper';
 import { getPoOaNumber } from '@/src/utils/oaHelper';
 import SearchableMultiSelect, { MultiSelectOption } from '../SearchableMultiSelect';
+import PODeliveryScheduleModal from '../modals/PODeliveryScheduleModal';
 
 export interface MRPDemandTabProps {
   token?: string | null;
   mrpPlans?: any[];
-  onPlanSinglePo: (po: any) => void;
+  onPlanSinglePo: (po: any, monthKey?: string, quantity?: number) => void;
   onPlanConsolidatedPos: (poIds: string[]) => void;
   onPlanMatrixDemand?: (payload: {
     poIds: string[];
@@ -47,6 +48,8 @@ interface MatrixItemRow {
   unit: string;
   hsnCode?: string;
   monthlyQuantities: Record<string, number>;
+  monthlyPlannedQuantities: Record<string, number>;
+  monthlyLinkedMrps: Record<string, Array<{ mrpNumber: string; quantity: number; planId?: string }>>;
   totalDemandQty: number;
   plannedQty: number;
   balanceQty: number;
@@ -59,10 +62,17 @@ interface MatrixItemRow {
     deliveryDate?: string;
     monthKey: string;
     quantity: number;
+    plannedQty: number;
+    balanceQty: number;
     unit: string;
     isPlanned: boolean;
     mrpNumber?: string;
     mrpPlanId?: string;
+    linkedMrps?: Array<{ mrpNumber: string; quantity: number; planId?: string }>;
+    isScheduled?: boolean;
+    isUnscheduled?: boolean;
+    scheduleNote?: string;
+    notes?: string;
     poRaw: any;
   }>;
 }
@@ -95,6 +105,15 @@ export default function MRPDemandTab({
   const [statusFilter, setStatusFilter] = useState<'all' | 'unplanned' | 'partially_planned' | 'mrp_done'>('all');
   const [filterCustomers, setFilterCustomers] = useState<string[]>([]);
   const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>('all');
+
+  // Customer PO Delivery Schedule Planner State
+  const [schedulingPo, setSchedulingPo] = useState<any | null>(null);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState<boolean>(false);
+
+  const handleOpenSchedulePlanner = (po: any) => {
+    setSchedulingPo(po);
+    setIsScheduleModalOpen(true);
+  };
 
   // Multi-PO Selection for Consolidated MRP Planning (in 'pos' sub-tab)
   const [selectedPoIds, setSelectedPoIds] = useState<string[]>([]);
@@ -456,6 +475,8 @@ export default function MRPDemandTab({
             unit,
             hsnCode,
             monthlyQuantities: {},
+            monthlyPlannedQuantities: {},
+            monthlyLinkedMrps: {},
             totalDemandQty: 0,
             plannedQty: 0,
             balanceQty: 0,
@@ -464,27 +485,126 @@ export default function MRPDemandTab({
         }
 
         const entry = map.get(key)!;
-        entry.monthlyQuantities[monthKey] = (entry.monthlyQuantities[monthKey] || 0) + qty;
-        entry.totalDemandQty += qty;
 
-        if (poMRP.status === 'MRP Generated') {
-          entry.plannedQty += qty;
+        // Check if line item has custom staggered deliverySchedule configured
+        const validSchedules = (Array.isArray(it.deliverySchedule) ? it.deliverySchedule : [])
+          .filter((s: any) => Number(s.quantity) > 0 && Boolean(s.monthKey));
+
+        if (validSchedules.length > 0) {
+          let scheduledTotal = 0;
+          validSchedules.forEach((sched: any) => {
+            const mKey = sched.monthKey;
+            const schedQty = Number(sched.quantity || 0);
+            scheduledTotal += schedQty;
+
+            const schedPlanned = sched.plannedQuantity != null 
+              ? Number(sched.plannedQuantity) 
+              : (sched.isPlanned ? schedQty : (poMRP.status === 'MRP Generated' ? schedQty : 0));
+            const schedPending = Math.max(0, schedQty - schedPlanned);
+
+            const schedLinkedMrps: Array<{ mrpNumber: string; quantity: number; planId?: string }> = [];
+            if (Array.isArray(sched.linkedMrps) && sched.linkedMrps.length > 0) {
+              sched.linkedMrps.forEach((lm: any) => {
+                if (lm.mrpNumber) schedLinkedMrps.push({ mrpNumber: lm.mrpNumber, quantity: Number(lm.quantity || 0), planId: lm.mrpPlan });
+              });
+            } else if (sched.mrpNumber || poMRP.mrpNumber) {
+              const mNum = sched.mrpNumber || poMRP.mrpNumber;
+              if (mNum) schedLinkedMrps.push({ mrpNumber: mNum, quantity: schedPlanned, planId: sched.mrpPlan || poMRP.planId });
+            }
+
+            entry.monthlyQuantities[mKey] = (entry.monthlyQuantities[mKey] || 0) + schedQty;
+            entry.monthlyPlannedQuantities[mKey] = (entry.monthlyPlannedQuantities[mKey] || 0) + schedPlanned;
+            if (!entry.monthlyLinkedMrps[mKey]) entry.monthlyLinkedMrps[mKey] = [];
+            schedLinkedMrps.forEach((lm) => {
+              if (!entry.monthlyLinkedMrps[mKey].some((x) => x.mrpNumber === lm.mrpNumber)) {
+                entry.monthlyLinkedMrps[mKey].push(lm);
+              }
+            });
+
+            entry.contributingPOs.push({
+              poId: po._id,
+              poNumber: po.poNumber,
+              customerName: po.customerName || po.customer?.name || 'Customer',
+              poDate: po.date,
+              deliveryDate: sched.targetDate || itemDate,
+              monthKey: mKey,
+              quantity: schedQty,
+              plannedQty: schedPlanned,
+              balanceQty: schedPending,
+              unit,
+              isPlanned: schedPlanned >= schedQty && schedQty > 0,
+              mrpNumber: schedLinkedMrps[0]?.mrpNumber || sched.mrpNumber || poMRP.mrpNumber,
+              mrpPlanId: schedLinkedMrps[0]?.planId || sched.mrpPlan || poMRP.planId,
+              linkedMrps: schedLinkedMrps,
+              isScheduled: true,
+              scheduleNote: sched.notes || '',
+              poRaw: po
+            });
+          });
+
+          // Handle any unscheduled remainder (Flexible allocation mode)
+          const unallocatedQty = Math.max(0, qty - scheduledTotal);
+          if (unallocatedQty > 0) {
+            entry.monthlyQuantities[monthKey] = (entry.monthlyQuantities[monthKey] || 0) + unallocatedQty;
+            entry.contributingPOs.push({
+              poId: po._id,
+              poNumber: po.poNumber,
+              customerName: po.customerName || po.customer?.name || 'Customer',
+              poDate: po.date,
+              deliveryDate: itemDate,
+              monthKey,
+              quantity: unallocatedQty,
+              plannedQty: 0,
+              balanceQty: unallocatedQty,
+              unit,
+              isPlanned: false,
+              isUnscheduled: true,
+              poRaw: po
+            });
+          }
+        } else {
+          // Default: single month allocation
+          const itemPlanned = it.plannedQuantity != null 
+            ? Number(it.plannedQuantity) 
+            : (poMRP.status === 'MRP Generated' ? qty : 0);
+          const itemPending = Math.max(0, qty - itemPlanned);
+
+          const itemLinkedMrps: Array<{ mrpNumber: string; quantity: number; planId?: string }> = [];
+          if (Array.isArray(it.linkedMrps) && it.linkedMrps.length > 0) {
+            it.linkedMrps.forEach((lm: any) => {
+              if (lm.mrpNumber) itemLinkedMrps.push({ mrpNumber: lm.mrpNumber, quantity: Number(lm.quantity || 0), planId: lm.mrpPlan });
+            });
+          } else if (poMRP.mrpNumber) {
+            itemLinkedMrps.push({ mrpNumber: poMRP.mrpNumber, quantity: itemPlanned, planId: poMRP.planId });
+          }
+
+          entry.monthlyQuantities[monthKey] = (entry.monthlyQuantities[monthKey] || 0) + qty;
+          entry.monthlyPlannedQuantities[monthKey] = (entry.monthlyPlannedQuantities[monthKey] || 0) + itemPlanned;
+          if (!entry.monthlyLinkedMrps[monthKey]) entry.monthlyLinkedMrps[monthKey] = [];
+          itemLinkedMrps.forEach((lm) => {
+            if (!entry.monthlyLinkedMrps[monthKey].some((x) => x.mrpNumber === lm.mrpNumber)) {
+              entry.monthlyLinkedMrps[monthKey].push(lm);
+            }
+          });
+
+          entry.contributingPOs.push({
+            poId: po._id,
+            poNumber: po.poNumber,
+            customerName: po.customerName || po.customer?.name || 'Customer',
+            poDate: po.date,
+            deliveryDate: itemDate,
+            monthKey,
+            quantity: qty,
+            plannedQty: itemPlanned,
+            balanceQty: itemPending,
+            unit,
+            isPlanned: itemPlanned >= qty && qty > 0,
+            mrpNumber: itemLinkedMrps[0]?.mrpNumber || poMRP.mrpNumber,
+            mrpPlanId: itemLinkedMrps[0]?.planId || poMRP.planId,
+            linkedMrps: itemLinkedMrps,
+            poRaw: po
+          });
         }
-
-        entry.contributingPOs.push({
-          poId: po._id,
-          poNumber: po.poNumber,
-          customerName: po.customerName || po.customer?.name || 'Customer',
-          poDate: po.date,
-          deliveryDate: itemDate,
-          monthKey,
-          quantity: qty,
-          unit,
-          isPlanned: poMRP.status === 'MRP Generated',
-          mrpNumber: poMRP.mrpNumber,
-          mrpPlanId: poMRP.planId,
-          poRaw: po
-        });
       });
     });
 
@@ -506,10 +626,15 @@ export default function MRPDemandTab({
         .filter(Boolean) as string[];
 
       const allUniqueMrpNumbers = Array.from(new Set([...mrpNumsFromPOs, ...mrpNumsFromPlans]));
+      const totalDemand = Object.values(row.monthlyQuantities).reduce((a, b) => a + b, 0);
+      const totalPlanned = Object.values(row.monthlyPlannedQuantities).reduce((a, b) => a + b, 0);
+      const totalBalance = Math.max(0, totalDemand - totalPlanned);
 
       return {
         ...row,
-        balanceQty: Math.max(0, row.totalDemandQty - row.plannedQty),
+        totalDemandQty: totalDemand,
+        plannedQty: totalPlanned,
+        balanceQty: totalBalance,
         linkedMrpNumbers: allUniqueMrpNumbers
       };
     });
@@ -669,7 +794,10 @@ export default function MRPDemandTab({
       Object.entries(row.monthlyQuantities).forEach(([mKey, qty]) => {
         if (qty > 0 && selectedMatrixCells.has(`${row.fgId}::${mKey}`)) {
           monthSet.add(mKey);
-          totalQty += qty;
+          const plannedSoFar = row.monthlyPlannedQuantities?.[mKey] || 0;
+          const remainingToPlan = Math.max(0, qty - plannedSoFar);
+          const effectiveQty = remainingToPlan > 0 ? remainingToPlan : qty;
+          totalQty += effectiveQty;
 
           if (!itemMap.has(row.fgId)) {
             let validFgObjectId = /^[0-9a-fA-F]{24}$/.test(String(row.fgId || '')) ? row.fgId : '';
@@ -699,7 +827,7 @@ export default function MRPDemandTab({
           }
 
           const itemEntry = itemMap.get(row.fgId)!;
-          itemEntry.quantity += qty;
+          itemEntry.quantity += effectiveQty;
 
           // Find contributing POs for this item & month
           const matchedPOs = row.contributingPOs.filter((c) => c.monthKey === mKey);
@@ -1171,6 +1299,16 @@ export default function MRPDemandTab({
                             <div className="flex items-center justify-end gap-1.5">
                               <button
                                 type="button"
+                                onClick={() => handleOpenSchedulePlanner(po)}
+                                className="px-2.5 py-1 bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 font-bold text-[11px] rounded-lg border border-indigo-200 dark:border-indigo-800 shadow-2xs flex items-center gap-1 transition-all cursor-pointer"
+                                title="Plan and split monthly delivery schedule for this Customer PO"
+                              >
+                                <Calendar size={11} />
+                                <span>Schedule Months</span>
+                              </button>
+
+                              <button
+                                type="button"
                                 onClick={() => onPlanSinglePo(po)}
                                 className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] rounded-lg shadow-2xs flex items-center gap-1 transition-all transform hover:scale-[1.02] cursor-pointer"
                                 title="Generate MRP Demand Plan directly for this Customer PO"
@@ -1201,9 +1339,19 @@ export default function MRPDemandTab({
                                     <Package size={13} />
                                     <span>Demanded Line Items & Delivery Schedule (PO #{po.poNumber})</span>
                                   </span>
-                                  <span className="text-[10px] text-slate-400 font-semibold">
-                                    {itemsCount} item{itemsCount !== 1 ? 's' : ''} total
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenSchedulePlanner(po)}
+                                      className="px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded font-bold text-[10px] border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Calendar size={10} />
+                                      <span>Adjust Delivery Plan</span>
+                                    </button>
+                                    <span className="text-[10px] text-slate-400 font-semibold">
+                                      {itemsCount} item{itemsCount !== 1 ? 's' : ''} total
+                                    </span>
+                                  </div>
                                 </div>
 
                                 <div className="overflow-x-auto">
@@ -1246,6 +1394,17 @@ export default function MRPDemandTab({
                                               {itemDesc && (
                                                 <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
                                                   {itemDesc}
+                                                </div>
+                                              )}
+                                              {/* Monthly Delivery Schedule Badges if configured */}
+                                              {Array.isArray(it.deliverySchedule) && it.deliverySchedule.length > 0 && (
+                                                <div className="flex items-center gap-1 flex-wrap mt-1">
+                                                  <span className="text-[9px] font-bold text-slate-400">Monthly Plan:</span>
+                                                  {it.deliverySchedule.map((s: any, sIdx: number) => (
+                                                    <span key={sIdx} className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200">
+                                                      {s.monthLabel || s.monthKey}: {s.quantity} {it.unit || 'PCS'}
+                                                    </span>
+                                                  ))}
                                                 </div>
                                               )}
                                             </td>
@@ -1470,10 +1629,13 @@ export default function MRPDemandTab({
                             {/* 6 Month Columns with Selectable Badges & MRP Status Tag */}
                             {monthBuckets.map((b) => {
                               const qty = row.monthlyQuantities[b.key] || 0;
+                              const plannedQty = row.monthlyPlannedQuantities?.[b.key] || 0;
+                              const pendingQty = Math.max(0, qty - plannedQty);
+                              const monthLinkedMrps = row.monthlyLinkedMrps?.[b.key] || [];
+                              const monthMrpNumbers = Array.from(new Set(monthLinkedMrps.map((m) => m.mrpNumber).filter(Boolean)));
                               const isCellSelected = selectedMatrixCells.has(`${row.fgId}::${b.key}`);
-                              const monthPOs = row.contributingPOs.filter((c) => c.monthKey === b.key);
-                              const isMonthPlanned = monthPOs.length > 0 && monthPOs.every((c) => c.isPlanned);
-                              const monthMrpNumbers = Array.from(new Set(monthPOs.map((c) => c.mrpNumber).filter(Boolean)));
+                              const isFullyPlanned = plannedQty >= qty && qty > 0;
+                              const isPartiallyPlanned = plannedQty > 0 && pendingQty > 0;
 
                               return (
                                 <td key={b.key} className="px-2 py-3 text-center">
@@ -1481,23 +1643,56 @@ export default function MRPDemandTab({
                                     <button
                                       type="button"
                                       onClick={() => toggleMatrixCell(row.fgId, b.key)}
-                                      className={`inline-flex flex-col items-center justify-center px-2 py-1 rounded-xl font-mono text-[11px] font-black border transition-all cursor-pointer ${
+                                      className={`inline-flex flex-col items-center justify-center p-1.5 rounded-xl font-mono text-[11px] border transition-all cursor-pointer ${
                                         isCellSelected
                                           ? 'bg-indigo-600 text-white border-indigo-700 shadow-md ring-2 ring-indigo-400/40 transform scale-105'
-                                          : isMonthPlanned
+                                          : isFullyPlanned
                                           ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300'
+                                          : isPartiallyPlanned
+                                          ? 'bg-amber-50/80 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-800 hover:bg-amber-100'
                                           : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200 hover:border-indigo-400'
                                       }`}
-                                      title={`Click to select/deselect ${qty.toLocaleString()} ${row.unit} for ${b.shortLabel}${monthMrpNumbers.length > 0 ? ` (Linked: ${monthMrpNumbers.join(', ')})` : ''}`}
+                                      title={
+                                        isPartiallyPlanned
+                                          ? `${qty} Total Demanded for ${b.shortLabel}: ${plannedQty} planned in ${monthMrpNumbers.join(', ')}, ${pendingQty} pending. Click to select ${pendingQty} for planning.`
+                                          : isFullyPlanned
+                                          ? `Fully planned (${qty.toLocaleString()} ${row.unit}) in ${monthMrpNumbers.join(', ')}`
+                                          : `Click to select/deselect ${qty.toLocaleString()} ${row.unit} for ${b.shortLabel}`
+                                      }
                                     >
-                                      <div className="flex items-center gap-1">
-                                        {isCellSelected && <Check size={11} strokeWidth={3} />}
-                                        <span>{qty.toLocaleString()}</span>
-                                      </div>
-                                      {monthMrpNumbers.length > 0 && (
-                                        <span className={`text-[8px] font-mono leading-none mt-0.5 truncate max-w-[70px] ${isCellSelected ? 'text-indigo-100' : 'text-indigo-600 dark:text-indigo-400 font-extrabold'}`}>
-                                          {monthMrpNumbers[0]}
-                                        </span>
+                                      {isPartiallyPlanned ? (
+                                        <>
+                                          <div className="flex items-center gap-1 font-black">
+                                            {isCellSelected && <Check size={11} strokeWidth={3} />}
+                                            <span className={isCellSelected ? 'text-white' : 'text-slate-800 dark:text-slate-100'}>{qty.toLocaleString()}</span>
+                                            <span className={`text-[9px] ${isCellSelected ? 'text-indigo-200' : 'text-slate-500'} font-normal`}>Tot</span>
+                                          </div>
+                                          <div className="flex items-center gap-1 mt-0.5">
+                                            <span className="px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
+                                              ✓ {plannedQty}
+                                            </span>
+                                            <span className="px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-200">
+                                              ⚡ {pendingQty}
+                                            </span>
+                                          </div>
+                                          {monthMrpNumbers.length > 0 && (
+                                            <span className={`text-[8px] font-mono leading-none mt-0.5 truncate max-w-[75px] ${isCellSelected ? 'text-indigo-100' : 'text-indigo-600 dark:text-indigo-400 font-extrabold'}`}>
+                                              {monthMrpNumbers[0]}
+                                            </span>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          <div className="flex items-center gap-1">
+                                            {isCellSelected ? <Check size={11} strokeWidth={3} /> : isFullyPlanned ? <CheckCircle2 size={10} className="text-emerald-600" /> : null}
+                                            <span>{qty.toLocaleString()}</span>
+                                          </div>
+                                          {monthMrpNumbers.length > 0 && (
+                                            <span className={`text-[8px] font-mono leading-none mt-0.5 truncate max-w-[70px] ${isCellSelected ? 'text-indigo-100' : isFullyPlanned ? 'text-emerald-700 dark:text-emerald-400 font-extrabold' : 'text-indigo-600 dark:text-indigo-400 font-extrabold'}`}>
+                                              {monthMrpNumbers[0]}
+                                            </span>
+                                          )}
+                                        </>
                                       )}
                                     </button>
                                   ) : (
@@ -1576,53 +1771,92 @@ export default function MRPDemandTab({
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                                        {row.contributingPOs.map((cPo, cIdx) => (
-                                          <tr key={cIdx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                                            <td className="py-1.5 px-2 font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                              {cPo.poNumber}
-                                            </td>
-                                            <td className="py-1.5 px-2 font-semibold text-slate-800 dark:text-slate-200">
-                                              {cPo.customerName}
-                                            </td>
-                                            <td className="py-1.5 px-2 text-center font-bold text-slate-600 dark:text-slate-300">
-                                              {cPo.monthKey}
-                                            </td>
-                                            <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900 dark:text-white">
-                                              {cPo.quantity.toLocaleString()} {cPo.unit}
-                                            </td>
-                                            <td className="py-1.5 px-2 text-center">
-                                              {cPo.isPlanned ? (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => {
-                                                    if (cPo.mrpPlanId && onViewPlanDetails) {
-                                                      const p = (mrpPlans || []).find((mp) => mp._id === cPo.mrpPlanId || mp.mrpNumber === cPo.mrpNumber);
-                                                      if (p) onViewPlanDetails(p);
-                                                    }
-                                                  }}
-                                                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-black bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 cursor-pointer shadow-2xs"
-                                                  title="Click to view linked MRP plan details"
-                                                >
-                                                  <CheckCircle2 size={10} className="text-emerald-600" />
-                                                  <span>{cPo.mrpNumber || 'Planned'}</span>
-                                                </button>
-                                              ) : (
-                                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                                                  Unplanned
-                                                </span>
-                                              )}
-                                            </td>
-                                            <td className="py-1.5 px-2 text-right">
-                                              <button
-                                                type="button"
-                                                onClick={() => onPlanSinglePo(cPo.poRaw)}
-                                                className="px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 rounded font-bold text-[10px] border border-indigo-200 cursor-pointer"
-                                              >
-                                                ⚡ Plan PO
-                                              </button>
-                                            </td>
-                                          </tr>
-                                        ))}
+                                        {row.contributingPOs.map((cPo, cIdx) => {
+                                          const pendingQty = cPo.balanceQty != null ? cPo.balanceQty : Math.max(0, cPo.quantity - (cPo.plannedQty || 0));
+                                          const hasPlan = (cPo.plannedQty || 0) > 0 || Boolean(cPo.mrpNumber);
+                                          const isFullyPlanned = pendingQty === 0 && cPo.quantity > 0;
+
+                                          return (
+                                            <tr key={cIdx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                                              <td className="py-1.5 px-2 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                                {cPo.poNumber}
+                                              </td>
+                                              <td className="py-1.5 px-2 font-semibold text-slate-800 dark:text-slate-200">
+                                                {cPo.customerName}
+                                              </td>
+                                              <td className="py-1.5 px-2 text-center font-bold text-slate-600 dark:text-slate-300">
+                                                {cPo.monthKey}
+                                              </td>
+                                              <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900 dark:text-white">
+                                                {cPo.quantity.toLocaleString()} {cPo.unit}
+                                              </td>
+                                              <td className="py-1.5 px-2 text-center">
+                                                <div className="flex items-center justify-center gap-1 flex-wrap">
+                                                  {hasPlan ? (
+                                                    (cPo.linkedMrps && cPo.linkedMrps.length > 0 ? cPo.linkedMrps : [{ mrpNumber: cPo.mrpNumber || 'Planned', quantity: cPo.plannedQty, planId: cPo.mrpPlanId }]).map((lm, lmIdx) => (
+                                                      <button
+                                                        key={lmIdx}
+                                                        type="button"
+                                                        onClick={() => {
+                                                          if (lm.planId && onViewPlanDetails) {
+                                                            const p = (mrpPlans || []).find((mp) => mp._id === lm.planId || mp.mrpNumber === lm.mrpNumber);
+                                                            if (p) onViewPlanDetails(p);
+                                                          }
+                                                        }}
+                                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-mono font-black bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 cursor-pointer shadow-2xs"
+                                                        title={`Click to view MRP details: ${lm.quantity || cPo.plannedQty} ${cPo.unit} planned`}
+                                                      >
+                                                        <CheckCircle2 size={10} className="text-emerald-600" />
+                                                        <span>{lm.mrpNumber} ({lm.quantity || cPo.plannedQty} {cPo.unit})</span>
+                                                      </button>
+                                                    ))
+                                                  ) : (
+                                                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                                      Unplanned
+                                                    </span>
+                                                  )}
+                                                  {!isFullyPlanned && hasPlan && (
+                                                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 border border-amber-300">
+                                                      ⚡ {pendingQty} Pending
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </td>
+                                              <td className="py-1.5 px-2 text-right">
+                                                <div className="flex items-center justify-end gap-1.5">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => handleOpenSchedulePlanner(cPo.poRaw)}
+                                                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 rounded font-bold text-[10px] border border-blue-200 cursor-pointer"
+                                                    title="Edit Monthly Delivery Schedule for this PO"
+                                                  >
+                                                    <Calendar size={11} />
+                                                    <span>Schedule</span>
+                                                  </button>
+                                                  {pendingQty > 0 ? (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => onPlanSinglePo(cPo.poRaw, cPo.monthKey, pendingQty)}
+                                                      className="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-bold text-[10px] shadow-2xs cursor-pointer flex items-center gap-1"
+                                                      title={`Plan remaining ${pendingQty} ${cPo.unit} for ${cPo.monthKey}`}
+                                                    >
+                                                      <span>⚡ Plan Remaining ({pendingQty})</span>
+                                                    </button>
+                                                  ) : (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => onPlanSinglePo(cPo.poRaw, cPo.monthKey, cPo.quantity)}
+                                                      className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded font-bold text-[10px] border border-slate-300 cursor-pointer"
+                                                      title={`Re-plan full ${cPo.quantity} ${cPo.unit} for ${cPo.monthKey}`}
+                                                    >
+                                                      <span>+ Plan Again</span>
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
                                       </tbody>
                                     </table>
                                   </div>
@@ -1718,6 +1952,20 @@ export default function MRPDemandTab({
           </div>
         </div>
       )}
+
+      {/* 7. CUSTOMER PO MONTHLY DELIVERY SCHEDULE PLANNER MODAL */}
+      <PODeliveryScheduleModal
+        isOpen={isScheduleModalOpen}
+        onClose={() => {
+          setIsScheduleModalOpen(false);
+          setSchedulingPo(null);
+        }}
+        customerPO={schedulingPo}
+        token={token}
+        onSuccess={() => {
+          fetchDemandData();
+        }}
+      />
     </div>
   );
 }

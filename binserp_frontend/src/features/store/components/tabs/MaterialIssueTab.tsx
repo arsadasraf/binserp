@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, Calendar, XCircle, Filter, Package, Layers, ShoppingCart, Boxes, ChevronDown, Check, SlidersHorizontal } from 'lucide-react';
+import Swal from 'sweetalert2';
+import { evaluateRequestStock } from '@/src/utils/stockValidationHelper';
 import MaterialRequestTable from '../tables/MaterialRequestTable';
 import MaterialIssueHistoryTable, { resolveIssueType } from '../tables/MaterialIssueHistoryTable';
 import MaterialRequestModal from '../modals/MaterialRequestModal';
@@ -238,8 +240,22 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
         try {
             await createMaterialRequest(formData);
             setIsRequestModalOpen(false);
-        } catch (error) {
-            console.error("Create request failed", error);
+            Swal.fire({
+                icon: 'success',
+                title: 'Request Submitted!',
+                text: `Material request created successfully.`,
+                timer: 2000,
+                showConfirmButton: false,
+            });
+        } catch (error: any) {
+            console.error("Create request failed:", error?.data || error);
+            const errorMsg = error?.data?.message || error?.message || 'Failed to submit material request.';
+            Swal.fire({
+                icon: 'error',
+                title: 'Request Failed',
+                text: errorMsg,
+                confirmButtonColor: '#4f46e5',
+            });
         }
     };
 
@@ -253,7 +269,62 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
     };
 
     const handleIssueRequest = async (request: any) => {
-        if (!confirm(`Confirm issue of materials for Request ${request.requestNumber}? Inventory will be deducted.`)) return;
+        // Pre-Flight Live Stock Check: Inspect warehouse inventory for every requested item
+        const stockEval = evaluateRequestStock(request, storeData);
+        if (stockEval.hasShortage) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Cannot Issue Material: Insufficient Stock',
+                html: `
+                    <div class="text-left text-xs space-y-2.5 mt-2">
+                        <p class="text-rose-600 dark:text-rose-400 font-semibold leading-relaxed">
+                            The requested materials cannot be issued because warehouse stock is insufficient or depleted (already issued to another request or consumed).
+                        </p>
+                        <div class="border border-rose-200 dark:border-rose-900/60 rounded-xl p-3 bg-rose-50/50 dark:bg-rose-950/20 divide-y divide-rose-100 dark:divide-rose-900/40">
+                            ${stockEval.shortages.map(s => `
+                                <div class="py-2 first:pt-0 last:pb-0">
+                                    <div class="font-bold text-gray-900 dark:text-gray-100 text-xs">${s.name}</div>
+                                    ${s.description ? `<div class="text-[11px] text-gray-500 italic mt-0.5">${s.description}</div>` : ''}
+                                    <div class="flex items-center justify-between text-[11px] font-mono mt-1.5 bg-white dark:bg-gray-800 p-1.5 rounded-lg border border-rose-150 dark:border-rose-900/40">
+                                        <span class="text-gray-600 dark:text-gray-300">Available: <b class="text-rose-600 dark:text-rose-400">${s.availableStock} ${s.unit}</b></span>
+                                        <span class="text-gray-600 dark:text-gray-300">Requested: <b>${s.requestedQuantity} ${s.unit}</b></span>
+                                        <span class="text-rose-700 dark:text-rose-300 font-bold">Shortage: ${s.shortage} ${s.unit}</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <p class="text-gray-500 dark:text-gray-400 text-[11px] leading-relaxed">
+                            Request <b>#${request.requestNumber}</b> will remain in <b>Pending</b> status. You can keep it pending until incoming GRN replenishment, or reject the request now.
+                        </p>
+                    </div>
+                `,
+                showCancelButton: true,
+                confirmButtonText: 'Keep Request Pending',
+                cancelButtonText: 'Reject Request',
+                confirmButtonColor: '#4f46e5',
+                cancelButtonColor: '#e11d48',
+                reverseButtons: true
+            }).then((result) => {
+                if (result.dismiss === Swal.DismissReason.cancel) {
+                    handleRejectRequest(request);
+                }
+            });
+            return;
+        }
+
+        // Confirmation Dialog
+        const confirmResult = await Swal.fire({
+            title: 'Confirm Material Issue',
+            text: `Confirm issue of materials for Request #${request.requestNumber}? Inventory will be deducted immediately.`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, Issue Now',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#2563eb',
+            cancelButtonColor: '#64748b'
+        });
+
+        if (!confirmResult.isConfirmed) return;
 
         try {
             const rType = (request.type || 'rm').toLowerCase();
@@ -316,10 +387,53 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
             await createMaterialIssue(issueData);
             await updateMaterialRequest(request._id, { status: 'Issued', skipInventoryUpdate: true });
 
+            Swal.fire({
+                icon: 'success',
+                title: 'Material Issued Successfully!',
+                text: `Issue #${issueNum} generated and stock deducted.`,
+                timer: 2000,
+                showConfirmButton: false
+            });
+
         } catch (error: any) {
             console.error("Issue failed", error);
-            const errorMsg = error?.data?.message || error?.response?.data?.message || error?.message || "Failed to issue material. Check stock or try again.";
-            alert(errorMsg);
+            const errData = error?.data || error?.response?.data;
+            if (errData?.code === 'INSUFFICIENT_STOCK' && Array.isArray(errData?.shortages)) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Cannot Issue Material: Insufficient Stock',
+                    html: `
+                        <div class="text-left text-xs space-y-2.5 mt-2">
+                            <p class="text-rose-600 dark:text-rose-400 font-semibold leading-relaxed">
+                                Backend validation blocked issuance because warehouse stock is insufficient.
+                            </p>
+                            <div class="border border-rose-200 dark:border-rose-900/60 rounded-xl p-3 bg-rose-50/50 dark:bg-rose-950/20 divide-y divide-rose-100 dark:divide-rose-900/40">
+                                ${errData.shortages.map((s: any) => `
+                                    <div class="py-2 first:pt-0 last:pb-0">
+                                        <div class="font-bold text-gray-900 dark:text-gray-100 text-xs">${s.materialName}</div>
+                                        ${s.materialDescription ? `<div class="text-[11px] text-gray-500 italic mt-0.5">${s.materialDescription}</div>` : ''}
+                                        <div class="flex items-center justify-between text-[11px] font-mono mt-1.5 bg-white dark:bg-gray-800 p-1.5 rounded-lg border border-rose-150 dark:border-rose-900/40">
+                                            <span class="text-gray-600 dark:text-gray-300">Available: <b class="text-rose-600 dark:text-rose-400">${s.availableStock} ${s.unit}</b></span>
+                                            <span class="text-gray-600 dark:text-gray-300">Requested: <b>${s.requestedQuantity} ${s.unit}</b></span>
+                                            <span class="text-rose-700 dark:text-rose-300 font-bold">Shortage: ${s.shortageQuantity} ${s.unit}</span>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `,
+                    confirmButtonText: 'Understood',
+                    confirmButtonColor: '#4f46e5'
+                });
+            } else {
+                const errorMsg = errData?.message || error?.message || "Failed to issue material. Check stock or try again.";
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Issue Failed',
+                    text: errorMsg,
+                    confirmButtonColor: '#e11d48'
+                });
+            }
         }
     };
 
@@ -525,6 +639,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                                 onIssue={handleIssueRequest}
                                 onReject={handleRejectRequest}
                                 onView={(req) => setViewRequest(req)}
+                                storeData={storeData}
                             />
                         </div>
                     </div>
@@ -650,6 +765,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                 isOpen={!!viewRequest}
                 onClose={() => setViewRequest(null)}
                 request={viewRequest}
+                storeData={storeData}
             />
 
             <MaterialIssueDetailsModal

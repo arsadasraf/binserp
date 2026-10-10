@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { RmBoItem } from "@/src/features/store/types/store.types";
-import { X, Plus, Trash2, Package, ShoppingCart, Boxes, Layers, Sparkles } from "lucide-react";
+import { X, Plus, Trash2, Package, ShoppingCart, Boxes, Layers, Sparkles, ListFilter, Search, Check } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
 import { apiGet } from "@/src/lib/api";
 
@@ -84,6 +84,9 @@ export default function MaterialRequestModal({
     });
 
     const [autoLoadBom, setAutoLoadBom] = useState<boolean>(false);
+    const [isMrpItemPickerOpen, setIsMrpItemPickerOpen] = useState<boolean>(false);
+    const [selectedMrpItemIndices, setSelectedMrpItemIndices] = useState<Set<number>>(new Set());
+    const [mrpPickerSearch, setMrpPickerSearch] = useState<string>('');
 
     const createBlankItem = (t: RequestInventoryType = formData.type, mrpNum = formData.mrpNumber) => {
         const defaultUnit = t === 'rm' ? 'KG' : (t === 'fg' ? 'Nos' : 'PCS');
@@ -110,13 +113,17 @@ export default function MaterialRequestModal({
 
     const generateRequestNumber = () => {
         const now = new Date();
-        const timeStr = now.toISOString().replace(/[-:T.Z]/g, "").slice(0, 12);
-        return `REQ-${timeStr}`;
+        const timeStr = now.toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
+        const rand = Math.floor(1000 + Math.random() * 9000);
+        return `REQ-${timeStr}-${rand}`;
     };
 
     useEffect(() => {
         if (isOpen) {
             setAutoLoadBom(false);
+            setIsMrpItemPickerOpen(false);
+            setSelectedMrpItemIndices(new Set());
+            setMrpPickerSearch('');
             const currentInitial: RequestInventoryType = (
                 defaultType === 'inhouse' ? 'fg' : (defaultType as RequestInventoryType) || 'consumable'
             );
@@ -392,6 +399,49 @@ export default function MaterialRequestModal({
         }
     };
 
+    // Open the selective MRP Item Picker Checklist
+    const handleOpenMrpItemPicker = () => {
+        if (!activeSelectedPlan) return;
+        const bomItems = getMrpBomItems(activeSelectedPlan, formData.type);
+        if (bomItems.length === 0) {
+            alert(`No ${formData.type.toUpperCase()} items found in MRP Plan #${activeSelectedPlan.mrpNumber}`);
+            return;
+        }
+        // Pre-select all available items
+        const allIndices = new Set<number>();
+        bomItems.forEach((_, idx) => allIndices.add(idx));
+        setSelectedMrpItemIndices(allIndices);
+        setMrpPickerSearch('');
+        setIsMrpItemPickerOpen(true);
+    };
+
+    // Import selected items from the MRP Plan into Requested Items table
+    const handleImportSelectedMrpItems = () => {
+        if (!activeSelectedPlan) return;
+        const bomItems = getMrpBomItems(activeSelectedPlan, formData.type);
+        const selectedItems: any[] = [];
+        selectedMrpItemIndices.forEach(idx => {
+            if (bomItems[idx]) {
+                selectedItems.push(bomItems[idx]);
+            }
+        });
+
+        if (selectedItems.length === 0) {
+            alert("Please select at least one item from the MRP Plan to import.");
+            return;
+        }
+
+        setFormData(prev => {
+            const isSingleEmpty = prev.items.length === 1 && !prev.items[0].material && (!prev.items[0].materialName || prev.items[0].materialName.trim() === '');
+            return {
+                ...prev,
+                items: isSingleEmpty ? selectedItems : [...prev.items, ...selectedItems]
+            };
+        });
+
+        setIsMrpItemPickerOpen(false);
+    };
+
     const getStock = (materialId: string, materialCode?: string, materialName?: string) => {
         if (!materialId) return 0;
 
@@ -536,6 +586,7 @@ export default function MaterialRequestModal({
     if (!isOpen) return null;
 
     return (
+        <>
         <div className="fixed inset-0 z-[200] flex flex-col justify-end sm:justify-center sm:items-center p-0 sm:p-4 md:p-6 lg:p-8 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white dark:bg-gray-900 rounded-t-[28px] sm:rounded-3xl w-full sm:w-[94vw] lg:w-[90vw] xl:w-[86vw] max-w-7xl h-[94vh] sm:h-auto sm:max-h-[92vh] flex flex-col shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden my-auto">
                 
@@ -674,13 +725,26 @@ export default function MaterialRequestModal({
                             {/* When an active MRP is selected: Show BOM Available Count & Auto-Load Toggle */}
                             {Boolean(formData.mrpPlan) && (
                                 <div className="mt-2.5 pt-2.5 border-t border-indigo-200/60 dark:border-indigo-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                         <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
                                             BOM in Plan:
                                         </span>
                                         <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 dark:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                                             {availableBomCount} {formData.type === 'fg' ? 'FG' : formData.type === 'bo' ? 'Bought Out' : formData.type === 'consumable' ? 'Consumables' : 'Raw Material'} items
                                         </span>
+
+                                        {/* Pick Items Button beside MRP Plan Selector */}
+                                        {!autoLoadBom && availableBomCount > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={handleOpenMrpItemPicker}
+                                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                                                title="Pick specific items from this MRP Plan"
+                                            >
+                                                <ListFilter size={13} />
+                                                <span>Pick Items</span>
+                                            </button>
+                                        )}
                                     </div>
 
                                     {/* Auto-Load Toggle Switch */}
@@ -1035,7 +1099,19 @@ export default function MaterialRequestModal({
                                     alert(`MRP Plan is compulsory for ${formData.type.toUpperCase()} Material Requests. Please select an active MRP Plan.`);
                                     return;
                                 }
-                                onSubmit(formData);
+                                const cleanedItems = (formData.items || []).filter(item => {
+                                    const name = (item.materialName || '').trim();
+                                    const id = item.material || item.consumable || item.fgItem || item.component;
+                                    return name.length > 0 || Boolean(id);
+                                });
+                                if (cleanedItems.length === 0) {
+                                    alert("Please select at least one item before submitting.");
+                                    return;
+                                }
+                                onSubmit({
+                                    ...formData,
+                                    items: cleanedItems
+                                });
                             }}
                             disabled={loading || isMrpMissing || formData.items.some(item => {
                                 const currentStock = getStock(item.material, item.materialCode, item.materialName);
@@ -1064,5 +1140,205 @@ export default function MaterialRequestModal({
                 </div>
             </div>
         </div>
+
+        {/* Selective MRP BOM Item Picker Checklist Modal */}
+        {isMrpItemPickerOpen && Boolean(activeSelectedPlan) && (() => {
+            const bomItems = getMrpBomItems(activeSelectedPlan, formData.type);
+
+            const filteredItemsWithIndex = bomItems
+                .map((item, originalIndex) => ({ item, originalIndex }))
+                .filter(({ item }) => {
+                    if (!mrpPickerSearch.trim()) return true;
+                    const q = mrpPickerSearch.toLowerCase().trim();
+                    const name = (item.materialName || '').toLowerCase();
+                    const desc = (item.materialDescription || '').toLowerCase();
+                    return name.includes(q) || desc.includes(q);
+                });
+
+            return (
+                <div className="fixed inset-0 z-[220] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm animate-in fade-in duration-150">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[88vh] animate-in zoom-in-95 duration-150">
+                        {/* Modal Header */}
+                        <div className="px-5 py-3.5 bg-slate-50/95 dark:bg-slate-800/95 border-b border-slate-200 dark:border-slate-700/80 flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/80 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                                    <ListFilter className="w-4 h-4" />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                        <span>Select {formData.type.toUpperCase()} Items from MRP #{activeSelectedPlan?.mrpNumber}</span>
+                                        <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 px-2 py-0.5 rounded-full font-bold">
+                                            {selectedMrpItemIndices.size} of {bomItems.length} selected
+                                        </span>
+                                    </h3>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                        Check the items you want to request for this {formData.type.toUpperCase()} requisition.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsMrpItemPickerOpen(false)}
+                                className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+                            >
+                                <X size={15} />
+                            </button>
+                        </div>
+
+                        {/* Toolbar: Search & Select All/Deselect All */}
+                        <div className="px-5 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
+                            <div className="relative flex-1 min-w-[200px]">
+                                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="text"
+                                    value={mrpPickerSearch}
+                                    onChange={(e) => setMrpPickerSearch(e.target.value)}
+                                    placeholder="Filter items by name or description..."
+                                    className="w-full h-8 pl-8 pr-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-xs placeholder:text-slate-400 focus:ring-1 focus:ring-indigo-500"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const allIndices = new Set<number>();
+                                        bomItems.forEach((_, idx) => allIndices.add(idx));
+                                        setSelectedMrpItemIndices(allIndices);
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                                >
+                                    Select All
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedMrpItemIndices(new Set())}
+                                    className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 transition-colors cursor-pointer"
+                                >
+                                    Deselect All
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Items List Table */}
+                        <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 custom-scrollbar max-h-[50vh]">
+                            {filteredItemsWithIndex.length > 0 ? (
+                                filteredItemsWithIndex.map(({ item, originalIndex }) => {
+                                    const isChecked = selectedMrpItemIndices.has(originalIndex);
+                                    const name = item.materialName || 'Unnamed Item';
+                                    const desc = item.materialDescription || '';
+                                    const reqQty = Number(item.quantity) || 1;
+                                    const unit = item.unit || (formData.type === 'rm' ? 'KG' : 'PCS');
+                                    const currentStock = Number(item.currentStock ?? getStock(item.material, item.materialCode, item.materialName) ?? 0);
+
+                                    return (
+                                        <div
+                                            key={originalIndex}
+                                            onClick={() => {
+                                                setSelectedMrpItemIndices(prev => {
+                                                    const next = new Set(prev);
+                                                    if (next.has(originalIndex)) {
+                                                        next.delete(originalIndex);
+                                                    } else {
+                                                        next.add(originalIndex);
+                                                    }
+                                                    return next;
+                                                });
+                                            }}
+                                            className={`p-3.5 flex items-start gap-3 cursor-pointer transition-colors ${
+                                                isChecked 
+                                                    ? 'bg-indigo-50/50 dark:bg-indigo-950/30 hover:bg-indigo-50 dark:hover:bg-indigo-950/50' 
+                                                    : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                                            }`}
+                                        >
+                                            <div className="pt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isChecked}
+                                                    onChange={() => {
+                                                        setSelectedMrpItemIndices(prev => {
+                                                            const next = new Set(prev);
+                                                            if (next.has(originalIndex)) {
+                                                                next.delete(originalIndex);
+                                                            } else {
+                                                                next.add(originalIndex);
+                                                            }
+                                                            return next;
+                                                        });
+                                                    }}
+                                                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                                />
+                                            </div>
+
+                                            {/* Item Details adhering strictly to AGENTS.md */}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                                                    {name}
+                                                </div>
+                                                {desc && (
+                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
+                                                        {desc}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Required Qty & Live Stock Badges */}
+                                            <div className="flex items-center gap-3 shrink-0 text-right">
+                                                <div>
+                                                    <div className="text-[10px] text-slate-400 uppercase font-bold">Demand Qty</div>
+                                                    <div className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                                        {reqQty} {unit}
+                                                    </div>
+                                                </div>
+
+                                                <div className="min-w-[85px]">
+                                                    <div className="text-[10px] text-slate-400 uppercase font-bold">Current Stock</div>
+                                                    <div className={`text-xs font-mono font-bold ${
+                                                        currentStock >= reqQty 
+                                                            ? 'text-emerald-600 dark:text-emerald-400' 
+                                                            : currentStock > 0 
+                                                            ? 'text-amber-600 dark:text-amber-400' 
+                                                            : 'text-rose-600 dark:text-rose-400'
+                                                    }`}>
+                                                        {currentStock} {unit}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="p-8 text-center text-xs text-slate-400">
+                                    No items match "{mrpPickerSearch}".
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-3 bg-slate-50 dark:bg-slate-800/90 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                            <button
+                                type="button"
+                                onClick={() => setIsMrpItemPickerOpen(false)}
+                                className="px-3.5 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={handleImportSelectedMrpItems}
+                                disabled={selectedMrpItemIndices.size === 0}
+                                className={`px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer ${
+                                    selectedMrpItemIndices.size === 0 ? 'opacity-50 cursor-not-allowed' : ''
+                                }`}
+                            >
+                                <Check size={14} />
+                                <span>Import {selectedMrpItemIndices.size} Selected Item{selectedMrpItemIndices.size !== 1 ? 's' : ''}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        })()}
+        </>
     );
 }

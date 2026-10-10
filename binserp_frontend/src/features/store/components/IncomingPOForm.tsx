@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Plus, Trash2, X, Search, FileText, Download, Calculator, Building2, Truck, Package, Activity, Layers, ArrowRightLeft, Eye } from "lucide-react";
+import { Plus, Trash2, X, Search, FileText, Download, Calculator, Building2, Truck, Package, Activity, Layers, ArrowRightLeft, Eye, Calendar } from "lucide-react";
 import SearchableSelect from "./SearchableSelect";
+import PODeliveryScheduleModal from "./modals/PODeliveryScheduleModal";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useGetIncomingPODispatchHistoryQuery } from "@/src/store/services/storeService";
@@ -54,6 +55,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
         taxRate: 0,
         taxAmount: 0,
         expectedDeliveryDate: "",
+        deliverySchedule: [] as any[],
       }
     ],
     subtotal: 0,
@@ -72,6 +74,21 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [previewTab, setPreviewTab] = useState<"overview" | "dispatch">("overview");
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+
+  const handleApplyLocalSchedule = (updatedItemsSchedule: any[]) => {
+    setFormData(prev => ({
+      ...prev,
+      items: prev.items.map((it, idx) => {
+        const found = updatedItemsSchedule[idx] || updatedItemsSchedule.find(s => s._id === (it as any)._id);
+        const sched = found?.deliverySchedule || (it as any).deliverySchedule || [];
+        return {
+          ...it,
+          deliverySchedule: sched
+        };
+      })
+    }));
+  };
 
   const clearError = (key: string) => {
     setFormErrors(prev => {
@@ -103,6 +120,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
         taxRate: i.taxRate || 0,
         taxAmount: i.taxAmount || 0,
         expectedDeliveryDate: i.expectedDeliveryDate ? new Date(i.expectedDeliveryDate).toISOString().split("T")[0] : "",
+        deliverySchedule: Array.isArray(i.deliverySchedule) ? i.deliverySchedule : [],
       })) : [];
 
       setFormData({
@@ -112,7 +130,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
         customer: typeof initialData.customer === "object" ? initialData.customer?._id : initialData.customer || "",
         quotationReference: typeof initialData.quotationReference === "object" ? initialData.quotationReference?._id : initialData.quotationReference || "",
         items: formattedItems.length > 0 ? formattedItems : [{
-          itemType: "Custom", fgItem: "", productName: "", description: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 0, taxAmount: 0, expectedDeliveryDate: ""
+          itemType: "Custom", fgItem: "", productName: "", description: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 0, taxAmount: 0, expectedDeliveryDate: "", deliverySchedule: []
         }],
         subtotal: initialData.subtotal || 0,
         discount: initialData.discount || 0,
@@ -213,7 +231,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
       ...prev,
       items: [
         ...prev.items,
-        { itemType: "Custom", fgItem: "", productName: "", description: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 0, taxAmount: 0, expectedDeliveryDate: "" }
+        { itemType: "Custom", fgItem: "", productName: "", description: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 0, taxAmount: 0, expectedDeliveryDate: "", deliverySchedule: [] }
       ]
     }));
   };
@@ -577,9 +595,25 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                     </p>
                   </div>
 
-                  <div className="bg-white dark:bg-gray-800 px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-right">
-                    <span className="text-[11px] text-gray-500 block">Total Order Amount</span>
-                    <span className="text-base font-extrabold text-indigo-600 dark:text-indigo-400">₹ {Number(formData.totalAmount || 0).toFixed(2)}</span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsScheduleModalOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-blue-700 dark:text-blue-300 bg-white dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-950/60 border border-blue-200 dark:border-blue-700 rounded-xl transition-colors shadow-2xs cursor-pointer"
+                      title="View & Edit Monthly Delivery Schedule"
+                    >
+                      <Calendar size={14} className="text-blue-600 dark:text-blue-400" />
+                      <span>Monthly Schedule</span>
+                      {formData.items.some((it: any) => it.deliverySchedule?.length > 0) && (
+                        <span className="px-1.5 py-0.2 bg-blue-600 text-white text-[9px] rounded-full font-bold ml-0.5">
+                          {formData.items.filter((it: any) => it.deliverySchedule?.length > 0).length}
+                        </span>
+                      )}
+                    </button>
+                    <div className="bg-white dark:bg-gray-800 px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-right">
+                      <span className="text-[11px] text-gray-500 block">Total Order Amount</span>
+                      <span className="text-base font-extrabold text-indigo-600 dark:text-indigo-400">₹ {Number(formData.totalAmount || 0).toFixed(2)}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -630,7 +664,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                        {formData.items.map((item, idx) => (
+                        {formData.items.map((item: any, idx) => (
                           <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
                             <td className="px-3 py-2 text-gray-400 font-medium">{idx + 1}</td>
                             <td className="px-3 py-2">
@@ -638,6 +672,48 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                               {item.description && (
                                 <div className="text-[11px] text-gray-500 dark:text-gray-400 font-normal mt-0.5">
                                   {item.description}
+                                </div>
+                              )}
+                              {item.deliverySchedule && item.deliverySchedule.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                                  <span className="text-[10px] font-bold text-slate-400">Monthly Plan:</span>
+                                  {item.deliverySchedule.map((s: any, sIdx: number) => {
+                                    const plannedQty = Number(s.plannedQuantity ?? (s.isPlanned ? s.quantity : 0));
+                                    const totalQty = Number(s.quantity || 0);
+                                    const pendingQty = Math.max(0, totalQty - plannedQty);
+                                    const isFullyPlanned = plannedQty >= totalQty && totalQty > 0;
+                                    const isPartiallyPlanned = plannedQty > 0 && pendingQty > 0;
+                                    const mrpList = Array.isArray(s.linkedMrps) && s.linkedMrps.length > 0
+                                      ? s.linkedMrps.map((m: any) => `${m.mrpNumber || 'MRP'} (${m.quantity || plannedQty})`).join(', ')
+                                      : (s.mrpNumber || 'MRP');
+
+                                    if (isPartiallyPlanned) {
+                                      return (
+                                        <span key={sIdx} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800" title={`Planned: ${plannedQty} in ${mrpList}, Pending: ${pendingQty}`}>
+                                          <span>{s.monthLabel || s.monthKey}:</span>
+                                          <span className="font-mono font-bold">{s.quantity} {item.unit || "PCS"}</span>
+                                          <span className="text-[9px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 px-1 rounded">✓{plannedQty}</span>
+                                          <span className="text-[9px] font-mono font-bold bg-amber-200/80 dark:bg-amber-900/80 text-amber-900 dark:text-amber-100 px-1 rounded">⚡{pendingQty}</span>
+                                        </span>
+                                      );
+                                    }
+
+                                    return (
+                                      <span key={sIdx} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                                        isFullyPlanned
+                                          ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                                          : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                                      }`} title={isFullyPlanned ? `Planned in: ${mrpList}` : 'Unplanned'}>
+                                        <span>{s.monthLabel || s.monthKey}:</span>
+                                        <span className="font-mono font-bold">{s.quantity} {item.unit || "PCS"}</span>
+                                        {isFullyPlanned && (
+                                          <span className="text-[9px] font-mono font-bold bg-emerald-200/70 dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100 px-1 rounded">
+                                            ✓ {s.mrpNumber || 'MRP'}
+                                          </span>
+                                        )}
+                                      </span>
+                                    );
+                                  })}
                                 </div>
                               )}
                             </td>
@@ -1012,13 +1088,29 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                     <div className="w-1.5 h-4 bg-indigo-500 rounded-full"></div>
                     PO Items
                   </h3>
-                  <button
-                    type="button"
-                    onClick={addItem}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
-                  >
-                    <Plus size={16} /> Add Item
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsScheduleModalOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors border border-blue-200 dark:border-blue-800 cursor-pointer"
+                      title="Plan monthly delivery schedule and quantities across months"
+                    >
+                      <Calendar size={14} />
+                      <span>Delivery Schedule Plan</span>
+                      {formData.items.some((it: any) => it.deliverySchedule?.length > 0) && (
+                        <span className="px-1.5 py-0.2 bg-blue-600 text-white text-[9px] rounded-full font-bold ml-1">
+                          {formData.items.filter((it: any) => it.deliverySchedule?.length > 0).length}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={addItem}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                    >
+                      <Plus size={16} /> Add Item
+                    </button>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -1219,6 +1311,34 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                           </div>
                         </div>
                       </div>
+
+                      {/* Monthly Delivery Schedule Badges on line item */}
+                      {(item as any).deliverySchedule && (item as any).deliverySchedule.length > 0 && (
+                        <div className="mt-3 pt-2.5 border-t border-gray-200/60 dark:border-gray-700/60 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                            <Calendar size={11} className="text-blue-500" />
+                            Monthly Delivery Plan:
+                          </span>
+                          {(item as any).deliverySchedule.map((s: any, sIdx: number) => (
+                            <span
+                              key={sIdx}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50/70 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shadow-2xs"
+                            >
+                              <span>{s.monthLabel || s.monthKey}:</span>
+                              <span className="font-mono font-bold text-blue-900 dark:text-blue-100">
+                                {s.quantity} {item.unit || 'PCS'}
+                              </span>
+                            </span>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => setIsScheduleModalOpen(true)}
+                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 dark:text-blue-400 underline ml-2 cursor-pointer"
+                          >
+                            Modify Plan
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1392,6 +1512,42 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
             </button>
           )}
         </div>
+
+        {/* Monthly Delivery Schedule Modal */}
+        {isScheduleModalOpen && (
+          <PODeliveryScheduleModal
+            isOpen={isScheduleModalOpen}
+            onClose={() => setIsScheduleModalOpen(false)}
+            customerPO={{
+              _id: initialData?._id,
+              poNumber: formData.poNumber || 'New PO',
+              customer: selectedCustomerObj || { name: 'Customer' },
+              items: formData.items.map((it: any, idx: number) => ({
+                _id: it._id || `temp_${idx}`,
+                productName: it.productName || (fgItems.find(fg => fg._id === it.fgItem)?.name) || `Item #${idx + 1}`,
+                description: it.description || (fgItems.find(fg => fg._id === it.fgItem)?.description) || (fgItems.find(fg => fg._id === it.fgItem)?.descriptions) || '',
+                quantity: Number(it.quantity) || 0,
+                unit: it.unit || 'PCS',
+                deliverySchedule: it.deliverySchedule || []
+              }))
+            }}
+            onApplyLocalSchedule={handleApplyLocalSchedule}
+            onSuccess={(updatedPO) => {
+              if (updatedPO?.items) {
+                setFormData(prev => ({
+                  ...prev,
+                  items: prev.items.map((it: any, idx: number) => {
+                    const uItem = updatedPO.items[idx] || updatedPO.items.find((ui: any) => ui._id === it._id);
+                    return {
+                      ...it,
+                      deliverySchedule: uItem?.deliverySchedule || it.deliverySchedule || []
+                    };
+                  })
+                }));
+              }
+            }}
+          />
+        )}
       </div>
     </div>
   );

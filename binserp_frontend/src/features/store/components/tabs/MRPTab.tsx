@@ -206,6 +206,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   // Modal States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<any | null>(null);
+  const [preselectedMonth, setPreselectedMonth] = useState<string>('');
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
 
   useEffect(() => {
@@ -783,11 +784,13 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
           <MRPDemandTab
             token={token}
             mrpPlans={mrpPlans}
-            onPlanSinglePo={(po) => {
+            onPlanSinglePo={(po, monthKey) => {
+              setPreselectedMonth(monthKey || '');
               setPreselectedPoIds([po._id]);
               setIsCreateModalOpen(true);
             }}
             onPlanConsolidatedPos={(poIds) => {
+              setPreselectedMonth('');
               setPreselectedPoIds(poIds);
               setIsCreateModalOpen(true);
             }}
@@ -2665,12 +2668,14 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
             setIsCreateModalOpen(false);
             setEditingPlan(null);
             setPreselectedPoIds([]);
+            setPreselectedMonth('');
           }}
           onSuccess={() => {
             fetchData();
             setIsCreateModalOpen(false);
             setEditingPlan(null);
             setPreselectedPoIds([]);
+            setPreselectedMonth('');
             Swal.fire({
               icon: 'success',
               title: 'MRP Demand Plan Created!',
@@ -2688,6 +2693,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
           token={token}
           initialData={editingPlan}
           preselectedPoIds={preselectedPoIds}
+          preselectedMonth={preselectedMonth}
         />
       )}
 

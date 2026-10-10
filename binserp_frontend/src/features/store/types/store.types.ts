@@ -535,6 +535,9 @@ export interface JobWorkReturningItem {
     secondaryQuantityToBeReceived?: number;
     secondaryQuantityReceived?: number;
     selectedUnit?: string;
+    processRate?: number;
+    processAmount?: number;
+    description?: string;
     status?: 'Sent' | 'Partial' | 'Completed';
 }
 
@@ -566,6 +569,7 @@ export interface JobWorkItem {
     receivedItemName?: string;
     receivedItemType?: 'rm' | 'bo' | 'inhouse' | 'fg' | 'custom';
     quantityToBeReceived?: number;
+    secondaryQuantityToBeReceived?: number;
     receivingUnit?: string;
 }
 
@@ -639,7 +643,27 @@ export interface JobWorkChallan {
         operationName?: string;
     };
     status: 'Open' | 'Partial' | 'Closed' | 'Overdue';
+    totalJobWorkCharges?: number;
     items: JobWorkItem[];
+    receiveHistory?: Array<{
+        _id?: string;
+        date?: string;
+        grnNumber?: string;
+        vendorDcNumber?: string;
+        vendorInvoiceDate?: string;
+        vehicleNo?: string;
+        itemId?: string;
+        returningItemId?: string;
+        itemName?: string;
+        quantity?: number;
+        rate?: number;
+        amount?: number;
+        acceptedQuantity?: number;
+        rejectedQuantity?: number;
+        reworkQuantity?: number;
+        qcStatus?: string;
+        remarks?: string;
+    }>;
     createdAt: string;
 }
 
@@ -652,6 +676,7 @@ export interface JobWorkFormData {
     vehicleNo?: string;
     estimatedWeight?: number;
     estimatedPrice?: number;
+    totalJobWorkCharges?: number;
     freightType?: 'To pay' | 'Paid';
     ewayBillNo?: string;
     jobWorkType?: 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card' | 'inventory-conversion';

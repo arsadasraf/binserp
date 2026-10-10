@@ -361,12 +361,27 @@ export const createJobWorkChallan = async (req, res) => {
 
           const finalRetName = retName || itemName || "Returning Material";
 
+          const retRate = Number(ret.processRate != null ? ret.processRate : (ret.rate != null ? ret.rate : 0)) || 0;
+          const retQty = Number(ret.quantityToBeReceived) || 1;
+          const retAmount = Number(ret.processAmount) != null && !isNaN(Number(ret.processAmount)) && Number(ret.processAmount) > 0 
+            ? Number(ret.processAmount) 
+            : (retQty * retRate);
+
           const retDoc = {
             receivedItemName: finalRetName,
             receivedItemType: retType,
-            quantityToBeReceived: Number(ret.quantityToBeReceived) || 1,
+            quantityToBeReceived: retQty,
             quantityReceived: 0,
             receivingUnit: ret.receivingUnit || "PCS",
+            hasSecondaryUnit: Boolean(ret.hasSecondaryUnit),
+            secondaryUnit: ret.secondaryUnit || "",
+            conversionFactor: Number(ret.conversionFactor) || 1,
+            secondaryQuantityToBeReceived: Number(ret.secondaryQuantityToBeReceived) || (ret.hasSecondaryUnit ? (retQty * (Number(ret.conversionFactor) || 1)) : 0),
+            secondaryQuantityReceived: 0,
+            selectedUnit: ret.selectedUnit || ret.receivingUnit || "PCS",
+            processRate: retRate,
+            processAmount: retAmount,
+            description: ret.description || "",
             status: "Sent"
           };
 
@@ -394,6 +409,7 @@ export const createJobWorkChallan = async (req, res) => {
         const retConvFactor = Number(item.conversionFactor) || 1;
         const retQtyPri = Number(quantityToBeReceived) || Number(quantitySent) || 1;
         const retQtySec = Number(item.secondaryQuantityToBeReceived) || (retHasSec ? (retQtyPri * retConvFactor) : 0);
+        const fallbackRate = Number(item.processRate != null ? item.processRate : 0);
 
         const retDoc = {
           receivedItemName: finalReceivedItemName || itemName || "Returning Material",
@@ -407,6 +423,9 @@ export const createJobWorkChallan = async (req, res) => {
           secondaryQuantityToBeReceived: retQtySec,
           secondaryQuantityReceived: 0,
           selectedUnit: item.selectedUnit || receivingUnit || unit || "PCS",
+          processRate: fallbackRate,
+          processAmount: Number(item.processAmount) || (retQtyPri * fallbackRate),
+          description: item.description || "",
           status: "Sent"
         };
 
@@ -427,6 +446,9 @@ export const createJobWorkChallan = async (req, res) => {
       const convFactor = Number(item.conversionFactor) || 1;
       const secQtySent = Number(item.secondaryQuantitySent) || (hasSec ? (sentQtyNum * convFactor) : 0);
 
+      const totalReturningCharges = processedReturningItems.reduce((acc, r) => acc + (Number(r.processAmount) || 0), 0);
+      const effectiveProcAmount = totalReturningCharges > 0 ? totalReturningCharges : (sentQtyNum * rateValue);
+
       const processedItem = {
         itemName,
         itemType: itemType || "custom",
@@ -443,7 +465,7 @@ export const createJobWorkChallan = async (req, res) => {
         selectedUnit: item.selectedUnit || unit || "PCS",
         unitPrice: rateValue,
         processRate: rateValue,
-        processAmount: sentQtyNum * rateValue,
+        processAmount: effectiveProcAmount,
         description: description || "",
         returningItems: processedReturningItems,
         // Legacy fallbacks
@@ -601,6 +623,18 @@ export const createJobWorkChallan = async (req, res) => {
 
     const Job = req.getModel("Job", jobSchema);
 
+    // Compute total job work service charges
+    let totalJobWorkCharges = 0;
+    if (operationMode === "assembly") {
+      if (processedAssemblyGroups.length > 0) {
+        totalJobWorkCharges = processedAssemblyGroups.reduce((acc, g) => acc + (Number(g.assemblyOutputItem?.processAmount) || 0), 0);
+      } else if (processedAssemblyOutput) {
+        totalJobWorkCharges = Number(processedAssemblyOutput.processAmount) || 0;
+      }
+    } else {
+      totalJobWorkCharges = processedItems.reduce((acc, it) => acc + (Number(it.processAmount) || 0), 0);
+    }
+
     // Create Challan
     const jobWork = await JobWorkChallan.create({
       company: companyId,
@@ -614,6 +648,7 @@ export const createJobWorkChallan = async (req, res) => {
       ewayBillNo: ewayBillNo || "",
       estimatedWeight: Number(estimatedWeight) || 0,
       estimatedPrice: Number(estimatedPrice) || 0,
+      totalJobWorkCharges,
       jobWorkType,
       purpose: purpose || "Machining",
       otherPurpose: otherPurpose || "",

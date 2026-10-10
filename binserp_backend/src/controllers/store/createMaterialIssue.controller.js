@@ -50,6 +50,103 @@ const resolveDualUnitQuantities = (item, doc, defaultUnit = "PCS") => {
   return validateAndResolveDualUomQuantities(item, doc, defaultUnit);
 };
 
+// Helper to retrieve live available stock for any store item (RM, BO, Consumable, FG, Component)
+export const getItemAvailableStock = async (req, item, type = 'rm') => {
+  try {
+    const companyId = getCompanyId(req);
+    const Inventory = req.getModel('Inventory', inventorySchema);
+    const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
+    const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
+    const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+    const FGItem = req.getModel('FGItem', fgItemSchema);
+    const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+    const Component = req.getModel('Component', componentSchema);
+
+    const normType = (type || item.itemType || '').toLowerCase();
+    const isInhouse = normType.includes('fg') || normType.includes('inhouse') || normType.includes('component');
+    const isConsumable = normType.includes('consumable');
+
+    const rawId = item.material?._id || item.material || item.consumable?._id || item.consumable || item.component?._id || item.component || item.fgItem?._id || item.fgItem || item._id;
+    const validId = rawId && isValidObjectId(rawId.toString()) ? rawId.toString() : null;
+    const matCode = (item.materialCode || item.code || '').trim();
+    const matName = (item.materialName || item.name || '').trim();
+
+    let availableStock = 0;
+    let unit = item.unit || 'PCS';
+    let description = '';
+
+    if (isInhouse) {
+      let compDoc = null;
+      if (validId) compDoc = await FGItem.findOne({ _id: validId, company: companyId }) || await Component.findOne({ _id: validId, company: companyId });
+      if (!compDoc && matCode) {
+        compDoc = await FGItem.findOne({ company: companyId, code: matCode }) || await Component.findOne({ company: companyId, code: matCode });
+      }
+      if (!compDoc && matName) {
+        compDoc = await FGItem.findOne({ company: companyId, name: matName }) || await Component.findOne({ company: companyId, name: matName });
+      }
+      availableStock = Number(compDoc?.quantity ?? compDoc?.currentStock ?? 0);
+      unit = compDoc?.unit || unit;
+      description = compDoc?.description || compDoc?.descriptions || '';
+    } else if (isConsumable) {
+      let invDoc = null;
+      if (validId) invDoc = await Inventory.findOne({ company: companyId, materialId: validId });
+      if (!invDoc && matCode) invDoc = await Inventory.findOne({ company: companyId, materialCode: matCode });
+
+      let consDoc = null;
+      if (validId) consDoc = await ConsumableItem.findOne({ _id: validId, company: companyId });
+      if (!consDoc && matCode) consDoc = await ConsumableItem.findOne({ company: companyId, code: matCode });
+      if (!consDoc && matName) consDoc = await ConsumableItem.findOne({ company: companyId, name: matName });
+
+      if (invDoc && invDoc.currentStock !== undefined) {
+        availableStock = Number(invDoc.currentStock || 0);
+      } else {
+        availableStock = Number(consDoc?.quantity ?? consDoc?.currentStock ?? 0);
+      }
+      unit = invDoc?.unit || consDoc?.unit || unit;
+      description = consDoc?.descriptions || consDoc?.description || '';
+    } else {
+      // Raw Material or Bought Out
+      let invDoc = null;
+      if (validId) invDoc = await Inventory.findOne({ company: companyId, materialId: validId });
+      if (!invDoc && matCode) invDoc = await Inventory.findOne({ company: companyId, materialCode: matCode });
+
+      let matDoc = null;
+      if (validId) {
+        matDoc = await RawMaterial.findOne({ _id: validId, company: companyId }) ||
+                 await BoughtOut.findOne({ _id: validId, company: companyId }) ||
+                 await RmBoItem.findOne({ _id: validId, company: companyId });
+      }
+      if (!matDoc && matCode) {
+        matDoc = await RawMaterial.findOne({ company: companyId, code: matCode }) ||
+                 await BoughtOut.findOne({ company: companyId, code: matCode }) ||
+                 await RmBoItem.findOne({ company: companyId, code: matCode });
+      }
+      if (!matDoc && matName) {
+        matDoc = await RawMaterial.findOne({ company: companyId, name: matName }) ||
+                 await BoughtOut.findOne({ company: companyId, name: matName }) ||
+                 await RmBoItem.findOne({ company: companyId, name: matName });
+      }
+
+      if (invDoc && invDoc.currentStock !== undefined) {
+        availableStock = Number(invDoc.currentStock || 0);
+      } else {
+        availableStock = Number(matDoc?.quantity ?? matDoc?.currentStock ?? 0);
+      }
+      unit = invDoc?.unit || matDoc?.unit || unit;
+      description = matDoc?.descriptions || matDoc?.description || '';
+    }
+
+    return {
+      availableStock: Math.max(0, availableStock),
+      unit,
+      description
+    };
+  } catch (err) {
+    console.error("Error evaluating available stock in getItemAvailableStock:", err);
+    return { availableStock: 0, unit: item.unit || 'PCS', description: '' };
+  }
+};
+
 // Helper function to update FGItem stock (InHouse)
 const updateFGItemStock = async (req, componentId, quantityToDeduct) => {
   try {
@@ -336,6 +433,40 @@ export const createMaterialIssue = async (req, res) => {
           conversionFactor: resolvedUnits.convFactor,
           secondaryQuantity: resolvedUnits.secQty,
           selectedUnit: resolvedUnits.selectedUnit
+        });
+      }
+    }
+
+    // Strict Real-Time Stock Validation: Block issuance if available stock is insufficient or 0
+    if (status === "Issued") {
+      const shortages = [];
+
+      for (const item of processedItems) {
+        const stockInfo = await getItemAvailableStock(req, item, normalizedType);
+        const reqQty = Number(item.quantity) || 0;
+        const availStock = stockInfo.availableStock;
+
+        if (availStock < reqQty) {
+          shortages.push({
+            materialId: item.material || item.component || item.consumable || item.fgItem,
+            materialName: item.materialName || 'Unnamed Item',
+            materialCode: item.materialCode || '',
+            materialDescription: stockInfo.description || item.materialDescription || item.description || '',
+            unit: item.unit || stockInfo.unit || 'PCS',
+            requestedQuantity: reqQty,
+            availableStock: availStock,
+            shortageQuantity: Number((reqQty - availStock).toFixed(4))
+          });
+        }
+      }
+
+      if (shortages.length > 0) {
+        console.warn(`[createMaterialIssue] BLOCKED ISSUANCE: Insufficient stock for ${shortages.length} item(s)`, shortages);
+        return res.status(400).json({
+          success: false,
+          code: 'INSUFFICIENT_STOCK',
+          message: `Cannot issue material: Insufficient stock for ${shortages.length} item(s). Available stock is less than requested quantity.`,
+          shortages
         });
       }
     }

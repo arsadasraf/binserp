@@ -24,7 +24,10 @@ import {
     Percent,
     PackagePlus,
     Truck,
-    Package
+    Package,
+    ListFilter,
+    Search,
+    Check
 } from 'lucide-react';
 import { GRNModalProps } from "@/src/features/store/types/store.types";
 import SearchableSelect from '../SearchableSelect';
@@ -91,6 +94,12 @@ export default function GRNModal({
     const [vendorActivePOs, setVendorActivePOs] = useState<any[]>([]);
     const [loadingPOs, setLoadingPOs] = useState(false);
     const [poLinkedNotice, setPoLinkedNotice] = useState<string | null>(null);
+
+    // Auto-fetch PO line items toggle (default: false / OFF) & Item Picker states
+    const [autoFetchAllPOItems, setAutoFetchAllPOItems] = useState(false);
+    const [isPoItemPickerOpen, setIsPoItemPickerOpen] = useState(false);
+    const [selectedPoItemIndices, setSelectedPoItemIndices] = useState<Set<number>>(new Set());
+    const [poPickerSearch, setPoPickerSearch] = useState('');
 
     // MRP Plan state for InHouse / FG
     const [mrpPlan, setMrpPlan] = useState('');
@@ -358,6 +367,10 @@ export default function GRNModal({
                 setMrpNumber('');
                 setIsMrpRequired(false);
                 setPoLinkedNotice(null);
+                setAutoFetchAllPOItems(false);
+                setIsPoItemPickerOpen(false);
+                setSelectedPoItemIndices(new Set());
+                setPoPickerSearch('');
                 setQcRequired(false);
                 setGlobalTaxRate(0);
                 setTransportationCharges(0);
@@ -523,13 +536,188 @@ export default function GRNModal({
         clearError(`item_${targetIdx}_material`);
     };
 
-    // Handle PO Selection and Auto-Populate Items
+    // Helper to map a raw PO item into a standardized MaterialEntry
+    const mapPoItemToMaterialEntry = (poItem: any, foundPO: any): MaterialEntry => {
+        const materialObj = poItem.material;
+        let matId = typeof materialObj === 'object' && materialObj !== null
+            ? String(materialObj._id || '') 
+            : (poItem.material ? String(poItem.material) : (poItem.item ? String(poItem.item) : ''));
+
+        let matName = poItem.materialName || (typeof materialObj === 'object' && materialObj !== null ? materialObj.name : '') || poItem.itemName || poItem.name || '';
+
+        // Try to resolve matching item from safeMaterials
+        const matchedSafeMat = safeMaterials.find((m: any) => 
+            (matId && String(m._id) === String(matId)) ||
+            (matName && m.name && m.name.toLowerCase().trim() === matName.toLowerCase().trim())
+        );
+
+        if (matchedSafeMat) {
+            if (!matId) matId = String(matchedSafeMat._id);
+            if (!matName) matName = matchedSafeMat.name;
+        }
+
+        const desc = poItem.description || poItem.descriptions || 
+            (typeof materialObj === 'object' && materialObj !== null ? (materialObj.descriptions || materialObj.description) : '') ||
+            (matchedSafeMat?.descriptions || matchedSafeMat?.description || '');
+
+        const hsn = poItem.hsnCode || 
+            (typeof materialObj === 'object' && materialObj !== null ? (materialObj.hsnCode || materialObj.hsn) : '') ||
+            (matchedSafeMat?.hsnCode || '');
+
+        let unit = poItem.unit || (typeof materialObj === 'object' && materialObj !== null ? materialObj.unit : '') || matchedSafeMat?.unit || '';
+        if (!unit && matchedSafeMat?.categoryId && typeof matchedSafeMat.categoryId === 'object') {
+            unit = matchedSafeMat.categoryId.unit || '';
+        }
+
+        let category = poItem.category || '';
+        if (!category && typeof materialObj === 'object' && materialObj !== null) {
+            category = typeof materialObj.category === 'object' ? materialObj.category?.name : materialObj.category;
+        }
+        if (!category && matchedSafeMat) {
+            category = typeof matchedSafeMat.category === 'object' ? matchedSafeMat.category?.name : (matchedSafeMat.category || '');
+        }
+
+        let locationId = poItem.locationId || '';
+        if (!locationId && typeof materialObj === 'object' && materialObj !== null) {
+            locationId = typeof materialObj.locationId === 'object' ? materialObj.locationId?._id : materialObj.locationId;
+        }
+        if (!locationId && matchedSafeMat?.locationId) {
+            locationId = typeof matchedSafeMat.locationId === 'object' ? matchedSafeMat.locationId._id : matchedSafeMat.locationId;
+        }
+
+        const qty = Number(poItem.quantity) || 0;
+        const recQty = Number(poItem.receivedQuantity) || 0;
+        const qtyRemaining = poItem.pendingQuantity !== undefined 
+            ? Number(poItem.pendingQuantity) 
+            : Math.max(0, qty - recQty);
+
+        const hasSec = Boolean(matchedSafeMat?.hasSecondaryUnit || poItem?.hasSecondaryUnit);
+        const secUnit = matchedSafeMat?.secondaryUnit || poItem?.secondaryUnit || '';
+        const convFactor = Number(matchedSafeMat?.conversionFactor || poItem?.conversionFactor) || 0;
+        const curStock = Number(matchedSafeMat?.quantity ?? matchedSafeMat?.currentStock ?? 0);
+        const secStock = hasSec && convFactor ? curStock * convFactor : 0;
+        const finalPriQty = qtyRemaining > 0 ? qtyRemaining : (qty > 0 ? qty : 1);
+        const finalSecQty = hasSec && convFactor ? parseFloat((finalPriQty * convFactor).toFixed(4)) : 0;
+
+        const isPoSec = Boolean(
+            hasSec && (
+                poItem.rateUnit === 'secondary' ||
+                (poItem.selectedUnit && secUnit && poItem.selectedUnit.toLowerCase() === secUnit.toLowerCase())
+            )
+        );
+        const activeSelectedUnit = isPoSec ? secUnit : (poItem.selectedUnit || unit || 'PCS');
+        const activeRate = Number(
+            isPoSec && poItem.secondaryRate !== undefined && Number(poItem.secondaryRate) > 0 ? poItem.secondaryRate :
+            (poItem.rate ?? poItem.unitPrice ?? poItem.price ?? foundPO.rate ?? matchedSafeMat?.rate ?? 0)
+        );
+
+        return {
+            material: matId,
+            materialName: matName || 'Material Item',
+            description: desc || '',
+            hsnCode: hsn || '',
+            quantity: finalPriQty,
+            unit: unit || 'PCS',
+            category: category || '',
+            locationId: locationId || '',
+            rate: activeRate,
+            rateUnit: isPoSec ? 'secondary' : 'primary',
+            primaryRate: isPoSec && convFactor ? parseFloat((activeRate * convFactor).toFixed(3)) : (poItem.primaryRate || activeRate),
+            secondaryRate: !isPoSec && convFactor ? parseFloat((activeRate / convFactor).toFixed(3)) : (poItem.secondaryRate || activeRate),
+            hasSecondaryUnit: hasSec,
+            secondaryUnit: secUnit,
+            conversionFactor: convFactor,
+            secondaryQuantity: finalSecQty,
+            currentStock: curStock,
+            secondaryCurrentStock: secStock,
+            selectedUnit: activeSelectedUnit,
+        };
+    };
+
+    // Helper to open the PO Item Picker Modal
+    const handleOpenPoItemPicker = () => {
+        const foundPO = vendorActivePOs.find(p => p._id === selectedPO);
+        if (!foundPO) return;
+        const poItemsList: any[] = (Array.isArray(foundPO.items) && foundPO.items.length > 0)
+            ? foundPO.items
+            : (foundPO.material || foundPO.materialName ? [foundPO] : []);
+
+        const pendingSet = new Set<number>();
+        poItemsList.forEach((it, idx) => {
+            const qty = Number(it.quantity) || 0;
+            const rec = Number(it.receivedQuantity) || 0;
+            const pending = it.pendingQuantity !== undefined ? Number(it.pendingQuantity) : Math.max(0, qty - rec);
+            if (pending > 0 || poItemsList.length === 1) {
+                pendingSet.add(idx);
+            }
+        });
+        if (pendingSet.size === 0) poItemsList.forEach((_, idx) => pendingSet.add(idx));
+        setSelectedPoItemIndices(pendingSet);
+        setPoPickerSearch('');
+        setIsPoItemPickerOpen(true);
+    };
+
+    // Import selected items from the active PO into GRN material entries
+    const handleImportSelectedPoItems = () => {
+        const foundPO = vendorActivePOs.find(p => p._id === selectedPO);
+        if (!foundPO) return;
+
+        const poItemsList: any[] = (Array.isArray(foundPO.items) && foundPO.items.length > 0)
+            ? foundPO.items
+            : (foundPO.material || foundPO.materialName ? [foundPO] : []);
+
+        const selectedEntries: MaterialEntry[] = [];
+        selectedPoItemIndices.forEach(idx => {
+            if (poItemsList[idx]) {
+                selectedEntries.push(mapPoItemToMaterialEntry(poItemsList[idx], foundPO));
+            }
+        });
+
+        if (selectedEntries.length === 0) {
+            alert("Please select at least one item from the PO to import.");
+            return;
+        }
+
+        setMaterialEntries(prev => {
+            // If current table has only 1 blank placeholder row, replace it
+            const isDefaultSingleEmpty = prev.length === 1 && !prev[0].material && (prev[0].quantity === 0 || !prev[0].quantity);
+            if (isDefaultSingleEmpty) {
+                return selectedEntries;
+            }
+            return [...prev, ...selectedEntries];
+        });
+
+        setPoLinkedNotice(`Imported ${selectedEntries.length} item(s) from PO #${foundPO.poNumber}`);
+        setIsPoItemPickerOpen(false);
+    };
+
+    // Toggle between auto-fetching all items vs selective item picker
+    const handleToggleAutoFetch = (checked: boolean) => {
+        setAutoFetchAllPOItems(checked);
+        if (checked && selectedPO) {
+            const foundPO = vendorActivePOs.find(p => p._id === selectedPO);
+            if (foundPO) {
+                const poItemsList: any[] = (Array.isArray(foundPO.items) && foundPO.items.length > 0)
+                    ? foundPO.items
+                    : (foundPO.material || foundPO.materialName ? [foundPO] : []);
+
+                if (poItemsList.length > 0) {
+                    const newEntries: MaterialEntry[] = poItemsList.map((poItem: any) => mapPoItemToMaterialEntry(poItem, foundPO));
+                    setMaterialEntries(newEntries);
+                    setPoLinkedNotice(`Loaded all ${newEntries.length} item(s) from PO #${foundPO.poNumber} with prices & remaining quantities`);
+                }
+            }
+        }
+    };
+
+    // Handle PO Selection (Respects autoFetchAllPOItems toggle)
     const handleSelectPO = (poId: string) => {
         setSelectedPO(poId);
         if (!poId) {
             setPoNumber('');
             setPoReference('');
             setPoLinkedNotice(null);
+            setIsPoItemPickerOpen(false);
             return;
         }
 
@@ -560,105 +748,28 @@ export default function GRNModal({
             }] : []);
 
         if (poItemsList.length > 0) {
-            const newEntries: MaterialEntry[] = poItemsList.map((poItem: any) => {
-                const materialObj = poItem.material;
-                let matId = typeof materialObj === 'object' && materialObj !== null
-                    ? String(materialObj._id || '') 
-                    : (poItem.material ? String(poItem.material) : (poItem.item ? String(poItem.item) : ''));
-
-                let matName = poItem.materialName || (typeof materialObj === 'object' && materialObj !== null ? materialObj.name : '') || poItem.itemName || poItem.name || '';
-
-                // Try to resolve matching item from safeMaterials
-                const matchedSafeMat = safeMaterials.find((m: any) => 
-                    (matId && String(m._id) === String(matId)) ||
-                    (matName && m.name && m.name.toLowerCase().trim() === matName.toLowerCase().trim())
-                );
-
-                if (matchedSafeMat) {
-                    if (!matId) matId = String(matchedSafeMat._id);
-                    if (!matName) matName = matchedSafeMat.name;
-                }
-
-                const desc = poItem.description || poItem.descriptions || 
-                    (typeof materialObj === 'object' && materialObj !== null ? (materialObj.descriptions || materialObj.description) : '') ||
-                    (matchedSafeMat?.descriptions || matchedSafeMat?.description || '');
-
-                const hsn = poItem.hsnCode || 
-                    (typeof materialObj === 'object' && materialObj !== null ? (materialObj.hsnCode || materialObj.hsn) : '') ||
-                    (matchedSafeMat?.hsnCode || '');
-
-                let unit = poItem.unit || (typeof materialObj === 'object' && materialObj !== null ? materialObj.unit : '') || matchedSafeMat?.unit || '';
-                if (!unit && matchedSafeMat?.categoryId && typeof matchedSafeMat.categoryId === 'object') {
-                    unit = matchedSafeMat.categoryId.unit || '';
-                }
-
-                let category = poItem.category || '';
-                if (!category && typeof materialObj === 'object' && materialObj !== null) {
-                    category = typeof materialObj.category === 'object' ? materialObj.category?.name : materialObj.category;
-                }
-                if (!category && matchedSafeMat) {
-                    category = typeof matchedSafeMat.category === 'object' ? matchedSafeMat.category?.name : (matchedSafeMat.category || '');
-                }
-
-                let locationId = poItem.locationId || '';
-                if (!locationId && typeof materialObj === 'object' && materialObj !== null) {
-                    locationId = typeof materialObj.locationId === 'object' ? materialObj.locationId?._id : materialObj.locationId;
-                }
-                if (!locationId && matchedSafeMat?.locationId) {
-                    locationId = typeof matchedSafeMat.locationId === 'object' ? matchedSafeMat.locationId._id : matchedSafeMat.locationId;
-                }
-
-                const qty = Number(poItem.quantity) || 0;
-                const recQty = Number(poItem.receivedQuantity) || 0;
-                const qtyRemaining = poItem.pendingQuantity !== undefined 
-                    ? Number(poItem.pendingQuantity) 
-                    : Math.max(0, qty - recQty);
-
-                const hasSec = Boolean(matchedSafeMat?.hasSecondaryUnit || poItem?.hasSecondaryUnit);
-                const secUnit = matchedSafeMat?.secondaryUnit || poItem?.secondaryUnit || '';
-                const convFactor = Number(matchedSafeMat?.conversionFactor || poItem?.conversionFactor) || 0;
-                const curStock = Number(matchedSafeMat?.quantity ?? matchedSafeMat?.currentStock ?? 0);
-                const secStock = hasSec && convFactor ? curStock * convFactor : 0;
-                const finalPriQty = qtyRemaining > 0 ? qtyRemaining : (qty > 0 ? qty : 1);
-                const finalSecQty = hasSec && convFactor ? parseFloat((finalPriQty * convFactor).toFixed(4)) : 0;
-
-                const isPoSec = Boolean(
-                    hasSec && (
-                        poItem.rateUnit === 'secondary' ||
-                        (poItem.selectedUnit && secUnit && poItem.selectedUnit.toLowerCase() === secUnit.toLowerCase())
-                    )
-                );
-                const activeSelectedUnit = isPoSec ? secUnit : (poItem.selectedUnit || unit || 'PCS');
-                const activeRate = Number(
-                    isPoSec && poItem.secondaryRate !== undefined && Number(poItem.secondaryRate) > 0 ? poItem.secondaryRate :
-                    (poItem.rate ?? poItem.unitPrice ?? poItem.price ?? foundPO.rate ?? matchedSafeMat?.rate ?? 0)
-                );
-
-                return {
-                    material: matId,
-                    materialName: matName || 'Material Item',
-                    description: desc || '',
-                    hsnCode: hsn || '',
-                    quantity: finalPriQty,
-                    unit: unit || 'PCS',
-                    category: category || '',
-                    locationId: locationId || '',
-                    rate: activeRate,
-                    rateUnit: isPoSec ? 'secondary' : 'primary',
-                    primaryRate: isPoSec && convFactor ? parseFloat((activeRate * convFactor).toFixed(3)) : (poItem.primaryRate || activeRate),
-                    secondaryRate: !isPoSec && convFactor ? parseFloat((activeRate / convFactor).toFixed(3)) : (poItem.secondaryRate || activeRate),
-                    hasSecondaryUnit: hasSec,
-                    secondaryUnit: secUnit,
-                    conversionFactor: convFactor,
-                    secondaryQuantity: finalSecQty,
-                    currentStock: curStock,
-                    secondaryCurrentStock: secStock,
-                    selectedUnit: activeSelectedUnit,
-                };
-            });
-
-            setMaterialEntries(newEntries);
-            setPoLinkedNotice(`Loaded ${newEntries.length} item(s) from PO #${foundPO.poNumber} with prices, remaining quantities & descriptions`);
+            if (autoFetchAllPOItems) {
+                // Toggle is ON: automatically load all items from PO
+                const newEntries: MaterialEntry[] = poItemsList.map((poItem: any) => mapPoItemToMaterialEntry(poItem, foundPO));
+                setMaterialEntries(newEntries);
+                setPoLinkedNotice(`Loaded all ${newEntries.length} item(s) from PO #${foundPO.poNumber} with prices, remaining quantities & descriptions`);
+            } else {
+                // Toggle is OFF (Default): Open Item Picker Checklist so user selects which items are received
+                const initialSelected = new Set<number>();
+                poItemsList.forEach((it, idx) => {
+                    const qty = Number(it.quantity) || 0;
+                    const rec = Number(it.receivedQuantity) || 0;
+                    const pending = it.pendingQuantity !== undefined ? Number(it.pendingQuantity) : Math.max(0, qty - rec);
+                    if (pending > 0 || poItemsList.length === 1) {
+                        initialSelected.add(idx);
+                    }
+                });
+                if (initialSelected.size === 0) poItemsList.forEach((_, idx) => initialSelected.add(idx));
+                setSelectedPoItemIndices(initialSelected);
+                setPoPickerSearch('');
+                setIsPoItemPickerOpen(true);
+                setPoLinkedNotice(`Linked PO #${foundPO.poNumber}. Select items to receive.`);
+            }
         }
     };
 
@@ -1770,28 +1881,62 @@ export default function GRNModal({
                                 </>
                             )}
 
-                            {/* Outward PO Selector (if vendor selected) */}
+                            {/* Outward PO Selector with Auto-Fetch Toggle (Default: OFF) & Pick Items Button */}
                             {type !== 'inhouse' && type !== 'fg' && supplier && (
-                                <div className="sm:col-span-2 lg:col-span-1">
-                                    <label className="block text-[11px] font-bold text-indigo-900 dark:text-indigo-300 mb-1 flex items-center justify-between">
-                                        <span>Link Outward PO</span>
-                                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">({vendorActivePOs.length} Open)</span>
-                                    </label>
-                                    <select
-                                        value={selectedPO}
-                                        onChange={(e) => handleSelectPO(e.target.value)}
-                                        className="w-full h-9 px-2.5 bg-indigo-50/70 dark:bg-indigo-950/50 border border-indigo-300 dark:border-indigo-800 rounded-xl text-xs font-bold text-indigo-950 dark:text-indigo-200 focus:ring-2 focus:ring-indigo-500 cursor-pointer truncate"
-                                    >
-                                        <option value="">-- Direct / No PO Link --</option>
-                                        {vendorActivePOs.map(po => {
-                                            const poDate = po.date ? new Date(po.date).toLocaleDateString('en-GB') : '';
-                                            return (
-                                                <option key={po._id} value={po._id}>
-                                                    PO #{po.poNumber} ({poDate}) - {po.status || 'Active'}
-                                                </option>
-                                            );
-                                        })}
-                                    </select>
+                                <div className="sm:col-span-2 lg:col-span-1 space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
+                                            <span>Link Outward PO</span>
+                                            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">({vendorActivePOs.length} Open)</span>
+                                        </label>
+
+                                        {/* Toggle Switch: Auto-fetch all PO items (Default: OFF) */}
+                                        <label className="inline-flex items-center gap-1.5 cursor-pointer select-none group" title={autoFetchAllPOItems ? "All items from PO will be automatically added" : "Choose specific items to receive via Item Picker (Default)"}>
+                                            <span className={`text-[10px] font-bold transition-colors ${autoFetchAllPOItems ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                                                Auto-fetch all
+                                            </span>
+                                            <div className="relative">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={autoFetchAllPOItems} 
+                                                    onChange={(e) => handleToggleAutoFetch(e.target.checked)} 
+                                                    className="sr-only peer" 
+                                                />
+                                                <div className="w-7 h-4 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600"></div>
+                                            </div>
+                                        </label>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5">
+                                        <select
+                                            value={selectedPO}
+                                            onChange={(e) => handleSelectPO(e.target.value)}
+                                            className="w-full h-9 px-2.5 bg-indigo-50/70 dark:bg-indigo-950/50 border border-indigo-300 dark:border-indigo-800 rounded-xl text-xs font-bold text-indigo-950 dark:text-indigo-200 focus:ring-2 focus:ring-indigo-500 cursor-pointer truncate"
+                                        >
+                                            <option value="">-- Direct / No PO Link --</option>
+                                            {vendorActivePOs.map(po => {
+                                                const poDate = po.date ? new Date(po.date).toLocaleDateString('en-GB') : '';
+                                                return (
+                                                    <option key={po._id} value={po._id}>
+                                                        PO #{po.poNumber} ({poDate}) - {po.status || 'Active'}
+                                                    </option>
+                                                );
+                                            })}
+                                        </select>
+
+                                        {/* Pick Items button if PO selected and autoFetch is OFF */}
+                                        {selectedPO && !autoFetchAllPOItems && (
+                                            <button
+                                                type="button"
+                                                onClick={handleOpenPoItemPicker}
+                                                className="shrink-0 h-9 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                                                title="Open Item Picker to select which items from this PO to receive"
+                                            >
+                                                <ListFilter size={13} />
+                                                <span className="hidden sm:inline">Pick Items</span>
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
@@ -2022,6 +2167,17 @@ export default function GRNModal({
                                 </span>
                             </div>
                             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                                {selectedPO && !autoFetchAllPOItems && (
+                                    <button
+                                        type="button"
+                                        onClick={handleOpenPoItemPicker}
+                                        className="p-1.5 sm:px-3 sm:py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                                        title="Pick specific items from the linked PO"
+                                    >
+                                        <ListFilter className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+                                        <span className="hidden sm:inline">Pick from PO</span>
+                                    </button>
+                                )}
                                 <button
                                     type="button"
                                     onClick={() => handleOpenQuickMasterModal()}
@@ -2786,6 +2942,219 @@ export default function GRNModal({
             locations={locations}
             onItemCreated={handleQuickItemCreated}
         />
+
+        {/* Selective PO Item Picker Checklist Modal */}
+        {isPoItemPickerOpen && (() => {
+            const foundPO = vendorActivePOs.find(p => p._id === selectedPO);
+            if (!foundPO) return null;
+
+            const poItemsList: any[] = (Array.isArray(foundPO.items) && foundPO.items.length > 0)
+                ? foundPO.items
+                : (foundPO.material || foundPO.materialName ? [foundPO] : []);
+
+            const filteredItemsWithIndex = poItemsList
+                .map((item, originalIndex) => ({ item, originalIndex }))
+                .filter(({ item }) => {
+                    if (!poPickerSearch.trim()) return true;
+                    const q = poPickerSearch.toLowerCase().trim();
+                    const name = (item.materialName || item.itemName || item.name || '').toLowerCase();
+                    const desc = (item.description || item.descriptions || '').toLowerCase();
+                    return name.includes(q) || desc.includes(q);
+                });
+
+            return (
+                <div className="fixed inset-0 z-[220] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm animate-in fade-in duration-150">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[88vh] animate-in zoom-in-95 duration-150">
+                        {/* Modal Header */}
+                        <div className="px-5 py-3.5 bg-slate-50/95 dark:bg-slate-800/95 border-b border-slate-200 dark:border-slate-700/80 flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/80 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                                    <ListFilter className="w-4 h-4" />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                        <span>Select Items from PO #{foundPO.poNumber}</span>
+                                        <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 px-2 py-0.5 rounded-full font-bold">
+                                            {selectedPoItemIndices.size} of {poItemsList.length} selected
+                                        </span>
+                                    </h3>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                        Check the items received in this shipment to populate into the GRN.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsPoItemPickerOpen(false)}
+                                className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+                            >
+                                <X size={15} />
+                            </button>
+                        </div>
+
+                        {/* Toolbar: Search & Select All/Deselect All */}
+                        <div className="px-5 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
+                            <div className="relative flex-1 min-w-[200px]">
+                                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="text"
+                                    value={poPickerSearch}
+                                    onChange={(e) => setPoPickerSearch(e.target.value)}
+                                    placeholder="Filter PO items by name or description..."
+                                    className="w-full h-8 pl-8 pr-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-xs placeholder:text-slate-400 focus:ring-1 focus:ring-indigo-500"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const allIndices = new Set<number>();
+                                        poItemsList.forEach((_, idx) => allIndices.add(idx));
+                                        setSelectedPoItemIndices(allIndices);
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                                >
+                                    Select All
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedPoItemIndices(new Set())}
+                                    className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 transition-colors cursor-pointer"
+                                >
+                                    Deselect All
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Items List Table */}
+                        <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 custom-scrollbar max-h-[50vh]">
+                            {filteredItemsWithIndex.length > 0 ? (
+                                filteredItemsWithIndex.map(({ item, originalIndex }) => {
+                                    const isChecked = selectedPoItemIndices.has(originalIndex);
+                                    const name = item.materialName || item.itemName || item.name || (typeof item.material === 'object' ? item.material?.name : '') || 'Unnamed Item';
+                                    const desc = item.description || item.descriptions || (typeof item.material === 'object' ? (item.material?.descriptions || item.material?.description) : '') || '';
+                                    const qty = Number(item.quantity) || 0;
+                                    const recQty = Number(item.receivedQuantity) || 0;
+                                    const pending = item.pendingQuantity !== undefined ? Number(item.pendingQuantity) : Math.max(0, qty - recQty);
+                                    const rate = Number(item.rate ?? item.unitPrice ?? item.price ?? 0);
+                                    const unit = item.unit || 'PCS';
+
+                                    return (
+                                        <div
+                                            key={originalIndex}
+                                            onClick={() => {
+                                                setSelectedPoItemIndices(prev => {
+                                                    const next = new Set(prev);
+                                                    if (next.has(originalIndex)) {
+                                                        next.delete(originalIndex);
+                                                    } else {
+                                                        next.add(originalIndex);
+                                                    }
+                                                    return next;
+                                                });
+                                            }}
+                                            className={`p-3.5 flex items-start gap-3 cursor-pointer transition-colors ${
+                                                isChecked 
+                                                    ? 'bg-indigo-50/50 dark:bg-indigo-950/30 hover:bg-indigo-50 dark:hover:bg-indigo-950/50' 
+                                                    : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                                            }`}
+                                        >
+                                            <div className="pt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isChecked}
+                                                    onChange={() => {
+                                                        setSelectedPoItemIndices(prev => {
+                                                            const next = new Set(prev);
+                                                            if (next.has(originalIndex)) {
+                                                                next.delete(originalIndex);
+                                                            } else {
+                                                                next.add(originalIndex);
+                                                            }
+                                                            return next;
+                                                        });
+                                                    }}
+                                                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                                />
+                                            </div>
+
+                                            {/* Item Details adhering strictly to AGENTS.md */}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                                                    {name}
+                                                </div>
+                                                {desc && (
+                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
+                                                        {desc}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Quantities & Rate Badges */}
+                                            <div className="flex items-center gap-3 shrink-0 text-right">
+                                                <div>
+                                                    <div className="text-[10px] text-slate-400 uppercase font-bold">Ordered / Rec</div>
+                                                    <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                                        {qty} / {recQty} {unit}
+                                                    </div>
+                                                </div>
+
+                                                <div className="min-w-[80px]">
+                                                    <div className="text-[10px] text-slate-400 uppercase font-bold">Pending Qty</div>
+                                                    <div className={`text-xs font-mono font-bold ${
+                                                        pending > 0 
+                                                            ? 'text-indigo-600 dark:text-indigo-400' 
+                                                            : 'text-slate-400 dark:text-slate-500'
+                                                    }`}>
+                                                        {pending} {unit}
+                                                    </div>
+                                                </div>
+
+                                                {rate > 0 && (
+                                                    <div className="min-w-[70px] hidden sm:block">
+                                                        <div className="text-[10px] text-slate-400 uppercase font-bold">PO Rate</div>
+                                                        <div className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200">
+                                                            ₹{rate.toFixed(2)}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="p-8 text-center text-xs text-slate-400">
+                                    No PO items match "{poPickerSearch}".
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-3 bg-slate-50 dark:bg-slate-800/90 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                            <button
+                                type="button"
+                                onClick={() => setIsPoItemPickerOpen(false)}
+                                className="px-3.5 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={handleImportSelectedPoItems}
+                                disabled={selectedPoItemIndices.size === 0}
+                                className={`px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer ${
+                                    selectedPoItemIndices.size === 0 ? 'opacity-50 cursor-not-allowed' : ''
+                                }`}
+                            >
+                                <Check size={14} />
+                                <span>Import {selectedPoItemIndices.size} Selected Item{selectedPoItemIndices.size !== 1 ? 's' : ''}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        })()}
         </>
     );
 }

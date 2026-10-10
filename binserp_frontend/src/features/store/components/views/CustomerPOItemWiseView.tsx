@@ -571,7 +571,58 @@ export default function CustomerPOItemWiseView({
                         {selectedItemForPreview.linkedPos.map((lp, idx) => (
                           <tr key={`${lp.poId}-${idx}`} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
                             <td className="px-3.5 py-3 font-mono font-bold text-blue-600 dark:text-blue-400">
-                              {lp.poNumber}
+                              <div>{lp.poNumber}</div>
+                              {(() => {
+                                const matchedItem = (lp.po?.items || []).find((it: any) => 
+                                  String(it.fgItem?._id || it.fgItem) === String(selectedItemForPreview.id) ||
+                                  it.productName?.toLowerCase().trim() === selectedItemForPreview.name?.toLowerCase().trim()
+                                );
+                                if (matchedItem?.deliverySchedule?.length > 0) {
+                                  return (
+                                    <div className="flex flex-wrap items-center gap-1 mt-1 font-sans">
+                                      {matchedItem.deliverySchedule.map((s: any, sIdx: number) => {
+                                        const plannedQty = Number(s.plannedQuantity ?? (s.isPlanned ? s.quantity : 0));
+                                        const totalQty = Number(s.quantity || 0);
+                                        const pendingQty = Math.max(0, totalQty - plannedQty);
+                                        const isFullyPlanned = plannedQty >= totalQty && totalQty > 0;
+                                        const isPartiallyPlanned = plannedQty > 0 && pendingQty > 0;
+                                        const mrpList = Array.isArray(s.linkedMrps) && s.linkedMrps.length > 0
+                                          ? s.linkedMrps.map((m: any) => `${m.mrpNumber || 'MRP'} (${m.quantity || plannedQty})`).join(', ')
+                                          : (s.mrpNumber || 'MRP');
+
+                                        if (isPartiallyPlanned) {
+                                          return (
+                                            <span key={sIdx} className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold border bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800" title={`Planned: ${plannedQty} in ${mrpList}, Pending: ${pendingQty}`}>
+                                              <span>{s.monthLabel || s.monthKey}:</span>
+                                              <span className="font-bold">{s.quantity}</span>
+                                              <span className="text-[8px] font-mono bg-emerald-200/70 dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100 px-0.5 rounded">✓{plannedQty}</span>
+                                              <span className="text-[8px] font-mono bg-amber-200/80 dark:bg-amber-900/80 text-amber-900 dark:text-amber-100 px-0.5 rounded">⚡{pendingQty}</span>
+                                            </span>
+                                          );
+                                        }
+
+                                        if (isFullyPlanned) {
+                                          return (
+                                            <span key={sIdx} className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold border bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800" title={`Planned in MRP: ${mrpList}`}>
+                                              <span>{s.monthLabel || s.monthKey}:</span>
+                                              <span className="font-bold">{s.quantity}</span>
+                                              <span className="text-[8px] font-mono bg-emerald-200/70 dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100 px-0.5 rounded">MRP ✓</span>
+                                            </span>
+                                          );
+                                        }
+
+                                        return (
+                                          <span key={sIdx} className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold border bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800" title="Unplanned">
+                                            <span>{s.monthLabel || s.monthKey}:</span>
+                                            <span className="font-bold">{s.quantity}</span>
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </td>
 
                             <td className="px-3.5 py-3 font-bold text-slate-800 dark:text-slate-200">

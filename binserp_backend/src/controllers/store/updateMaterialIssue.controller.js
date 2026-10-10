@@ -1,4 +1,5 @@
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
+import { getItemAvailableStock } from './createMaterialIssue.controller.js';
 import mongoose from "mongoose";
 import {
   grnSchema,
@@ -90,6 +91,38 @@ export const updateMaterialIssue = async (req, res) => {
     // Update inventory only if status changes to/from "Issued"
     if (oldStatus !== "Issued" && newStatus === "Issued") {
       const itemsToProcess = items || materialIssue.items;
+
+      // Strict Real-Time Stock Validation: Block issuance if available stock is insufficient
+      const shortages = [];
+      for (const item of itemsToProcess) {
+        const stockInfo = await getItemAvailableStock(req, item, materialIssue.type);
+        const reqQty = Number(item.quantity) || 0;
+        const availStock = stockInfo.availableStock;
+
+        if (availStock < reqQty) {
+          shortages.push({
+            materialId: item.material || item.component || item.consumable || item.fgItem,
+            materialName: item.materialName || 'Unnamed Item',
+            materialCode: item.materialCode || '',
+            materialDescription: stockInfo.description || item.materialDescription || item.description || '',
+            unit: item.unit || stockInfo.unit || 'PCS',
+            requestedQuantity: reqQty,
+            availableStock: availStock,
+            shortageQuantity: Number((reqQty - availStock).toFixed(4))
+          });
+        }
+      }
+
+      if (shortages.length > 0) {
+        console.warn(`[updateMaterialIssue] BLOCKED ISSUANCE: Insufficient stock for ${shortages.length} item(s)`, shortages);
+        return res.status(400).json({
+          success: false,
+          code: 'INSUFFICIENT_STOCK',
+          message: `Cannot issue material: Insufficient stock for ${shortages.length} item(s). Available stock is less than requested quantity.`,
+          shortages
+        });
+      }
+
       const currentDate = new Date();
       const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
       

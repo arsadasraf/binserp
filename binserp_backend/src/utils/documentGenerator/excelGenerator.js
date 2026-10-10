@@ -249,11 +249,12 @@ export const generateExcel = async (data, type) => {
         
         sheet.getColumn(1).width = 5;
         sheet.getColumn(2).width = 30;
-        sheet.getColumn(3).width = 12;
+        sheet.getColumn(3).width = 14;
         sheet.getColumn(4).width = 30;
-        sheet.getColumn(5).width = 12;
-        sheet.getColumn(6).width = 12;
-        sheet.getColumn(7).width = 25;
+        sheet.getColumn(5).width = 14;
+        sheet.getColumn(6).width = 14;
+        sheet.getColumn(7).width = 14;
+        sheet.getColumn(8).width = 25;
 
         // Apply borders helper
         const addBorders = (cell) => {
@@ -266,19 +267,19 @@ export const generateExcel = async (data, type) => {
         };
 
         // Top Header
-        sheet.mergeCells('A1:G1');
+        sheet.mergeCells('A1:H1');
         const h1 = sheet.getCell('A1');
         h1.value = companyInfo.companyName || 'COMPANY NAME';
         h1.font = { bold: true, size: 16 };
         h1.alignment = { horizontal: 'center' };
         
-        sheet.mergeCells('A2:G2');
+        sheet.mergeCells('A2:H2');
         const h2 = sheet.getCell('A2');
         h2.value = `${companyInfo.billingAddress || companyInfo.address || ''}\nPh: ${companyInfo.contactNumber || ''} | Email: ${companyInfo.email || ''}`;
         h2.alignment = { horizontal: 'center', wrapText: true };
         sheet.getRow(2).height = 30;
         
-        sheet.mergeCells('A3:G3');
+        sheet.mergeCells('A3:H3');
         const h3 = sheet.getCell('A3');
         h3.value = 'RETURNABLE - DELIVERY CHALLAN';
         h3.font = { bold: true, size: 12 };
@@ -301,41 +302,44 @@ export const generateExcel = async (data, type) => {
         sheet.mergeCells('E4:F4');
         sheet.getCell('E4').value = 'DC NO:';
         sheet.getCell('E4').font = { bold: true };
+        sheet.mergeCells('G4:H4');
         sheet.getCell('G4').value = challan.challanNumber;
         sheet.getCell('G4').font = { bold: true };
 
         sheet.mergeCells('E5:F5');
         sheet.getCell('E5').value = 'Date:';
+        sheet.mergeCells('G5:H5');
         sheet.getCell('G5').value = new Date(challan.date || Date.now()).toLocaleDateString('en-GB');
 
         sheet.mergeCells('E6:F6');
-        sheet.getCell('E6').value = 'Our PO No:';
-        sheet.getCell('G6').value = challan.poNumber || '';
+        sheet.getCell('E6').value = 'PO / E-Way Bill:';
+        sheet.mergeCells('G6:H6');
+        sheet.getCell('G6').value = `${challan.poNumber || '-'} / ${challan.ewayBillNo || '-'}`;
 
         sheet.mergeCells('E7:F7');
-        sheet.getCell('E7').value = 'Estimated Price:';
-        sheet.getCell('G7').value = challan.estimatedPrice || '';
+        sheet.getCell('E7').value = 'Est. Mat. Value:';
+        sheet.mergeCells('G7:H7');
+        sheet.getCell('G7').value = challan.estimatedPrice ? `₹${Number(challan.estimatedPrice).toFixed(2)}` : '-';
         
         sheet.mergeCells('E8:F8');
-        sheet.getCell('E8').value = 'Vehicle No:';
-        sheet.getCell('G8').value = challan.vehicleNo || '';
+        sheet.getCell('E8').value = 'Total JW Charges:';
+        sheet.mergeCells('G8:H8');
+        sheet.getCell('G8').value = challan.totalJobWorkCharges ? `₹${Number(challan.totalJobWorkCharges).toFixed(2)}` : '-';
 
         // Add some borders around header
         ['A1','A2','A4','A5','A6','E4','G4','E5','G5','E6','G6','E7','G7','E8','G8'].forEach(r => {
-            const rowStr = r.replace(/[A-Z]/g, '');
-            const colStr = r.replace(/[0-9]/g, '');
             const cell = sheet.getCell(r);
             cell.border = { ...cell.border, left: {style:'thin'}, right: {style:'thin'} };
         });
         
         // Bottom border for address block
-        ['A8','B8','C8','D8','E8','F8','G8'].forEach(cellId => {
+        ['A8','B8','C8','D8','E8','F8','G8','H8'].forEach(cellId => {
             const cell = sheet.getCell(cellId);
             cell.border = { ...cell.border, bottom: {style:'medium'} };
         });
 
         // Table headers
-        const headerRow = sheet.addRow(['Sl. No', 'Items Sent', 'Qty', 'Items to be Received', 'Qty', 'Unit Price', 'Remarks']);
+        const headerRow = sheet.addRow(['Sl. No', 'Items Sent', 'Sent Qty', 'Items to be Received', 'Expected Qty', 'JW Rate (₹)', 'JW Amount (₹)', 'Process / Remarks']);
         headerRow.font = { bold: true };
         headerRow.eachCell((cell) => {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8F9FA' } };
@@ -346,47 +350,181 @@ export const generateExcel = async (data, type) => {
         sheet.getRow(9).height = 30;
 
         // Items
-        let totalQty = 0;
+        let totalSentQty = 0;
+        let totalRecvQty = 0;
+        let totalJwCharges = 0;
         let lastRowIdx = 9;
+        const isAssembly = challan.operationMode === 'assembly';
+
         if (challan && challan.items && challan.items.length > 0) {
-            challan.items.forEach((item, index) => {
-                totalQty += (item.quantitySent || 0);
-                const row = sheet.addRow([
-                    index + 1,
-                    item.itemName || (item.item ? item.item.name : '') || '',
-                    `${item.quantitySent} ${item.unit || 'Nos'}`,
-                    item.itemToBeReceived || item.itemName || (item.item ? item.item.name : '') || '',
-                    `${item.quantitySent} ${item.unit || 'Nos'}`,
-                    item.unitPrice || '',
-                    item.description || ''
-                ]);
-                row.eachCell((cell, colNumber) => {
-                    cell.alignment = { vertical: 'top', horizontal: [3,5].includes(colNumber) ? 'center' : 'left', wrapText: true };
-                    cell.border = { right: {style: 'thin'} };
+            if (isAssembly && challan.assemblyOutputItem) {
+                const out = challan.assemblyOutputItem;
+                const outExpQty = Number(out.quantityToBeReceived) || 0;
+                totalRecvQty += outExpQty;
+                const outRate = Number(out.processRate) || 0;
+                const outAmt = (out.processAmount !== undefined && out.processAmount !== null && Number(out.processAmount) > 0)
+                    ? Number(out.processAmount)
+                    : (outRate * outExpQty);
+                totalJwCharges += outAmt;
+
+                challan.items.forEach((item, index) => {
+                    const sentQty = Number(item.quantitySent || 0);
+                    totalSentQty += sentQty;
+
+                    let sentQtyStr = `${sentQty} ${item.unit || 'Nos'}`;
+                    if (item.hasSecondaryUnit && item.secondaryUnit && (item.secondaryQuantitySent || item.conversionFactor)) {
+                        const secSent = item.secondaryQuantitySent || (sentQty * Number(item.conversionFactor || 1));
+                        sentQtyStr += `\n(↳ ${secSent} ${item.secondaryUnit})`;
+                    }
+
+                    let sentItemStr = item.itemName || (item.item ? item.item.name : '') || '';
+                    if (item.description) {
+                        sentItemStr += `\n${item.description}`;
+                    }
+
+                    let outItemStr = index === 0 ? (out.itemName || 'Assembled Product') : '';
+                    if (index === 0 && out.description) {
+                        outItemStr += `\n${out.description}`;
+                    }
+
+                    let outQtyStr = '';
+                    if (index === 0) {
+                        outQtyStr = `${outExpQty} ${out.receivingUnit || 'Nos'}`;
+                        if (out.hasSecondaryUnit && out.secondaryUnit && (out.secondaryQuantityToBeReceived || out.conversionFactor)) {
+                            const secRecv = out.secondaryQuantityToBeReceived || (outExpQty * Number(out.conversionFactor || 1));
+                            outQtyStr += `\n(↳ ${secRecv} ${out.secondaryUnit})`;
+                        }
+                    }
+
+                    const row = sheet.addRow([
+                        index + 1,
+                        sentItemStr,
+                        sentQtyStr,
+                        outItemStr,
+                        outQtyStr,
+                        index === 0 ? (outRate > 0 ? outRate.toFixed(2) : '-') : '',
+                        index === 0 ? (outAmt > 0 ? outAmt.toFixed(2) : '-') : '',
+                        index === 0 ? (out.processType || challan.purpose || 'Assembly') : ''
+                    ]);
+
+                    row.eachCell((cell, colNumber) => {
+                        cell.alignment = { 
+                            vertical: 'top', 
+                            horizontal: [1, 3, 5].includes(colNumber) ? 'center' : ([6, 7].includes(colNumber) ? 'right' : 'left'), 
+                            wrapText: true 
+                        };
+                        cell.border = { right: {style: 'thin'} };
+                    });
+                    lastRowIdx++;
                 });
-                lastRowIdx++;
-            });
+            } else {
+                challan.items.forEach((item, index) => {
+                    const sentQty = Number(item.quantitySent || 0);
+                    totalSentQty += sentQty;
+
+                    const retList = (item.returningItems && item.returningItems.length > 0) ? item.returningItems : [{
+                        receivedItemName: item.itemToBeReceived || item.itemName || (item.item ? item.item.name : '') || '',
+                        quantityToBeReceived: item.quantityToBeReceived || item.quantitySent || 0,
+                        receivingUnit: item.receivingUnit || item.unit || 'Nos',
+                        hasSecondaryUnit: item.hasSecondaryUnit,
+                        secondaryUnit: item.secondaryUnit,
+                        conversionFactor: item.conversionFactor,
+                        secondaryQuantityToBeReceived: item.secondaryQuantityToBeReceived,
+                        processRate: item.processRate,
+                        processAmount: item.processAmount,
+                        description: item.description
+                    }];
+
+                    retList.forEach((ret, rIdx) => {
+                        const retExpQty = Number(ret.quantityToBeReceived || 0);
+                        totalRecvQty += retExpQty;
+                        const retRate = Number(ret.processRate) || 0;
+                        const retAmt = (ret.processAmount !== undefined && ret.processAmount !== null && Number(ret.processAmount) > 0)
+                            ? Number(ret.processAmount)
+                            : (retRate * retExpQty);
+                        totalJwCharges += retAmt;
+
+                        let sentItemStr = '';
+                        let sentQtyStr = '';
+                        if (rIdx === 0) {
+                            sentItemStr = item.itemName || (item.item ? item.item.name : '') || '';
+                            if (item.description) {
+                                sentItemStr += `\n${item.description}`;
+                            }
+
+                            sentQtyStr = `${sentQty} ${item.unit || 'Nos'}`;
+                            if (item.hasSecondaryUnit && item.secondaryUnit && (item.secondaryQuantitySent || item.conversionFactor)) {
+                                const secSent = item.secondaryQuantitySent || (sentQty * Number(item.conversionFactor || 1));
+                                sentQtyStr += `\n(↳ ${secSent} ${item.secondaryUnit})`;
+                            }
+                        }
+
+                        let retItemStr = ret.receivedItemName || '';
+                        if (ret.description) {
+                            retItemStr += `\n${ret.description}`;
+                        }
+
+                        let retQtyStr = `${retExpQty} ${ret.receivingUnit || 'Nos'}`;
+                        if (ret.hasSecondaryUnit && ret.secondaryUnit && (ret.secondaryQuantityToBeReceived || ret.conversionFactor)) {
+                            const secRecv = ret.secondaryQuantityToBeReceived || (retExpQty * Number(ret.conversionFactor || 1));
+                            retQtyStr += `\n(↳ ${secRecv} ${ret.secondaryUnit})`;
+                        }
+
+                        let procStr = '';
+                        if (rIdx === 0) {
+                            procStr = item.processType || challan.purpose || 'Job Work';
+                            if (item.purpose && item.purpose !== item.processType) {
+                                procStr += ` (${item.purpose})`;
+                            }
+                            if (item.unitPrice && Number(item.unitPrice) > 0) {
+                                procStr += `\nMat Val: ₹${Number(item.unitPrice).toFixed(2)}`;
+                            }
+                        }
+
+                        const row = sheet.addRow([
+                            rIdx === 0 ? (index + 1) : '',
+                            sentItemStr,
+                            sentQtyStr,
+                            retItemStr,
+                            retQtyStr,
+                            retRate > 0 ? retRate.toFixed(2) : '-',
+                            retAmt > 0 ? retAmt.toFixed(2) : '-',
+                            procStr
+                        ]);
+
+                        row.eachCell((cell, colNumber) => {
+                            cell.alignment = { 
+                                vertical: 'top', 
+                                horizontal: [1, 3, 5].includes(colNumber) ? 'center' : ([6, 7].includes(colNumber) ? 'right' : 'left'), 
+                                wrapText: true 
+                            };
+                            cell.border = { right: {style: 'thin'} };
+                        });
+                        lastRowIdx++;
+                    });
+                });
+            }
             
             // Pad rows
-            for(let i = challan.items.length; i < 5; i++) {
-                const row = sheet.addRow(['','','','','','','']);
+            for(let i = lastRowIdx - 9; i < 5; i++) {
+                const row = sheet.addRow(['','','','','','','','']);
                 row.height = 20;
                 row.eachCell((cell) => { cell.border = { right: {style: 'thin'} }; });
                 lastRowIdx++;
             }
         } else {
-            const row = sheet.addRow(['','No Items','','','','','']);
+            const row = sheet.addRow(['','No Items','','','','','','']);
             row.height = 50;
             row.eachCell((cell) => { cell.border = { right: {style: 'thin'} }; cell.alignment = { vertical: 'middle', horizontal: 'center' } });
             lastRowIdx++;
         }
 
         // Totals
-        const totalRow = sheet.addRow(['', 'Total Qty =', totalQty, 'Total Qty =', totalQty, '', '']);
+        const totalRow = sheet.addRow(['', 'Total Sent Qty =', totalSentQty, 'Total Exp Qty =', totalRecvQty, 'Total JW Charges =', `₹${totalJwCharges.toFixed(2)}`, '']);
         totalRow.font = { bold: true };
         totalRow.eachCell((cell, colNumber) => {
             cell.border = { top: {style:'medium'}, bottom: {style:'medium'}, right: {style:'thin'} };
-            cell.alignment = { horizontal: [2,4].includes(colNumber) ? 'right' : 'center' };
+            cell.alignment = { horizontal: [2, 4, 6].includes(colNumber) ? 'right' : ([3, 5].includes(colNumber) ? 'center' : 'left') };
         });
         lastRowIdx++;
 
@@ -397,8 +535,8 @@ export const generateExcel = async (data, type) => {
         sheet.getCell(`A${lastRowIdx+1}`).value = `The above materials sent\nDate: ${new Date(challan.date || Date.now()).toLocaleDateString('en-GB')}`;
         sheet.mergeCells(`D${lastRowIdx+1}:E${lastRowIdx+1}`);
         sheet.getCell(`D${lastRowIdx+1}`).value = `Freight to pay/Paid\n${challan.freightType || ''}`;
-        sheet.mergeCells(`F${lastRowIdx+1}:G${lastRowIdx+1}`);
-        sheet.getCell(`F${lastRowIdx+1}`).value = `LR/NR\n${challan.lrNr || ''}`;
+        sheet.mergeCells(`F${lastRowIdx+1}:H${lastRowIdx+1}`);
+        sheet.getCell(`F${lastRowIdx+1}`).value = `LR/NR: ${challan.lrNr || '-'} | Vehicle: ${challan.vehicleNo || '-'}`;
         
         tfRow.eachCell((cell) => { 
             cell.alignment = { vertical: 'top', horizontal: 'center', wrapText: true };
@@ -409,7 +547,7 @@ export const generateExcel = async (data, type) => {
         // Note row
         const noteRow = sheet.addRow([]);
         noteRow.height = 40;
-        sheet.mergeCells(`A${lastRowIdx+1}:G${lastRowIdx+1}`);
+        sheet.mergeCells(`A${lastRowIdx+1}:H${lastRowIdx+1}`);
         const noteCell = sheet.getCell(`A${lastRowIdx+1}`);
         noteCell.value = `Note:\nPlease arrange to return the material back to us before ${challan.expectedReturnDate ? new Date(challan.expectedReturnDate).toLocaleDateString('en-GB') : '___________'} and while returning the material please quote this challan reference on your delivery challan invariably, failing which payment will be delayed.`;
         noteCell.font = { size: 9 };
@@ -425,7 +563,7 @@ export const generateExcel = async (data, type) => {
         sigLeft.value = `Our GST No : ${companyInfo.gstNumber || ''}\nOur PAN No : ${companyInfo.panNumber || ''}\nParty's GST No : ${challan.vendor?.gst || ''}\nParty's PAN No : ${challan.vendor?.pan || ''}`;
         sigLeft.alignment = { vertical: 'top', wrapText: true };
         
-        sheet.mergeCells(`E${lastRowIdx+1}:G${lastRowIdx+1}`);
+        sheet.mergeCells(`E${lastRowIdx+1}:H${lastRowIdx+1}`);
         const sigRight = sheet.getCell(`E${lastRowIdx+1}`);
         sigRight.value = `E-Sugam No: ${challan.eSugamNo || ''}\nDate: ${challan.eSugamDate ? new Date(challan.eSugamDate).toLocaleDateString('en-GB') : ''}\n\nFor ${companyInfo.companyName || 'COMPANY NAME'}\n\nAuthorised Signatory`;
         sigRight.alignment = { vertical: 'top', horizontal: 'right', wrapText: true };
@@ -434,7 +572,7 @@ export const generateExcel = async (data, type) => {
         lastRowIdx++;
         
         // Part II
-        sheet.mergeCells(`A${lastRowIdx+1}:G${lastRowIdx+1}`);
+        sheet.mergeCells(`A${lastRowIdx+1}:H${lastRowIdx+1}`);
         const p2Title = sheet.getCell(`A${lastRowIdx+1}`);
         p2Title.value = 'PART II (to be filled by the Supplier)';
         p2Title.font = { bold: true };
@@ -442,21 +580,23 @@ export const generateExcel = async (data, type) => {
         p2Title.border = { bottom: {style:'thin'}, left: {style:'thin'}, right: {style:'thin'} };
         lastRowIdx++;
 
-        const p2HeadRow = sheet.addRow(['Party\'s DC / Inv No. & Date', '', 'Qty Returned', '', 'Waste (if any) Returned', '', 'Authorised Signatory']);
+        const p2HeadRow = sheet.addRow(['Party\'s DC / Inv No. & Date', '', 'Qty Returned', '', 'Waste (if any) Returned', '', 'Authorised Signatory', '']);
         sheet.mergeCells(`A${lastRowIdx+1}:B${lastRowIdx+1}`);
         sheet.mergeCells(`C${lastRowIdx+1}:D${lastRowIdx+1}`);
         sheet.mergeCells(`E${lastRowIdx+1}:F${lastRowIdx+1}`);
+        sheet.mergeCells(`G${lastRowIdx+1}:H${lastRowIdx+1}`);
         p2HeadRow.eachCell((cell) => { 
             cell.border = { bottom: {style:'thin'}, right: {style:'thin'}, left: {style:'thin'} }; 
             cell.alignment = { horizontal: 'center' };
         });
         lastRowIdx++;
 
-        const p2ValRow = sheet.addRow(['', '', '', '', '', '', '']);
+        const p2ValRow = sheet.addRow(['', '', '', '', '', '', '', '']);
         p2ValRow.height = 30;
         sheet.mergeCells(`A${lastRowIdx+1}:B${lastRowIdx+1}`);
         sheet.mergeCells(`C${lastRowIdx+1}:D${lastRowIdx+1}`);
         sheet.mergeCells(`E${lastRowIdx+1}:F${lastRowIdx+1}`);
+        sheet.mergeCells(`G${lastRowIdx+1}:H${lastRowIdx+1}`);
         p2ValRow.eachCell((cell) => { 
             cell.border = { bottom: {style:'thin'}, right: {style:'thin'}, left: {style:'thin'} }; 
         });
@@ -465,10 +605,10 @@ export const generateExcel = async (data, type) => {
         for(let i=1; i<=lastRowIdx+1; i++) {
             const leftCell = sheet.getCell(`A${i}`);
             leftCell.border = { ...leftCell.border, left: {style:'medium'} };
-            const rightCell = sheet.getCell(`G${i}`);
+            const rightCell = sheet.getCell(`H${i}`);
             rightCell.border = { ...rightCell.border, right: {style:'medium'} };
         }
-        for(let j=1; j<=7; j++) {
+        for(let j=1; j<=8; j++) {
             const colLtr = String.fromCharCode(64 + j);
             const topCell = sheet.getCell(`${colLtr}1`);
             topCell.border = { ...topCell.border, top: {style:'medium'} };

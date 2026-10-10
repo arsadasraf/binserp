@@ -36,6 +36,7 @@ interface MRPModalProps {
     token: string;
     initialData?: any;
     preselectedPoIds?: string[];
+    preselectedMonth?: string;
 }
 
 interface FGRow {
@@ -59,6 +60,9 @@ interface FGRow {
     customerPo?: string;
     customerPoNumber?: string;
     customerName?: string;
+    totalDemanded?: number;
+    alreadyPlannedQty?: number;
+    previousMrpNumbers?: string[];
     sourceBreakdown?: Array<{
         customerPo?: string;
         customerPoNumber: string;
@@ -81,9 +85,16 @@ interface BOMCostSummary {
     boCount: number;
 }
 
-export default function MRPModal({ isOpen, onClose, onSuccess, token, initialData, preselectedPoIds }: MRPModalProps) {
+export default function MRPModal({ isOpen, onClose, onSuccess, token, initialData, preselectedPoIds, preselectedMonth }: MRPModalProps) {
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [selectedPlanningMonth, setSelectedPlanningMonth] = useState<string>(preselectedMonth || 'all');
+
+    useEffect(() => {
+        if (preselectedMonth) {
+            setSelectedPlanningMonth(preselectedMonth);
+        }
+    }, [preselectedMonth]);
 
     // Active Exchange Rates from Master > Store Settings
     const { exchangeRates } = useExchangeRates(token);
@@ -152,8 +163,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    // Helper: Extract mapped FG rows from any Customer PO object
-    const extractFGRowsFromPO = (po: any, fgList = fgItemList, bomList = bomsList): FGRow[] => {
+    // Helper: Extract mapped FG rows from any Customer PO object (supporting month-specific allocation)
+    const extractFGRowsFromPO = (po: any, fgList = fgItemList, bomList = bomsList, targetMonth = selectedPlanningMonth): FGRow[] => {
         if (!po || !Array.isArray(po.items) || po.items.length === 0) return [];
 
         const resolvedPoDate = po.deliveryDate
@@ -172,7 +183,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         const poCurrency = (po.currency || 'INR').trim().toUpperCase();
         const exRate = getExchangeRateToINR(poCurrency, undefined, exchangeRates);
 
-        return po.items.map((item: any) => {
+        const resultRows: FGRow[] = [];
+
+        po.items.forEach((item: any) => {
             const pName = item.productName || item.name || item.itemName || '';
             const pCode = item.productCode || item.code || '';
             const fgObj = fgList.find(
@@ -191,29 +204,97 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                     (pCode && b.productCode === pCode)
             );
 
-            const qty = (item.quantity || 1) - (item.dispatchedQuantity || item.billedQuantity || 0);
+            let lineQty = 0;
+            let monthTargetDate = '';
+            let totalMonthDemanded = 0;
+            let alreadyPlannedMonthQty = 0;
+            const previousMrpNumbers: string[] = [];
+
+            if (targetMonth && targetMonth !== 'all') {
+                if (Array.isArray(item.deliverySchedule) && item.deliverySchedule.length > 0) {
+                    const matchedSched = item.deliverySchedule.filter((s: any) => s.monthKey === targetMonth);
+                    if (matchedSched.length > 0) {
+                        totalMonthDemanded = matchedSched.reduce((sum: number, s: any) => sum + (Number(s.quantity) || 0), 0);
+                        alreadyPlannedMonthQty = matchedSched.reduce((sum: number, s: any) => {
+                            const pQ = s.plannedQuantity != null 
+                                ? Number(s.plannedQuantity) 
+                                : (s.isPlanned ? Number(s.quantity || 0) : 0);
+                            return sum + pQ;
+                        }, 0);
+                        matchedSched.forEach((s: any) => {
+                            if (s.mrpNumber && !previousMrpNumbers.includes(s.mrpNumber)) previousMrpNumbers.push(s.mrpNumber);
+                            if (Array.isArray(s.linkedMrps)) {
+                                s.linkedMrps.forEach((lm: any) => {
+                                    if (lm.mrpNumber && !previousMrpNumbers.includes(lm.mrpNumber)) previousMrpNumbers.push(lm.mrpNumber);
+                                });
+                            }
+                        });
+                        const unplannedQty = Math.max(0, totalMonthDemanded - alreadyPlannedMonthQty);
+                        lineQty = unplannedQty > 0 ? unplannedQty : totalMonthDemanded;
+
+                        if (matchedSched[0].targetDate) {
+                            monthTargetDate = new Date(matchedSched[0].targetDate).toISOString().split('T')[0];
+                        }
+                    } else {
+                        // Not scheduled for this month
+                        lineQty = 0;
+                    }
+                } else {
+                    const itDate = item.expectedDeliveryDate || po.deliveryDate || po.date;
+                    const itMonth = itDate ? new Date(itDate).toISOString().slice(0, 7) : '';
+                    if (itMonth === targetMonth) {
+                        totalMonthDemanded = Number(item.quantity) || 1;
+                        alreadyPlannedMonthQty = Number(item.plannedQuantity || 0);
+                        if (item.mrpNumber && !previousMrpNumbers.includes(item.mrpNumber)) previousMrpNumbers.push(item.mrpNumber);
+                        if (Array.isArray(item.linkedMrps)) {
+                            item.linkedMrps.forEach((lm: any) => {
+                                if (lm.mrpNumber && !previousMrpNumbers.includes(lm.mrpNumber)) previousMrpNumbers.push(lm.mrpNumber);
+                            });
+                        }
+                        const unplannedQty = Math.max(0, totalMonthDemanded - alreadyPlannedMonthQty);
+                        lineQty = unplannedQty > 0 ? unplannedQty : totalMonthDemanded;
+                    } else {
+                        lineQty = 0;
+                    }
+                }
+            } else {
+                totalMonthDemanded = Number(item.quantity) || 1;
+                alreadyPlannedMonthQty = Number(item.plannedQuantity || 0);
+                if (item.mrpNumber && !previousMrpNumbers.includes(item.mrpNumber)) previousMrpNumbers.push(item.mrpNumber);
+                if (Array.isArray(item.linkedMrps)) {
+                    item.linkedMrps.forEach((lm: any) => {
+                        if (lm.mrpNumber && !previousMrpNumbers.includes(lm.mrpNumber)) previousMrpNumbers.push(lm.mrpNumber);
+                    });
+                }
+                const netQty = (item.quantity || 1) - (item.dispatchedQuantity || item.billedQuantity || 0);
+                const unplannedQty = Math.max(0, totalMonthDemanded - alreadyPlannedMonthQty);
+                lineQty = unplannedQty > 0 ? unplannedQty : (netQty > 0 ? netQty : totalMonthDemanded);
+            }
+
+            if (lineQty <= 0) return; // Skip line items not scheduled for target month!
 
             const itemPoDate = item.expectedDeliveryDate
                 ? new Date(item.expectedDeliveryDate).toISOString().split('T')[0]
                 : resolvedPoDate;
 
-            let itemCommittedDate = '';
+            let itemCommittedDate = monthTargetDate;
             let isFromOA = false;
-            if (item.committedDeliveryDate) {
-                itemCommittedDate = new Date(item.committedDeliveryDate).toISOString().split('T')[0];
-                isFromOA = true;
-            } else if (po.committedDispatchDate) {
-                itemCommittedDate = new Date(po.committedDispatchDate).toISOString().split('T')[0];
-                isFromOA = true;
-            } else {
-                itemCommittedDate = itemPoDate || resolvedCommittedDate;
+            if (!itemCommittedDate) {
+                if (item.committedDeliveryDate) {
+                    itemCommittedDate = new Date(item.committedDeliveryDate).toISOString().split('T')[0];
+                    isFromOA = true;
+                } else if (po.committedDispatchDate) {
+                    itemCommittedDate = new Date(po.committedDispatchDate).toISOString().split('T')[0];
+                    isFromOA = true;
+                } else {
+                    itemCommittedDate = itemPoDate || resolvedCommittedDate;
+                }
             }
 
             const rawRate = Number(
                 item.rate || (item.quantity > 0 ? Number(item.amount || 0) / Number(item.quantity) : 0) || fgObj?.sellingPrice || 0
             );
             const inrRate = Math.round(rawRate * exRate * 100) / 100;
-            const lineQty = qty > 0 ? qty : Number(item.quantity) || 1;
             const lineTotalPrice = Math.round(lineQty * inrRate * 100) / 100;
 
             const isForeign = poCurrency !== 'INR';
@@ -233,7 +314,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 }
             }
 
-            return {
+            resultRows.push({
                 fgItem: resolvedFgId,
                 fgItemName: fgObj?.name || pName || 'Finished Good',
                 fgItemCode: fgObj?.code || pCode || '',
@@ -252,10 +333,15 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 customerPo: /^[0-9a-fA-F]{24}$/.test(String(po._id || '')) ? po._id : undefined,
                 customerPoNumber: po.poNumber || '',
                 customerName: cName,
+                totalDemanded: totalMonthDemanded,
+                alreadyPlannedQty: alreadyPlannedMonthQty,
+                previousMrpNumbers,
                 bomId: /^[0-9a-fA-F]{24}$/.test(String(matchedBom?._id || '')) ? matchedBom._id : undefined,
                 bomNumber: matchedBom?.bomNumber || (fgObj?.bom?.length > 0 ? `BOM-${fgObj.code || fgObj.name}` : undefined)
-            };
+            });
         });
+
+        return resultRows;
     };
 
     // Helper: Consolidate FG rows by canonical item key, merging quantities, earliest dates, and source breakdowns
@@ -288,6 +374,14 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             } else {
                 const existing = itemMap.get(itemKey)!;
                 existing.quantity += row.quantity;
+                existing.totalDemanded = (existing.totalDemanded || 0) + (row.totalDemanded || 0);
+                existing.alreadyPlannedQty = (existing.alreadyPlannedQty || 0) + (row.alreadyPlannedQty || 0);
+                if (Array.isArray(row.previousMrpNumbers)) {
+                    if (!existing.previousMrpNumbers) existing.previousMrpNumbers = [];
+                    row.previousMrpNumbers.forEach((m) => {
+                        if (!existing.previousMrpNumbers!.includes(m)) existing.previousMrpNumbers!.push(m);
+                    });
+                }
                 if (!existing.description && row.description) existing.description = row.description;
                 if (!existing.bomId && row.bomId) {
                     existing.bomId = row.bomId;
@@ -345,7 +439,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
     };
 
     // Helper: Sync multi-PO selected items into FG table without duplicating line items
-    const syncMultiPORows = (poIds: string[], posList = incomingPOs, fgs = fgItemList, boms = bomsList) => {
+    const syncMultiPORows = (poIds: string[], posList = incomingPOs, fgs = fgItemList, boms = bomsList, targetMonth = selectedPlanningMonth) => {
         if (poIds.length === 0) {
             setFgRows([
                 { fgItem: '', fgItemName: '', fgItemCode: '', description: '', quantity: 1, unit: 'PCS', poDeliveryDate: '', targetDate }
@@ -361,7 +455,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         poIds.forEach((id) => {
             const po = posList.find((p) => String(p._id || p.id) === String(id));
             if (po) {
-                const rows = extractFGRowsFromPO(po, fgs, boms);
+                const rows = extractFGRowsFromPO(po, fgs, boms, targetMonth);
                 rows.forEach((r) => rawRows.push(r));
 
                 const cDate = po.committedDispatchDate || po.deliveryDate || po.date;
@@ -377,6 +471,10 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         const mergedRows = consolidateFGRows(rawRows);
         if (mergedRows.length > 0) {
             setFgRows(mergedRows);
+        } else {
+            setFgRows([
+                { fgItem: '', fgItemName: '', fgItemCode: '', description: '', quantity: 1, unit: 'PCS', poDeliveryDate: '', targetDate }
+            ]);
         }
         if (earliestDate) {
             setTargetDate(earliestDate);
@@ -386,6 +484,75 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         const custNames = [...new Set(selectedDocs.map((p) => p.customerName || (typeof p.customer === 'object' ? p.customer?.name : '')).filter(Boolean))];
         setCustomerName(custNames.join(', '));
         setCustomerPoNumber(selectedDocs.map((p) => p.poNumber).filter(Boolean).join(', '));
+    };
+
+    // Scheduled months across currently selected PO(s)
+    const poScheduledMonths = useMemo(() => {
+        const monthsMap = new Map<string, { monthKey: string; monthLabel: string; totalQty: number; plannedQty: number }>();
+        
+        let targetPOs: any[] = [];
+        if (planMode === 'single' && selectedPOId) {
+            const p = incomingPOs.find((po) => String(po._id || po.id) === String(selectedPOId));
+            if (p) targetPOs.push(p);
+        } else if (planMode === 'consolidated' && selectedMultiPoIds.length > 0) {
+            targetPOs = incomingPOs.filter((po) =>
+                selectedMultiPoIds.some((id) => String(id) === String(po._id || po.id))
+            );
+        }
+
+        targetPOs.forEach((po) => {
+            (po.items || []).forEach((item: any) => {
+                if (Array.isArray(item.deliverySchedule) && item.deliverySchedule.length > 0) {
+                    item.deliverySchedule.forEach((sched: any) => {
+                        if (sched.monthKey) {
+                            const pQ = sched.plannedQuantity != null 
+                                ? Number(sched.plannedQuantity) 
+                                : (sched.isPlanned ? Number(sched.quantity || 0) : 0);
+                            const existing = monthsMap.get(sched.monthKey);
+                            if (existing) {
+                                existing.totalQty += Number(sched.quantity) || 0;
+                                existing.plannedQty += pQ;
+                            } else {
+                                monthsMap.set(sched.monthKey, {
+                                    monthKey: sched.monthKey,
+                                    monthLabel: sched.monthLabel || sched.monthKey,
+                                    totalQty: Number(sched.quantity) || 0,
+                                    plannedQty: pQ
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+        });
+
+        return Array.from(monthsMap.values()).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+    }, [planMode, selectedPOId, selectedMultiPoIds, incomingPOs]);
+
+    // Handle Month Selection for planning
+    const handleMonthFilterChange = (mKey: string) => {
+        setSelectedPlanningMonth(mKey);
+        if (planMode === 'single') {
+            const po = incomingPOs.find((p) => String(p._id || p.id) === String(selectedPOId));
+            if (po) {
+                const rows = extractFGRowsFromPO(po, fgItemList, bomsList, mKey);
+                const consolidated = consolidateFGRows(rows);
+                if (consolidated.length > 0) {
+                    setFgRows(consolidated);
+                } else {
+                    setFgRows([
+                        { fgItem: '', fgItemName: '', fgItemCode: '', description: '', quantity: 1, unit: 'PCS', poDeliveryDate: '', targetDate }
+                    ]);
+                }
+                if (mKey !== 'all') {
+                    setMrpNumber(`${po.poNumber || 'MRP'}-${mKey}`);
+                } else if (po.poNumber) {
+                    setMrpNumber(po.poNumber);
+                }
+            }
+        } else if (planMode === 'consolidated') {
+            syncMultiPORows(selectedMultiPoIds, incomingPOs, fgItemList, bomsList, mKey);
+        }
     };
 
     useEffect(() => {
@@ -605,7 +772,16 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 setIncomingPOs(loadedPOs);
 
                 if (preselectedPoIds && preselectedPoIds.length > 0 && !initialData) {
-                    syncMultiPORows(preselectedPoIds, loadedPOs, loadedFGs, loadedBOMs);
+                    if (preselectedPoIds.length === 1) {
+                        const targetPO = loadedPOs.find((p) => String(p._id || p.id) === String(preselectedPoIds[0]));
+                        if (targetPO) {
+                            handleSelectCustomerPO(targetPO, loadedFGs, loadedBOMs, selectedPlanningMonth);
+                        } else {
+                            syncMultiPORows(preselectedPoIds, loadedPOs, loadedFGs, loadedBOMs, selectedPlanningMonth);
+                        }
+                    } else {
+                        syncMultiPORows(preselectedPoIds, loadedPOs, loadedFGs, loadedBOMs, selectedPlanningMonth);
+                    }
                 }
             }
             if (mrpRes.status === 'fulfilled' && mrpRes.value) {
@@ -775,7 +951,12 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
     };
 
     // Handle Customer PO Selection in Single Mode
-    const handleSelectCustomerPO = (po: any) => {
+    const handleSelectCustomerPO = (
+        po: any,
+        fgs = fgItemList,
+        boms = bomsList,
+        targetMonth = selectedPlanningMonth
+    ) => {
         if (!po) {
             setSelectedPOId('');
             setCustomerPoNumber('');
@@ -796,7 +977,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         setPoSearch(`PO #${po.poNumber}`);
         setIsPoDropdownOpen(false);
 
-        if (po.poNumber) {
+        if (targetMonth && targetMonth !== 'all') {
+            setMrpNumber(`${po.poNumber || 'MRP'}-${targetMonth}`);
+        } else if (po.poNumber) {
             setMrpNumber(po.poNumber);
         }
 
@@ -825,7 +1008,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             setTargetDate(resolvedCommittedDate);
         }
 
-        const rows = extractFGRowsFromPO(po, fgItemList, bomsList);
+        const rows = extractFGRowsFromPO(po, fgs, boms, targetMonth);
         const consolidated = consolidateFGRows(rows);
         if (consolidated.length > 0) {
             setFgRows(consolidated);
@@ -1060,6 +1243,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 isConsolidated,
                 targetDate,
                 remarks,
+                planningMonth: selectedPlanningMonth !== 'all' ? selectedPlanningMonth : undefined,
                 targetExpense: targetExpense ? Number(targetExpense) : undefined,
                 fgItems: sanitizedFgItems
             };
@@ -1717,6 +1901,81 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                             </button>
                         </div>
 
+                        {/* Target Delivery Month Planning Banner */}
+                        {poScheduledMonths.length > 0 && (
+                            <div className="p-3 bg-gradient-to-r from-blue-50/70 via-indigo-50/50 to-purple-50/70 dark:from-slate-800/80 dark:to-indigo-950/40 rounded-xl border border-indigo-200/80 dark:border-indigo-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shadow-2xs animate-in fade-in duration-150">
+                                <div className="flex items-center gap-2">
+                                    <Calendar className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    <div>
+                                        <span className="text-xs font-black text-slate-800 dark:text-slate-100 uppercase tracking-wide block">
+                                            Target Delivery Month Planning
+                                        </span>
+                                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                                            This Customer PO has multiple scheduled delivery months. Choose a month to plan only its demand.
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleMonthFilterChange('all')}
+                                        className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                            selectedPlanningMonth === 'all'
+                                                ? 'bg-indigo-600 text-white shadow-xs'
+                                                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                                        }`}
+                                    >
+                                        All Months (Full PO)
+                                    </button>
+                                    {poScheduledMonths.map((m) => {
+                                        const pendingQty = Math.max(0, m.totalQty - (m.plannedQty || 0));
+                                        const isPartial = (m.plannedQty || 0) > 0 && pendingQty > 0;
+                                        const isAllPlanned = pendingQty === 0 && m.totalQty > 0;
+
+                                        return (
+                                            <button
+                                                key={m.monthKey}
+                                                type="button"
+                                                onClick={() => handleMonthFilterChange(m.monthKey)}
+                                                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                                    selectedPlanningMonth === m.monthKey
+                                                        ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-400'
+                                                        : isAllPlanned
+                                                        ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 hover:bg-emerald-100'
+                                                        : isPartial
+                                                        ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 hover:bg-amber-100'
+                                                        : 'bg-white dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-50'
+                                                }`}
+                                            >
+                                                <span>{m.monthLabel}</span>
+                                                {isPartial ? (
+                                                    <span className="flex items-center gap-1">
+                                                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-mono font-black bg-emerald-200 text-emerald-900">
+                                                            ✓ {m.plannedQty}
+                                                        </span>
+                                                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-mono font-black bg-amber-200 text-amber-900">
+                                                            ⚡ {pendingQty} Pending
+                                                        </span>
+                                                    </span>
+                                                ) : isAllPlanned ? (
+                                                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black bg-emerald-100 text-emerald-800">
+                                                        ✓ {m.totalQty} Planned
+                                                    </span>
+                                                ) : (
+                                                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                                                        selectedPlanningMonth === m.monthKey ? 'bg-white/20 text-white' : 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200'
+                                                    }`}>
+                                                        {m.totalQty} Nos
+                                                    </span>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Table */}
                         <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-visible shadow-xs bg-white dark:bg-slate-900">
                             <table className="w-full text-xs text-left">
@@ -1753,12 +2012,12 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                                 : ''
                                                         }
                                                         onFocus={() => {
-                                                            setActiveFGSearchIdx(idx);
-                                                            setFgSearchQuery(row.fgItemName || '');
+                                                             setActiveFGSearchIdx(idx);
+                                                             setFgSearchQuery(row.fgItemName || '');
                                                         }}
                                                         onChange={(e) => {
-                                                            setFgSearchQuery(e.target.value);
-                                                            handleRowChange(idx, 'fgItemName', e.target.value);
+                                                             setFgSearchQuery(e.target.value);
+                                                             handleRowChange(idx, 'fgItemName', e.target.value);
                                                         }}
                                                         className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
                                                     />
@@ -1773,6 +2032,21 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                         <CheckCircle2 size={11} /> BOM Linked: {row.bomNumber}
                                                     </span>
                                                 )}
+
+                                                {row.alreadyPlannedQty && row.alreadyPlannedQty > 0 ? (
+                                                    <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                                        <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 px-1.5 py-0.5 rounded-md font-bold" title="Already planned in MRP">
+                                                            <CheckCircle2 size={10} className="text-emerald-600" />
+                                                            Previously Planned: {row.alreadyPlannedQty} {row.unit}
+                                                            {row.previousMrpNumbers && row.previousMrpNumbers.length > 0 && ` (${row.previousMrpNumbers.join(', ')})`}
+                                                        </span>
+                                                        {row.totalDemanded && row.totalDemanded > row.alreadyPlannedQty ? (
+                                                            <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/70 border border-amber-300 px-1.5 py-0.5 rounded-md">
+                                                                Planning Unplanned: {row.quantity} of {row.totalDemanded} {row.unit}
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                ) : null}
 
                                                 {row.sourceBreakdown && row.sourceBreakdown.length > 1 ? (
                                                     <div className="mt-1 space-y-1">

@@ -121,6 +121,7 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
     let totalSentQty = 0;
     let totalExpectedQty = 0;
     let totalProcessValue = 0;
+    let totalJwCharges = 0;
     let itemsSectionHtml = '';
 
     const items = doc.items || [];
@@ -131,20 +132,29 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
             items.forEach((item: any, idx: number) => {
                 const sentQty = Number(item.quantitySent || 0);
                 totalSentQty += sentQty;
-                const rate = Number(item.processRate != null ? item.processRate : item.unitPrice) || 0;
-                const lineVal = sentQty * rate;
+                const matVal = Number(item.unitPrice != null ? item.unitPrice : item.processRate) || 0;
+                const lineVal = sentQty * matVal;
                 totalProcessValue += lineVal;
+
+                let sentSecStr = '';
+                if (item.hasSecondaryUnit && item.secondaryUnit && (item.secondaryQuantitySent || item.conversionFactor)) {
+                    const secSent = item.secondaryQuantitySent || (sentQty * Number(item.conversionFactor || 1));
+                    sentSecStr = `<div style="font-size: 8px; color: #64748b; margin-top: 1px;">↳ ${secSent} ${item.secondaryUnit}</div>`;
+                }
 
                 compRows += `
                     <tr>
                         <td style="text-align: center; padding: 5px 3px;">${idx + 1}</td>
                         <td style="text-align: left; font-weight: bold; padding: 5px 6px;">
                             ${item.itemName || ''}
-                            ${item.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal; font-style: italic;">${item.description}</div>` : ''}
+                            ${item.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal; font-style: italic; margin-top: 2px;">${item.description}</div>` : ''}
                         </td>
-                        <td style="text-align: center; font-weight: bold; padding: 5px 4px;">${sentQty} ${item.unit || 'PCS'}</td>
+                        <td style="text-align: center; font-weight: bold; padding: 5px 4px;">
+                            ${sentQty} ${item.unit || 'PCS'}
+                            ${sentSecStr}
+                        </td>
                         <td style="text-align: left; padding: 5px 6px;"><b>${item.processType || (doc.purpose === 'Others' && doc.otherPurpose ? doc.otherPurpose : doc.purpose) || 'Job Work'}</b></td>
-                        <td style="text-align: center; font-family: monospace; font-weight: bold; padding: 5px 4px;">${rate > 0 ? '₹' + rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                        <td style="text-align: center; font-family: monospace; font-weight: bold; padding: 5px 4px;">${matVal > 0 ? '₹' + matVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
                         <td style="text-align: right; font-family: monospace; font-weight: bold; padding: 5px 6px;">${lineVal > 0 ? '₹' + lineVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
                     </tr>
                 `;
@@ -158,6 +168,11 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
         }
 
         totalExpectedQty = Number(assemblyOutput?.quantityToBeReceived || 0);
+        const asmbRate = Number(assemblyOutput?.processRate) || 0;
+        const asmbAmt = (assemblyOutput?.processAmount != null && Number(assemblyOutput.processAmount) > 0)
+            ? Number(assemblyOutput.processAmount)
+            : (totalExpectedQty * asmbRate);
+        totalJwCharges = asmbAmt;
 
         itemsSectionHtml = `
             <!-- Components Sent Table -->
@@ -171,7 +186,7 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                         <th style="width: 45%; padding: 6px 6px; text-align: left;">Component / Material Dispatched</th>
                         <th style="width: 15%; padding: 6px 4px; text-align: center;">Dispatched Qty</th>
                         <th style="width: 15%; padding: 6px 6px; text-align: left;">Process</th>
-                        <th style="width: 10%; padding: 6px 4px; text-align: center;">Rate (₹)</th>
+                        <th style="width: 10%; padding: 6px 4px; text-align: center;">Mat Val (₹)</th>
                         <th style="width: 10%; padding: 6px 6px; text-align: right;">Amount (₹)</th>
                     </tr>
                 </thead>
@@ -182,7 +197,7 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                     <tr>
                         <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Components Sent Qty =</td>
                         <td style="padding: 6px 4px; text-align: center;">${totalSentQty}</td>
-                        <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Job Value =</td>
+                        <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Est. Material Value =</td>
                         <td style="padding: 6px 6px; text-align: right; font-family: monospace; font-size: 11px;">₹${totalProcessValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                 </tfoot>
@@ -195,19 +210,31 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                 </div>
                 <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
                     <tr>
-                        <td style="width: 60%; vertical-align: top;">
+                        <td style="width: 50%; vertical-align: top;">
                             <div style="font-size: 9px; color: #64748b; font-weight: bold; text-transform: uppercase;">Finished Product / Sub-Assembly:</div>
                             <div style="font-weight: 800; font-size: 13px; color: #0f172a; margin-top: 2px;">${assemblyOutput?.itemName || 'Consolidated Assembly Product'}</div>
                             ${assemblyOutput?.description ? `<div style="font-size: 9px; color: #475569; font-style: italic; margin-top: 2px;">${assemblyOutput.description}</div>` : ''}
                             ${assemblyOutput?.processType ? `<div style="font-size: 9px; color: #1e3a8a; font-weight: bold; margin-top: 3px;">Process: ${assemblyOutput.processType}</div>` : ''}
                         </td>
-                        <td style="width: 40%; vertical-align: top; text-align: right;">
+                        <td style="width: 25%; vertical-align: top; text-align: center;">
                             <div style="font-size: 9px; color: #64748b; font-weight: bold; text-transform: uppercase;">Expected Return Qty:</div>
                             <div style="font-weight: 900; font-size: 15px; color: #1e3a8a; margin-top: 2px;">
                                 ${assemblyOutput?.quantityToBeReceived || 0} ${assemblyOutput?.receivingUnit || 'PCS'}
                             </div>
+                            ${assemblyOutput?.hasSecondaryUnit && assemblyOutput?.secondaryUnit ? `
+                                <div style="font-size: 8px; color: #64748b; margin-top: 2px;">↳ ${assemblyOutput.secondaryQuantityToBeReceived || (Number(assemblyOutput.quantityToBeReceived) * Number(assemblyOutput.conversionFactor || 1))} ${assemblyOutput.secondaryUnit}</div>
+                            ` : ''}
                             <div style="font-size: 9px; color: #475569; margin-top: 3px;">
                                 Stock Receipt: <b style="color: #0f172a;">Shopfloor WIP FG</b>
+                            </div>
+                        </td>
+                        <td style="width: 25%; vertical-align: top; text-align: right;">
+                            <div style="font-size: 9px; color: #64748b; font-weight: bold; text-transform: uppercase;">JW Rate:</div>
+                            <div style="font-weight: 900; font-size: 13px; color: #0f172a; margin-top: 2px; font-family: monospace;">
+                                ${asmbRate > 0 ? '₹' + asmbRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                            </div>
+                            <div style="font-size: 9px; color: #1e3a8a; font-weight: bold; margin-top: 4px; font-family: monospace;">
+                                JW Charges: ₹${asmbAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                         </td>
                     </tr>
@@ -222,33 +249,82 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
             items.forEach((item: any, idx: number) => {
                 const sentQty = Number(item.quantitySent || 0);
                 totalSentQty += sentQty;
-                const rate = Number(item.processRate != null ? item.processRate : item.unitPrice) || 0;
-                const lineVal = sentQty * rate;
-                totalProcessValue += lineVal;
+                const matVal = Number(item.unitPrice || 0);
+                totalProcessValue += (sentQty * matVal);
 
                 const retList = (item.returningItems && item.returningItems.length > 0)
                     ? item.returningItems
                     : [{
                         receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
                         quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
-                        receivingUnit: item.receivingUnit || item.unit || 'PCS'
+                        receivingUnit: item.receivingUnit || item.unit || 'PCS',
+                        hasSecondaryUnit: item.hasSecondaryUnit,
+                        secondaryUnit: item.secondaryUnit,
+                        conversionFactor: item.conversionFactor,
+                        secondaryQuantityToBeReceived: item.secondaryQuantityToBeReceived,
+                        processRate: item.processRate,
+                        processAmount: item.processAmount,
+                        description: item.description
                     }];
 
                 retList.forEach((ret: any, rIdx: number) => {
                     rowIdx++;
-                    const expQty = Number(ret.quantityToBeReceived || 0);
+                    const expQty = Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : (retList.length === 1 ? (item.quantityToBeReceived || item.quantitySent) : 0)) || 0;
                     totalExpectedQty += expQty;
+
+                    const retRate = Number(
+                        ret.processRate != null 
+                            ? ret.processRate 
+                            : (rIdx === 0 && retList.length === 1 ? (item.processRate != null ? item.processRate : item.unitPrice) : 0)
+                    ) || 0;
+                    const retAmount = (ret.processAmount != null && Number(ret.processAmount) > 0)
+                        ? Number(ret.processAmount)
+                        : (expQty * retRate);
+                    totalJwCharges += retAmount;
+
+                    let sentSecStr = '';
+                    if (item.hasSecondaryUnit && item.secondaryUnit && (item.secondaryQuantitySent || item.conversionFactor)) {
+                        const secSent = item.secondaryQuantitySent || (sentQty * Number(item.conversionFactor || 1));
+                        sentSecStr = `<div style="font-size: 8px; color: #64748b; margin-top: 1px;">↳ ${secSent} ${item.secondaryUnit}</div>`;
+                    }
+
+                    let retSecStr = '';
+                    if (ret.hasSecondaryUnit && ret.secondaryUnit && (ret.secondaryQuantityToBeReceived || ret.conversionFactor)) {
+                        const secRecv = ret.secondaryQuantityToBeReceived || (expQty * Number(ret.conversionFactor || 1));
+                        retSecStr = `<div style="font-size: 8px; color: #64748b; margin-top: 1px;">↳ ${secRecv} ${ret.secondaryUnit}</div>`;
+                    }
+
+                    let procStr = `<b>${item.processType || (doc.purpose === 'Others' && doc.otherPurpose ? doc.otherPurpose : doc.purpose) || 'Job Work'}</b>`;
+                    if (item.unitPrice && Number(item.unitPrice) > 0) {
+                        procStr += `<div style="font-size: 8px; color: #475569; margin-top: 2px;">Mat Val: ₹${Number(item.unitPrice).toFixed(2)}</div>`;
+                    }
 
                     itemsTableRowsHtml += `
                         <tr>
                             ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; padding: 5px 3px;">${idx + 1}</td>` : ''}
-                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: left; font-weight: bold; padding: 5px 6px;">${item.itemName || ''} ${item.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal;">${item.description}</div>` : ''}</td>` : ''}
-                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; font-weight: bold; padding: 5px 4px;">${item.quantitySent || ''} ${item.unit || 'PCS'}</td>` : ''}
-                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: left; padding: 5px 6px;"><b>${item.processType || (doc.purpose === 'Others' && doc.otherPurpose ? doc.otherPurpose : doc.purpose) || 'Job Work'}</b></td>` : ''}
-                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; font-family: monospace; font-weight: bold; padding: 5px 4px;">${rate > 0 ? '₹' + rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>` : ''}
-                            <td style="text-align: left; font-weight: bold; color: #1e3a8a; padding: 5px 6px;">${ret.receivedItemName || ''}</td>
-                            <td style="text-align: center; padding: 5px 4px;">${expQty} ${ret.receivingUnit || 'PCS'}</td>
-                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: right; font-family: monospace; font-weight: bold; padding: 5px 6px;">${lineVal > 0 ? '₹' + lineVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>` : ''}
+                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: left; font-weight: bold; padding: 5px 6px;">
+                                ${item.itemName || ''}
+                                ${item.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal; font-style: italic; margin-top: 2px;">${item.description}</div>` : ''}
+                            </td>` : ''}
+                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; font-weight: bold; padding: 5px 4px;">
+                                ${sentQty} ${item.unit || 'PCS'}
+                                ${sentSecStr}
+                            </td>` : ''}
+                            <td style="text-align: left; font-weight: bold; color: #1e3a8a; padding: 5px 6px;">
+                                ${ret.receivedItemName || ''}
+                                ${ret.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal; font-style: italic; margin-top: 2px;">${ret.description}</div>` : ''}
+                            </td>
+                            <td style="text-align: center; padding: 5px 4px;">
+                                <b>${expQty} ${ret.receivingUnit || 'PCS'}</b>
+                                ${retSecStr}
+                            </td>
+                            <td style="text-align: right; font-family: monospace; font-weight: bold; padding: 5px 6px; color: #0f172a;">
+                                ${retRate > 0 ? '₹' + retRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                            </td>
+                            <td style="text-align: right; font-family: monospace; font-weight: 900; padding: 5px 6px; color: #1e3a8a;">
+                                ${retAmount > 0 ? '₹' + retAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                            </td>
+                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: left; padding: 5px 6px;">${procStr}</td>` : ''}
                         </tr>
                     `;
                 });
@@ -274,12 +350,12 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                     <tr>
                         <th style="width: 4%; padding: 6px 3px; text-align: center;">Sl</th>
                         <th style="width: 22%; padding: 6px 6px; text-align: left;">Items Sent</th>
-                        <th style="width: 9%; padding: 6px 4px; text-align: center;">Sent Qty</th>
-                        <th style="width: 15%; padding: 6px 6px; text-align: left;">Process</th>
-                        <th style="width: 11%; padding: 6px 4px; text-align: center;">Rate (₹)</th>
-                        <th style="width: 20%; padding: 6px 6px; text-align: left;">Return Item</th>
-                        <th style="width: 8%; padding: 6px 4px; text-align: center;">Exp Qty</th>
-                        <th style="width: 11%; padding: 6px 6px; text-align: right;">Amount (₹)</th>
+                        <th style="width: 10%; padding: 6px 4px; text-align: center;">Sent Qty</th>
+                        <th style="width: 22%; padding: 6px 6px; text-align: left;">Items to be Received</th>
+                        <th style="width: 10%; padding: 6px 4px; text-align: center;">Expected Qty</th>
+                        <th style="width: 10%; padding: 6px 6px; text-align: right;">JW Rate (₹)</th>
+                        <th style="width: 10%; padding: 6px 6px; text-align: right;">JW Amount (₹)</th>
+                        <th style="width: 12%; padding: 6px 6px; text-align: left;">Process / Purpose</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -289,9 +365,11 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                     <tr>
                         <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Sent Qty =</td>
                         <td style="padding: 6px 4px; text-align: center;">${totalSentQty}</td>
-                        <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Exp Qty =</td>
-                        <td style="padding: 6px 4px; text-align: left;" colspan="2">${totalExpectedQty}</td>
-                        <td style="padding: 6px 6px; text-align: right; font-family: monospace; font-size: 11px;">₹${totalProcessValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td style="padding: 6px 8px; text-align: right;">Total Exp Qty =</td>
+                        <td style="padding: 6px 4px; text-align: center;">${totalExpectedQty}</td>
+                        <td style="padding: 6px 8px; text-align: right;">Total JW:</td>
+                        <td style="padding: 6px 6px; text-align: right; font-family: monospace; font-size: 11px; color: #1e3a8a;">₹${totalJwCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td></td>
                     </tr>
                 </tfoot>
             </table>
@@ -375,9 +453,16 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                             <tr>
                                 <td style="padding: 3px 0; color: #64748b;"><b>Est. Weight:</b></td>
                                 <td style="padding: 3px 0;">${doc.estimatedWeight ? doc.estimatedWeight + ' Kgs' : '-'}</td>
-                                <td style="padding: 3px 0; color: #64748b; text-align: right;"><b>Est. Value:</b></td>
+                                <td style="padding: 3px 0; color: #64748b; text-align: right;"><b>Est. Mat. Value:</b></td>
                                 <td style="padding: 3px 0; text-align: right; font-weight: bold;">${doc.estimatedPrice ? '₹' + Number(doc.estimatedPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (totalProcessValue > 0 ? '₹' + totalProcessValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-')}</td>
                             </tr>
+                            ${(doc.totalJobWorkCharges || totalJwCharges) ? `
+                            <tr>
+                                <td colspan="2" style="padding: 3px 0;"></td>
+                                <td style="padding: 3px 0; color: #1e3a8a; text-align: right;"><b>Total JW Charges:</b></td>
+                                <td style="padding: 3px 0; text-align: right; font-weight: 900; color: #1e3a8a; font-family: monospace;">₹${Number(doc.totalJobWorkCharges || totalJwCharges).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ` : ''}
                         </table>
                     </td>
                 </tr>

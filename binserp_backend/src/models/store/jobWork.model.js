@@ -293,6 +293,9 @@ export const jobWorkSchema = new mongoose.Schema(
             secondaryQuantityToBeReceived: { type: Number, default: 0 },
             secondaryQuantityReceived: { type: Number, default: 0 },
             selectedUnit: { type: String, default: "" },
+            processRate: { type: Number, default: 0 },
+            processAmount: { type: Number, default: 0 },
+            description: String,
             status: {
               type: String,
               enum: ["Sent", "Partial", "Completed"],
@@ -311,6 +314,10 @@ export const jobWorkSchema = new mongoose.Schema(
         receivingUnit: String,
       },
     ],
+    totalJobWorkCharges: {
+      type: Number,
+      default: 0,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -327,6 +334,8 @@ export const jobWorkSchema = new mongoose.Schema(
         masterItemId: mongoose.Schema.Types.ObjectId,
         itemName: String,
         quantity: Number,
+        rate: { type: Number, default: 0 },
+        amount: { type: Number, default: 0 },
         qcRequired: { type: Boolean, default: true },
         qcStatus: {
           type: String,

@@ -978,7 +978,7 @@ export default function JobWorkStore({
                                                             </div>
                                                         )}
                                                     </div>
-                                                    <div className="flex items-center gap-2 mt-1 text-xs font-semibold">
+                                                    <div className="flex items-center gap-2 mt-1 text-xs font-semibold flex-wrap">
                                                         <span className="text-slate-500">Exp: <b className="text-slate-800 dark:text-slate-200">{expQty}</b></span>
                                                         <span className="text-slate-300">•</span>
                                                         <span className="text-emerald-600">Recv: <b>{recvQty}</b></span>
@@ -986,6 +986,14 @@ export default function JobWorkStore({
                                                         <span className={`font-bold ${pendingQty > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
                                                             Pend: {pendingQty} {retUnit}
                                                         </span>
+                                                        {challan.totalJobWorkCharges ? (
+                                                            <>
+                                                                <span className="text-slate-300">•</span>
+                                                                <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400" title="Total Job Work Charges">
+                                                                    JW: ₹{challan.totalJobWorkCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                </span>
+                                                            </>
+                                                        ) : null}
                                                     </div>
                                                 </td>
 

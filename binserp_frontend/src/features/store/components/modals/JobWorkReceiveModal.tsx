@@ -260,6 +260,23 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
 
     const totalReceivedCount = receiveData.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
 
+    const totalReceiptCharges = challan.operationMode === 'assembly'
+        ? ((challan.assemblyGroups && challan.assemblyGroups.length > 0) ? challan.assemblyGroups : [{ assemblyOutputItem: challan.assemblyOutputItem }]).reduce((sum: number, grp: any) => {
+            const out = grp?.assemblyOutputItem;
+            if (!out) return sum;
+            const targetKey = (grp._id || out._id || out.item || 'assembly_output_0') as string;
+            const qty = getItemQuantity(targetKey);
+            return sum + (qty * (Number(out.processRate) || 0));
+        }, 0)
+        : challan.items.reduce((sum: number, sentItem: any, sentIdx: number) => {
+            const parentId = sentItem._id || sentItem.item || `${sentIdx}`;
+            const retList = Array.isArray(sentItem.returningItems) && sentItem.returningItems.length > 0 ? sentItem.returningItems : [sentItem];
+            return sum + retList.reduce((subSum: number, ret: any) => {
+                const qty = getItemQuantity(parentId, ret._id);
+                return subSum + (qty * (Number(ret.processRate) || 0));
+            }, 0);
+        }, 0);
+
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-150">
             <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh]">
@@ -420,7 +437,7 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                         )}
                                                     </div>
 
-                                                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                                                    <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
                                                         <span className="text-xs font-bold text-slate-500">
                                                             Exp: <b className="text-slate-900 dark:text-white">{expectedQty}</b>
                                                         </span>
@@ -432,6 +449,22 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                         <span className="text-xs font-black text-teal-600 dark:text-teal-400">
                                                             Pending: {pendingQty} {out.receivingUnit || 'PCS'}
                                                         </span>
+                                                        {out.processRate ? (
+                                                            <>
+                                                                <span className="text-slate-300">•</span>
+                                                                <span className="text-xs font-mono font-bold text-teal-700 dark:text-teal-300">
+                                                                    @ ₹{Number(out.processRate).toFixed(2)}
+                                                                </span>
+                                                            </>
+                                                        ) : null}
+                                                        {enteredQty > 0 && out.processRate ? (
+                                                            <>
+                                                                <span className="text-slate-300">•</span>
+                                                                <span className="text-xs font-mono font-black text-indigo-600 dark:text-indigo-400">
+                                                                    Charges: ₹{(enteredQty * Number(out.processRate)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                </span>
+                                                            </>
+                                                        ) : null}
                                                     </div>
                                                 </div>
 
@@ -584,6 +617,19 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                     </div>
                                                 )}
                                             </div>
+
+                                            {ret.processRate ? (
+                                                <div className="flex items-center justify-between text-[11px] font-mono pt-1.5 border-t border-slate-100 dark:border-slate-800">
+                                                    <span className="text-slate-500 font-semibold">
+                                                        JW Rate: <b className="text-slate-700 dark:text-slate-300">₹{Number(ret.processRate).toFixed(2)}</b>
+                                                    </span>
+                                                    {enteredQty > 0 ? (
+                                                        <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                                                            Charges: ₹{(enteredQty * Number(ret.processRate)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            ) : null}
                                         </div>
                                     );
                                 });
@@ -595,12 +641,14 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                             <table className="w-full text-xs text-left">
                                 <thead className="bg-slate-100 dark:bg-slate-800/80 font-bold text-slate-600 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-700 text-[11px]">
                                     <tr>
-                                        <th className="px-4 py-3 min-w-[220px]">Sent Material</th>
-                                        <th className="px-4 py-3 min-w-[250px]">Expected Return Item</th>
-                                        <th className="px-3 py-3 text-center w-24">Expected</th>
-                                        <th className="px-3 py-3 text-center w-24">Received</th>
-                                        <th className="px-3 py-3 text-center w-24">Pending</th>
-                                        <th className="px-4 py-3 text-center w-40">Received Qty</th>
+                                        <th className="px-4 py-3 min-w-[200px]">Sent Material</th>
+                                        <th className="px-4 py-3 min-w-[220px]">Expected Return Item</th>
+                                        <th className="px-3 py-3 text-center w-20">Expected</th>
+                                        <th className="px-3 py-3 text-center w-20">Received</th>
+                                        <th className="px-3 py-3 text-center w-20">Pending</th>
+                                        <th className="px-3 py-3 text-center w-24">Rate (₹)</th>
+                                        <th className="px-3 py-3 text-center w-36">Receive Qty</th>
+                                        <th className="px-3 py-3 text-right w-28">Charges (₹)</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
@@ -614,7 +662,8 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                 receivedItemType: sentItem.receivedItemType || 'fg',
                                                 quantityToBeReceived: Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0,
                                                 quantityReceived: Number(sentItem.quantityReceived) || 0,
-                                                receivingUnit: sentItem.receivingUnit || sentItem.unit || 'PCS'
+                                                receivingUnit: sentItem.receivingUnit || sentItem.unit || 'PCS',
+                                                processRate: sentItem.processRate || 0
                                             }];
 
                                         return retList.map((ret, retIdx) => {
@@ -655,6 +704,10 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                     <td className="px-3 py-3 text-center font-semibold text-slate-400">{alreadyReceived}</td>
                                                     <td className="px-3 py-3 text-center font-extrabold text-teal-600">{pendingQty}</td>
 
+                                                    <td className="px-3 py-3 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
+                                                        {ret.processRate ? `₹${Number(ret.processRate).toFixed(2)}` : '-'}
+                                                    </td>
+
                                                     <td className="px-3 py-2">
                                                         {isDone ? (
                                                             <span className="text-xs font-bold text-emerald-600 block text-center bg-emerald-50 dark:bg-emerald-950 py-1.5 rounded-lg">
@@ -677,6 +730,10 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                                 </span>
                                                             </div>
                                                         )}
+                                                    </td>
+
+                                                    <td className="px-3 py-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                                        {enteredQty > 0 && ret.processRate ? `₹${(enteredQty * Number(ret.processRate)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
                                                     </td>
                                                 </tr>
                                             );
@@ -770,9 +827,15 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                     </div>
 
                     {/* Footer */}
-                    <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-slate-500">
-                            Total: <b className="text-slate-900 dark:text-white font-bold">{totalReceivedCount} units</b>
+                    <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-3 text-xs font-semibold text-slate-500 flex-wrap">
+                            <span>Total Qty: <b className="text-slate-900 dark:text-white font-bold">{totalReceivedCount} units</b></span>
+                            {totalReceiptCharges > 0 && (
+                                <span className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono font-black border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 shadow-2xs">
+                                    <span>JW Charges:</span>
+                                    <span>₹{totalReceiptCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </span>
+                            )}
                         </div>
 
                         <div className="flex items-center gap-2">

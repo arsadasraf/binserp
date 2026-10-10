@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, Calendar, User, Truck, Package, Layers, FileText, FileSpreadsheet, Check, CheckCircle2, Factory, Clock, ArrowRight, ShieldCheck, Edit3, Trash2, Zap, Sparkles } from 'lucide-react';
-import { JobWorkChallan, Vendor } from "@/src/features/store/types/store.types";
+import { JobWorkChallan, JobWorkReturningItem, Vendor } from "@/src/features/store/types/store.types";
 import { generateDocument } from '@/src/utils/documentHelper';
 
 interface JobWorkPreviewModalProps {
@@ -205,10 +205,20 @@ export default function JobWorkPreviewModal({
                                     </span>
                                 </div>
 
-                                {challan.estimatedPrice ? (
-                                    <div className="col-span-2 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                                        <span className="text-[10px] text-slate-400 uppercase font-semibold block">Estimated Material Job Value</span>
-                                        <strong className="text-indigo-600 dark:text-indigo-400 font-extrabold text-sm">₹{Number(challan.estimatedPrice).toLocaleString()}</strong>
+                                {challan.estimatedPrice || (challan as any).totalJobWorkCharges ? (
+                                    <div className="col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                                            <span className="text-[10px] text-slate-400 uppercase font-semibold block">Declared Material Value</span>
+                                            <strong className="text-slate-800 dark:text-slate-200 font-extrabold text-sm font-mono">
+                                                ₹{Number(challan.estimatedPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </strong>
+                                        </div>
+                                        <div className="bg-indigo-50/70 dark:bg-indigo-950/40 p-2.5 rounded-xl border border-indigo-200 dark:border-indigo-800">
+                                            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 uppercase font-bold block">Total Job Work Charges</span>
+                                            <strong className="text-indigo-700 dark:text-indigo-300 font-extrabold text-sm font-mono">
+                                                ₹{Number((challan as any).totalJobWorkCharges || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </strong>
+                                        </div>
                                     </div>
                                 ) : null}
                             </div>
@@ -390,19 +400,30 @@ export default function JobWorkPreviewModal({
                                             <th className="px-4 py-3 text-center">Exp. Return</th>
                                             <th className="px-4 py-3 text-center">Recv Qty</th>
                                             <th className="px-4 py-3 text-center">Pending</th>
-                                            <th className="px-4 py-3">Process / Rate</th>
+                                            <th className="px-4 py-3 text-right">JW Rate</th>
+                                            <th className="px-4 py-3 text-right">JW Amount</th>
+                                            <th className="px-4 py-3">Process / Purpose</th>
                                             <th className="px-4 py-3 text-right">Status</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                                         {challan.items.map((item, idx) => {
-                                            const retList = (item.returningItems && item.returningItems.length > 0)
+                                            const retList: JobWorkReturningItem[] = (item.returningItems && item.returningItems.length > 0)
                                                 ? item.returningItems
                                                 : [{
                                                     receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
+                                                    receivedItemType: item.receivedItemType || 'fg',
                                                     quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
                                                     quantityReceived: item.quantityReceived || 0,
                                                     receivingUnit: item.receivingUnit || item.unit || 'PCS',
+                                                    hasSecondaryUnit: item.hasSecondaryUnit,
+                                                    secondaryUnit: item.secondaryUnit,
+                                                    conversionFactor: item.conversionFactor,
+                                                    secondaryQuantityToBeReceived: item.secondaryQuantityToBeReceived,
+                                                    secondaryQuantityReceived: item.secondaryQuantityReceived,
+                                                    processRate: item.processRate || 0,
+                                                    processAmount: item.processAmount || 0,
+                                                    description: item.description,
                                                     status: item.status
                                                 }];
 
@@ -410,6 +431,8 @@ export default function JobWorkPreviewModal({
                                                 const expQty = Number(ret.quantityToBeReceived) || 0;
                                                 const recvQty = Number(ret.quantityReceived) || 0;
                                                 const pending = expQty - recvQty;
+                                                const retRate = Number(ret.processRate) || 0;
+                                                const retAmount = ret.processAmount ? Number(ret.processAmount) : (retRate * expQty);
 
                                                 return (
                                                     <tr key={`${idx}_${rIdx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
@@ -425,6 +448,11 @@ export default function JobWorkPreviewModal({
                                                         {rIdx === 0 && (
                                                             <td rowSpan={retList.length} className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-800 align-top">
                                                                 {item.quantitySent} <span className="text-xs text-slate-400">{item.unit}</span>
+                                                                {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                                    <div className="text-[10px] text-slate-500 font-normal">
+                                                                        ↳ {item.secondaryQuantitySent} {item.secondaryUnit}
+                                                                    </div>
+                                                                )}
                                                             </td>
                                                         )}
 
@@ -433,10 +461,18 @@ export default function JobWorkPreviewModal({
                                                                 <ArrowRight size={14} className="text-indigo-500 flex-shrink-0" />
                                                                 {ret.receivedItemName || item.itemName}
                                                             </div>
+                                                            {ret.description && (
+                                                                <div className="text-[11px] text-slate-500 italic mt-0.5 pl-5 line-clamp-2">{ret.description}</div>
+                                                            )}
                                                         </td>
 
                                                         <td className="px-4 py-3.5 text-center font-bold text-slate-800 dark:text-slate-200">
                                                             {expQty} <span className="text-xs text-slate-400">{ret.receivingUnit || 'PCS'}</span>
+                                                            {ret.hasSecondaryUnit && ret.secondaryUnit && (
+                                                                <div className="text-[10px] text-slate-500 font-normal">
+                                                                    ↳ {ret.secondaryQuantityToBeReceived} {ret.secondaryUnit}
+                                                                </div>
+                                                            )}
                                                         </td>
 
                                                         <td className="px-4 py-3.5 text-center font-bold text-emerald-600 dark:text-emerald-400">
@@ -447,19 +483,22 @@ export default function JobWorkPreviewModal({
                                                             {pending > 0 ? pending : 0}
                                                         </td>
 
+                                                        <td className="px-4 py-3.5 text-right font-mono font-bold text-slate-700 dark:text-slate-300">
+                                                            {retRate > 0 ? `₹${retRate.toFixed(2)}` : '-'}
+                                                        </td>
+
+                                                        <td className="px-4 py-3.5 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                                            {retAmount > 0 ? `₹${retAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
+                                                        </td>
+
                                                         {rIdx === 0 && (
                                                             <td rowSpan={retList.length} className="px-4 py-3.5 border-l border-slate-100 dark:border-slate-800 align-top text-xs">
                                                                 <div className="font-bold text-slate-800 dark:text-slate-200">
                                                                     🎯 {item.purpose || item.processType || challan.purpose || 'Job Work'}
                                                                 </div>
-                                                                {(item.processRate || item.unitPrice) ? (
-                                                                    <div className="text-indigo-600 dark:text-indigo-400 font-bold font-mono mt-0.5">
-                                                                        Rate: ₹{Number(item.processRate != null ? item.processRate : item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {item.unit || 'PCS'}
-                                                                    </div>
-                                                                ) : null}
-                                                                {(item.processRate || item.unitPrice) ? (
-                                                                    <div className="text-[11px] text-slate-500 font-semibold font-mono">
-                                                                        Value: ₹{(Number(item.quantitySent || 0) * Number(item.processRate != null ? item.processRate : item.unitPrice || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                {item.unitPrice ? (
+                                                                    <div className="text-[11px] text-slate-500 font-semibold font-mono mt-0.5">
+                                                                        Mat Val: ₹{Number(item.unitPrice).toLocaleString()} / {item.unit || 'PCS'}
                                                                     </div>
                                                                 ) : null}
                                                                 {item.description ? <div className="text-slate-400 italic mt-0.5">{item.description}</div> : null}
@@ -533,6 +572,11 @@ export default function JobWorkPreviewModal({
                                                 {hist.vehicleNo && <div>Vehicle: <strong className="text-slate-700 dark:text-slate-300">{hist.vehicleNo}</strong></div>}
                                                 <div>Accepted: <strong className="text-emerald-600">{hist.acceptedQuantity !== undefined ? hist.acceptedQuantity : hist.quantity}</strong></div>
                                                 {hist.rejectedQuantity > 0 && <div>Rejected: <strong className="text-red-600">{hist.rejectedQuantity}</strong> ({hist.rejectionReason || 'Defect'})</div>}
+                                                {hist.rate ? (
+                                                    <div className="col-span-2 sm:col-span-4 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                                        JW Charges: @ ₹{Number(hist.rate).toFixed(2)} = ₹{Number(hist.amount || (hist.quantity * hist.rate)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </div>
+                                                ) : null}
                                             </div>
 
                                             {/* Attached Documents */}

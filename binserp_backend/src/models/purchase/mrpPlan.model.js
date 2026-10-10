@@ -58,6 +58,10 @@ export const mrpPlanSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    planningMonth: {
+      type: String,
+      default: "",
+    },
     status: {
       type: String,
       enum: ["Draft", "Planned", "In Procurement", "In Production", "Partially Received", "Partially Completed", "Completed"],

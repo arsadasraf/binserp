@@ -10,7 +10,6 @@ export const materialRequestSchema = new mongoose.Schema(
     requestNumber: {
       type: String,
       required: true,
-      unique: true,
     },
     type: {
       type: String,
@@ -20,7 +19,7 @@ export const materialRequestSchema = new mongoose.Schema(
     requestedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false,
     },
     salesOrder: {
       type: mongoose.Schema.Types.ObjectId,

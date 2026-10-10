@@ -77,6 +77,7 @@ export const createMRPPlan = async (req, res) => {
       poDate,
       targetDate,
       remarks = "",
+      planningMonth = "",
       fgItems = [],
     } = req.body;
 
@@ -1117,6 +1118,7 @@ export const createMRPPlan = async (req, res) => {
       poDate: poDate ? new Date(poDate) : (resolvedCustomerPOs[0]?.poDate || undefined),
       targetDate: targetDate ? new Date(targetDate) : (resolvedCustomerPOs[0]?.targetDate || undefined),
       remarks,
+      planningMonth: planningMonth || "",
       status: "Planned",
       fgItems: enrichedFgItems,
       rmRequirements,
@@ -1136,38 +1138,126 @@ export const createMRPPlan = async (req, res) => {
       createdByName: req.user?.name || req.user?.username || "Planner",
     });
 
-    // Auto-update all linked Customer POs to 'MRP Done'
+    // Auto-update linked Customer POs and Delivery Schedules
+    const updatePoDocPlanning = async (poDoc) => {
+      if (!poDoc || !Array.isArray(poDoc.items)) return;
+
+      let totalPoDemanded = 0;
+      let totalPoPlanned = 0;
+
+      poDoc.items.forEach((it) => {
+        const itTotalDemanded = Number(it.quantity || 0);
+        totalPoDemanded += itTotalDemanded;
+
+        // Find matching FG rows in this MRP plan for this item
+        const matchingFgRows = (enrichedFgItems || []).filter((fg) => {
+          const matchesPo =
+            (fg.customerPo && String(fg.customerPo) === String(poDoc._id)) ||
+            (fg.customerPoNumber && fg.customerPoNumber === poDoc.poNumber) ||
+            (Array.isArray(fg.sourceCustomerPOs) && fg.sourceCustomerPOs.includes(poDoc.poNumber));
+
+          const fgMatches =
+            (it.fgItem && fg.fgItem && String(it.fgItem) === String(fg.fgItem)) ||
+            (it.productName && fg.fgItemName && it.productName.toLowerCase().trim() === fg.fgItemName.toLowerCase().trim()) ||
+            (it.productCode && fg.fgItemCode && it.productCode.toLowerCase().trim() === fg.fgItemCode.toLowerCase().trim());
+
+          return matchesPo && fgMatches;
+        });
+
+        const qtyPlannedInThisRun = matchingFgRows.reduce((sum, fg) => {
+          if (Array.isArray(fg.sourceBreakdown) && fg.sourceBreakdown.length > 0) {
+            const poBreakdown = fg.sourceBreakdown.filter(
+              (b) => String(b.customerPo) === String(poDoc._id) || b.customerPoNumber === poDoc.poNumber
+            );
+            if (poBreakdown.length > 0) {
+              return sum + poBreakdown.reduce((bSum, b) => bSum + Number(b.quantity || 0), 0);
+            }
+          }
+          return sum + Number(fg.quantity || 0);
+        }, 0);
+
+        if (Array.isArray(it.deliverySchedule) && it.deliverySchedule.length > 0) {
+          it.deliverySchedule.forEach((sched) => {
+            if (!planningMonth || sched.monthKey === planningMonth) {
+              const schedDemanded = Number(sched.quantity || 0);
+              const prevPlanned = sched.plannedQuantity != null 
+                ? Number(sched.plannedQuantity) 
+                : (sched.isPlanned ? schedDemanded : 0);
+              const addQty = qtyPlannedInThisRun > 0 ? qtyPlannedInThisRun : schedDemanded;
+              const newPlanned = prevPlanned + addQty;
+              sched.plannedQuantity = newPlanned;
+
+              if (!Array.isArray(sched.linkedMrps)) sched.linkedMrps = [];
+              sched.linkedMrps.push({
+                mrpPlan: newPlan._id,
+                mrpNumber: newPlan.mrpNumber,
+                quantity: addQty,
+                plannedAt: new Date()
+              });
+
+              sched.mrpPlan = newPlan._id;
+              sched.mrpNumber = newPlan.mrpNumber;
+              sched.isPlanned = sched.plannedQuantity >= schedDemanded && schedDemanded > 0;
+            }
+
+            totalPoPlanned += Number(sched.plannedQuantity || (sched.isPlanned ? sched.quantity : 0) || 0);
+          });
+        } else {
+          // Line item without deliverySchedule
+          const prevPlanned = it.plannedQuantity != null 
+            ? Number(it.plannedQuantity) 
+            : (poDoc.status === "MRP Done" ? itTotalDemanded : 0);
+          const addQty = qtyPlannedInThisRun > 0 ? qtyPlannedInThisRun : itTotalDemanded;
+          it.plannedQuantity = prevPlanned + addQty;
+
+          if (!Array.isArray(it.linkedMrps)) it.linkedMrps = [];
+          it.linkedMrps.push({
+            mrpPlan: newPlan._id,
+            mrpNumber: newPlan.mrpNumber,
+            quantity: addQty,
+            plannedAt: new Date()
+          });
+
+          totalPoPlanned += it.plannedQuantity;
+        }
+      });
+
+      if (totalPoPlanned >= totalPoDemanded && totalPoDemanded > 0) {
+        poDoc.status = "MRP Done";
+      } else if (totalPoPlanned > 0) {
+        poDoc.status = "Partially Planned";
+      } else {
+        poDoc.status = "Received";
+      }
+
+      poDoc.mrpPlan = newPlan._id;
+      poDoc.mrpNumber = newPlan.mrpNumber;
+      await poDoc.save();
+    };
+
     const poIdsToUpdate = resolvedCustomerPOs
       .map((p) => p.customerPo)
       .filter((id) => id && mongoose.Types.ObjectId.isValid(id));
 
     if (poIdsToUpdate.length > 0) {
       try {
-        await IncomingPO.updateMany(
-          { company: companyId, _id: { $in: poIdsToUpdate } },
-          {
-            $set: {
-              status: "MRP Done",
-              mrpPlan: newPlan._id,
-              mrpNumber: newPlan.mrpNumber,
-            },
-          }
-        );
+        const poDocs = await IncomingPO.find({
+          company: companyId,
+          _id: { $in: poIdsToUpdate },
+        });
+
+        for (const poDoc of poDocs) {
+          await updatePoDocPlanning(poDoc);
+        }
       } catch (poErr) {
-        console.warn("Could not update IncomingPOs to MRP Done:", poErr);
+        console.warn("Could not update IncomingPOs for MRP plan:", poErr);
       }
     } else if (customerPoNumber) {
       try {
-        await IncomingPO.updateOne(
-          { company: companyId, poNumber: customerPoNumber },
-          {
-            $set: {
-              status: "MRP Done",
-              mrpPlan: newPlan._id,
-              mrpNumber: newPlan.mrpNumber,
-            },
-          }
-        );
+        const poDoc = await IncomingPO.findOne({ company: companyId, poNumber: customerPoNumber });
+        if (poDoc) {
+          await updatePoDocPlanning(poDoc);
+        }
       } catch (poErr) {
         console.warn("Could not update IncomingPO by poNumber:", poErr);
       }

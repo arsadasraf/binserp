@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Plus, Edit2, Trash2, Search, FileText, ShoppingCart } from "lucide-react";
+import { Plus, Edit2, Trash2, Search, FileText, ShoppingCart, Calendar } from "lucide-react";
 import Swal from "sweetalert2";
 
 interface IncomingPOTableProps {
@@ -86,7 +86,15 @@ export const IncomingPOTable: React.FC<IncomingPOTableProps> = ({
               filteredPos.map((po) => (
                 <tr key={po._id} onClick={() => onView(po)} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group cursor-pointer">
                   <td className="px-6 py-4">
-                    <span className="font-medium text-gray-900 dark:text-white">{po.poNumber}</span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-medium text-gray-900 dark:text-white">{po.poNumber}</span>
+                      {po.items?.some((it: any) => it.deliverySchedule?.length > 1) && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800" title="Delivery scheduled across multiple months">
+                          <Calendar size={9} />
+                          Multi-Month
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-gray-500 dark:text-gray-400">
                     {new Date(po.date).toLocaleDateString()}
@@ -101,6 +109,7 @@ export const IncomingPOTable: React.FC<IncomingPOTableProps> = ({
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                       po.status === 'Received' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
                       po.status === 'Accepted' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400' :
+                      po.status === 'Partially Planned' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400' :
                       po.status === 'MRP Done' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
                       'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
                     }`}>

@@ -1514,6 +1514,12 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                             <td className="px-4 py-3.5 font-mono font-bold text-blue-600 dark:text-blue-400">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                     <span>{po.poNumber}</span>
+                                                    {po.items?.some((it: any) => it.deliverySchedule?.length > 1) && (
+                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800" title="Delivery scheduled across multiple months">
+                                                            <Calendar size={9} />
+                                                            Multi-Month
+                                                        </span>
+                                                    )}
                                                     {(po.pdf || (Array.isArray(po.photos) && po.photos.length > 0)) && (
                                                         <a
                                                             href={po.pdf || po.photos[0]}
@@ -1806,6 +1812,12 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         <div>
                                             <div className="flex items-center gap-1.5 flex-wrap">
                                                 <span className="font-mono font-bold text-blue-600 dark:text-blue-400 text-sm">{po.poNumber}</span>
+                                                {po.items?.some((it: any) => it.deliverySchedule?.length > 1) && (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800" title="Delivery scheduled across multiple months">
+                                                        <Calendar size={10} />
+                                                        Multi-Month Delivery
+                                                    </span>
+                                                )}
                                                 {(po.pdf || (Array.isArray(po.photos) && po.photos.length > 0)) && (
                                                     <a
                                                         href={po.pdf || po.photos[0]}
@@ -2831,6 +2843,61 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                                     {itemDesc && (
                                                                         <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
                                                                             {itemDesc}
+                                                                        </div>
+                                                                    )}
+                                                                    {item.deliverySchedule && item.deliverySchedule.length > 0 && (
+                                                                        <div className="flex flex-wrap items-center gap-1.5 mt-2 p-2 bg-slate-50 dark:bg-slate-800/80 rounded-lg border border-slate-200 dark:border-slate-700">
+                                                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                                                                                <Calendar size={11} className="text-indigo-600" />
+                                                                                Monthly Delivery Plan ({item.deliverySchedule.length} Months):
+                                                                            </span>
+                                                                            {item.deliverySchedule.map((s: any, sIdx: number) => {
+                                                                                const plannedQty = Number(s.plannedQuantity ?? (s.isPlanned ? s.quantity : 0));
+                                                                                const totalQty = Number(s.quantity || 0);
+                                                                                const pendingQty = Math.max(0, totalQty - plannedQty);
+                                                                                const isFullyPlanned = plannedQty >= totalQty && totalQty > 0;
+                                                                                const isPartiallyPlanned = plannedQty > 0 && pendingQty > 0;
+                                                                                const mrpList = Array.isArray(s.linkedMrps) && s.linkedMrps.length > 0
+                                                                                    ? s.linkedMrps.map((m: any) => `${m.mrpNumber || 'MRP'} (${m.quantity || plannedQty})`).join(', ')
+                                                                                    : (s.mrpNumber || 'MRP Planned');
+
+                                                                                if (isPartiallyPlanned) {
+                                                                                    return (
+                                                                                        <span key={sIdx} className="inline-flex flex-wrap items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border shadow-2xs bg-amber-50/70 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800">
+                                                                                            <span className="font-semibold">{s.monthLabel || s.monthKey}:</span>
+                                                                                            <span className="font-mono font-bold">{s.quantity} {item.unit || 'PCS'}</span>
+                                                                                            <span className="text-[9px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 px-1 py-0.2 rounded border border-emerald-300 dark:border-emerald-700" title={`Planned: ${mrpList}`}>
+                                                                                                ✓ {plannedQty} ({mrpList})
+                                                                                            </span>
+                                                                                            <span className="text-[9px] font-bold bg-amber-200/80 dark:bg-amber-900/80 text-amber-900 dark:text-amber-100 px-1 py-0.2 rounded border border-amber-400 dark:border-amber-700">
+                                                                                                ⚡ {pendingQty} Pending
+                                                                                            </span>
+                                                                                        </span>
+                                                                                    );
+                                                                                }
+
+                                                                                if (isFullyPlanned) {
+                                                                                    return (
+                                                                                        <span key={sIdx} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border shadow-2xs bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800">
+                                                                                            <span className="font-semibold">{s.monthLabel || s.monthKey}:</span>
+                                                                                            <span className="font-mono font-bold">{s.quantity} {item.unit || 'PCS'}</span>
+                                                                                            <span className="text-[9px] font-mono font-bold bg-emerald-200/70 dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100 px-1 rounded" title={`Planned in: ${mrpList}`}>
+                                                                                                ✓ {mrpList}
+                                                                                            </span>
+                                                                                        </span>
+                                                                                    );
+                                                                                }
+
+                                                                                return (
+                                                                                    <span key={sIdx} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium border shadow-2xs bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800">
+                                                                                        <span className="font-semibold">{s.monthLabel || s.monthKey}:</span>
+                                                                                        <span className="font-mono font-bold">{s.quantity} {item.unit || 'PCS'}</span>
+                                                                                        <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400">
+                                                                                            Pending
+                                                                                        </span>
+                                                                                    </span>
+                                                                                );
+                                                                            })}
                                                                         </div>
                                                                     )}
                                                                 </td>

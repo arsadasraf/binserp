@@ -10,6 +10,7 @@ import {
 } from '@/src/store/services/storeService';
 import { useGetPpcComponentsQuery } from '@/src/store/services/ppcService';
 import MaterialRequestModal from '@/src/features/store/components/modals/MaterialRequestModal';
+import Swal from 'sweetalert2';
 
 export default function MaterialRequestsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -91,10 +92,56 @@ export default function MaterialRequestsLayout({ children }: { children: React.R
 
   const handleCreateRequest = async (formData: any) => {
     try {
-      await createRecord({ tab: 'material-request' as any, body: formData }).unwrap();
+      const cleanedItems = (formData.items || [])
+        .filter((it: any) => {
+          const name = (it.materialName || it.name || '').trim();
+          const id = it.material || it.consumable || it.fgItem || it.component || it._id;
+          return name.length > 0 || Boolean(id);
+        })
+        .map((it: any) => ({
+          ...it,
+          quantity: Number(it.quantity) || 1,
+          secondaryQuantity: Number(it.secondaryQuantity) || 0,
+          currentStock: Number(it.currentStock) || 0,
+        }));
+
+      if (cleanedItems.length === 0) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'No Items Added',
+          text: 'Please select at least one item before submitting the material request.',
+          confirmButtonColor: '#4f46e5'
+        });
+        return;
+      }
+
+      const payload = {
+        ...formData,
+        items: cleanedItems,
+        salesOrder: formData.salesOrder || undefined,
+        soNumber: formData.soNumber || undefined,
+        mrpPlan: formData.mrpPlan || undefined,
+        mrpNumber: formData.mrpNumber || undefined,
+      };
+
+      const res = await createRecord({ tab: 'material-request' as any, body: payload }).unwrap();
       setIsRequestModalOpen(false);
-    } catch (error) {
-      console.error("Create request failed", error);
+      Swal.fire({
+        icon: 'success',
+        title: 'Request Submitted!',
+        text: `Material request #${res?.materialRequest?.requestNumber || payload.requestNumber} created successfully.`,
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    } catch (error: any) {
+      console.error("Create request failed:", error?.data || error);
+      const errorMsg = error?.data?.message || error?.message || 'Failed to submit material request. Please try again.';
+      Swal.fire({
+        icon: 'error',
+        title: 'Request Failed',
+        text: errorMsg,
+        confirmButtonColor: '#4f46e5',
+      });
     }
   };
 

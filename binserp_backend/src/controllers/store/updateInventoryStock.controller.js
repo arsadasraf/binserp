@@ -343,18 +343,21 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
     if (!isPending) {
       try {
         const stockDelta = isQCRelease ? quantity : quantity;
+        const currentMasterQty = Number(material.quantity ?? material.currentStock ?? 0);
+        const newMasterQty = Math.max(0, currentMasterQty + stockDelta);
+
         if (itemMasterType === 'RawMaterial') {
-          await RawMaterial.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
+          await RawMaterial.findByIdAndUpdate(actualMatId, { $set: { quantity: newMasterQty } });
         } else if (itemMasterType === 'BoughtOut') {
-          await BoughtOut.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
+          await BoughtOut.findByIdAndUpdate(actualMatId, { $set: { quantity: newMasterQty } });
         } else if (itemMasterType === 'Consumable') {
-          await ConsumableItem.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta, currentStock: stockDelta } });
+          await ConsumableItem.findByIdAndUpdate(actualMatId, { $set: { quantity: newMasterQty, currentStock: newMasterQty } });
         } else if (itemMasterType === 'RmBoItem') {
-          await Material.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
+          await Material.findByIdAndUpdate(actualMatId, { $set: { quantity: newMasterQty } });
         } else if (itemMasterType === 'FinishedGoods') {
-          await FGItem.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
+          await FGItem.findByIdAndUpdate(actualMatId, { $set: { quantity: newMasterQty } });
         } else if (itemMasterType === 'Component') {
-          await Component.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
+          await Component.findByIdAndUpdate(actualMatId, { $set: { quantity: newMasterQty } });
         }
       } catch (masterSyncErr) {
         console.error("[updateInventoryStock] Master model stock sync error:", masterSyncErr);

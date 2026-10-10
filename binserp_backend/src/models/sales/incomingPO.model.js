@@ -48,6 +48,36 @@ export const incomingPOSchema = new mongoose.Schema(
         committedDeliveryDate: Date,
         dispatchedQuantity: { type: Number, default: 0 },
         billedQuantity: { type: Number, default: 0 },
+        plannedQuantity: { type: Number, default: 0 },
+        linkedMrps: [
+          {
+            mrpPlan: { type: mongoose.Schema.Types.ObjectId, ref: "MRPPlan" },
+            mrpNumber: { type: String, default: "" },
+            quantity: { type: Number, default: 0 },
+            plannedAt: { type: Date, default: Date.now },
+          }
+        ],
+        deliverySchedule: [
+          {
+            monthKey: { type: String, required: true }, // e.g. "2026-10"
+            monthLabel: { type: String },              // e.g. "Oct 2026"
+            quantity: { type: Number, required: true, min: 0 },
+            plannedQuantity: { type: Number, default: 0 },
+            targetDate: { type: Date },
+            notes: { type: String, default: "" },
+            isPlanned: { type: Boolean, default: false },
+            mrpPlan: { type: mongoose.Schema.Types.ObjectId, ref: "MRPPlan" },
+            mrpNumber: { type: String, default: "" },
+            linkedMrps: [
+              {
+                mrpPlan: { type: mongoose.Schema.Types.ObjectId, ref: "MRPPlan" },
+                mrpNumber: { type: String, default: "" },
+                quantity: { type: Number, default: 0 },
+                plannedAt: { type: Date, default: Date.now },
+              }
+            ],
+          }
+        ],
       },
     ],
     subtotal: { type: Number, required: true },
@@ -60,7 +90,7 @@ export const incomingPOSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Received", "Accepted", "MRP Done", "Partially Dispatched", "Completed", "Cancelled"],
+      enum: ["Received", "Accepted", "Partially Planned", "MRP Done", "Partially Dispatched", "Completed", "Cancelled"],
       default: "Received",
     },
     mrpPlan: {

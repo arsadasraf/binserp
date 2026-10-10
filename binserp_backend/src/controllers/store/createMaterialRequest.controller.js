@@ -8,6 +8,8 @@ import {
   consumableItemSchema
 } from "../../models/store/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
+import { mrpPlanSchema } from "../../models/purchase/index.js";
+import { userSchema } from "../../models/user/index.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
 
 const getCompanyId = (req) => {
@@ -25,17 +27,99 @@ export const createMaterialRequest = async (req, res) => {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
     const Component = req.getModel('Component', componentSchema);
+    const MRPPlan = req.getModel('MRPPlan', mrpPlanSchema);
+    const User = req.getModel('User', userSchema);
 
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    let { requestNumber, department, items, priority, type, salesOrder, soNumber, mrpPlan, mrpNumber } = req.body;
+    let { requestNumber, department, items, priority, type, salesOrder, soNumber, mrpPlan, mrpNumber, requestedBy } = req.body;
 
-    if (!requestNumber) {
-      requestNumber = `PR-${Date.now()}`;
+    // Deduplicate or auto-generate requestNumber
+    if (!requestNumber || typeof requestNumber !== 'string' || !requestNumber.trim()) {
+      requestNumber = `REQ-${Date.now()}`;
+    } else {
+      const trimmedReqNum = requestNumber.trim();
+      const existingReq = await MaterialRequest.findOne({
+        $or: [
+          { company: companyId, requestNumber: trimmedReqNum },
+          { requestNumber: trimmedReqNum }
+        ]
+      });
+      if (existingReq) {
+        const randSuffix = Math.floor(1000 + Math.random() * 9000);
+        requestNumber = `${trimmedReqNum}-${Date.now().toString().slice(-4)}${randSuffix}`;
+      } else {
+        requestNumber = trimmedReqNum;
+      }
     }
 
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ message: "Items are required" });
+    // Bidirectional MRP resolution between mrpPlan ObjectId and mrpNumber string
+    if (mrpPlan && !mrpNumber) {
+      try {
+        if (isValidObjectId(mrpPlan.toString())) {
+          const plan = await MRPPlan.findById(mrpPlan);
+          if (plan && plan.mrpNumber) mrpNumber = plan.mrpNumber;
+        }
+      } catch (err) {
+        console.warn("Could not lookup mrpNumber from mrpPlan in createMaterialRequest:", err);
+      }
+    } else if (mrpNumber && !mrpPlan) {
+      try {
+        const plan = await MRPPlan.findOne({ company: companyId, mrpNumber: mrpNumber.trim() });
+        if (plan) mrpPlan = plan._id;
+      } catch (err) {
+        console.warn("Could not lookup mrpPlan from mrpNumber in createMaterialRequest:", err);
+      }
+    }
+
+    const finalSalesOrder = (salesOrder && isValidObjectId(salesOrder.toString())) ? salesOrder.toString() : undefined;
+    const finalSoNumber = soNumber || (!isValidObjectId(salesOrder?.toString()) && salesOrder ? salesOrder.toString() : undefined);
+    const finalMrpPlan = (mrpPlan && isValidObjectId(mrpPlan.toString())) ? mrpPlan.toString() : undefined;
+
+    // Resolve requestedBy safely (fallback to active user, admin, or company)
+    let finalRequestedBy = (requestedBy && isValidObjectId(requestedBy.toString()))
+      ? requestedBy.toString()
+      : (userId && isValidObjectId(userId?.toString()) ? userId.toString() : undefined);
+
+    if (!finalRequestedBy) {
+      try {
+        const companyUser = await User.findOne({ company: companyId });
+        if (companyUser) {
+          finalRequestedBy = companyUser._id;
+        } else if (companyId && isValidObjectId(companyId?.toString())) {
+          finalRequestedBy = companyId;
+        }
+      } catch (e) {
+        if (companyId && isValidObjectId(companyId?.toString())) {
+          finalRequestedBy = companyId;
+        }
+      }
+    }
+
+    // Parse items if passed as string
+    let parsedItems = items;
+    if (typeof items === 'string') {
+      try {
+        parsedItems = JSON.parse(items);
+      } catch (e) {
+        console.error("Failed to parse items JSON in createMaterialRequest:", e);
+      }
+    }
+
+    if (!parsedItems || !Array.isArray(parsedItems) || parsedItems.length === 0) {
+      return res.status(400).json({ success: false, message: "Items are required" });
+    }
+
+    // Filter out empty rows
+    const validItems = parsedItems.filter(item => {
+      if (!item) return false;
+      const cleanName = (item.materialName || item.name || '').toString().trim();
+      const rawId = item.material || item.consumable || item.fgItem || item.component || item._id;
+      return cleanName.length > 0 || (rawId && isValidObjectId(rawId.toString()));
+    });
+
+    if (validItems.length === 0) {
+      return res.status(400).json({ success: false, message: "At least one valid item is required for material request" });
     }
 
     const normalizedType = (type || 'rm').toLowerCase();
@@ -46,7 +130,7 @@ export const createMaterialRequest = async (req, res) => {
 
     const processedItems = [];
 
-    for (const item of items) {
+    for (const item of validItems) {
       const cleanName = (item.materialName || item.name || '').toString().trim();
       const rawId = item.material || item.consumable || item.fgItem || item.component || item._id;
       const validId = rawId && isValidObjectId(rawId.toString()) ? rawId.toString() : null;
@@ -277,28 +361,32 @@ export const createMaterialRequest = async (req, res) => {
     const materialRequest = await MaterialRequest.create({
       company: companyId,
       requestNumber,
-      requestedBy: userId,
+      requestedBy: finalRequestedBy,
       department: department || 'Store',
       type: normalizedType,
-      salesOrder: salesOrder || undefined,
-      soNumber: soNumber || undefined,
-      mrpPlan: mrpPlan || undefined,
+      salesOrder: finalSalesOrder,
+      soNumber: finalSoNumber,
+      mrpPlan: finalMrpPlan,
       mrpNumber: mrpNumber || undefined,
       items: processedItems,
       priority: priority || "Medium",
       status: "Pending",
-      createdBy: userId,
+      createdBy: finalRequestedBy || userId,
       createdByName: userName,
-      updatedBy: userId,
+      updatedBy: finalRequestedBy || userId,
       updatedByName: userName
     });
 
     res.status(201).json({
+      success: true,
       message: "Material request created successfully",
       materialRequest,
     });
   } catch (error) {
     console.error("Create Material Request Error:", error);
-    res.status(500).json({ message: error.message });
+    res.status(400).json({
+      success: false,
+      message: error.message || "Failed to create material request"
+    });
   }
 };
