@@ -16,6 +16,8 @@ export const boughtOutSchema = new mongoose.Schema(
     hasSecondaryUnit: { type: Boolean, default: false },
     secondaryUnit: { type: String, trim: true, default: "" },
     conversionFactor: { type: Number, default: 1, min: 0 },
+    primaryRatio: { type: Number, default: 1, min: 0.000001 },
+    secondaryRatio: { type: Number, default: 1, min: 0.000001 },
     hsnCode: { type: String, default: "", trim: true },
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,

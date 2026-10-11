@@ -1,9 +1,10 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
+import { resolveBackendUomRatios } from "../../utils/dualUomHelper.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -46,11 +47,43 @@ const updateComponentStock = async (req, componentId, quantity) => {
 export const updateRmBoItem = async (req, res) => {
   try {
     const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+    const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
+    const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
+    const Inventory = req.getModel('Inventory', inventorySchema);
     const Category = req.getModel('Category', categorySchema);
     const Location = req.getModel('Location', locationSchema);
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
+
+    const currentDoc = await RmBoItem.findOne({ _id: id, company: companyId }).lean()
+      || await RawMaterial.findOne({ _id: id, company: companyId }).lean()
+      || await BoughtOut.findOne({ _id: id, company: companyId }).lean();
+
+    const isDualUomUpdate = (
+      req.body.hasSecondaryUnit !== undefined ||
+      req.body.conversionFactor !== undefined ||
+      req.body.primaryRatio !== undefined ||
+      req.body.secondaryRatio !== undefined ||
+      req.body.secondaryUnit !== undefined
+    );
+
+    if (isDualUomUpdate) {
+      const mergedUomItem = {
+        hasSecondaryUnit: req.body.hasSecondaryUnit !== undefined ? req.body.hasSecondaryUnit : currentDoc?.hasSecondaryUnit,
+        secondaryUnit: req.body.secondaryUnit !== undefined ? req.body.secondaryUnit : currentDoc?.secondaryUnit,
+        conversionFactor: req.body.conversionFactor !== undefined ? req.body.conversionFactor : currentDoc?.conversionFactor,
+        primaryRatio: req.body.primaryRatio !== undefined ? req.body.primaryRatio : currentDoc?.primaryRatio,
+        secondaryRatio: req.body.secondaryRatio !== undefined ? req.body.secondaryRatio : currentDoc?.secondaryRatio,
+        unit: req.body.unit !== undefined ? req.body.unit : currentDoc?.unit,
+      };
+      const uomRatios = resolveBackendUomRatios(mergedUomItem);
+      req.body.hasSecondaryUnit = uomRatios.hasSecondaryUnit;
+      req.body.secondaryUnit = uomRatios.secondaryUnit;
+      req.body.conversionFactor = uomRatios.conversionFactor;
+      req.body.primaryRatio = uomRatios.primaryRatio;
+      req.body.secondaryRatio = uomRatios.secondaryRatio;
+    }
 
     const isValidObjectId = (id) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
 
@@ -147,6 +180,53 @@ export const updateRmBoItem = async (req, res) => {
       { new: true }
     ).populate(['categoryId', 'locationId']);
     if (!rmBoItem) return res.status(404).json({ message: "RM/BO Item not found" });
+
+    // Sync to RawMaterial or BoughtOut if they exist
+    try {
+      await RawMaterial.findOneAndUpdate({ _id: id, company: companyId }, { $set: req.body });
+      await BoughtOut.findOneAndUpdate({ _id: id, company: companyId }, { $set: req.body });
+    } catch (syncErr) {
+      console.warn("Sync to RM/BO error in updateRmBoItem:", syncErr.message);
+    }
+
+    // Sync to Inventory
+    try {
+      const invUpdates = {};
+      if (req.body.unit) invUpdates.unit = req.body.unit.toString().trim();
+      if (req.body.name) invUpdates.materialName = req.body.name.toString().trim();
+      if (req.body.minimumStock !== undefined) invUpdates.reorderLevel = Number(req.body.minimumStock);
+      if (isDualUomUpdate || req.body.hasSecondaryUnit !== undefined) {
+        invUpdates.hasSecondaryUnit = rmBoItem.hasSecondaryUnit;
+        invUpdates.secondaryUnit = rmBoItem.secondaryUnit;
+        invUpdates.conversionFactor = rmBoItem.conversionFactor;
+        invUpdates.primaryRatio = rmBoItem.primaryRatio;
+        invUpdates.secondaryRatio = rmBoItem.secondaryRatio;
+      }
+
+      if (Object.keys(invUpdates).length > 0) {
+        const idMatches = [{ materialId: id }];
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          idMatches.push({ materialId: new mongoose.Types.ObjectId(id) });
+        }
+        if (rmBoItem.code) {
+          idMatches.push({ materialCode: rmBoItem.code });
+        }
+        if (rmBoItem.name) {
+          idMatches.push({ materialName: rmBoItem.name });
+        }
+        if (currentDoc?.name && currentDoc.name !== rmBoItem.name) {
+          idMatches.push({ materialName: currentDoc.name });
+        }
+
+        await Inventory.updateMany(
+          { company: companyId, $or: idMatches },
+          { $set: invUpdates }
+        );
+      }
+    } catch (invErr) {
+      console.warn("Inventory sync error in updateRmBoItem:", invErr.message);
+    }
+
     res.status(200).json({ message: "RM/BO Item updated successfully", rmBoItem });
   } catch (error) {
     if (error.code === 11000) {

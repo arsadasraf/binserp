@@ -28,6 +28,8 @@ export interface Item {
     hasSecondaryUnit?: boolean;
     secondaryUnit?: string;
     conversionFactor?: number | string;
+    primaryRatio?: number | string;
+    secondaryRatio?: number | string;
     secondaryQuantity?: number | string;
     selectedUnit?: string;
 }
@@ -73,6 +75,8 @@ export interface StoreFormData {
     hasSecondaryUnit?: boolean;
     secondaryUnit?: string;
     conversionFactor?: number | string;
+    primaryRatio?: number | string;
+    secondaryRatio?: number | string;
     hsnCode?: string;
     categoryId?: string;  // For material master
 
@@ -288,6 +292,8 @@ export interface InventoryItem {
     hasSecondaryUnit?: boolean;
     secondaryUnit?: string;
     conversionFactor?: number;
+    primaryRatio?: number;
+    secondaryRatio?: number;
     locationId?: string | Location;  // Can be ID or populated Location object
     categoryId?: string | Category;  // Can be ID or populated Category object
     location?: Location;  // Populated location data (alternative field)
@@ -562,6 +568,7 @@ export interface JobWorkItem {
     unitPrice?: number;
     description?: string;
     status: 'Sent' | 'Partial' | 'Completed';
+    isSameItemReturning?: boolean;
     returningItems?: JobWorkReturningItem[];
     // Legacy fallbacks
     itemToBeReceived?: string;
@@ -711,6 +718,7 @@ export interface JobWorkFormData {
         selectedUnit?: string;
         unitPrice?: number;
         description?: string;
+        isSameItemReturning?: boolean;
         returningItems: JobWorkReturningItem[];
         // Legacy fallbacks
         receivedItem?: string;

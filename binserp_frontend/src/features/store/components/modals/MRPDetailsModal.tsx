@@ -8,6 +8,8 @@ import {
 import { apiGet, apiPost } from '@/src/lib/api';
 import { getCurrencySymbol } from '@/src/utils/currencyHelper';
 import { generateNestedBOMPDF } from '@/src/utils/generateNestedBOMPDF';
+import LinkedCustomerPOsModal from '@/src/features/store/components/modals/LinkedCustomerPOsModal';
+import MRPBudgetModal from '@/src/features/store/components/modals/MRPBudgetModal';
 
 interface MRPDetailsModalProps {
   isOpen: boolean;
@@ -24,6 +26,30 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
   const [fgGrnHistory, setFgGrnHistory] = useState<any[]>([]);
   const [activeMaterialTab, setActiveMaterialTab] = useState<'all' | 'rm' | 'bo'>('all');
   const [expandedFgBoms, setExpandedFgBoms] = useState<Record<number, boolean>>({});
+
+  // Linked Customer POs Popup Modal State
+  const [isLinkedPoModalOpen, setIsLinkedPoModalOpen] = useState(false);
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [linkedPoModalData, setLinkedPoModalData] = useState<{
+    mrpNumber: string;
+    planTitle?: string;
+    customerName?: string;
+    customerPOs?: any[];
+    fgItemName?: string;
+    sourceBreakdown?: any[];
+  } | null>(null);
+
+  const openLinkedPoModal = (data: {
+    mrpNumber: string;
+    planTitle?: string;
+    customerName?: string;
+    customerPOs?: any[];
+    fgItemName?: string;
+    sourceBreakdown?: any[];
+  }) => {
+    setLinkedPoModalData(data);
+    setIsLinkedPoModalOpen(true);
+  };
 
   const toggleFgBom = (index: number) => {
     setExpandedFgBoms(prev => ({ ...prev, [index]: !prev[index] }));
@@ -176,8 +202,8 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
     : (totalIncome > 0 ? Math.round((projectedGrossProfit / totalIncome) * 10000) / 100 : 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-5 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl w-full max-w-[96vw] 2xl:max-w-[1750px] xl:max-w-[1600px] lg:max-w-7xl max-h-[95vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         
         {/* Modal Header */}
         <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex justify-between items-start shrink-0 border-b border-slate-200 dark:border-slate-800">
@@ -225,32 +251,68 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
               </span>
             </p>
             {currentPlan.isConsolidated && currentPlan.customerPOs && currentPlan.customerPOs.length > 0 && (
-              <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px]">
+              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px]">
                 <span className="text-slate-600 dark:text-slate-400 font-semibold">Consolidated POs:</span>
-                {currentPlan.customerPOs.map((cpo: any, idx: number) => {
-                  const hasForeignCurrency = cpo.currency && cpo.currency !== 'INR';
-                  const symbol = getCurrencySymbol(cpo.currency || 'INR');
-                  return (
-                    <span 
-                      key={idx} 
-                      className="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-mono text-[10px] border border-indigo-200 dark:border-indigo-800 inline-flex items-center gap-1"
-                      title={cpo.customerName ? `${cpo.customerName}${hasForeignCurrency ? ` (${cpo.currency} @ ₹${cpo.exchangeRate || '-'})` : ''}` : ''}
-                    >
-                      <strong className="text-slate-900 dark:text-slate-100">{cpo.customerPoNumber}</strong>
-                      {cpo.customerName && <span className="text-slate-500 font-sans">({cpo.customerName})</span>}
-                      {cpo.totalAmount ? (
-                        <span className="font-semibold text-emerald-700 dark:text-emerald-400 ml-0.5">
-                          {hasForeignCurrency ? `${symbol}${Number(cpo.totalAmount).toLocaleString()} (₹${(cpo.totalAmountInINR || 0).toLocaleString('en-IN')})` : `₹${Number(cpo.totalAmount).toLocaleString('en-IN')}`}
-                        </span>
-                      ) : null}
-                    </span>
-                  );
-                })}
+                <button
+                  type="button"
+                  onClick={() => openLinkedPoModal({
+                    mrpNumber: currentPlan.mrpNumber,
+                    planTitle: currentPlan.planTitle,
+                    customerName: currentPlan.customerName,
+                    customerPOs: currentPlan.customerPOs,
+                  })}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors shadow-2xs cursor-pointer"
+                  title="Click to view all linked customer POs"
+                >
+                  <FileText size={11} className="text-indigo-600 dark:text-indigo-400" />
+                  <span>View Linked Customer POs ({currentPlan.customerPOs.length})</span>
+                </button>
               </div>
             )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0 ml-2">
+            {/* Budget & Financial Intelligence Popup Button */}
+            {(() => {
+              const committedExpense = Number(currentPlan.committedExpense || 0);
+              const targetExpense = Number(currentPlan.targetExpense || 0);
+              const budgetStatus = currentPlan.budgetStatus || (
+                targetExpense > 0 
+                  ? (committedExpense > targetExpense ? 'Over Budget' : committedExpense >= targetExpense * 0.85 ? 'Near Limit' : 'Within Budget')
+                  : 'Unset'
+              );
+
+              return (
+                <button
+                  type="button"
+                  onClick={() => setIsBudgetModalOpen(true)}
+                  className={`px-3 py-1.5 rounded-xl border font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+                    budgetStatus === 'Over Budget'
+                      ? 'bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/70 dark:hover:bg-rose-900 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                      : budgetStatus === 'Near Limit'
+                      ? 'bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/70 dark:hover:bg-amber-900 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                      : budgetStatus === 'Within Budget'
+                      ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/70 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                      : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                  }`}
+                  title="View Financial Intelligence & Target Budget Guard Dashboard"
+                >
+                  <IndianRupee size={13} className="shrink-0" />
+                  <span>Budget: {targetExpense > 0 ? `₹${targetExpense.toLocaleString('en-IN')}` : 'Unset'}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-extrabold ${
+                    budgetStatus === 'Over Budget' ? 'bg-rose-200/80 dark:bg-rose-900 text-rose-900 dark:text-rose-100' :
+                    budgetStatus === 'Near Limit' ? 'bg-amber-200/80 dark:bg-amber-900 text-amber-900 dark:text-amber-100' :
+                    budgetStatus === 'Within Budget' ? 'bg-emerald-200/80 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100' :
+                    'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
+                  }`}>
+                    {budgetStatus === 'Over Budget' ? '🚨 Over Budget' :
+                     budgetStatus === 'Near Limit' ? '⚠️ Near Limit' :
+                     budgetStatus === 'Within Budget' ? '✅ In Budget' : 'Unset'}
+                  </span>
+                </button>
+              );
+            })()}
+
             <button
               type="button"
               onClick={handleExportNestedBOMPDF}
@@ -344,79 +406,6 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
             </div>
           </div>
 
-          {/* 1.5 Dynamic Financial & Budget Real-Time Overview */}
-          <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white p-4 rounded-2xl border border-indigo-900/50 shadow-sm space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Wallet className="text-emerald-400 w-4 h-4" />
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                  Dynamic Financials & Outward PO Budget Sync
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                {budgetStatus === 'Over Budget' ? (
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center gap-1">
-                    <AlertTriangle size={11} className="text-rose-400" /> Over Budget
-                  </span>
-                ) : budgetStatus === 'Near Limit' ? (
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
-                    <Clock size={11} className="text-amber-400" /> Near Limit (≥85%)
-                  </span>
-                ) : budgetStatus === 'Within Budget' ? (
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
-                    <CheckCircle2 size={11} className="text-emerald-400" /> Within Budget
-                  </span>
-                ) : (
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
-                    Budget Unset
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-              <div className="bg-white/5 p-2.5 rounded-xl border border-white/10">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">
-                  {currentPlan.customerPOs?.length > 0 || currentPlan.customerPoNumber ? 'Customer PO Revenue' : 'Planned FG Revenue'}
-                </span>
-                <div className="text-base font-mono font-bold text-emerald-400 mt-0.5">
-                  ₹{totalIncome.toLocaleString('en-IN')}
-                </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">
-                  {currentPlan.customerPOs?.length > 0 || currentPlan.customerPoNumber ? 'Contract Selling Price (INR)' : 'Sales Price List (INR)'}
-                </div>
-              </div>
-
-              <div className="bg-white/5 p-2.5 rounded-xl border border-white/10">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Committed PO Spend</span>
-                <div className="text-base font-mono font-bold text-indigo-300 mt-0.5">
-                  ₹{committedExpense.toLocaleString('en-IN')}
-                </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">Active Outward POs</div>
-              </div>
-
-              <div className="bg-white/5 p-2.5 rounded-xl border border-white/10">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Target Budget Ceiling</span>
-                <div className="text-base font-mono font-bold text-slate-200 mt-0.5">
-                  {targetExpense > 0 ? `₹${targetExpense.toLocaleString('en-IN')}` : 'Not Specified'}
-                </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">
-                  {targetExpense > 0 ? `${Math.min(999, Math.round((effectiveExpense / targetExpense) * 100))}% utilized` : `Est: ₹${totalEstimatedExpense.toLocaleString('en-IN')}`}
-                </div>
-              </div>
-
-              <div className="bg-white/5 p-2.5 rounded-xl border border-white/10">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Projected Gross Margin</span>
-                <div className={`text-base font-mono font-bold mt-0.5 ${projectedGrossProfit >= 0 ? 'text-cyan-300' : 'text-rose-400'}`}>
-                  ₹{projectedGrossProfit.toLocaleString('en-IN')}
-                </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">
-                  {projectedMarginPercentage}% Margin
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* 2. Finished Goods Order Line Items */}
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
@@ -457,35 +446,19 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
                             <div className="flex items-center gap-2 flex-wrap">
                               <strong className="text-slate-900 dark:text-white block font-bold text-xs sm:text-sm">{itemName}</strong>
                               {fg.sourceBreakdown && fg.sourceBreakdown.length > 1 ? (
-                                <div className="mt-1 space-y-1 w-full">
-                                  <div className="text-[10px] font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1">
-                                    <Layers size={10} />
-                                    <span>Consolidated ({fg.sourceBreakdown.length} Customer POs):</span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    {fg.sourceBreakdown.map((b: any, bIdx: number) => {
-                                      const origRate = Number(b.originalRate || b.rate || 0);
-                                      const curr = b.currency || 'INR';
-                                      const exRate = Number(b.exchangeRate || 1);
-                                      const inrRate = Number(b.rateInINR || (origRate * exRate) || 0);
-                                      const isForeign = curr !== 'INR';
-
-                                      return (
-                                        <span
-                                          key={bIdx}
-                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
-                                          title={`${b.customerName ? `${b.customerName} — ` : ''}${b.quantity} ${fg.unit || 'PCS'} @ ${curr} ${origRate} ${isForeign ? `(1 ${curr} = ₹${exRate})` : ''} = ₹${(b.amountInINR || (b.quantity * inrRate)).toLocaleString('en-IN')}`}
-                                        >
-                                          <span>{b.customerPoNumber}: {b.quantity} {fg.unit || 'PCS'}</span>
-                                          {origRate > 0 && (
-                                            <span className="text-[9px] text-emerald-700 dark:text-emerald-400 font-bold ml-0.5">
-                                              @ {isForeign ? `${getCurrencySymbol(curr)}${origRate.toLocaleString()} → ₹${inrRate.toLocaleString('en-IN')}` : `₹${inrRate.toLocaleString('en-IN')}`}
-                                            </span>
-                                          )}
-                                        </span>
-                                      );
+                                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => openLinkedPoModal({
+                                      mrpNumber: currentPlan.mrpNumber,
+                                      fgItemName: itemName,
+                                      sourceBreakdown: fg.sourceBreakdown,
                                     })}
-                                  </div>
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 hover:bg-blue-100 dark:bg-blue-950 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors shadow-2xs cursor-pointer"
+                                    title="View customer PO allocation breakdown"
+                                  >
+                                    <span>📄 {fg.sourceBreakdown.length} Linked POs</span>
+                                  </button>
                                 </div>
                               ) : fg.customerPoNumber ? (
                                 <div className="mt-1 flex items-center gap-1.5 flex-wrap">
@@ -934,6 +907,38 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
           </button>
         </div>
       </div>
+
+      {/* Linked Customer POs Popup Modal */}
+      {isLinkedPoModalOpen && linkedPoModalData && (
+        <LinkedCustomerPOsModal
+          isOpen={isLinkedPoModalOpen}
+          onClose={() => {
+            setIsLinkedPoModalOpen(false);
+            setLinkedPoModalData(null);
+          }}
+          mrpNumber={linkedPoModalData.mrpNumber}
+          planTitle={linkedPoModalData.planTitle}
+          customerName={linkedPoModalData.customerName}
+          customerPOs={linkedPoModalData.customerPOs}
+          fgItemName={linkedPoModalData.fgItemName}
+          sourceBreakdown={linkedPoModalData.sourceBreakdown}
+        />
+      )}
+
+      {/* MRP Budget & Financial Dashboard Modal */}
+      {isBudgetModalOpen && currentPlan && (
+        <MRPBudgetModal
+          isOpen={isBudgetModalOpen}
+          onClose={() => setIsBudgetModalOpen(false)}
+          plan={currentPlan}
+          onPlanUpdated={(updatedPlan) => {
+            setCurrentPlan(updatedPlan);
+            if (onPlanUpdated) {
+              onPlanUpdated(updatedPlan);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

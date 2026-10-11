@@ -9,6 +9,7 @@ import FGItemForm from '@/src/features/store/components/forms/FGItemForm';
 import MasterDetailPreviewModal from '@/src/features/store/components/modals/MasterDetailPreviewModal';
 import { StoreFormData } from '@/src/features/store/types/store.types';
 import { AlertCircle, CheckCircle2, X } from 'lucide-react';
+import { showDestructiveConfirm, showDeactivatePrompt, showSuccessToast } from '@/src/features/store/utils/storeDialogHelper';
 
 const extractErrorMessage = (error: any, fallback = "Failed to save Finished Good. Please check required fields."): string => {
   if (!error) return fallback;
@@ -150,16 +151,25 @@ export default function FinishedGoodsPage() {
 
   const handleDelete = async (id: string) => {
     const target = finishedGoods.find((m: any) => m._id === id);
-    if (confirm(`Are you sure you want to delete "${target?.name || 'this FG item'}"?`)) {
+    const confirmed = await showDestructiveConfirm(
+      'Delete Finished Good',
+      `Are you sure you want to delete "${target?.name || 'this FG item'}"? This action cannot be undone.`
+    );
+    if (confirmed) {
       try {
         await deleteRecord({ tab: "fg-item", id }).unwrap();
+        showSuccessToast(`"${target?.name || 'Item'}" deleted.`);
         setToast({ type: 'success', message: `"${target?.name || 'Item'}" deleted successfully.` });
       } catch (error: any) {
         const errMsg = extractErrorMessage(error);
         if (target) {
           setRowNotice({ itemId: id, message: errMsg, type: 'error' });
           if (errMsg.toLowerCase().includes("stock") || errMsg.toLowerCase().includes("active") || errMsg.toLowerCase().includes("transaction") || errMsg.toLowerCase().includes("fulfill")) {
-            if (confirm(`${errMsg}\n\nWould you like to DEACTIVATE this item instead?`)) {
+            const shouldDeactivate = await showDeactivatePrompt({
+              itemName: target.name || 'this FG item',
+              errorMessage: errMsg
+            });
+            if (shouldDeactivate) {
               handleToggleStatus(target);
             }
           }
@@ -207,6 +217,8 @@ export default function FinishedGoodsPage() {
       submitData.append('unit', formData.unit || 'Nos');
       submitData.append('hasSecondaryUnit', String(Boolean(formData.hasSecondaryUnit)));
       submitData.append('secondaryUnit', (formData.secondaryUnit || '').toString().trim());
+      submitData.append('primaryRatio', String(Number(formData.primaryRatio) > 0 ? formData.primaryRatio : 1));
+      submitData.append('secondaryRatio', String(Number(formData.secondaryRatio) > 0 ? formData.secondaryRatio : 1));
       submitData.append('conversionFactor', String(Number(formData.conversionFactor) > 0 ? formData.conversionFactor : 1));
       submitData.append('description', formData.description || '');
       submitData.append('hsnCode', (formData.hsnCode || '').toString().trim());
@@ -386,7 +398,7 @@ export default function FinishedGoodsPage() {
           setFormError(null);
         }}
         title={editingItem ? "Edit FG Item" : "Add FG Item"}
-        maxWidth="7xl"
+        maxWidth="full"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Modal Error Banner */}

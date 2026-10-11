@@ -27,6 +27,7 @@ import {
 import { useGetPpcComponentsQuery } from "@/src/store/services/ppcService";
 import { TabType, MasterType, StoreFormData, Vendor, Customer, Location, Category, RmBoItem, GRNFormData, POFormData, CompanyInfo, DCFormData, BillingFormData, JobWorkSupplier, Process } from "@/src/features/store/types/store.types";
 import { isSpaceFreeMatch } from "@/src/utils/spaceFreeSearchHelper";
+import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from "@/src/features/store/utils/storeDialogHelper";
 
 export function useStoreData(activeTab: TabType, masterTab: MasterType, token: string | null, queryParams?: string) {
     // --- Queries ---
@@ -245,7 +246,15 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
                 if (formData.unit) formDataPayload.append('unit', formData.unit);
                 formDataPayload.append('hasSecondaryUnit', String(Boolean(formData.hasSecondaryUnit)));
                 if (formData.secondaryUnit) formDataPayload.append('secondaryUnit', formData.secondaryUnit.toString().trim());
-                if (formData.conversionFactor) formDataPayload.append('conversionFactor', formData.conversionFactor.toString());
+                if (formData.conversionFactor !== undefined && formData.conversionFactor !== null) {
+                    formDataPayload.append('conversionFactor', formData.conversionFactor.toString());
+                }
+                if (formData.primaryRatio !== undefined && formData.primaryRatio !== null) {
+                    formDataPayload.append('primaryRatio', formData.primaryRatio.toString());
+                }
+                if (formData.secondaryRatio !== undefined && formData.secondaryRatio !== null) {
+                    formDataPayload.append('secondaryRatio', formData.secondaryRatio.toString());
+                }
                 if (formData.hsnCode !== undefined) formDataPayload.append('hsnCode', (formData.hsnCode || '').toString().trim());
                 if (formData.revisionNumber) formDataPayload.append('revisionNumber', formData.revisionNumber);
                 if (formData.bom && formData.bom.length > 0) formDataPayload.append('bom', JSON.stringify(formData.bom));
@@ -259,14 +268,34 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
                 } else {
                     await createRecord({ tab: "fg-item" as any, body: formDataPayload, isFormData: true }).unwrap();
                 }
-            } else if (masterTab === "rm-bo-item" || masterTab === "consumable-item") {
+            } else if (
+                masterTab === "rm-bo-item" ||
+                masterTab === "consumable-item" ||
+                (masterTab as string) === "raw-material" ||
+                (masterTab as string) === "bought-out"
+            ) {
                 const formDataPayload = new FormData();
                 if (formData.name) formDataPayload.append('name', formData.name);
                 if (formData.descriptions) formDataPayload.append('descriptions', formData.descriptions);
+                if (formData.description) formDataPayload.append('description', formData.description);
                 if (formData.minimumStock !== undefined) formDataPayload.append('minimumStock', formData.minimumStock.toString());
                 if (formData.categoryId) formDataPayload.append('categoryId', formData.categoryId);
                 if (formData.locationId) formDataPayload.append('locationId', formData.locationId);
                 if (formData.unit) formDataPayload.append('unit', formData.unit);
+                if (formData.hsnCode !== undefined) formDataPayload.append('hsnCode', (formData.hsnCode || '').toString().trim());
+                
+                // Dual Unit / Conversion Factor Fields
+                formDataPayload.append('hasSecondaryUnit', String(Boolean(formData.hasSecondaryUnit)));
+                if (formData.secondaryUnit) formDataPayload.append('secondaryUnit', formData.secondaryUnit.toString().trim());
+                if (formData.conversionFactor !== undefined && formData.conversionFactor !== null) {
+                    formDataPayload.append('conversionFactor', formData.conversionFactor.toString());
+                }
+                if (formData.primaryRatio !== undefined && formData.primaryRatio !== null) {
+                    formDataPayload.append('primaryRatio', formData.primaryRatio.toString());
+                }
+                if (formData.secondaryRatio !== undefined && formData.secondaryRatio !== null) {
+                    formDataPayload.append('secondaryRatio', formData.secondaryRatio.toString());
+                }
                 
                 if (formData.photos && Array.isArray(formData.photos)) {
                     formData.photos.forEach((photo) => {
@@ -277,8 +306,16 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
                         }
                     });
                 }
+                photos.forEach((file) => {
+                    formDataPayload.append('photos', file);
+                });
                 
-                const targetTab = masterTab === "consumable-item" ? "consumable-item" : "rm-bo-item";
+                let targetTab: any = masterTab;
+                if ((masterTab as string) === "raw-material" || (formData as any).itemType === "Raw Material") targetTab = "raw-material";
+                else if ((masterTab as string) === "bought-out" || (formData as any).itemType === "Bought Out") targetTab = "bought-out";
+                else if (masterTab === "consumable-item") targetTab = "consumable-item";
+                else targetTab = "rm-bo-item";
+
                 if (editingId) {
                     await updateRecord({ tab: targetTab as any, id: editingId, body: formDataPayload, isFormData: true }).unwrap();
                 } else {
@@ -310,6 +347,14 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     const handleEdit = (item: any) => {
         // For materials, handle populated categoryId
         const editData = { ...item };
+
+        // Ensure Dual UOM fields are properly typed in edit state
+        editData.hasSecondaryUnit = Boolean(item.hasSecondaryUnit);
+        editData.secondaryUnit = item.secondaryUnit || "";
+        editData.conversionFactor = item.conversionFactor !== undefined && item.conversionFactor !== null ? Number(item.conversionFactor) : 1;
+        editData.primaryRatio = item.primaryRatio !== undefined && item.primaryRatio !== null ? Number(item.primaryRatio) : 1;
+        editData.secondaryRatio = item.secondaryRatio !== undefined && item.secondaryRatio !== null ? Number(item.secondaryRatio) : 1;
+
         // For materials and fg-items, handle populated categoryId
         if (masterTab === "rm-bo-item" && item.category && typeof item.category === 'object') {
             editData.categoryId = item.category._id;
@@ -337,8 +382,6 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
 
         setFormData(editData);
         setEditingId(item._id);
-        // We cannot easily pre-load existing S3 photos into the `photos` File[] state 
-        // since they are URLs. They should be handled separately or kept as URL references.
         setPhotos([]); 
         setShowForm(true);
     };
@@ -350,7 +393,12 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
      * Handles delete action with confirmation
      */
     const handleDelete = async (id: string) => {
-        if (!confirm("Are you sure you want to delete this record?")) return;
+        const confirmed = await showDestructiveConfirm({
+            title: "Delete Record",
+            text: "Are you sure you want to delete this record? This action cannot be undone.",
+            confirmButtonText: "Yes, Delete"
+        });
+        if (!confirmed) return;
         
         try {
             let tab: any = activeTab === "masters" ? masterTab : activeTab;
@@ -363,9 +411,12 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
             if (tab === "fg-grn-history" || tab === "fg-history") deleteTab = "fg-grn";
 
             await deleteRecord({ tab: deleteTab as any, id }).unwrap();
+            showSuccessToast("Record deleted successfully");
             setSuccess("Record deleted successfully");
         } catch (err: any) {
-            setError(err.data?.message || err.message || "Failed to delete record");
+            const errorMsg = err.data?.message || err.message || "Failed to delete record";
+            setError(errorMsg);
+            await showErrorDialog("Delete Failed", errorMsg);
         }
     };
 
@@ -750,6 +801,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         priceLists: priceListsData,
         mrpPlans: mrpsData,
         mrps: mrpsData,
+        pendingProducts: [] as any[],
         refetch: fetchData,
     };
 }

@@ -93,6 +93,8 @@ export const grnSchema = new mongoose.Schema(
         primaryRate: { type: Number, default: 0 },
         secondaryRate: { type: Number, default: 0 },
         amount: { type: Number, default: 0 },
+        taxRate: { type: Number, default: 0 },
+        taxAmount: { type: Number, default: 0 },
         locationId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Location",
@@ -133,10 +135,34 @@ export const grnSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    isTransportationTaxable: {
+      type: Boolean,
+      default: false,
+    },
+    transportationTaxRate: {
+      type: Number,
+      default: 0,
+    },
+    transportationTaxAmount: {
+      type: Number,
+      default: 0,
+    },
     packingCharges: {
       type: Number,
       default: 0,
       min: 0,
+    },
+    isPackingTaxable: {
+      type: Boolean,
+      default: false,
+    },
+    packingTaxRate: {
+      type: Number,
+      default: 0,
+    },
+    packingTaxAmount: {
+      type: Number,
+      default: 0,
     },
     preRoundTotal: {
       type: Number,

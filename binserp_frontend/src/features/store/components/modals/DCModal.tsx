@@ -24,6 +24,7 @@ import SearchableSelect, { SearchableOption } from "../SearchableSelect";
 import { getCurrencySymbol, CURRENCY_OPTIONS, convertToINR } from "@/src/utils/currencyHelper";
 import { computeProfessionalTotalWithRoundOff, RoundingMode } from "@/src/utils/roundingHelper";
 import { apiRequest } from "@/src/lib/api";
+import { showConfirmDialog } from "@/src/features/store/utils/storeDialogHelper";
 
 interface ExtendedDCModalProps extends DCModalProps {
     materials?: RmBoItem[];
@@ -285,14 +286,17 @@ export default function DCModal({
     }, [isOpen, dcMaterialType, preloadCategoryOptions]);
 
     // Top-Level Material Category Switcher: Only one type of material per DC
-    const handleDcMaterialTypeChange = (newType: ItemCategoryType) => {
+    const handleDcMaterialTypeChange = async (newType: ItemCategoryType) => {
         if (newType === dcMaterialType) return;
 
         const hasEnteredData = items.some(i => i.materialName || i.fgItem || i.rawMaterial || i.boughtOut || i.consumableItem);
         if (hasEnteredData) {
-            const confirmed = window.confirm(
-                `Switching material category to ${newType.toUpperCase()} will reset all current line items, as only one material type can be included per Delivery Challan. Proceed?`
-            );
+            const confirmed = await showConfirmDialog({
+                title: "Switch Material Category?",
+                text: `Switching material category to ${newType.toUpperCase()} will reset all current line items, as only one material type can be included per Delivery Challan. Proceed?`,
+                confirmButtonText: "Yes, Switch",
+                confirmButtonColor: "#f59e0b"
+            });
             if (!confirmed) return;
         }
 

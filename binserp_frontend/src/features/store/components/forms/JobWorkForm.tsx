@@ -611,8 +611,66 @@ export default function JobWorkForm({
         }
     }, [isOpen, initialData]);
 
+    // Helper to auto-sync 1:1 same returning item for WIP-to-WIP
+    const syncSameReturningItem = (item: any): JobWorkReturningItem[] => {
+        const existingRet = (item.returningItems && item.returningItems[0]) || {};
+        const rate = Number(existingRet.processRate != null ? existingRet.processRate : (item.processRate || 0));
+        const qty = Number(item.quantitySent) || 1;
+        return [{
+            receivedItem: item.item || '',
+            receivedItemName: item.itemName || '',
+            receivedItemType: item.itemType || 'rm',
+            quantityToBeReceived: qty,
+            receivingUnit: item.unit || 'PCS',
+            hasSecondaryUnit: Boolean(item.hasSecondaryUnit),
+            secondaryUnit: item.secondaryUnit || '',
+            conversionFactor: Number(item.conversionFactor) || 1,
+            selectedUnit: item.selectedUnit || item.unit || 'PCS',
+            secondaryQuantityToBeReceived: Number(item.secondaryQuantitySent) || 0,
+            processRate: rate,
+            processAmount: parseFloat((qty * rate).toFixed(2)),
+            description: item.description || ''
+        }];
+    };
+
+    // Toggle Same Material Returning for a discrete outward line
+    const handleToggleSameItemReturning = (itemIdx: number, checked: boolean) => {
+        const newItems = [...formData.items];
+        const current = { ...newItems[itemIdx], isSameItemReturning: checked };
+        if (checked) {
+            current.returningItems = syncSameReturningItem(current);
+        } else {
+            if (!current.returningItems || current.returningItems.length === 0) {
+                current.returningItems = [{
+                    receivedItem: '',
+                    receivedItemName: '',
+                    receivedItemType: current.itemType || 'rm',
+                    quantityToBeReceived: Number(current.quantitySent) || 1,
+                    receivingUnit: current.unit || 'PCS',
+                    processRate: 0,
+                    processAmount: 0,
+                    description: ''
+                }];
+            }
+        }
+        current.processAmount = (current.returningItems || []).reduce((sum, r) => sum + (Number(r.processAmount) || 0), 0);
+        newItems[itemIdx] = current;
+
+        const totalJW = newItems.reduce((acc, it) => {
+            const lineCharges = (it.returningItems || []).reduce((subAcc: number, r: any) => subAcc + (Number(r.processAmount) || 0), 0);
+            return acc + lineCharges;
+        }, 0);
+
+        setFormData(prev => ({
+            ...prev,
+            items: newItems,
+            totalJobWorkCharges: parseFloat(totalJW.toFixed(2))
+        }));
+    };
+
     // Handle Workflow DC Type Switch
     const handleDcTypeChange = (type: 'store-conversion' | 'store-to-wip' | 'wip-to-wip') => {
+        const isWipToWip = type === 'wip-to-wip';
         const updatedItems = formData.items.map(item => {
             let defaultSentType = item.itemType;
             if (type === 'store-conversion' || type === 'store-to-wip') {
@@ -621,12 +679,16 @@ export default function JobWorkForm({
                 defaultSentType = (item.itemType === 'bo' || item.itemType === 'fg' || item.itemType === 'rm') ? item.itemType : 'rm';
             }
 
-            const updatedRetItems = (item.returningItems || []).map(r => {
+            const isSame = isWipToWip ? (item.isSameItemReturning !== undefined ? item.isSameItemReturning : true) : Boolean(item.isSameItemReturning);
+
+            let updatedRetItems = (item.returningItems || []).map(r => {
                 let retType = r.receivedItemType || 'rm';
                 if (type === 'store-conversion') {
                     retType = 'rm'; // Strictly RM Conversion
-                } else {
-                    retType = 'fg'; // Store-to-WIP or WIP-to-WIP strictly returns FG
+                } else if (type === 'store-to-wip') {
+                    retType = 'fg'; // Store-to-WIP strictly returns FG
+                } else if (isWipToWip) {
+                    retType = isSame ? defaultSentType : (r.receivedItemType || defaultSentType);
                 }
                 return {
                     ...r,
@@ -634,11 +696,18 @@ export default function JobWorkForm({
                 };
             });
 
-            return {
+            const updatedItem = {
                 ...item,
                 itemType: defaultSentType,
+                isSameItemReturning: isSame,
                 returningItems: updatedRetItems
             };
+
+            if (isWipToWip && isSame && updatedItem.item) {
+                updatedItem.returningItems = syncSameReturningItem(updatedItem);
+            }
+
+            return updatedItem;
         });
 
         const updatedGroups = (formData.assemblyGroups || []).map(grp => {
@@ -702,6 +771,7 @@ export default function JobWorkForm({
             if (foundMat) {
                 current.itemName = foundMat.materialName || foundMat.name || foundMat.componentName || (type === 'rm' ? 'Raw Material' : type === 'bo' ? 'Bought Out' : 'Finished Good');
                 current.unit = foundMat.unit || (foundMat as any).categoryId?.unit || 'PCS';
+                current.description = foundMat.descriptions || foundMat.description || foundMat.specification || '';
                 const hasSec = Boolean(foundMat.hasSecondaryUnit || (foundMat.secondaryUnit && Number(foundMat.conversionFactor) > 0));
                 current.hasSecondaryUnit = hasSec;
                 current.secondaryUnit = foundMat.secondaryUnit || '';
@@ -718,8 +788,10 @@ export default function JobWorkForm({
                 current.processAmount = (Number(current.quantitySent) || 0) * (Number(current.processRate) || 0);
             }
 
-            // Auto-sync first returning item name if blank
-            if (current.returningItems && current.returningItems.length > 0 && !current.returningItems[0].receivedItemName) {
+            // Auto-sync first returning item if toggle is active, or if blank
+            if (current.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+                current.returningItems = syncSameReturningItem(current);
+            } else if (current.returningItems && current.returningItems.length > 0 && !current.returningItems[0].receivedItemName) {
                 current.returningItems[0].receivedItemName = current.itemName || '';
             }
         }
@@ -731,10 +803,17 @@ export default function JobWorkForm({
             current.secondaryUnit = '';
             current.conversionFactor = 1;
             current.secondaryQuantitySent = 0;
+            current.description = '';
+            if (current.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+                current.returningItems = syncSameReturningItem(current);
+            }
         }
 
         if (field === 'selectedUnit') {
             current.selectedUnit = value;
+            if (current.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+                current.returningItems = syncSameReturningItem(current);
+            }
         }
 
         if (field === 'purpose') {
@@ -746,6 +825,9 @@ export default function JobWorkForm({
             current.processRate = value;
             current.unitPrice = value;
             current.processAmount = (Number(current.quantitySent) || 0) * (Number(value) || 0);
+            if (current.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+                current.returningItems = syncSameReturningItem(current);
+            }
         }
 
         if (field === 'quantitySent') {
@@ -756,6 +838,9 @@ export default function JobWorkForm({
             }
             const currentRate = Number(current.processRate != null ? current.processRate : current.unitPrice) || 0;
             current.processAmount = num * currentRate;
+            if (current.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+                current.returningItems = syncSameReturningItem(current);
+            }
         }
 
         if (field === 'secondaryQuantitySent') {
@@ -766,6 +851,9 @@ export default function JobWorkForm({
             current.quantitySent = priVal;
             const currentRate = Number(current.processRate != null ? current.processRate : current.unitPrice) || 0;
             current.processAmount = priVal * currentRate;
+            if (current.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+                current.returningItems = syncSameReturningItem(current);
+            }
         }
 
         newItems[itemIdx] = current;
@@ -777,10 +865,16 @@ export default function JobWorkForm({
             return acc + (q * r);
         }, 0);
 
+        const totalJW = newItems.reduce((acc, it) => {
+            const lineCharges = (it.returningItems || []).reduce((subAcc: number, r: any) => subAcc + (Number(r.processAmount) || 0), 0);
+            return acc + lineCharges;
+        }, 0);
+
         setFormData({ 
             ...formData, 
             items: newItems,
-            estimatedPrice: totalProcPrice > 0 ? totalProcPrice : formData.estimatedPrice
+            estimatedPrice: totalProcPrice > 0 ? totalProcPrice : formData.estimatedPrice,
+            totalJobWorkCharges: parseFloat(totalJW.toFixed(2))
         });
     };
 
@@ -796,9 +890,9 @@ export default function JobWorkForm({
             const type = currentRet.receivedItemType;
             let found: any = null;
             if (type === 'rm') {
-                found = (rawMaterials.length > 0 ? rawMaterials : materials).find((m: any) => String(m._id) === String(selectedId));
+                found = [...wipRmItems, ...(rawMaterials.length > 0 ? rawMaterials : materials)].find((m: any) => String(m._id || m.materialId || m.id) === String(selectedId));
             } else if (type === 'bo') {
-                found = (boughtOuts.length > 0 ? boughtOuts : materials).find((m: any) => String(m._id) === String(selectedId));
+                found = [...wipBoItems, ...(boughtOuts.length > 0 ? boughtOuts : materials)].find((m: any) => String(m._id || m.materialId || m.id) === String(selectedId));
             } else if (type === 'fg') {
                 const sourceList = [...wipFgItems, ...(inHouseItems || [])];
                 found = sourceList.find((i: any) => 
@@ -1319,8 +1413,9 @@ export default function JobWorkForm({
 
     // Add / Remove Sent Material Lines
     const addSentItemRow = () => {
-        const defaultSentType = formData.jobWorkType === 'wip-to-wip' ? 'fg' : 'rm';
-        const defaultRetType = formData.jobWorkType === 'store-conversion' ? 'rm' : 'fg';
+        const isWipToWip = formData.jobWorkType === 'wip-to-wip';
+        const defaultSentType = isWipToWip ? 'rm' : 'rm';
+        const defaultRetType = formData.jobWorkType === 'store-conversion' ? 'rm' : (isWipToWip ? 'rm' : 'fg');
         setFormData({
             ...formData,
             items: [
@@ -1336,6 +1431,7 @@ export default function JobWorkForm({
                     processAmount: 0,
                     unitPrice: 0,
                     description: '',
+                    isSameItemReturning: isWipToWip,
                     returningItems: [
                         {
                             receivedItem: '',
@@ -1484,7 +1580,14 @@ export default function JobWorkForm({
                     }
                 }
 
-                // In discrete mode, validate returning items for each line
+                // In discrete mode, ensure same item returning is synced for WIP-to-WIP
+                if (item.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+                    if (item.item && (!item.returningItems || item.returningItems.length === 0 || !item.returningItems[0].receivedItem)) {
+                        item.returningItems = syncSameReturningItem(item);
+                    }
+                }
+
+                // Validate returning items for each line
                 if (Array.isArray(item.returningItems)) {
                     item.returningItems.forEach((ret, r) => {
                         if (!ret.receivedItem && !ret.receivedItemName) {
@@ -2722,206 +2825,346 @@ export default function JobWorkForm({
                                                     </div>
                                                 </div>
 
-                                                {/* Sub-Section: Expected Converted Returning Items (Discrete 1-to-1 Mode) */}
+                                                {/* Sub-Section: Expected Returning Items (Discrete Mode) */}
                                                 <div className="pl-3 border-l-2 border-indigo-200 dark:border-indigo-800 space-y-2">
-                                                    <div className="flex justify-between items-center">
+                                                    <div className="flex flex-wrap justify-between items-center gap-2">
                                                         <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase flex items-center gap-1">
                                                             <ArrowRight size={12} className="text-indigo-600" />
                                                             Expected Returning Inward Item(s)
                                                         </span>
 
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => addReturningItemSubRow(itemIdx)}
-                                                            className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer"
-                                                        >
-                                                            <Plus size={12} /> Add Return
-                                                        </button>
+                                                        <div className="flex items-center gap-3">
+                                                            {/* Same Material Returning Toggle */}
+                                                            <label className={`flex items-center gap-2 cursor-pointer select-none px-2.5 py-1 rounded-lg border transition-all ${
+                                                                sentItem.isSameItemReturning !== false
+                                                                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 shadow-2xs'
+                                                                    : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                                                            }`}>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={sentItem.isSameItemReturning !== false}
+                                                                    onChange={(e) => handleToggleSameItemReturning(itemIdx, e.target.checked)}
+                                                                    className="w-3.5 h-3.5 accent-emerald-600 rounded cursor-pointer"
+                                                                />
+                                                                <span className="text-[11px] font-bold flex items-center gap-1">
+                                                                    <span>Same Material Returning</span>
+                                                                    {sentItem.isSameItemReturning !== false && (
+                                                                        <span className="text-[9px] px-1.5 py-0.2 bg-emerald-200/60 dark:bg-emerald-800/60 text-emerald-800 dark:text-emerald-200 rounded font-black">
+                                                                            Auto 1:1
+                                                                        </span>
+                                                                    )}
+                                                                </span>
+                                                            </label>
+
+                                                            {sentItem.isSameItemReturning === false && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => addReturningItemSubRow(itemIdx)}
+                                                                    className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                                                                >
+                                                                    <Plus size={12} /> Add Return
+                                                                </button>
+                                                            )}
+                                                        </div>
                                                     </div>
 
-                                                    {/* Returning Item Sub-Rows */}
-                                                    <div className="space-y-2">
-                                                        {sentItem.returningItems.map((retItem, retIdx) => (
-                                                            <div 
-                                                                key={retIdx}
-                                                                className="grid grid-cols-1 sm:grid-cols-12 gap-2 p-2.5 bg-indigo-50/30 dark:bg-indigo-950/20 rounded-lg border border-indigo-100 dark:border-indigo-900/40 items-end"
-                                                            >
-                                                                {/* Return Type */}
-                                                                <div className="sm:col-span-3 lg:col-span-2">
-                                                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                                        Return Type
-                                                                    </label>
-                                                                    <div className="flex bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold">
-                                                                        {isStoreConversion ? (
-                                                                            <button
-                                                                                type="button"
-                                                                                className="flex-1 py-1 rounded-md bg-blue-600 text-white font-bold cursor-default text-center text-[11px] whitespace-nowrap"
-                                                                            >
-                                                                                🔵 RM
-                                                                            </button>
-                                                                        ) : (
-                                                                            <button
-                                                                                type="button"
-                                                                                className="flex-1 py-1 rounded-md bg-purple-600 text-white font-bold cursor-default text-center text-[11px] whitespace-nowrap"
-                                                                            >
-                                                                                🟣 WIP FG
-                                                                            </button>
+                                                    {sentItem.isSameItemReturning !== false ? (
+                                                        <div className="p-3 bg-emerald-50/40 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-800/60 space-y-2">
+                                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                                                        sentItem.itemType === 'rm' ? 'bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300' :
+                                                                        sentItem.itemType === 'bo' ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300' :
+                                                                        'bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300'
+                                                                    }`}>
+                                                                        {sentItem.itemType === 'rm' ? '🔵 RM' : sentItem.itemType === 'bo' ? '🟢 BO' : '🟣 WIP FG'}
+                                                                    </span>
+                                                                    <div>
+                                                                        <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                                                            {sentItem.itemName || 'Same Material as Outward'}
+                                                                        </div>
+                                                                        {sentItem.description && (
+                                                                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
+                                                                                {sentItem.description}
+                                                                            </div>
                                                                         )}
                                                                     </div>
                                                                 </div>
 
-                                                                {/* Return Item Selector */}
-                                                                <div className="sm:col-span-4 lg:col-span-3" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}>
-                                                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                                        <span>Returning Item <span className="text-red-500">*</span></span>
-                                                                        {formErrors[`item_${itemIdx}_ret_${retIdx}_item`] && (
-                                                                            <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
-                                                                                {formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}
-                                                                            </span>
-                                                                        )}
-                                                                    </label>
-                                                                    <SearchableSelect
-                                                                        options={
-                                                                            retItem.receivedItemType === 'rm' ? rmOptions :
-                                                                            retItem.receivedItemType === 'bo' ? boOptions :
-                                                                            fgOptions
-                                                                        }
-                                                                        value={retItem.receivedItem || ''}
-                                                                        hasError={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}
-                                                                        allowCustom={true}
-                                                                        onChange={(val) => {
-                                                                            handleReturningItemChange(itemIdx, retIdx, 'receivedItem', val);
-                                                                            if (val) clearError(`item_${itemIdx}_ret_${retIdx}_item`);
-                                                                        }}
-                                                                        placeholder="Select Returning Item..."
-                                                                    />
-                                                                    {retItem.description && (
-                                                                        <div className="text-[10px] text-slate-500 italic mt-0.5 line-clamp-1">
-                                                                            {retItem.description}
-                                                                        </div>
-                                                                    )}
+                                                                <div className="text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-1 bg-emerald-100/60 dark:bg-emerald-900/40 px-2 py-0.5 rounded-md">
+                                                                    <Check size={12} className="text-emerald-600" />
+                                                                    <span>Auto-synced Return Qty & Unit</span>
                                                                 </div>
+                                                            </div>
 
-                                                                {/* Receiving Unit Selector / Display */}
-                                                                <div className="sm:col-span-2 lg:col-span-1">
+                                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end pt-1">
+                                                                {/* Return Qty display */}
+                                                                <div className="sm:col-span-4 lg:col-span-4">
                                                                     <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                                        Unit {retItem.hasSecondaryUnit && <span className="text-[9px] text-amber-600 font-bold">(Dual)</span>}
+                                                                        Returning Quantity (1:1 with Sent Qty)
                                                                     </label>
-                                                                    {retItem.hasSecondaryUnit && retItem.secondaryUnit ? (
-                                                                        <select
-                                                                            value={retItem.selectedUnit || retItem.receivingUnit || 'PCS'}
-                                                                            onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'selectedUnit', e.target.value)}
-                                                                            className="w-full h-9 px-1 border border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 rounded-xl text-xs font-bold outline-none cursor-pointer"
-                                                                        >
-                                                                            <option value={retItem.receivingUnit || 'PCS'}>Pri: {retItem.receivingUnit || 'PCS'}</option>
-                                                                            <option value={retItem.secondaryUnit}>Sec: {retItem.secondaryUnit}</option>
-                                                                        </select>
-                                                                    ) : (
-                                                                        <input
-                                                                            type="text"
-                                                                            value={retItem.receivingUnit || 'PCS'}
-                                                                            onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'receivingUnit', e.target.value)}
-                                                                            className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 uppercase focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                                                                        />
-                                                                    )}
-                                                                </div>
-
-                                                                {/* Quantity To Receive with Dual Unit live conversion */}
-                                                                <div className="sm:col-span-2 lg:col-span-2" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]}>
-                                                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                                        <span>Return Qty <span className="text-red-500">*</span></span>
-                                                                        {formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`] && (
-                                                                            <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">
-                                                                                Req
+                                                                    <div className="h-9 px-3 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center justify-between shadow-2xs">
+                                                                        <span>{sentItem.quantitySent || 1} {sentItem.unit || 'PCS'}</span>
+                                                                        {sentItem.hasSecondaryUnit && sentItem.secondaryUnit && (
+                                                                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
+                                                                                ({sentItem.secondaryQuantitySent || 0} {sentItem.secondaryUnit})
                                                                             </span>
                                                                         )}
-                                                                    </label>
-                                                                    {retItem.hasSecondaryUnit && retItem.secondaryUnit && retItem.selectedUnit === retItem.secondaryUnit ? (
-                                                                        <div>
-                                                                            <input
-                                                                                type="number"
-                                                                                min="0.0001"
-                                                                                step="any"
-                                                                                value={retItem.secondaryQuantityToBeReceived || ''}
-                                                                                onChange={(e) => {
-                                                                                    const val = Number(e.target.value);
-                                                                                    handleReturningItemChange(itemIdx, retIdx, 'secondaryQuantityToBeReceived', val);
-                                                                                    if (val > 0) clearError(`item_${itemIdx}_ret_${retIdx}_quantity`);
-                                                                                }}
-                                                                                placeholder={`In ${retItem.secondaryUnit}`}
-                                                                                className="w-full h-9 px-2 border border-amber-300 dark:border-amber-600 rounded-xl text-xs font-bold text-center bg-amber-50/30 dark:bg-amber-950/20 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-amber-500/30 outline-none"
-                                                                            />
-                                                                            <div className="text-[10px] text-amber-600 dark:text-amber-400 font-mono mt-0.5 text-right font-medium">
-                                                                                ↳ = {retItem.quantityToBeReceived || 0} {retItem.receivingUnit || 'PCS'}
-                                                                            </div>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div>
-                                                                            <input
-                                                                                type="number"
-                                                                                min="0.01"
-                                                                                step="any"
-                                                                                value={retItem.quantityToBeReceived || ''}
-                                                                                onChange={(e) => {
-                                                                                    const val = Number(e.target.value);
-                                                                                    handleReturningItemChange(itemIdx, retIdx, 'quantityToBeReceived', val);
-                                                                                    if (val > 0) clearError(`item_${itemIdx}_ret_${retIdx}_quantity`);
-                                                                                }}
-                                                                                placeholder={retItem.hasSecondaryUnit ? `In ${retItem.receivingUnit || 'PCS'}` : ''}
-                                                                                className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                                                                            />
-                                                                            {retItem.hasSecondaryUnit && retItem.secondaryUnit && (
-                                                                                <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono mt-0.5 text-right font-medium">
-                                                                                    ↳ = {retItem.secondaryQuantityToBeReceived || 0} {retItem.secondaryUnit}
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    )}
+                                                                    </div>
                                                                 </div>
 
-                                                                {/* Job Work Rate (₹/unit) for this Returning Item */}
-                                                                <div className="sm:col-span-2 lg:col-span-2">
+                                                                {/* Job Work Rate (₹/unit) */}
+                                                                <div className="sm:col-span-4 lg:col-span-4">
                                                                     <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                                        <span>JW Rate</span>
-                                                                        <span className="text-[9px] text-slate-400 font-mono">₹/{retItem.selectedUnit || retItem.receivingUnit || 'unit'}</span>
+                                                                        <span>Job Work Rate</span>
+                                                                        <span className="text-[9px] text-slate-400 font-mono">₹/{sentItem.unit || 'unit'}</span>
                                                                     </label>
                                                                     <input
                                                                         type="number"
                                                                         min="0"
                                                                         step="any"
-                                                                        value={retItem.processRate !== undefined ? retItem.processRate : ''}
-                                                                        onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'processRate', e.target.value)}
+                                                                        value={(sentItem.returningItems?.[0]?.processRate !== undefined) ? sentItem.returningItems[0].processRate : ''}
+                                                                        onChange={(e) => handleReturningItemChange(itemIdx, 0, 'processRate', e.target.value)}
                                                                         placeholder="0.00"
                                                                         className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-right bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500/20 outline-none"
                                                                     />
                                                                 </div>
 
                                                                 {/* Job Work Amount Subtotal */}
-                                                                <div className="sm:col-span-2 lg:col-span-1 flex flex-col justify-center">
+                                                                <div className="sm:col-span-4 lg:col-span-4 flex flex-col justify-center">
                                                                     <label className="block text-[9px] font-semibold text-slate-400 uppercase tracking-tight mb-1 text-right">
                                                                         JW Amount
                                                                     </label>
-                                                                    <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400 truncate">
-                                                                        ₹{((Number(retItem.quantityToBeReceived) || 0) * (Number(retItem.processRate) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400">
+                                                                        ₹{((Number(sentItem.quantitySent) || 0) * (Number(sentItem.returningItems?.[0]?.processRate) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                                     </div>
                                                                 </div>
-
-                                                                {/* Action Delete */}
-                                                                <div className="sm:col-span-1 lg:col-span-1 flex items-center justify-center">
-                                                                    {sentItem.returningItems.length > 1 && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => removeReturningItemSubRow(itemIdx, retIdx)}
-                                                                            className="p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                                                                            title="Remove Return Item"
-                                                                        >
-                                                                            <Trash2 size={14} />
-                                                                        </button>
-                                                                    )}
-                                                                </div>
                                                             </div>
-                                                        ))}
-                                                    </div>
+                                                        </div>
+                                                    ) : (
+                                                        /* Returning Item Sub-Rows when Toggle is OFF */
+                                                        <div className="space-y-2">
+                                                            {sentItem.returningItems.map((retItem, retIdx) => (
+                                                                <div 
+                                                                    key={retIdx}
+                                                                    className="grid grid-cols-1 sm:grid-cols-12 gap-2 p-2.5 bg-indigo-50/30 dark:bg-indigo-950/20 rounded-lg border border-indigo-100 dark:border-indigo-900/40 items-end"
+                                                                >
+                                                                    {/* Return Type */}
+                                                                    <div className="sm:col-span-3 lg:col-span-2">
+                                                                        <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                                                            Return Type
+                                                                        </label>
+                                                                        <div className="flex bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold">
+                                                                            {isStoreConversion ? (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="flex-1 py-1 rounded-md bg-blue-600 text-white font-bold cursor-default text-center text-[11px] whitespace-nowrap"
+                                                                                >
+                                                                                    🔵 RM
+                                                                                </button>
+                                                                            ) : isWipToWip ? (
+                                                                                <>
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => handleReturningItemChange(itemIdx, retIdx, 'receivedItemType', 'rm')}
+                                                                                        className={`flex-1 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                                                                                            (retItem.receivedItemType || 'rm') === 'rm'
+                                                                                                ? 'bg-blue-600 text-white shadow-xs'
+                                                                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                                                                        }`}
+                                                                                        title="Raw Material Return"
+                                                                                    >
+                                                                                        🔵 RM
+                                                                                    </button>
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => handleReturningItemChange(itemIdx, retIdx, 'receivedItemType', 'bo')}
+                                                                                        className={`flex-1 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                                                                                            retItem.receivedItemType === 'bo'
+                                                                                                ? 'bg-emerald-600 text-white shadow-xs'
+                                                                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                                                                        }`}
+                                                                                        title="Bought Out Return"
+                                                                                    >
+                                                                                        🟢 BO
+                                                                                    </button>
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => handleReturningItemChange(itemIdx, retIdx, 'receivedItemType', 'fg')}
+                                                                                        className={`flex-1 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                                                                                            retItem.receivedItemType === 'fg'
+                                                                                                ? 'bg-purple-600 text-white shadow-xs'
+                                                                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                                                                        }`}
+                                                                                        title="Finished Good / Component Return"
+                                                                                    >
+                                                                                        🟣 FG
+                                                                                    </button>
+                                                                                </>
+                                                                            ) : (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="flex-1 py-1 rounded-md bg-purple-600 text-white font-bold cursor-default text-center text-[11px] whitespace-nowrap"
+                                                                                >
+                                                                                    🟣 WIP FG
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Return Item Selector */}
+                                                                    <div className="sm:col-span-4 lg:col-span-3" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}>
+                                                                        <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                                            <span>Returning Item <span className="text-red-500">*</span></span>
+                                                                            {formErrors[`item_${itemIdx}_ret_${retIdx}_item`] && (
+                                                                                <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
+                                                                                    {formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}
+                                                                                </span>
+                                                                            )}
+                                                                        </label>
+                                                                        <SearchableSelect
+                                                                            options={
+                                                                                retItem.receivedItemType === 'rm' ? (isWipToWip && wipRmOptions.length > 0 ? wipRmOptions : rmOptions) :
+                                                                                retItem.receivedItemType === 'bo' ? (isWipToWip && wipBoOptions.length > 0 ? wipBoOptions : boOptions) :
+                                                                                fgOptions
+                                                                            }
+                                                                            value={retItem.receivedItem || ''}
+                                                                            hasError={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}
+                                                                            allowCustom={true}
+                                                                            onChange={(val) => {
+                                                                                handleReturningItemChange(itemIdx, retIdx, 'receivedItem', val);
+                                                                                if (val) clearError(`item_${itemIdx}_ret_${retIdx}_item`);
+                                                                            }}
+                                                                            placeholder="Select Returning Item..."
+                                                                        />
+                                                                        {retItem.description && (
+                                                                            <div className="text-[10px] text-slate-500 italic mt-0.5 line-clamp-1">
+                                                                                {retItem.description}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+
+                                                                    {/* Receiving Unit Selector / Display */}
+                                                                    <div className="sm:col-span-2 lg:col-span-1">
+                                                                        <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                                                            Unit {retItem.hasSecondaryUnit && <span className="text-[9px] text-amber-600 font-bold">(Dual)</span>}
+                                                                        </label>
+                                                                        {retItem.hasSecondaryUnit && retItem.secondaryUnit ? (
+                                                                            <select
+                                                                                value={retItem.selectedUnit || retItem.receivingUnit || 'PCS'}
+                                                                                onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'selectedUnit', e.target.value)}
+                                                                                className="w-full h-9 px-1 border border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 rounded-xl text-xs font-bold outline-none cursor-pointer"
+                                                                            >
+                                                                                <option value={retItem.receivingUnit || 'PCS'}>Pri: {retItem.receivingUnit || 'PCS'}</option>
+                                                                                <option value={retItem.secondaryUnit}>Sec: {retItem.secondaryUnit}</option>
+                                                                            </select>
+                                                                        ) : (
+                                                                            <input
+                                                                                type="text"
+                                                                                value={retItem.receivingUnit || 'PCS'}
+                                                                                onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'receivingUnit', e.target.value)}
+                                                                                className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 uppercase focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                                            />
+                                                                        )}
+                                                                    </div>
+
+                                                                    {/* Quantity To Receive with Dual Unit live conversion */}
+                                                                    <div className="sm:col-span-2 lg:col-span-2" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]}>
+                                                                        <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                                            <span>Return Qty <span className="text-red-500">*</span></span>
+                                                                            {formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`] && (
+                                                                                <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">
+                                                                                    Req
+                                                                                </span>
+                                                                            )}
+                                                                        </label>
+                                                                        {retItem.hasSecondaryUnit && retItem.secondaryUnit && retItem.selectedUnit === retItem.secondaryUnit ? (
+                                                                            <div>
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="0.0001"
+                                                                                    step="any"
+                                                                                    value={retItem.secondaryQuantityToBeReceived || ''}
+                                                                                    onChange={(e) => {
+                                                                                        const val = Number(e.target.value);
+                                                                                        handleReturningItemChange(itemIdx, retIdx, 'secondaryQuantityToBeReceived', val);
+                                                                                        if (val > 0) clearError(`item_${itemIdx}_ret_${retIdx}_quantity`);
+                                                                                    }}
+                                                                                    placeholder={`In ${retItem.secondaryUnit}`}
+                                                                                    className="w-full h-9 px-2 border border-amber-300 dark:border-amber-600 rounded-xl text-xs font-bold text-center bg-amber-50/30 dark:bg-amber-950/20 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-amber-500/30 outline-none"
+                                                                                />
+                                                                                <div className="text-[10px] text-amber-600 dark:text-amber-400 font-mono mt-0.5 text-right font-medium">
+                                                                                    ↳ = {retItem.quantityToBeReceived || 0} {retItem.receivingUnit || 'PCS'}
+                                                                                </div>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div>
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="0.01"
+                                                                                    step="any"
+                                                                                    value={retItem.quantityToBeReceived || ''}
+                                                                                    onChange={(e) => {
+                                                                                        const val = Number(e.target.value);
+                                                                                        handleReturningItemChange(itemIdx, retIdx, 'quantityToBeReceived', val);
+                                                                                        if (val > 0) clearError(`item_${itemIdx}_ret_${retIdx}_quantity`);
+                                                                                    }}
+                                                                                    placeholder={retItem.hasSecondaryUnit ? `In ${retItem.receivingUnit || 'PCS'}` : ''}
+                                                                                    className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                                                />
+                                                                                {retItem.hasSecondaryUnit && retItem.secondaryUnit && (
+                                                                                    <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono mt-0.5 text-right font-medium">
+                                                                                        ↳ = {retItem.secondaryQuantityToBeReceived || 0} {retItem.secondaryUnit}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+
+                                                                    {/* Job Work Rate (₹/unit) for this Returning Item */}
+                                                                    <div className="sm:col-span-2 lg:col-span-2">
+                                                                        <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                                            <span>JW Rate</span>
+                                                                            <span className="text-[9px] text-slate-400 font-mono">₹/{retItem.selectedUnit || retItem.receivingUnit || 'unit'}</span>
+                                                                        </label>
+                                                                        <input
+                                                                            type="number"
+                                                                            min="0"
+                                                                            step="any"
+                                                                            value={retItem.processRate !== undefined ? retItem.processRate : ''}
+                                                                            onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'processRate', e.target.value)}
+                                                                            placeholder="0.00"
+                                                                            className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-right bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                                        />
+                                                                    </div>
+
+                                                                    {/* Job Work Amount Subtotal */}
+                                                                    <div className="sm:col-span-2 lg:col-span-1 flex flex-col justify-center">
+                                                                        <label className="block text-[9px] font-semibold text-slate-400 uppercase tracking-tight mb-1 text-right">
+                                                                            JW Amount
+                                                                        </label>
+                                                                        <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400 truncate">
+                                                                            ₹{((Number(retItem.quantityToBeReceived) || 0) * (Number(retItem.processRate) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Action Delete */}
+                                                                    <div className="sm:col-span-1 lg:col-span-1 flex items-center justify-center">
+                                                                        {sentItem.returningItems.length > 1 && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => removeReturningItemSubRow(itemIdx, retIdx)}
+                                                                                className="p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                                                                title="Remove Return Item"
+                                                                            >
+                                                                                <Trash2 size={14} />
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         );

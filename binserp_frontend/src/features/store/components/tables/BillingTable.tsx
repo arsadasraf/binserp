@@ -8,6 +8,7 @@ import { useExchangeRates } from '@/src/hooks/useExchangeRates';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import InvoicePreviewModal from '../modals/InvoicePreviewModal';
 import SearchableMultiSelect from '../SearchableMultiSelect';
+import { showDestructiveConfirm, showWarningDialog, showInfoDialog } from '@/src/features/store/utils/storeDialogHelper';
 
 interface BillingTableProps {
     data: any[];
@@ -19,7 +20,7 @@ interface BillingTableProps {
 }
 
 const generateEWayBill = (invoice: any) => {
-    alert(`Generating E-Way Bill for Invoice: ${invoice.invoiceNumber}`);
+    showInfoDialog("E-Way Bill", `Generating E-Way Bill for Invoice: ${invoice.invoiceNumber}`);
 };
 
 const formatDateTime = (dateStr?: string | Date) => {
@@ -92,15 +93,20 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
         return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     };
 
-    const handleDeleteSafe = (item: any) => {
+    const handleDeleteSafe = async (item: any) => {
         if (!isEditAllowed(item.createdAt || item.date)) {
             const hrs = getPolicyHours('invoice');
-            alert(hrs <= 0 
+            await showWarningDialog("Time-Lock Expired", hrs <= 0 
                 ? "This Tax Invoice cannot be deleted because it is locked immediately upon creation by company policy." 
                 : `This Tax Invoice cannot be deleted because the ${hrs}-hour edit/delete window has expired.`);
             return;
         }
-        if (window.confirm(`Are you sure you want to delete Tax Invoice #${item.invoiceNumber || ''}? This will return inventory stock and adjust linked Customer PO status.`)) {
+        const confirmed = await showDestructiveConfirm({
+            title: "Delete Tax Invoice",
+            text: `Are you sure you want to delete Tax Invoice #${item.invoiceNumber || ''}? This will return inventory stock and adjust linked Customer PO status.`,
+            confirmButtonText: "Yes, Delete"
+        });
+        if (confirmed) {
             onDelete(item._id);
         }
     };

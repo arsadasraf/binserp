@@ -312,3 +312,80 @@ export function resolveGrnLineItemDisplay(item) {
   };
 }
 
+/**
+ * Resolves UOM ratios and conversion factor for backend models,
+ * guaranteeing 100% backward compatibility with legacy data that only has conversionFactor.
+ */
+export function resolveBackendUomRatios(item = {}) {
+  const isDual = String(item.hasSecondaryUnit) === 'true' || item.hasSecondaryUnit === true;
+  if (!isDual) {
+    return {
+      hasSecondaryUnit: false,
+      secondaryUnit: '',
+      conversionFactor: 1,
+      primaryRatio: 1,
+      secondaryRatio: 1
+    };
+  }
+
+  const cleanSecUnit = (item.secondaryUnit || '').toString().trim();
+  const hasPRatio = item.primaryRatio !== undefined && item.primaryRatio !== null && !isNaN(Number(item.primaryRatio)) && Number(item.primaryRatio) > 0;
+  const hasSRatio = item.secondaryRatio !== undefined && item.secondaryRatio !== null && !isNaN(Number(item.secondaryRatio)) && Number(item.secondaryRatio) > 0;
+  const hasCf = item.conversionFactor !== undefined && item.conversionFactor !== null && !isNaN(Number(item.conversionFactor)) && Number(item.conversionFactor) > 0;
+
+  const pRatio = hasPRatio ? Number(item.primaryRatio) : null;
+  const sRatio = hasSRatio ? Number(item.secondaryRatio) : null;
+  const cf = hasCf ? Number(item.conversionFactor) : null;
+
+  let cleanPRatio = 1;
+  let cleanSRatio = 1;
+  let cleanCf = 1;
+
+  if (pRatio && sRatio) {
+    cleanPRatio = pRatio;
+    cleanSRatio = sRatio;
+    // If cf was explicitly provided and differs from sRatio/pRatio (e.g. user edited cf directly or ratios were 1:1 default)
+    if (cf && Math.abs(cf - (sRatio / pRatio)) > 0.000001) {
+      cleanCf = cf;
+      if (pRatio === 1 && sRatio === 1) {
+        if (cf < 1 && Math.abs((1 / cf) - Math.round(1 / cf)) < 0.005) {
+          cleanPRatio = Math.round(1 / cf);
+          cleanSRatio = 1;
+        } else {
+          cleanPRatio = 1;
+          cleanSRatio = parseFloat(cf.toFixed(6));
+        }
+      }
+    } else {
+      cleanCf = sRatio / pRatio;
+    }
+  } else if (cf) {
+    cleanCf = cf;
+    if (cf < 1 && Math.abs((1 / cf) - Math.round(1 / cf)) < 0.005) {
+      cleanPRatio = Math.round(1 / cf);
+      cleanSRatio = 1;
+    } else {
+      cleanPRatio = 1;
+      cleanSRatio = parseFloat(cf.toFixed(6));
+    }
+  }
+
+  return {
+    hasSecondaryUnit: true,
+    secondaryUnit: cleanSecUnit,
+    conversionFactor: cleanCf,
+    primaryRatio: cleanPRatio,
+    secondaryRatio: cleanSRatio
+  };
+}
+
+/**
+ * Formats UOM conversion string: e.g. "10 NOS = 1 KG"
+ */
+export function formatUomConversionDisplay(item = {}) {
+  if (!item || !item.hasSecondaryUnit || !item.secondaryUnit) return '';
+  const resolved = resolveBackendUomRatios(item);
+  const priUnit = item.unit || 'NOS';
+  return `${resolved.primaryRatio} ${priUnit} = ${resolved.secondaryRatio} ${resolved.secondaryUnit}`;
+}
+

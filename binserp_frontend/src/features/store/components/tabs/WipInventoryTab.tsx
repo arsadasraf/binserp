@@ -38,6 +38,7 @@ import WipLedgerDrawer from '../modals/WipLedgerDrawer';
 import WipActionModal from '../modals/WipActionModal';
 import WipMultiItemConvertModal from '../modals/WipMultiItemConvertModal';
 import MrpWipMaterialPreviewModal from '../modals/MrpWipMaterialPreviewModal';
+import MoveWipToFgModal from '../modals/MoveWipToFgModal';
 
 export type WipSubTabType = 'rm' | 'bo' | 'fg' | 'mrp' | 'ledger' | 'mrp-buckets';
 
@@ -111,8 +112,12 @@ export default function WipInventoryTab({
     const [isActionModalOpen, setIsActionModalOpen] = useState(false);
     const [isMultiConvertOpen, setIsMultiConvertOpen] = useState(false);
 
-    // Dashboard & Focus State (Open by default for prominent executive visibility)
-    const [showDashboard, setShowDashboard] = useState<boolean>(true);
+    // Move to FG Inventory Modal State (Exclusively for FG WIP)
+    const [moveToFgItem, setMoveToFgItem] = useState<any | null>(null);
+    const [isMoveToFgOpen, setIsMoveToFgOpen] = useState(false);
+
+    // Dashboard & Focus State (Hidden by default)
+    const [showDashboard, setShowDashboard] = useState<boolean>(false);
     const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
 
     // Reset filters and focused item when subtab changes
@@ -2058,6 +2063,19 @@ export default function WipInventoryTab({
                                                             <Crosshair size={12} />
                                                             <span>{isFocusedRow ? "Focused" : "Focus"}</span>
                                                         </button>
+                                                        {wipType === 'fg' && item.shopfloorWipQty > 0 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setMoveToFgItem(item);
+                                                                    setIsMoveToFgOpen(true);
+                                                                }}
+                                                                className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:hover:bg-emerald-900 dark:text-emerald-300 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 border border-emerald-200 dark:border-emerald-800 cursor-pointer shadow-2xs"
+                                                                title="Move Finished Goods from Shopfloor WIP to Main Store Inventory"
+                                                            >
+                                                                <Warehouse size={13} /> Move to FG Store
+                                                            </button>
+                                                        )}
                                                         {item.shopfloorWipQty > 0 && (
                                                             <button
                                                                 onClick={() => handleOpenActionModal(item, 'convert')}
@@ -2201,6 +2219,19 @@ export default function WipInventoryTab({
                                     </div>
 
                                     <div className="flex flex-wrap gap-2">
+                                        {wipType === 'fg' && item.shopfloorWipQty > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setMoveToFgItem(item);
+                                                    setIsMoveToFgOpen(true);
+                                                }}
+                                                className="flex-1 py-1.5 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 text-xs font-bold rounded-xl border border-emerald-200 dark:border-emerald-800 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                                                title="Move Finished Goods from Shopfloor WIP to Main Store Inventory"
+                                            >
+                                                <Warehouse size={13} /> Move to FG Store
+                                            </button>
+                                        )}
                                         {item.shopfloorWipQty > 0 && (
                                             <button
                                                 onClick={() => handleOpenActionModal(item, 'convert')}
@@ -2272,6 +2303,21 @@ export default function WipInventoryTab({
                     setPreviewMrpBucket(null);
                 }}
                 mrpBucket={previewMrpBucket}
+            />
+
+            {/* Move WIP to Main FG Inventory Modal (Exclusively for FG WIP) */}
+            <MoveWipToFgModal
+                isOpen={isMoveToFgOpen}
+                onClose={() => {
+                    setIsMoveToFgOpen(false);
+                    setMoveToFgItem(null);
+                }}
+                wipItem={moveToFgItem}
+                onSuccess={(msg) => {
+                    onSuccess(msg);
+                    fetchWipInventory();
+                }}
+                onError={onError}
             />
         </div>
     );

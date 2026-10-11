@@ -7,6 +7,7 @@ import MaterialIssueHistoryTable, { resolveIssueType } from '../tables/MaterialI
 import MaterialRequestModal from '../modals/MaterialRequestModal';
 import MaterialRequestDetailsModal from '../modals/MaterialRequestDetailsModal';
 import MaterialIssueDetailsModal from '../modals/MaterialIssueDetailsModal';
+import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 
 export type RequestTypeOption = 'rm' | 'bo' | 'consumable' | 'fg';
 
@@ -260,11 +261,18 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
     };
 
     const handleRejectRequest = async (request: any) => {
-        if (!confirm("Are you sure you want to reject this request?")) return;
+        const confirmed = await showDestructiveConfirm({
+            title: "Reject Request?",
+            text: "Are you sure you want to reject this request?",
+            confirmButtonText: "Yes, Reject"
+        });
+        if (!confirmed) return;
         try {
             await updateMaterialRequest(request._id, { status: 'Rejected' });
-        } catch (error) {
+            showSuccessToast("Material request rejected successfully.");
+        } catch (error: any) {
             console.error("Reject failed", error);
+            await showErrorDialog("Rejection Failed", error?.message || "Failed to reject request");
         }
     };
 

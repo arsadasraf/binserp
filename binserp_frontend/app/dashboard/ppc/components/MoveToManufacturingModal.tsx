@@ -48,7 +48,9 @@ export default function MoveToManufacturingModal({ isOpen, onClose, order, onMov
             productId: item.product?._id || item.product,
             productName: item.productName || item.materialName,
             quantity: qty,
-            trackingType: config?.trackingType || "Individual"
+            trackingType: config?.trackingType || "Individual",
+            isSubAssembly: Boolean(item.isSubAssembly),
+            itemType: item.itemType || "Component"
           });
         }
       });

@@ -103,7 +103,8 @@ export const getWipInventory = async (req, res) => {
             "WIP_RETURN_TO_STORE", 
             "WIP_SCRAP_WRITEOFF", 
             "WIP_RM_CONVERT_OUTWARD", 
-            "WIP_COMPONENT_CONVERT_INWARD"
+            "WIP_COMPONENT_CONVERT_INWARD",
+            "WIP_TO_FG_STORE_TRANSFER"
           ] 
         }
       }).sort({ date: -1 }).lean()
@@ -460,6 +461,116 @@ export const getWipInventory = async (req, res) => {
       });
     });
 
+    // 4.5. Process WIP Return to Store, Shopfloor Scrap, and In-house WIP Conversions (Processed BEFORE Job Work dispatch FIFO)
+    (wipAdjustments || []).forEach(adj => {
+      const adjName = adj.itemName || "Material";
+      const adjQty = Number(adj.quantity) || 0;
+      const adjDate = adj.date || adj.createdAt;
+      const cat = adj.transactionCategory;
+      const isReturn = cat === "WIP_RETURN_TO_STORE";
+      const isScrap = cat === "WIP_SCRAP_WRITEOFF";
+      const isConvertOutward = cat === "WIP_RM_CONVERT_OUTWARD";
+      const isConvertInward = cat === "WIP_COMPONENT_CONVERT_INWARD";
+      const isMoveToFgStore = cat === "WIP_TO_FG_STORE_TRANSFER";
+
+      const rawType = (adj.itemType || "").toLowerCase();
+      const targetType = (rawType === "boughtout" || rawType === "bo") 
+        ? "bo" 
+        : (rawType === "component" || rawType === "fg" || isConvertInward || isMoveToFgStore) 
+          ? "fg" 
+          : "rm";
+
+      const entry = findWipEntry(adj.item, adjName, null, targetType);
+      if (entry) {
+        if (isConvertInward) {
+          // Inward component addition into Shopfloor WIP batches
+          entry.wipBatches.push({
+            issueNumber: adj.referenceDocNumber || "CONV-IN",
+            mrpNumber: "",
+            date: new Date(adjDate),
+            quantity: adjQty,
+            remainingQty: adjQty
+          });
+
+          if (new Date(adjDate) > new Date(entry.lastMovementDate)) {
+            entry.lastMovementDate = adjDate;
+          }
+
+          const tx = {
+            date: adjDate,
+            type: "WIP Component Produced (In-house Blank/Part)",
+            docNumber: adj.referenceDocNumber || "CONV-IN",
+            mrpNumber: "",
+            sentQty: 0,
+            receivedQty: adjQty,
+            unit: adj.unit || entry.unit || "PCS",
+            processType: adj.purpose || "Shopfloor In-house Blank / Part Production",
+            vendorName: "Shopfloor Assembly",
+            status: "Completed"
+          };
+          entry.transactions.push(tx);
+          allTransactionsLedger.push({
+            ...tx,
+            materialName: entry.materialName,
+            materialCode: entry.materialCode,
+            itemType: entry.itemType,
+            categoryType: entry.categoryType
+          });
+        } else {
+          // Outward reduction from Shopfloor WIP batches (Return, Scrap, or RM Conversion)
+          let toDeduct = adjQty;
+          for (const b of entry.wipBatches) {
+            if (toDeduct <= 0) break;
+            const take = Math.min(b.remainingQty, toDeduct);
+            b.remainingQty -= take;
+            toDeduct -= take;
+          }
+
+          if (isReturn || isMoveToFgStore) {
+            entry.totalReturnedQty += adjQty;
+          }
+
+          if (new Date(adjDate) > new Date(entry.lastMovementDate)) {
+            entry.lastMovementDate = adjDate;
+          }
+
+          let txType = "Shopfloor Scrap Write-off";
+          let vendorName = "Shopfloor Scrap";
+          if (isReturn) {
+            txType = "WIP Returned to Main Store";
+            vendorName = "Main Store";
+          } else if (isConvertOutward) {
+            txType = "WIP Consumed for Component Production";
+            vendorName = "In-house Shopfloor Production";
+          } else if (isMoveToFgStore) {
+            txType = "Transferred to Main FG Store";
+            vendorName = "Main FG Store";
+          }
+
+          const tx = {
+            date: adjDate,
+            type: txType,
+            docNumber: adj.referenceDocNumber || "TRF",
+            mrpNumber: "",
+            sentQty: adjQty,
+            receivedQty: 0,
+            unit: adj.unit || entry.unit || "PCS",
+            processType: adj.purpose || (isMoveToFgStore ? "WIP to Main FG Store Transfer" : (isReturn ? "Return to Main Store" : (isConvertOutward ? "Converted to In-house Component" : "Shopfloor Scrap Write-off"))),
+            vendorName: vendorName,
+            status: "Completed"
+          };
+          entry.transactions.push(tx);
+          allTransactionsLedger.push({
+            ...tx,
+            materialName: entry.materialName,
+            materialCode: entry.materialCode,
+            itemType: entry.itemType,
+            categoryType: entry.categoryType
+          });
+        }
+      }
+    });
+
     // 5. Process Job Work Challans (Subcontractor Outward / Inward across all 3 Types)
     challans.forEach((challan) => {
       const vendorObj = challan.vendor || { name: challan.vendorName || "Subcontractor" };
@@ -544,8 +655,8 @@ export const getWipInventory = async (req, res) => {
           entry.totalJobWorkReturnedQty += receivedQty;
           entry.jobWorkWipQty += netJobWorkPending;
 
-          // For WIP-to-WIP or any FG/Component dispatched from Shopfloor WIP:
-          // Dispatched item is taken out from Shopfloor WIP batches FIFO
+          // For WIP-to-WIP (any RM, BO, or FG sent from shopfloor) or any FG dispatched from WIP:
+          // Dispatched item is deducted from Shopfloor WIP batches FIFO
           if (isWipToWip || sentTargetType === "fg") {
             let toDeduct = sentQty;
             for (const b of entry.wipBatches) {
@@ -553,6 +664,16 @@ export const getWipInventory = async (req, res) => {
               const take = Math.min(b.remainingQty, toDeduct);
               b.remainingQty -= take;
               toDeduct -= take;
+            }
+            // If outward dispatch exceeds current remaining batch quantities, track deficit so shopfloor WIP reduces
+            if (toDeduct > 0) {
+              entry.wipBatches.push({
+                issueNumber: docNo,
+                mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
+                date: new Date(challanDate),
+                quantity: -toDeduct,
+                remainingQty: -toDeduct
+              });
             }
           }
 
@@ -609,8 +730,23 @@ export const getWipInventory = async (req, res) => {
 
           retList.forEach((ret) => {
             const retName = ret.receivedItemName || sentName;
-            const fgEntry = findWipEntry(ret.receivedItem, retName, null, "fg");
-            if (!fgEntry) return;
+            const retRawType = (ret.receivedItemType || (jwType === "store-conversion" ? "rm" : (isWipToWip ? (sentTargetType || "fg") : "fg"))).toLowerCase();
+            let retTargetType = "fg";
+            if (retRawType.includes("rm") || retRawType.includes("raw")) retTargetType = "rm";
+            else if (retRawType.includes("bo") || retRawType.includes("bought")) retTargetType = "bo";
+            else retTargetType = "fg";
+
+            // If same item in WIP-to-WIP (matching sent item or same name/id), return directly to outward sent entry
+            let retEntry = null;
+            if (isWipToWip && (!ret.receivedItem || String(ret.receivedItem) === String(sentItem.item) || (retName && sentName && retName.trim().toLowerCase() === sentName.trim().toLowerCase()))) {
+              retEntry = entry;
+            } else {
+              retEntry = findWipEntry(ret.receivedItem, retName, null, retTargetType);
+            }
+            if (!retEntry && isWipToWip) {
+              retEntry = entry;
+            }
+            if (!retEntry) return;
 
             if (Array.isArray(challan.receiveHistory) && challan.receiveHistory.length > 0) {
               const matchingHist = challan.receiveHistory.filter(h => 
@@ -628,10 +764,10 @@ export const getWipInventory = async (req, res) => {
                 matchingHist.forEach(h => {
                   const isQcActive = h.qcRequired !== false && challan.qcRequired !== false;
                   if (!isQcActive) {
-                    // QC skipped: directly accepted into Shopfloor WIP
+                    // QC skipped: directly accepted back into Shopfloor WIP
                     const passed = Number(h.quantity || 0);
                     if (passed > 0) {
-                      fgEntry.wipBatches.push({
+                      retEntry.wipBatches.push({
                         issueNumber: h.grnNumber || docNo,
                         mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
                         date: new Date(h.date || challanDate),
@@ -644,7 +780,7 @@ export const getWipInventory = async (req, res) => {
                     if (h.qcStatus === "Passed" || h.qcStatus === "Accepted") {
                       const passed = Number(h.acceptedQuantity !== undefined ? h.acceptedQuantity : h.quantity) || 0;
                       if (passed > 0) {
-                        fgEntry.wipBatches.push({
+                        retEntry.wipBatches.push({
                           issueNumber: h.grnNumber || docNo,
                           mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
                           date: new Date(h.date || challanDate),
@@ -656,7 +792,7 @@ export const getWipInventory = async (req, res) => {
                       const passed = Number(h.acceptedQuantity || 0);
                       const inQc = Math.max(0, Number(h.quantity || 0) - passed - Number(h.rejectedQuantity || 0));
                       if (passed > 0) {
-                        fgEntry.wipBatches.push({
+                        retEntry.wipBatches.push({
                           issueNumber: h.grnNumber || docNo,
                           mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
                           date: new Date(h.date || challanDate),
@@ -664,10 +800,10 @@ export const getWipInventory = async (req, res) => {
                           remainingQty: passed
                         });
                       }
-                      fgEntry.pendingQcQty = (fgEntry.pendingQcQty || 0) + inQc;
+                      retEntry.pendingQcQty = (retEntry.pendingQcQty || 0) + inQc;
                     } else if (h.qcStatus === "Pending" || !h.qcStatus) {
                       // Awaiting QC: held in pendingQcQty (not added to shopfloorWipQty yet)
-                      fgEntry.pendingQcQty = (fgEntry.pendingQcQty || 0) + (Number(h.quantity) || 0);
+                      retEntry.pendingQcQty = (retEntry.pendingQcQty || 0) + (Number(h.quantity) || 0);
                     }
                     // If Rejected: excluded from shopfloorWipQty
                   }
@@ -675,7 +811,7 @@ export const getWipInventory = async (req, res) => {
               } else {
                 const recQty = Number(ret.quantityReceived) || 0;
                 if (recQty > 0) {
-                  fgEntry.wipBatches.push({
+                  retEntry.wipBatches.push({
                     issueNumber: docNo,
                     mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
                     date: new Date(challanDate),
@@ -687,7 +823,7 @@ export const getWipInventory = async (req, res) => {
             } else {
               const recQty = Number(ret.quantityReceived) || 0;
               if (recQty > 0) {
-                fgEntry.wipBatches.push({
+                retEntry.wipBatches.push({
                   issueNumber: docNo,
                   mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
                   date: new Date(challanDate),
@@ -703,8 +839,8 @@ export const getWipInventory = async (req, res) => {
         if (Array.isArray(challan.receiveHistory) && challan.receiveHistory.length > 0) {
           challan.receiveHistory.forEach((hist) => {
             const histItemName = hist.itemName || sentName;
-            const histTargetType = (jwType === "store-conversion") ? sentTargetType : "fg";
-            const histEntry = findWipEntry(hist.masterItemId || hist.returningItemId || hist.itemId, histItemName, null, histTargetType);
+            const histTargetType = (jwType === "store-conversion") ? sentTargetType : (isWipToWip ? (sentTargetType || "fg") : "fg");
+            const histEntry = findWipEntry(hist.masterItemId || hist.returningItemId || hist.itemId, histItemName, null, histTargetType) || (isWipToWip ? entry : null);
 
             const rejCount = Number(hist.rejectedQuantity || (hist.qcStatus === "Rejected" ? hist.quantity : 0)) || 0;
             const isRejection = hist.qcStatus === "Rejected" || rejCount > 0;
@@ -714,7 +850,7 @@ export const getWipInventory = async (req, res) => {
               date: hist.date,
               type: isRejection 
                 ? `Job Work QC Rejection (${hist.rejectionReason || "Defective"})` 
-                : (jwType === "wip-to-wip" ? "WIP-to-WIP Subcontractor Receipt (WIP FG)" : (jwType === "store-to-wip" ? "Store-to-WIP Return Receipt (WIP FG)" : "RM Conversion Subcontractor Receipt (Main Store)")),
+                : (jwType === "wip-to-wip" ? "WIP-to-WIP Subcontractor Receipt (Shopfloor WIP)" : (jwType === "store-to-wip" ? "Store-to-WIP Return Receipt (WIP FG)" : "RM Conversion Subcontractor Receipt (Main Store)")),
               docNumber: hist.grnNumber || docNo,
               mrpNumber: mrpNumber,
               ewayBillNo: challan.ewayBillNo || "",
@@ -738,7 +874,7 @@ export const getWipInventory = async (req, res) => {
               materialName: histItemName,
               materialCode: histEntry?.materialCode || "",
               itemType: histTargetType,
-              categoryType: histEntry?.categoryType || "FG / Component"
+              categoryType: histEntry?.categoryType || (histTargetType === 'rm' ? 'Raw Material (RM)' : histTargetType === 'bo' ? 'Bought Out (BO)' : 'FG / Component')
             });
 
             // Link inward job work return to MRP Bucket
@@ -760,112 +896,6 @@ export const getWipInventory = async (req, res) => {
           });
         }
       });
-    });
-
-    // 5.1. Process WIP Return to Store, Shopfloor Scrap, and In-house WIP Conversions
-    (wipAdjustments || []).forEach(adj => {
-      const adjName = adj.itemName || "Material";
-      const adjQty = Number(adj.quantity) || 0;
-      const adjDate = adj.date || adj.createdAt;
-      const cat = adj.transactionCategory;
-      const isReturn = cat === "WIP_RETURN_TO_STORE";
-      const isScrap = cat === "WIP_SCRAP_WRITEOFF";
-      const isConvertOutward = cat === "WIP_RM_CONVERT_OUTWARD";
-      const isConvertInward = cat === "WIP_COMPONENT_CONVERT_INWARD";
-
-      const rawType = (adj.itemType || "").toLowerCase();
-      const targetType = (rawType === "boughtout" || rawType === "bo") 
-        ? "bo" 
-        : (rawType === "component" || rawType === "fg" || isConvertInward) 
-          ? "fg" 
-          : "rm";
-
-      const entry = findWipEntry(adj.item, adjName, null, targetType);
-      if (entry) {
-        if (isConvertInward) {
-          // Inward component addition into Shopfloor WIP batches
-          entry.wipBatches.push({
-            issueNumber: adj.referenceDocNumber || "CONV-IN",
-            mrpNumber: "",
-            date: new Date(adjDate),
-            quantity: adjQty,
-            remainingQty: adjQty
-          });
-
-          if (new Date(adjDate) > new Date(entry.lastMovementDate)) {
-            entry.lastMovementDate = adjDate;
-          }
-
-          const tx = {
-            date: adjDate,
-            type: "WIP Component Produced (In-house Blank/Part)",
-            docNumber: adj.referenceDocNumber || "CONV-IN",
-            mrpNumber: "",
-            sentQty: 0,
-            receivedQty: adjQty,
-            unit: adj.unit || entry.unit || "PCS",
-            processType: adj.purpose || "Shopfloor In-house Blank / Part Production",
-            vendorName: "Shopfloor Assembly",
-            status: "Completed"
-          };
-          entry.transactions.push(tx);
-          allTransactionsLedger.push({
-            ...tx,
-            materialName: entry.materialName,
-            materialCode: entry.materialCode,
-            itemType: entry.itemType,
-            categoryType: entry.categoryType
-          });
-        } else {
-          // Outward reduction from Shopfloor WIP batches (Return, Scrap, or RM Conversion)
-          let toDeduct = adjQty;
-          for (const b of entry.wipBatches) {
-            if (toDeduct <= 0) break;
-            const take = Math.min(b.remainingQty, toDeduct);
-            b.remainingQty -= take;
-            toDeduct -= take;
-          }
-
-          if (isReturn) {
-            entry.totalReturnedQty += adjQty;
-          }
-
-          if (new Date(adjDate) > new Date(entry.lastMovementDate)) {
-            entry.lastMovementDate = adjDate;
-          }
-
-          let txType = "Shopfloor Scrap Write-off";
-          let vendorName = "Shopfloor Scrap";
-          if (isReturn) {
-            txType = "WIP Returned to Main Store";
-            vendorName = "Main Store";
-          } else if (isConvertOutward) {
-            txType = "WIP Consumed for Component Production";
-            vendorName = "In-house Shopfloor Production";
-          }
-
-          const tx = {
-            date: adjDate,
-            type: txType,
-            docNumber: adj.referenceDocNumber || "ADJ",
-            mrpNumber: "",
-            sentQty: adjQty,
-            receivedQty: 0,
-            unit: adj.unit || entry.unit || "PCS",
-            processType: adj.purpose || (isReturn ? "Return to Main Store" : (isConvertOutward ? "Converted to In-house Component" : "Shopfloor Scrap Write-off")),
-            vendorName: vendorName,
-            status: "Completed"
-          };
-          entry.transactions.push(tx);
-          allTransactionsLedger.push({
-            ...tx,
-            materialName: entry.materialName,
-            materialCode: entry.materialCode,
-            itemType: entry.itemType,
-            categoryType: entry.categoryType
-          });
-        }
-      }
     });
 
     // 6. Process FG GRNs & Production Receipts (Multi-Tier WIP Consumption Engine)
@@ -1072,7 +1102,7 @@ export const getWipInventory = async (req, res) => {
 
     // 7. Format Resulting Items
     masterWipMap.forEach(item => {
-      item.shopfloorWipQty = item.wipBatches.reduce((sum, b) => sum + (b.remainingQty || 0), 0);
+      item.shopfloorWipQty = Math.max(0, item.wipBatches.reduce((sum, b) => sum + (b.remainingQty || 0), 0));
       item.pendingWipQty = (item.shopfloorWipQty || 0) + (item.jobWorkWipQty || 0);
       const conv = Number(item.conversionFactor) || 1;
       if (item.hasSecondaryUnit && item.secondaryUnit) {

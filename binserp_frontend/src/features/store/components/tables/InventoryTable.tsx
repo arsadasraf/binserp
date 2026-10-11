@@ -18,6 +18,7 @@ import ColumnFilter from './ColumnFilter';
 import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 import { ItemNameAndDescription } from '@/src/utils/itemDisplayHelper';
+import { formatUomConversionDisplay, formatUomConversionTooltip } from '@/src/utils/dualUomHelper';
 
 const getPageNumbers = (current: number, total: number): (number | string)[] => {
   if (total <= 5) {
@@ -35,6 +36,7 @@ const getPageNumbers = (current: number, total: number): (number | string)[] => 
 interface InventoryTableProps {
     data: InventoryItem[];
     inHouseData?: any[];
+    wipLookupMap?: Map<string, any>;
     vendorPriceLists?: any[];
     priceLists?: any[];
     onEdit: (item: InventoryItem) => void;
@@ -50,6 +52,7 @@ interface InventoryTableProps {
 export default function InventoryTable({
     data,
     inHouseData = [],
+    wipLookupMap,
     vendorPriceLists = [],
     priceLists = [],
     onEdit,
@@ -388,6 +391,47 @@ export default function InventoryTable({
     };
     const getPrimaryStockValue = getStockValue;
 
+    const getItemWipDetails = (item: any) => {
+        if (!item) return { wipStock: 0, shopfloorWip: 0, jobWorkWip: 0 };
+        if (item.wipStock !== undefined) {
+            return {
+                wipStock: Number(item.wipStock || 0),
+                shopfloorWip: Number(item.shopfloorWip || 0),
+                jobWorkWip: Number(item.jobWorkWip || 0)
+            };
+        }
+        if (wipLookupMap && wipLookupMap.size > 0) {
+            const id = item._id ? String(item._id) : '';
+            const matId = item.materialId ? (typeof item.materialId === 'object' ? String(item.materialId._id) : String(item.materialId)) : '';
+            const code = (item.materialCode || item.code || item.componentCode || '').trim().toUpperCase();
+            const name = (item.materialName || item.componentName || item.name || '').trim().toLowerCase();
+
+            const wip = (matId && wipLookupMap.get(matId)) ||
+                        (id && wipLookupMap.get(id)) ||
+                        (code && wipLookupMap.get(code)) ||
+                        (name && wipLookupMap.get(name));
+
+            if (wip) {
+                return {
+                    wipStock: Number(wip.pendingWipQty ?? wip.totalWip ?? 0),
+                    shopfloorWip: Number(wip.shopfloorWipQty ?? wip.shopfloorWip ?? 0),
+                    jobWorkWip: Number(wip.jobWorkWipQty ?? wip.jobWorkWip ?? 0)
+                };
+            }
+        }
+        return { wipStock: 0, shopfloorWip: 0, jobWorkWip: 0 };
+    };
+
+    const getWipStockValue = (item: any) => {
+        const { wipStock, shopfloorWip, jobWorkWip } = getItemWipDetails(item);
+        if (wipStock <= 0) return '0';
+        let str = `${formatQty(wipStock)} ${item.unit || 'PCS'}`;
+        if (shopfloorWip > 0 || jobWorkWip > 0) {
+            str += ` (SF: ${formatQty(shopfloorWip)}, JW: ${formatQty(jobWorkWip)})`;
+        }
+        return str;
+    };
+
     const getSecondaryStockValue = (item: any) => {
         if (!item.hasSecondaryUnit || !item.secondaryUnit) return '-';
         const factor = Number(item.conversionFactor) || 1;
@@ -459,6 +503,8 @@ export default function InventoryTable({
                     itemValue = getDescriptionValue(item);
                 } else if (key === 'currentStock' || key === 'quantity') {
                     itemValue = getStockValue(item);
+                } else if (key === 'wipStock') {
+                    itemValue = getWipStockValue(item);
                 } else if (key === 'secondaryStock') {
                     itemValue = getSecondaryStockValue(item);
                 } else if (key === 'monthlyFlow') {
@@ -504,6 +550,10 @@ export default function InventoryTable({
                 } else if (key === 'currentStock' || key === 'quantity') {
                     valA = Number(a.currentStock ?? a.quantity ?? 0);
                     valB = Number(b.currentStock ?? b.quantity ?? 0);
+                    return direction === 'asc' ? valA - valB : valB - valA;
+                } else if (key === 'wipStock') {
+                    valA = getItemWipDetails(a).wipStock;
+                    valB = getItemWipDetails(b).wipStock;
                     return direction === 'asc' ? valA - valB : valB - valA;
                 } else if (key === 'secondaryStock') {
                     const factorA = a.hasSecondaryUnit ? (Number(a.conversionFactor) || 1) : 0;
@@ -631,6 +681,8 @@ export default function InventoryTable({
             const stock = Number(focusedItem.currentStock ?? focusedItem.quantity ?? 0);
             const priceInfo = getItemPriceDetails(focusedItem, isFg);
             const valuation = stock * priceInfo.unitPrice;
+            const { wipStock, shopfloorWip, jobWorkWip } = getItemWipDetails(focusedItem);
+            const wipValuation = wipStock * priceInfo.unitPrice;
             const minStock = Number(focusedItem.reorderLevel ?? focusedItem.minimumStock ?? 0);
             const isLowStock = minStock > 0 && stock <= minStock;
             const inward = Number(focusedItem.monthlyData?.totalInwardQuantity || focusedItem.monthlyData?.received || 0);
@@ -640,6 +692,7 @@ export default function InventoryTable({
             const itemDesc = focusedItem.descriptions || focusedItem.description || '';
             const hasSec = Boolean(focusedItem.hasSecondaryUnit && focusedItem.secondaryUnit && (focusedItem.conversionFactor || 0) > 0);
             const secStock = hasSec ? stock * (focusedItem.conversionFactor || 1) : 0;
+            const secWipStock = hasSec ? wipStock * (focusedItem.conversionFactor || 1) : 0;
 
             return {
                 isFocused: true,
@@ -657,6 +710,16 @@ export default function InventoryTable({
                 hasSec,
                 secStock,
                 formattedSecStock: hasSec ? `${formatQty(secStock)} ${focusedItem.secondaryUnit}` : null,
+                wipStock,
+                formattedWipStock: `${formatQty(wipStock)} ${focusedItem.unit || 'PCS'}`,
+                secWipStock,
+                formattedSecWipStock: hasSec ? `${formatQty(secWipStock)} ${focusedItem.secondaryUnit}` : null,
+                shopfloorWip,
+                jobWorkWip,
+                totalWipStockUnits: wipStock,
+                formattedTotalWipStockUnits: `${formatQty(wipStock)} ${focusedItem.unit || 'PCS'}`,
+                totalWipValuation: wipValuation,
+                formattedTotalWipValuation: `₹${wipValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
                 unitPrice: priceInfo.unitPrice,
                 formattedUnitPrice: priceInfo.unitPrice > 0 ? (
                     `₹${priceInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${priceInfo.primaryUnit}` +
@@ -684,6 +747,10 @@ export default function InventoryTable({
         // 2. Aggregate Mode (Dynamically computed on activeData, responding in real-time to all filters)
         let totalValuation = 0;
         let totalStockUnits = 0;
+        let totalWipStockUnits = 0;
+        let totalShopfloorWip = 0;
+        let totalJobWorkWip = 0;
+        let totalWipValuation = 0;
         let lowStockCount = 0;
         let totalInward = 0;
         let totalOutward = 0;
@@ -693,6 +760,7 @@ export default function InventoryTable({
             const stock = Number(item.currentStock ?? item.quantity ?? 0);
             const priceInfo = getItemPriceDetails(item, isFg);
             const minStock = Number(item.reorderLevel ?? item.minimumStock ?? 0);
+            const { wipStock, shopfloorWip, jobWorkWip } = getItemWipDetails(item);
 
             if (priceInfo.unitPrice > 0) {
                 pricedItemsCount++;
@@ -701,6 +769,13 @@ export default function InventoryTable({
             if (stock > 0) {
                 totalStockUnits += stock;
                 totalValuation += (stock * priceInfo.unitPrice);
+            }
+
+            if (wipStock > 0) {
+                totalWipStockUnits += wipStock;
+                totalShopfloorWip += shopfloorWip;
+                totalJobWorkWip += jobWorkWip;
+                totalWipValuation += (wipStock * priceInfo.unitPrice);
             }
 
             if (minStock > 0 && stock <= minStock) {
@@ -733,6 +808,18 @@ export default function InventoryTable({
             formattedTotalStockUnits: totalStockUnits.toLocaleString('en-IN', { maximumFractionDigits: 2 }),
             totalValuation,
             formattedTotalValuation: `₹${totalValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            totalWipStockUnits,
+            formattedTotalWipStockUnits: totalWipStockUnits.toLocaleString('en-IN', { maximumFractionDigits: 2 }),
+            totalShopfloorWip,
+            totalJobWorkWip,
+            totalWipValuation,
+            formattedTotalWipValuation: `₹${totalWipValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            wipStock: 0,
+            formattedWipStock: '',
+            secWipStock: 0,
+            formattedSecWipStock: null,
+            shopfloorWip: 0,
+            jobWorkWip: 0,
             lowStockCount,
             totalInward,
             formattedInward: totalInward.toLocaleString('en-IN', { maximumFractionDigits: 2 }),
@@ -748,7 +835,7 @@ export default function InventoryTable({
             isLowStock: lowStockCount > 0,
             formattedMinStock: ''
         };
-    }, [activeData, currentDataset, activeSubTab, vendorPriceMap, salesPriceMap, focusedItem, isAnyFilterActive]);
+    }, [activeData, currentDataset, activeSubTab, vendorPriceMap, salesPriceMap, focusedItem, isAnyFilterActive, wipLookupMap]);
 
     const exportToExcel = () => {
         const currentData = activeSubTab !== 'inhouse' ? filteredData : filteredInHouseData;
@@ -762,6 +849,9 @@ export default function InventoryTable({
             const outward = Number(item.monthlyData?.totalOutwardQuantity || item.monthlyData?.issued || 0);
             const priceInfo = getItemPriceDetails(item, isFg);
             const valuation = currentStock * priceInfo.unitPrice;
+            const { wipStock, shopfloorWip, jobWorkWip } = getItemWipDetails(item);
+            const wipValuation = wipStock * priceInfo.unitPrice;
+            const combinedValuation = valuation + wipValuation;
 
             return {
                 'S.No': idx + 1,
@@ -771,12 +861,17 @@ export default function InventoryTable({
                 'Location': getLocationValue(item),
                 'Primary Stock': currentStock,
                 'Primary Unit': item.unit || 'PCS',
+                'Total WIP Stock': wipStock,
+                'Shopfloor WIP': shopfloorWip,
+                'Job Work WIP': jobWorkWip,
                 'Secondary Stock': hasSec ? formatQty(currentStock * factor) : '-',
                 'Secondary Unit': hasSec ? item.secondaryUnit : '-',
                 'Conversion Factor': hasSec ? `1 ${item.unit || 'Unit'} = ${factor} ${item.secondaryUnit}` : '-',
                 'Unit Price (INR)': priceInfo.unitPrice,
                 'Price Source': priceInfo.source,
-                'Total Valuation (INR)': Number(valuation.toFixed(2)),
+                'Store Valuation (INR)': Number(valuation.toFixed(2)),
+                'WIP Valuation (INR)': Number(wipValuation.toFixed(2)),
+                'Combined Total Valuation (INR)': Number(combinedValuation.toFixed(2)),
                 'Monthly Inward (Primary)': inward,
                 'Monthly Outward (Primary)': outward,
                 'Monthly Inward (Secondary)': hasSec ? formatQty(inward * factor) : '-',
@@ -954,8 +1049,8 @@ export default function InventoryTable({
                             </div>
                         </div>
 
-                        {/* 4 Dynamic KPI Cards */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        {/* 5 Dynamic KPI Cards */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
                             {/* Card 1: Stock Quantity & SKUs */}
                             <div className="bg-gradient-to-br from-indigo-50/90 via-white to-slate-50 dark:from-indigo-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 shadow-2xs relative overflow-hidden">
                                 <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400 mb-1.5">
@@ -992,11 +1087,11 @@ export default function InventoryTable({
                                 </div>
                             </div>
 
-                            {/* Card 2: Total Inventory Valuation (INR) */}
+                            {/* Card 2: Store Stock Valuation (INR) */}
                             <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-2xs relative overflow-hidden">
                                 <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 mb-1.5">
                                     <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                        {inventoryKpis.isFocused ? "Item Stock Value" : "Total Stock Valuation"}
+                                        {inventoryKpis.isFocused ? "Item Store Value" : "Store Stock Valuation"}
                                     </span>
                                     <div className="w-7 h-7 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
                                         <IndianRupee size={15} />
@@ -1024,7 +1119,39 @@ export default function InventoryTable({
                                 </div>
                             </div>
 
-                            {/* Card 3: Reorder & Low Stock Alerts */}
+                            {/* Card 3: WIP Inventory Valuation (INR) */}
+                            <div className="bg-gradient-to-br from-indigo-50/90 via-white to-slate-50 dark:from-indigo-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 shadow-2xs relative overflow-hidden">
+                                <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400 mb-1.5">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                        {inventoryKpis.isFocused ? "Item WIP Value" : "WIP Stock Valuation"}
+                                    </span>
+                                    <div className="w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
+                                        <Factory size={15} />
+                                    </div>
+                                </div>
+                                <div className="text-xl font-black text-slate-900 dark:text-white font-mono tracking-tight truncate">
+                                    {inventoryKpis.formattedTotalWipValuation}
+                                </div>
+                                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                                    {inventoryKpis.isFocused ? (
+                                        <>
+                                            <span>WIP Units</span>
+                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                {inventoryKpis.formattedWipStock}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span>Total WIP Units</span>
+                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                {inventoryKpis.formattedTotalWipStockUnits}
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Card 4: Reorder & Low Stock Alerts */}
                             <div className="bg-gradient-to-br from-amber-50/90 via-white to-slate-50 dark:from-amber-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-amber-100 dark:border-amber-900/40 shadow-2xs relative overflow-hidden">
                                 <div className="flex items-center justify-between text-amber-600 dark:text-amber-400 mb-1.5">
                                     <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -1059,7 +1186,7 @@ export default function InventoryTable({
                                 </div>
                             </div>
 
-                            {/* Card 4: Monthly Flow Dynamics */}
+                            {/* Card 5: Monthly Flow Dynamics */}
                             <div className="bg-gradient-to-br from-purple-50/90 via-white to-slate-50 dark:from-purple-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-purple-100 dark:border-purple-900/40 shadow-2xs relative overflow-hidden">
                                 <div className="flex items-center justify-between text-purple-600 dark:text-purple-400 mb-1.5">
                                     <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Monthly Flow</span>
@@ -1403,7 +1530,7 @@ export default function InventoryTable({
                                     <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="currentStock"
-                                            title="Primary Stock"
+                                            title="Store Stock"
                                             data={data}
                                             currentFilters={filters['currentStock'] || []}
                                             onFilterChange={(vals) => handleFilterChange('currentStock', vals)}
@@ -1414,12 +1541,12 @@ export default function InventoryTable({
                                     </th>
                                     <th className="px-4 py-2 text-left">
                                         <ColumnFilter
-                                            column="secondaryStock"
-                                            title="Secondary Stock"
+                                            column="wipStock"
+                                            title="Total WIP Stock"
                                             data={data}
-                                            currentFilters={filters['secondaryStock'] || []}
-                                            onFilterChange={(vals) => handleFilterChange('secondaryStock', vals)}
-                                            getValue={getSecondaryStockValue}
+                                            currentFilters={filters['wipStock'] || []}
+                                            onFilterChange={(vals) => handleFilterChange('wipStock', vals)}
+                                            getValue={getWipStockValue}
                                             sortConfig={sortConfig}
                                             onSortChange={handleSortChange}
                                         />
@@ -1475,15 +1602,12 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-3 py-2 text-right">
-                                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Action</span>
-                                    </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-slate-800 text-xs">
                                 {paginatedData.length === 0 ? (
                                     <tr>
-                                        <td colSpan={10} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                                        <td colSpan={9} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                                             No inventory items match the current filters.
                                         </td>
                                     </tr>
@@ -1525,35 +1649,51 @@ export default function InventoryTable({
                                                     {getLocationValue(item)}
                                                 </td>
 
-                                                {/* 4. Primary Stock */}
+                                                {/* 4. Store Stock (Primary & Secondary Unified) */}
                                                 <td className="px-4 py-2.5 sm:py-3 font-mono">
-                                                    <span className={`font-bold ${isLowStock ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                                                        {formatQty(item.currentStock)} {item.unit || ''}
-                                                    </span>
-                                                    {item.qcPendingStock ? (
-                                                        <span className="text-gray-400 text-xs ml-1 font-normal" title="Pending QC">
-                                                            (+{formatQty(item.qcPendingStock)} QC)
+                                                    <div className="flex flex-col">
+                                                        <span className={`font-bold ${isLowStock ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                                            {formatQty(item.currentStock)} {item.unit || ''}
+                                                            {item.qcPendingStock ? (
+                                                                <span className="text-gray-400 text-xs ml-1 font-normal" title="Pending QC">
+                                                                    (+{formatQty(item.qcPendingStock)} QC)
+                                                                </span>
+                                                            ) : null}
                                                         </span>
-                                                    ) : null}
+                                                        {hasSec && (
+                                                            <span className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 font-mono font-medium" title={formatUomConversionTooltip(item) || `1 ${item.unit} = ${item.conversionFactor} ${item.secondaryUnit}`}>
+                                                                ({formatQty(secStock)} {item.secondaryUnit})
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </td>
 
-                                                {/* 5. Secondary Stock */}
-                                                <td className="px-4 py-2.5 sm:py-3">
-                                                    {hasSec ? (
-                                                        <div className="flex flex-col">
-                                                            <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                                                {formatQty(secStock)} {item.secondaryUnit}
-                                                            </span>
-                                                            <span className="text-[10px] text-gray-400 font-mono">
-                                                                1 {item.unit} = {item.conversionFactor} {item.secondaryUnit}
-                                                            </span>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-gray-400 font-mono text-xs">-</span>
-                                                    )}
+                                                {/* 5. Total WIP Stock */}
+                                                <td className="px-4 py-2.5 sm:py-3 font-mono">
+                                                    {(() => {
+                                                        const { wipStock, shopfloorWip, jobWorkWip } = getItemWipDetails(item);
+                                                        const secWip = hasSec ? wipStock * (item.conversionFactor || 1) : 0;
+                                                        return (
+                                                            <div className="flex flex-col">
+                                                                <span className={`font-bold ${wipStock > 0 ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500"}`}>
+                                                                    {formatQty(wipStock)} {item.unit || ''}
+                                                                </span>
+                                                                {hasSec && wipStock > 0 && (
+                                                                    <span className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 font-mono font-medium">
+                                                                        ({formatQty(secWip)} {item.secondaryUnit})
+                                                                    </span>
+                                                                )}
+                                                                {(shopfloorWip > 0 || jobWorkWip > 0) && (
+                                                                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-sans mt-0.5" title={`Shopfloor WIP: ${formatQty(shopfloorWip)} | Job Work WIP: ${formatQty(jobWorkWip)}`}>
+                                                                        SF: <span className="font-semibold text-slate-700 dark:text-slate-300">{formatQty(shopfloorWip)}</span> | JW: <span className="font-semibold text-slate-700 dark:text-slate-300">{formatQty(jobWorkWip)}</span>
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </td>
 
-                                                {/* 6. Unit Price (Price List) */}
+                                                {/* 7. Unit Price (Price List) */}
                                                 <td className="px-4 py-2.5 sm:py-3">
                                                     <div className="flex flex-col gap-0.5">
                                                         <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
@@ -1575,14 +1715,14 @@ export default function InventoryTable({
                                                     </div>
                                                 </td>
 
-                                                {/* 7. Stock Valuation */}
+                                                {/* 8. Stock Valuation */}
                                                 <td className="px-4 py-2.5 sm:py-3 font-mono">
                                                     <span className="font-bold text-emerald-600 dark:text-emerald-400">
                                                         ₹{valuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                     </span>
                                                 </td>
 
-                                                {/* 8. Monthly Flow */}
+                                                {/* 9. Monthly Flow */}
                                                 <td className="px-4 py-2.5 sm:py-3">
                                                     {item.monthlyData ? (
                                                         <div className="flex flex-col gap-0.5">
@@ -1612,7 +1752,7 @@ export default function InventoryTable({
                                                     )}
                                                 </td>
 
-                                                {/* 9. Min Stock */}
+                                                {/* 10. Min Stock */}
                                                 <td className="px-4 py-2.5 sm:py-3 font-mono">
                                                     <div className="font-bold text-gray-700 dark:text-gray-300">
                                                         {formatQty(item.reorderLevel || 0)} {item.unit || ''}
@@ -1622,31 +1762,6 @@ export default function InventoryTable({
                                                             {formatQty((item.reorderLevel || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
                                                         </div>
                                                     )}
-                                                </td>
-
-                                                {/* 10. Focus Action */}
-                                                <td className="px-3 py-2.5 sm:py-3 text-right">
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            if (isFocusedRow) {
-                                                                setFocusedItemId(null);
-                                                            } else {
-                                                                setFocusedItemId((item._id || item.id)?.toString());
-                                                                setShowDashboard(true);
-                                                            }
-                                                        }}
-                                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
-                                                            isFocusedRow 
-                                                                ? "bg-indigo-600 text-white hover:bg-indigo-700" 
-                                                                : "bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-700 dark:text-slate-300 hover:text-indigo-600 border border-slate-200/80 dark:border-slate-700"
-                                                        }`}
-                                                        title={isFocusedRow ? "Reset dashboard focus" : "Focus on this item in dashboard"}
-                                                    >
-                                                        <Crosshair size={12} className={isFocusedRow ? "text-white" : "text-indigo-500"} />
-                                                        <span>{isFocusedRow ? "Focused" : "Focus"}</span>
-                                                    </button>
                                                 </td>
                                             </tr>
                                         );
@@ -1692,15 +1807,29 @@ export default function InventoryTable({
                                                 <span className={`px-2 py-1 rounded-full text-xs font-bold font-mono ${isLowStock ? "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"}`}>
                                                     {formatQty(item.currentStock)} {item.qcPendingStock ? `(+${formatQty(item.qcPendingStock)} QC)` : ''} {item.unit}
                                                 </span>
+                                                {(() => {
+                                                    const { wipStock, shopfloorWip, jobWorkWip } = getItemWipDetails(item);
+                                                    if (wipStock <= 0) return null;
+                                                    return (
+                                                        <div className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono text-right">
+                                                            WIP: {formatQty(wipStock)} {item.unit || ''}
+                                                            {(shopfloorWip > 0 || jobWorkWip > 0) && (
+                                                                <span className="text-[10px] text-slate-400 font-sans font-normal ml-1">
+                                                                    (SF: {formatQty(shopfloorWip)}, JW: {formatQty(jobWorkWip)})
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                                 {hasSec && (
-                                                    <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                                                        {formatQty((item.currentStock || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                    <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono" title={formatUomConversionTooltip(item)}>
+                                                        ({formatQty((item.currentStock || 0) * (item.conversionFactor || 1))} {item.secondaryUnit})
                                                     </span>
                                                 )}
                                             </div>
                                         </div>
 
-                                        {/* Rate, Valuation & Focus Control */}
+                                        {/* Rate & Valuation */}
                                         <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-700/30 p-2 rounded-lg border border-slate-100 dark:border-slate-700 text-xs">
                                             <div className="flex flex-col">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -1723,29 +1852,9 @@ export default function InventoryTable({
                                                     </span>
                                                 </div>
                                                 <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 font-mono">
-                                                    Valuation: <strong className="text-emerald-600 dark:text-emerald-400">₹{valuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                                    Store Valuation: <strong className="text-emerald-600 dark:text-emerald-400">₹{valuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                                                 </div>
                                             </div>
-                                            <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (isFocusedRow) {
-                                                        setFocusedItemId(null);
-                                                    } else {
-                                                        setFocusedItemId((item._id || item.id)?.toString());
-                                                        setShowMobileDashboard(true);
-                                                    }
-                                                }}
-                                                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
-                                                    isFocusedRow 
-                                                        ? "bg-indigo-600 text-white" 
-                                                        : "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800"
-                                                }`}
-                                            >
-                                                <Crosshair size={12} />
-                                                <span>{isFocusedRow ? "Focused" : "Focus"}</span>
-                                            </button>
                                         </div>
 
                                         {/* Monthly Flow (Both Units) */}
@@ -1859,11 +1968,23 @@ export default function InventoryTable({
                                     <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="quantity"
-                                            title="Total Stock"
+                                            title="Store Stock"
                                             data={inHouseData}
                                             currentFilters={filters['quantity'] || []}
                                             onFilterChange={(vals) => handleFilterChange('quantity', vals)}
                                             getValue={(item) => String(item.quantity || 0)}
+                                            sortConfig={sortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
+                                    <th className="px-4 py-2 text-left">
+                                        <ColumnFilter
+                                            column="wipStock"
+                                            title="Total WIP Stock"
+                                            data={inHouseData}
+                                            currentFilters={filters['wipStock'] || []}
+                                            onFilterChange={(vals) => handleFilterChange('wipStock', vals)}
+                                            getValue={getWipStockValue}
                                             sortConfig={sortConfig}
                                             onSortChange={handleSortChange}
                                         />
@@ -1931,9 +2052,6 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-3 py-2 text-right">
-                                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Action</span>
-                                    </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-slate-800 text-xs">
@@ -1977,17 +2095,43 @@ export default function InventoryTable({
                                                         );
                                                     })()}
                                                 </td>
-                                                <td className="px-4 py-2.5 sm:py-3">
+                                                <td className="px-4 py-2.5 sm:py-3 font-mono">
                                                     <div className="flex flex-col">
-                                                        <span className={`font-mono font-bold ${item.quantity <= (item.reorderLevel || 0) ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                                                            {item.quantity} {item.unit || 'Nos'}
+                                                        <span className={`font-bold ${item.quantity <= (item.reorderLevel || 0) ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                                            {formatQty(item.quantity)} {item.unit || 'Nos'}
                                                         </span>
                                                         {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 && (
-                                                            <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
-                                                                {formatQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                            <span className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 font-mono font-medium" title={formatUomConversionTooltip(item) || `1 ${item.unit || 'Nos'} = ${item.conversionFactor} ${item.secondaryUnit}`}>
+                                                                ({formatQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit})
                                                             </span>
                                                         )}
                                                     </div>
+                                                </td>
+                                                {/* Total WIP Stock */}
+                                                <td className="px-4 py-2.5 sm:py-3 font-mono">
+                                                    {(() => {
+                                                        const { wipStock, shopfloorWip, jobWorkWip } = getItemWipDetails(item);
+                                                        const secWip = item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0
+                                                            ? (wipStock * (item.conversionFactor || 1))
+                                                            : 0;
+                                                        return (
+                                                            <div className="flex flex-col">
+                                                                <span className={`font-bold ${wipStock > 0 ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500"}`}>
+                                                                    {formatQty(wipStock)} {item.unit || 'Nos'}
+                                                                </span>
+                                                                {secWip > 0 && (
+                                                                    <span className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 font-mono font-medium">
+                                                                        ({formatQty(secWip)} {item.secondaryUnit})
+                                                                    </span>
+                                                                )}
+                                                                {(shopfloorWip > 0 || jobWorkWip > 0) && (
+                                                                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-sans mt-0.5" title={`Shopfloor WIP: ${formatQty(shopfloorWip)} | Job Work WIP: ${formatQty(jobWorkWip)}`}>
+                                                                        SF: <span className="font-semibold text-slate-700 dark:text-slate-300">{formatQty(shopfloorWip)}</span> | JW: <span className="font-semibold text-slate-700 dark:text-slate-300">{formatQty(jobWorkWip)}</span>
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </td>
                                                 {/* Unit Price (Price List) */}
                                                 <td className="px-4 py-2.5 sm:py-3">
@@ -2049,30 +2193,6 @@ export default function InventoryTable({
                                                 <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
                                                     {getLocationValue(item)}
                                                 </td>
-                                                {/* Focus Action */}
-                                                <td className="px-3 py-2.5 sm:py-3 text-right">
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            if (isFocusedRow) {
-                                                                setFocusedItemId(null);
-                                                            } else {
-                                                                setFocusedItemId((item._id || item.id)?.toString());
-                                                                setShowDashboard(true);
-                                                            }
-                                                        }}
-                                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
-                                                            isFocusedRow 
-                                                                ? "bg-indigo-600 text-white hover:bg-indigo-700" 
-                                                                : "bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-700 dark:text-slate-300 hover:text-indigo-600 border border-slate-200/80 dark:border-slate-700"
-                                                        }`}
-                                                        title={isFocusedRow ? "Reset dashboard focus" : "Focus on this item in dashboard"}
-                                                    >
-                                                        <Crosshair size={12} className={isFocusedRow ? "text-white" : "text-indigo-500"} />
-                                                        <span>{isFocusedRow ? "Focused" : "Focus"}</span>
-                                                    </button>
-                                                </td>
                                             </tr>
                                         );
                                     })
@@ -2123,15 +2243,29 @@ export default function InventoryTable({
                                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.quantity <= (item.reorderLevel || 0) ? "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"}`}>
                                                     {item.quantity} {item.unit || ''}
                                                 </span>
+                                                {(() => {
+                                                    const { wipStock, shopfloorWip, jobWorkWip } = getItemWipDetails(item);
+                                                    if (wipStock <= 0) return null;
+                                                    return (
+                                                        <div className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono text-right">
+                                                            WIP: {formatQty(wipStock)} {item.unit || 'Nos'}
+                                                            {(shopfloorWip > 0 || jobWorkWip > 0) && (
+                                                                <span className="text-[10px] text-slate-400 font-sans font-normal ml-1">
+                                                                    (SF: {formatQty(shopfloorWip)}, JW: {formatQty(jobWorkWip)})
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                                 {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 && (
                                                     <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                                                        {formatQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                        ({formatQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit})
                                                     </span>
                                                 )}
                                             </div>
                                         </div>
 
-                                        {/* Rate, Valuation & Focus Control */}
+                                        {/* Rate & Valuation */}
                                         <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-700/30 p-2 rounded-lg border border-slate-100 dark:border-slate-700 text-xs">
                                             <div className="flex flex-col">
                                                 <div className="flex items-center gap-1.5">
@@ -2144,29 +2278,9 @@ export default function InventoryTable({
                                                     </span>
                                                 </div>
                                                 <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 font-mono">
-                                                    Valuation: <strong className="text-emerald-600 dark:text-emerald-400">₹{valuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                                    Store Valuation: <strong className="text-emerald-600 dark:text-emerald-400">₹{valuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                                                 </div>
                                             </div>
-                                            <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (isFocusedRow) {
-                                                        setFocusedItemId(null);
-                                                    } else {
-                                                        setFocusedItemId((item._id || item.id)?.toString());
-                                                        setShowMobileDashboard(true);
-                                                    }
-                                                }}
-                                                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
-                                                    isFocusedRow 
-                                                        ? "bg-indigo-600 text-white" 
-                                                        : "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800"
-                                                }`}
-                                            >
-                                                <Crosshair size={12} />
-                                                <span>{isFocusedRow ? "Focused" : "Focus"}</span>
-                                            </button>
                                         </div>
 
                                         {item.monthlyData && (
@@ -2452,7 +2566,7 @@ export default function InventoryTable({
                                 </select>
                             </div>
 
-                            {/* 4 Cards Grid */}
+                            {/* 5 Cards Grid */}
                             <div className="grid grid-cols-2 gap-2.5">
                                 {/* Total Units */}
                                 <div className="bg-gradient-to-br from-indigo-50/70 to-white dark:from-indigo-950/30 dark:to-slate-900 p-3 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 shadow-2xs">
@@ -2470,10 +2584,10 @@ export default function InventoryTable({
                                     )}
                                 </div>
 
-                                {/* Valuation */}
+                                {/* Store Valuation */}
                                 <div className="bg-gradient-to-br from-emerald-50/70 to-white dark:from-emerald-950/30 dark:to-slate-900 p-3 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-2xs">
                                     <div className="flex items-center justify-between mb-1">
-                                        <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Valuation</span>
+                                        <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Store Valuation</span>
                                         <IndianRupee size={14} className="text-emerald-600 dark:text-emerald-400" />
                                     </div>
                                     <div className="text-sm font-black text-emerald-600 font-mono">
@@ -2481,6 +2595,20 @@ export default function InventoryTable({
                                     </div>
                                     <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                                         {inventoryKpis.isFocused ? inventoryKpis.formattedUnitPrice : `${inventoryKpis.pricedItemsCount} Priced Items`}
+                                    </div>
+                                </div>
+
+                                {/* WIP Valuation */}
+                                <div className="bg-gradient-to-br from-cyan-50/70 to-white dark:from-cyan-950/30 dark:to-slate-900 p-3 rounded-2xl border border-cyan-100 dark:border-cyan-900/40 shadow-2xs">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">WIP Valuation</span>
+                                        <Layers size={14} className="text-cyan-600 dark:text-cyan-400" />
+                                    </div>
+                                    <div className="text-sm font-black text-cyan-600 font-mono">
+                                        {inventoryKpis.formattedTotalWipValuation}
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate font-mono">
+                                        {inventoryKpis.isFocused ? inventoryKpis.formattedWipStock : `${inventoryKpis.formattedTotalWipStockUnits} WIP Units`}
                                     </div>
                                 </div>
 
@@ -2499,7 +2627,7 @@ export default function InventoryTable({
                                 </div>
 
                                 {/* Monthly Flow */}
-                                <div className="bg-gradient-to-br from-purple-50/70 to-white dark:from-purple-950/30 dark:to-slate-900 p-3 rounded-2xl border border-purple-100 dark:border-purple-900/40 shadow-2xs">
+                                <div className="col-span-2 bg-gradient-to-br from-purple-50/70 to-white dark:from-purple-950/30 dark:to-slate-900 p-3 rounded-2xl border border-purple-100 dark:border-purple-900/40 shadow-2xs">
                                     <div className="flex items-center justify-between mb-1">
                                         <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Monthly Net</span>
                                         <ArrowUpDown size={14} className="text-purple-600 dark:text-purple-400" />

@@ -15,6 +15,7 @@ import RejectionReworkHub from './RejectionReworkHub';
 import { apiGet, apiDelete } from '@/src/lib/api';
 import { generateDocument } from '@/src/utils/documentHelper';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
+import { showDestructiveConfirm, showWarningDialog, showErrorDialog, showSuccessToast } from '@/src/features/store/utils/storeDialogHelper';
 
 export type ChallanStatusType = 'active' | 'overdue' | 'received';
 
@@ -228,20 +229,30 @@ export default function JobWorkStore({
     const handleDelete = async (id: string, challanNumber?: string, createdAt?: string | Date) => {
         if (createdAt && !isEditAllowed(createdAt)) {
             const hrs = getPolicyHours('jobWorkChallan');
-            onError(hrs <= 0 ? 'This Job Work Challan is locked immediately upon creation by company policy.' : `This Job Work Challan can only be deleted within ${hrs} hours of creation.`);
+            const lockMsg = hrs <= 0 ? 'This Job Work Challan is locked immediately upon creation by company policy.' : `This Job Work Challan can only be deleted within ${hrs} hours of creation.`;
+            await showWarningDialog("Time-Lock Expired", lockMsg);
+            onError(lockMsg);
             return;
         }
         const confirmMsg = challanNumber 
             ? `Are you sure you want to delete Returnable DC #${challanNumber}? Outward stock will be safely restored.`
             : 'Are you sure you want to delete this challan? Outward stock will be restored.';
-        if (!window.confirm(confirmMsg)) return;
+        const confirmed = await showDestructiveConfirm({
+            title: "Delete Job Work Challan",
+            text: confirmMsg,
+            confirmButtonText: "Yes, Delete"
+        });
+        if (!confirmed) return;
 
         try {
             await apiDelete(`/api/store/jobwork/delete/${id}`, token!);
+            showSuccessToast('Challan deleted and inventory restored successfully');
             onSuccess('Challan deleted and inventory restored successfully');
             fetchChallans();
         } catch (error: any) {
-            onError(error.message || 'Failed to delete challan');
+            const errMsg = error.message || 'Failed to delete challan';
+            await showErrorDialog("Delete Failed", errMsg);
+            onError(errMsg);
         }
     };
 

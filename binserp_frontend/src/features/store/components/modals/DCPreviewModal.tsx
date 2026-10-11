@@ -8,6 +8,7 @@ import {
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { download4CopyPDF, downloadDCExcelDocument } from '@/src/utils/frontendDocumentHelper';
 import { getCurrencySymbol, convertAmountToWords } from '@/src/utils/currencyHelper';
+import { showDestructiveConfirm } from '@/src/features/store/utils/storeDialogHelper';
 
 interface DCPreviewModalProps {
     isOpen: boolean;
@@ -743,8 +744,13 @@ export default function DCPreviewModal({
                         {/* Delete button with 24h timer check */}
                         {onDelete && isWithin24h && (
                             <button
-                                onClick={() => {
-                                    if (confirm(`Are you sure you want to delete Delivery Challan ${dc.dcNumber || ''}? Inventory will be restored and Customer PO status will revert.`)) {
+                                onClick={async () => {
+                                    const confirmed = await showDestructiveConfirm({
+                                        title: "Delete Delivery Challan",
+                                        text: `Are you sure you want to delete Delivery Challan ${dc.dcNumber || ''}? Inventory will be restored and Customer PO status will revert.`,
+                                        confirmButtonText: "Yes, Delete"
+                                    });
+                                    if (confirmed) {
                                         onClose();
                                         onDelete(dc._id || dc.id);
                                     }

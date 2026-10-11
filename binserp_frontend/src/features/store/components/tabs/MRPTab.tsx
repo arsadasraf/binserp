@@ -5,7 +5,7 @@ import {
   LayoutGrid, List, Edit2, ShieldCheck, Download, ShoppingCart, 
   Sparkles, RefreshCw, FileText, AlertCircle, Send, CheckSquare, Square,
   Check, Boxes, ChevronRight, Factory, Play, ChevronDown, ChevronUp, Target, RotateCcw, Lock,
-  IndianRupee, AlertTriangle, TrendingUp, TrendingDown
+  IndianRupee, AlertTriangle, TrendingUp, TrendingDown, ExternalLink
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import Swal from 'sweetalert2';
@@ -18,6 +18,9 @@ import MRP360WipDrawer from '../modals/MRP360WipDrawer';
 import MRPItemWiseView from '../views/MRPItemWiseView';
 import MRPHistoryView from '../views/MRPHistoryView';
 import MRPDemandTab from './MRPDemandTab';
+import LinkedCustomerPOsModal from '../modals/LinkedCustomerPOsModal';
+import MRPBudgetModal from '../modals/MRPBudgetModal';
+import MoveToProductionModal from '../modals/MoveToProductionModal';
 import { calculateMRPLockStatus } from '@/src/features/mrp/utils/mrpStatusHelper';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
@@ -46,6 +49,33 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   const [mrpPlans, setMrpPlans] = useState<any[]>([]);
   const [selectedDemandPlan, setSelectedDemandPlan] = useState<any | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Linked Customer POs Popup Modal State
+  const [isLinkedPoModalOpen, setIsLinkedPoModalOpen] = useState(false);
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [isMoveToProductionModalOpen, setIsMoveToProductionModalOpen] = useState(false);
+  const [selectedPlanForProduction, setSelectedPlanForProduction] = useState<any | null>(null);
+  const [preSelectedFgIndex, setPreSelectedFgIndex] = useState<number | null>(null);
+  const [linkedPoModalData, setLinkedPoModalData] = useState<{
+    mrpNumber: string;
+    planTitle?: string;
+    customerName?: string;
+    customerPOs?: any[];
+    fgItemName?: string;
+    sourceBreakdown?: any[];
+  } | null>(null);
+
+  const openLinkedPoModal = (data: {
+    mrpNumber: string;
+    planTitle?: string;
+    customerName?: string;
+    customerPOs?: any[];
+    fgItemName?: string;
+    sourceBreakdown?: any[];
+  }) => {
+    setLinkedPoModalData(data);
+    setIsLinkedPoModalOpen(true);
+  };
   
   // 3-Tab Filter System: Status (Multi-select), Plan Date, Committed Date
   const MRP_STATUS_OPTIONS = ['Planned', 'In Production', 'Partially Received', 'Partially Completed', 'Completed'] as const;
@@ -296,20 +326,19 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
     fetchData();
   }, [token]);
 
-  // Action: Move MRP to Production
+  // Action: Open Move to Production Modal
+  const handleOpenMoveToProduction = (plan: any, fgIndex: number | null = null, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedPlanForProduction(plan);
+    setPreSelectedFgIndex(fgIndex);
+    setIsMoveToProductionModalOpen(true);
+  };
+
   const handleMoveToProduction = async (planId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    try {
-      const res = await apiPost(`/api/purchase/mrp/plan/${planId}/move-to-production`, {}, token);
-      Swal.fire({
-        icon: 'success',
-        title: 'Sent to Production!',
-        text: res.message || 'MRP Demands successfully routed to PPC Production Queue.',
-        timer: 3000
-      });
-      fetchData();
-    } catch (err: any) {
-      Swal.fire('Error', err.message || 'Failed to route to production', 'error');
+    const targetPlan = mrpPlans.find(p => p._id === planId) || selectedDemandPlan;
+    if (targetPlan) {
+      handleOpenMoveToProduction(targetPlan, null, e);
     }
   };
 
@@ -1464,36 +1493,34 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                               <td className="p-3.5">
                                 {plan.isConsolidated && plan.customerPOs && plan.customerPOs.length > 0 ? (
                                   <div>
-                                    <div className="flex items-center gap-1 font-bold text-slate-900 dark:text-white text-xs">
+                                    <div className="flex items-center gap-1 font-bold text-slate-900 dark:text-white text-xs truncate">
                                       <Layers size={12} className="text-amber-500 shrink-0" />
-                                      <span>Multi-Customer Demand ({plan.customerPOs.length} POs)</span>
+                                      <span className="truncate">{plan.customerName || "Multi-Customer Demand"}</span>
                                     </div>
-                                    <div className="flex flex-wrap gap-1 mt-1">
-                                      {plan.customerPOs.map((cpo: any, idx: number) => {
-                                        const hasForeignCurrency = cpo.currency && cpo.currency !== 'INR';
-                                        const tooltip = `${cpo.customerName || ''}${hasForeignCurrency ? ` (${cpo.currency} @ ₹${cpo.exchangeRate || '-'})` : ''}`;
-                                        return (
-                                          <span
-                                            key={idx}
-                                            className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 inline-flex items-center gap-1"
-                                            title={tooltip}
-                                          >
-                                            <span>{cpo.customerPoNumber}</span>
-                                            {hasForeignCurrency && (
-                                              <span className="text-[8.5px] font-black tracking-tight text-amber-700 dark:text-amber-400 bg-amber-100/70 dark:bg-amber-950/60 px-1 rounded border border-amber-200/60 dark:border-amber-800/40">
-                                                {cpo.currency}
-                                              </span>
-                                            )}
-                                          </span>
-                                        );
-                                      })}
-                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openLinkedPoModal({
+                                          mrpNumber: plan.mrpNumber,
+                                          planTitle: plan.customerName ? `${plan.customerName} Demand` : 'Multi-Customer Demand',
+                                          customerName: plan.customerName,
+                                          customerPOs: plan.customerPOs
+                                        });
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10.5px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer shadow-2xs mt-1"
+                                      title="Click to view all linked Customer POs"
+                                    >
+                                      <FileText size={11} className="text-amber-600 shrink-0" />
+                                      <span>{plan.customerPOs.length} Linked POs</span>
+                                      <ExternalLink size={10} className="text-amber-500 opacity-80 shrink-0" />
+                                    </button>
                                   </div>
                                 ) : (
                                   <>
-                                    <strong className="text-slate-900 dark:text-white block">{plan.customerName || "Internal Demand"}</strong>
+                                    <strong className="text-slate-900 dark:text-white block truncate">{plan.customerName || "Internal Demand"}</strong>
                                     {plan.customerPoNumber && (
-                                      <span className="font-mono text-[10px] text-slate-400">PO: {plan.customerPoNumber}</span>
+                                      <span className="font-mono text-[10px] text-slate-400 block truncate">PO: {plan.customerPoNumber}</span>
                                     )}
                                   </>
                                 )}
@@ -1799,11 +1826,28 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                               <Building2 size={13} className="text-slate-400 shrink-0" />
                               <span className="truncate">{plan.customerName || "Internal Demand"}</span>
                             </div>
-                            {plan.customerPoNumber && (
+                            {plan.isConsolidated && plan.customerPOs && plan.customerPOs.length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openLinkedPoModal({
+                                    mrpNumber: plan.mrpNumber,
+                                    planTitle: plan.customerName ? `${plan.customerName} Demand` : 'Multi-Customer Demand',
+                                    customerName: plan.customerName,
+                                    customerPOs: plan.customerPOs
+                                  });
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10.5px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0 cursor-pointer"
+                              >
+                                <FileText size={11} className="text-amber-600 shrink-0" />
+                                <span>{plan.customerPOs.length} POs</span>
+                              </button>
+                            ) : plan.customerPoNumber ? (
                               <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 shrink-0 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">
                                 PO: {plan.customerPoNumber}
                               </span>
-                            )}
+                            ) : null}
                           </div>
 
                           {/* Primary FG Item and Technical Description (Strict rule compliance: AGENTS.md) */}
@@ -1988,130 +2032,203 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden space-y-2.5 sm:space-y-3">
               
               {/* Header Bar with Back Button & Plan Info (PINNED HEADER) */}
-              <div className="shrink-0 bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                <div className="flex items-center gap-3">
+              <div className="shrink-0 bg-white dark:bg-slate-900 px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-2.5 sm:gap-3">
+                {/* Left Side: Navigation, Plan Number, Status & Lock Info */}
+                <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
                   <button
+                    type="button"
                     onClick={() => setSelectedDemandPlan(null)}
-                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1 text-xs font-bold cursor-pointer"
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors inline-flex items-center gap-1.5 text-xs font-semibold cursor-pointer border border-slate-200/80 dark:border-slate-700 shadow-2xs"
                   >
-                    <ArrowLeft size={14} />
-                    <span>All MRP Plans</span>
+                    <ArrowLeft size={13} />
+                    <span>All Plans</span>
                   </button>
 
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="px-2.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-mono font-black">
-                        {selectedDemandPlan.mrpNumber}
-                      </span>
-                      {selectedDemandPlan.isConsolidated && (
-                        <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
-                          <Layers size={12} />
-                          <span>Consolidated ({selectedDemandPlan.customerPOs?.length || 2} Customer POs)</span>
-                        </span>
-                      )}
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                        {selectedDemandPlan.customerName}
-                      </span>
-                      {selectedDemandPlan.customerPoNumber && (
-                        <span className="text-[10px] text-slate-400 font-mono">PO: {selectedDemandPlan.customerPoNumber}</span>
-                      )}
-                    </div>
-                    {selectedDemandPlan.isConsolidated && selectedDemandPlan.customerPOs && selectedDemandPlan.customerPOs.length > 0 && (
-                      <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                        <span className="text-[11px] text-slate-400 font-semibold">Linked POs:</span>
-                        {selectedDemandPlan.customerPOs.map((cpo: any, cIdx: number) => (
-                          <span key={cIdx} className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                            {cpo.customerPoNumber} {cpo.customerName ? `(${cpo.customerName})` : ''}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1 flex-wrap">
-                      <span>Created by: <strong className="text-slate-700 dark:text-slate-200">{selectedDemandPlan.createdByName || "Planner"}</strong></span>
-                      {selectedDemandPlan.updatedByName && (
-                        <span className="text-amber-600 dark:text-amber-400 font-medium">
-                          • Last Edited by: <strong className="font-bold">{selectedDemandPlan.updatedByName}</strong>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-mono font-bold">
+                    {selectedDemandPlan.mrpNumber}
+                  </span>
 
-                {/* Plan Header Actions */}
-                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto justify-end">
-                  {/* Countdown or Locked Status Badge in Details Header */}
+                  <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                    selectedDemandPlan.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800' :
+                    selectedDemandPlan.status === 'In Production' ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800' :
+                    'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                  }`}>
+                    {selectedDemandPlan.status || 'Planned'}
+                  </span>
+
+                  {/* Countdown or Locked Status Badge */}
                   {(() => {
                     const lockStatus = getPlanLockStatus(selectedDemandPlan);
                     const hrs = getPolicyHours('mrpPlan');
                     return lockStatus.hasTransactions ? (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10.5px] font-bold bg-blue-50 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200">
-                        <ShieldCheck size={12} className="text-blue-600" /> Locked (Txns Active)
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-medium bg-blue-50 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200">
+                        <ShieldCheck size={11} className="text-blue-600" /> Locked (Txns)
                       </span>
                     ) : lockStatus.isImmediatelyLocked ? (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10.5px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200">
-                        <Lock size={12} /> Locked (Immediate)
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-medium bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200">
+                        <Lock size={11} /> Locked
                       </span>
                     ) : lockStatus.isExpired ? (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10.5px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200">
-                        <Clock size={12} /> Policy Expired ({hrs}h)
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-medium bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200">
+                        <Clock size={11} /> Expired ({hrs}h)
                       </span>
                     ) : lockStatus.isUnlimited ? (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10.5px] font-mono font-extrabold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
-                        <CheckCircle2 size={12} className="text-emerald-600" /> Unlimited
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-medium bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
+                        <CheckCircle2 size={11} className="text-emerald-600" /> Unlimited
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10.5px] font-mono font-extrabold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
-                        <Clock size={12} className="animate-spin text-emerald-600" /> ⏳ {lockStatus.countdownText}
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-mono font-bold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
+                        <Clock size={11} className="animate-spin text-emerald-600" /> ⏳ {lockStatus.countdownText}
                       </span>
                     );
                   })()}
 
+                  <span className="text-[11px] text-slate-400 hidden xl:inline">
+                    By: <strong className="text-slate-600 dark:text-slate-300">{selectedDemandPlan.createdByName || "Planner"}</strong>
+                  </span>
+                </div>
+
+                {/* Right Side: Uniform Action Buttons (All Open in Popups) */}
+                <div className="flex items-center gap-2 flex-wrap w-full md:w-auto justify-start md:justify-end">
+                  {/* 1. Customer & PO Button (Popup Modal) */}
                   <button
+                    type="button"
+                    onClick={() => {
+                      const customerPOs = (selectedDemandPlan.customerPOs && selectedDemandPlan.customerPOs.length > 0)
+                        ? selectedDemandPlan.customerPOs
+                        : [{
+                            customerPoNumber: selectedDemandPlan.customerPoNumber || 'N/A',
+                            customerName: selectedDemandPlan.customerName || 'N/A',
+                            poDate: selectedDemandPlan.poDate || selectedDemandPlan.date || selectedDemandPlan.createdAt,
+                            targetDate: selectedDemandPlan.targetDate || selectedDemandPlan.deliveryDate,
+                            totalAmount: selectedDemandPlan.totalIncome || 0,
+                            totalAmountInINR: selectedDemandPlan.totalIncome || 0,
+                            currency: selectedDemandPlan.currency || 'INR',
+                            exchangeRate: selectedDemandPlan.exchangeRate || 1
+                          }];
+
+                      openLinkedPoModal({
+                        mrpNumber: selectedDemandPlan.mrpNumber,
+                        planTitle: selectedDemandPlan.customerName ? `${selectedDemandPlan.customerName} Demand` : 'Customer Demand',
+                        customerName: selectedDemandPlan.customerName,
+                        customerPOs
+                      });
+                    }}
+                    className="px-2.5 py-1 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 font-semibold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                    title="View Customer & PO Details in Popup"
+                  >
+                    <Building2 size={12} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span>Customer & PO</span>
+                    {selectedDemandPlan.isConsolidated && selectedDemandPlan.customerPOs && selectedDemandPlan.customerPOs.length > 1 && (
+                      <span className="px-1.5 py-0.2 rounded-xs text-[10px] font-bold bg-amber-200/80 dark:bg-amber-900 text-amber-900 dark:text-amber-200">
+                        {selectedDemandPlan.customerPOs.length}
+                      </span>
+                    )}
+                  </button>
+
+                  {/* 2. 360° WIP Button (Popup Drawer) */}
+                  <button
+                    type="button"
                     onClick={() => {
                       setDrawerPlanId(selectedDemandPlan._id);
                       setIs360DrawerOpen(true);
                     }}
-                    className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 font-bold text-xs rounded-xl border border-teal-200 dark:border-teal-800 transition-all flex items-center gap-1.5 cursor-pointer"
+                    className="px-2.5 py-1 rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/60 dark:hover:bg-teal-900/60 text-teal-800 dark:text-teal-300 font-semibold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                    title="View 360° WIP Material & FG Clearance in Popup"
                   >
-                    <Boxes size={13} />
+                    <Boxes size={12} className="text-teal-600 dark:text-teal-400 shrink-0" />
                     <span>360° WIP</span>
                   </button>
 
+                  {/* 3. Budget Button (Popup Modal) */}
+                  {(() => {
+                    const committedExpense = Number(selectedDemandPlan.committedExpense || 0);
+                    const targetExpense = Number(selectedDemandPlan.targetExpense || 0);
+                    const budgetStatus = selectedDemandPlan.budgetStatus || (
+                      targetExpense > 0 
+                        ? (committedExpense > targetExpense ? 'Over Budget' : committedExpense >= targetExpense * 0.85 ? 'Near Limit' : 'Within Budget')
+                        : 'Unset'
+                    );
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setIsBudgetModalOpen(true)}
+                        className={`px-2.5 py-1 rounded-lg border font-semibold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+                          budgetStatus === 'Over Budget'
+                            ? 'border-rose-300 dark:border-rose-800 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-800 dark:text-rose-300'
+                            : budgetStatus === 'Near Limit'
+                            ? 'border-amber-300 dark:border-amber-800 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300'
+                            : budgetStatus === 'Within Budget'
+                            ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300'
+                            : 'border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
+                        }`}
+                        title="View MRP Budget & Financial Dashboard in Popup"
+                      >
+                        <IndianRupee size={12} className="shrink-0" />
+                        <span>Budget</span>
+                        {targetExpense > 0 && (
+                          <span className={`text-[10px] px-1 py-0.2 rounded-xs font-bold ${
+                            budgetStatus === 'Over Budget' ? 'bg-rose-200/80 text-rose-900 dark:bg-rose-900 dark:text-rose-100' :
+                            budgetStatus === 'Near Limit' ? 'bg-amber-200/80 text-amber-900 dark:bg-amber-900 dark:text-amber-100' :
+                            'bg-emerald-200/80 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100'
+                          }`}>
+                            {budgetStatus === 'Over Budget' ? 'Over' : budgetStatus === 'Near Limit' ? 'Near' : 'OK'}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })()}
+
+                  {/* 4. Details & GRN Button (Popup Modal) */}
                   <button
+                    type="button"
                     onClick={() => handleOpenDetails(selectedDemandPlan)}
-                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-xl border border-indigo-200 dark:border-indigo-800 transition-all flex items-center gap-1.5 cursor-pointer"
+                    className="px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-800 dark:text-indigo-300 font-semibold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                    title="View Full Plan Details & Inward GRNs in Popup"
                   >
-                    <Eye size={13} />
+                    <Eye size={12} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
                     <span>Details & GRN</span>
                   </button>
 
-                  {selectedDemandPlan.status !== 'Completed' && (
-                    <button
-                      onClick={(e) => handleMarkAsCompleted(selectedDemandPlan, e)}
-                      className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold text-xs rounded-xl border border-emerald-200 dark:border-emerald-800 transition-all flex items-center gap-1.5 cursor-pointer"
-                      title="Mark Plan as Completed (Moves to MRP History)"
-                    >
-                      <CheckCircle2 size={13} />
-                      <span>Complete Plan</span>
-                    </button>
-                  )}
-
-                  {/* Sync Plan (BOM, Customer PO & Sales Price) Button */}
+                  {/* 5. Sync Plan Button (Popup Confirmation Dialog) */}
                   <button
-                    onClick={(e) => handleSyncBOM(selectedDemandPlan, e)}
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const confirm = await Swal.fire({
+                        title: 'Sync MRP Plan?',
+                        html: `<div class="text-xs text-left text-slate-600 dark:text-slate-300 space-y-1.5">
+                          <p>This will synchronize <strong>${selectedDemandPlan.mrpNumber}</strong> with:</p>
+                          <ul class="list-disc pl-4 space-y-0.5">
+                            <li>Latest BOM definitions from Catalog</li>
+                            <li>Customer PO quantities & rates</li>
+                            <li>Active Sales Price Lists</li>
+                          </ul>
+                        </div>`,
+                        icon: 'question',
+                        showCancelButton: true,
+                        confirmButtonText: 'Yes, Sync Now',
+                        cancelButtonText: 'Cancel',
+                        confirmButtonColor: '#0284c7'
+                      });
+                      if (!confirm.isConfirmed) return;
+                      handleSyncBOM(selectedDemandPlan, e);
+                    }}
                     disabled={syncingPlanId === selectedDemandPlan._id}
-                    className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-bold text-xs rounded-xl border border-amber-200 dark:border-amber-800 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                    title="Synchronize latest BOM, Customer PO quantities & prices, and Sales Price Lists"
+                    className="px-2.5 py-1 rounded-lg border border-sky-200 dark:border-sky-800 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/60 dark:hover:bg-sky-900/60 text-sky-800 dark:text-sky-300 font-semibold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+                    title="Synchronize BOM & PO Rates via Confirmation Popup"
                   >
-                    <RefreshCw size={13} className={syncingPlanId === selectedDemandPlan._id ? "animate-spin text-amber-600" : ""} />
-                    <span>{syncingPlanId === selectedDemandPlan._id ? "Syncing..." : "Sync Plan (BOM & PO)"}</span>
+                    <RefreshCw size={12} className={`text-sky-600 dark:text-sky-400 shrink-0 ${syncingPlanId === selectedDemandPlan._id ? "animate-spin" : ""}`} />
+                    <span>{syncingPlanId === selectedDemandPlan._id ? "Syncing..." : "Sync Plan"}</span>
                   </button>
 
-                  {/* Edit Plan Button */}
+                  {/* 6. Edit Plan Button (Popup Modal) */}
                   {(() => {
                     const lockStatus = getPlanLockStatus(selectedDemandPlan);
                     return (
                       <button
+                        type="button"
                         onClick={() => {
                           if (!lockStatus.canEdit) {
                             const hrs = getPolicyHours('mrpPlan');
@@ -2129,33 +2246,59 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                           setEditingPlan(selectedDemandPlan);
                           setIsCreateModalOpen(true);
                         }}
-                        className={`px-3 py-1.5 rounded-xl border font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                        className={`px-2.5 py-1 rounded-lg border font-semibold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
                           lockStatus.canEdit
-                            ? 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300'
-                            : 'border-slate-200 text-slate-300 dark:border-slate-800 dark:text-slate-600 cursor-not-allowed opacity-50'
+                            ? 'border-violet-200 dark:border-violet-800 bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/60 dark:hover:bg-violet-900/60 text-violet-800 dark:text-violet-300'
+                            : 'border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed opacity-50'
                         }`}
-                        title={lockStatus.canEdit ? "Edit MRP Plan" : "Editing locked"}
+                        title={lockStatus.canEdit ? "Edit MRP Plan in Modal Popup" : "Editing locked"}
                       >
-                        <Edit2 size={13} />
+                        <Edit2 size={12} className="text-violet-600 dark:text-violet-400 shrink-0" />
                         <span>Edit</span>
                       </button>
                     );
                   })()}
 
-                  {/* Delete Plan Button */}
+                  {/* Move to Production Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => handleOpenMoveToProduction(selectedDemandPlan, null, e)}
+                    className="px-2.5 py-1 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900/60 text-purple-800 dark:text-purple-300 font-semibold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                    title="Move Plan Lines to Production"
+                  >
+                    <Play size={12} className="text-purple-600 dark:text-purple-400 shrink-0" />
+                    <span>Move to Prod</span>
+                  </button>
+
+                  {/* 7. Complete Plan Button (Popup Confirmation Dialog) */}
+                  {selectedDemandPlan.status !== 'Completed' && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleMarkAsCompleted(selectedDemandPlan, e)}
+                      className="px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 font-semibold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                      title="Mark Plan as Completed via Confirmation Popup"
+                    >
+                      <CheckCircle2 size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span>Complete</span>
+                    </button>
+                  )}
+
+                  {/* 8. Delete Plan Button (Popup Confirmation Dialog) */}
                   {(() => {
                     const lockStatus = getPlanLockStatus(selectedDemandPlan);
                     return (
                       <button
+                        type="button"
                         onClick={(e) => handleDeletePlan(selectedDemandPlan._id, e)}
-                        className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
+                        className={`px-2.5 py-1 rounded-lg border font-semibold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
                           lockStatus.canDelete
-                            ? 'border-rose-200 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950'
-                            : 'border-slate-200 text-slate-300 dark:border-slate-800 dark:text-slate-600 cursor-not-allowed opacity-50'
+                            ? 'border-rose-200 dark:border-rose-800 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-800 dark:text-rose-300'
+                            : 'border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed opacity-50'
                         }`}
-                        title={lockStatus.canDelete ? "Delete Plan" : "Deletion locked"}
+                        title={lockStatus.canDelete ? "Delete Plan via Confirmation Popup" : "Deletion locked"}
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={12} className="text-rose-600 dark:text-rose-400 shrink-0" />
+                        <span>Delete</span>
                       </button>
                     );
                   })()}
@@ -2179,174 +2322,6 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                   </button>
                 </div>
               )}
-
-              {/* Financial Health & Target Budget Guard Dashboard Card */}
-              {(() => {
-                const totalIncome = Number(selectedDemandPlan.totalIncome || 0);
-                const totalGrossCost = Number(selectedDemandPlan.totalGrossMaterialCost || 0);
-                const totalEstExpense = Number(selectedDemandPlan.totalEstimatedExpense || 0);
-                const committedExpense = Number(selectedDemandPlan.committedExpense || 0);
-                const targetExpense = Number(selectedDemandPlan.targetExpense || 0);
-                const profit = Number(selectedDemandPlan.projectedGrossProfit || (totalIncome - totalEstExpense));
-                const marginPct = Number(selectedDemandPlan.projectedMarginPercentage || (totalIncome > 0 ? ((profit / totalIncome) * 100) : 0));
-                const budgetStatus = selectedDemandPlan.budgetStatus || (
-                  targetExpense > 0 
-                    ? (committedExpense > targetExpense ? 'Over Budget' : committedExpense >= targetExpense * 0.85 ? 'Near Limit' : 'Within Budget')
-                    : 'Unset'
-                );
-
-                const budgetUsagePct = targetExpense > 0 
-                  ? Math.min(100, Math.round((committedExpense / targetExpense) * 100))
-                  : 0;
-
-                const isOverBudget = targetExpense > 0 && committedExpense > targetExpense;
-                const overrunAmount = isOverBudget ? committedExpense - targetExpense : 0;
-
-                return (
-                  <div className="shrink-0 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3 sm:p-4 shadow-xs space-y-3">
-                    {/* Header Strip of the Financial Card */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
-                          <IndianRupee size={15} />
-                        </div>
-                        <div>
-                          <h4 className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
-                            <span>Financial Intelligence & Budget Guard</span>
-                            <Sparkles size={13} className="text-amber-500" />
-                          </h4>
-                          <span className="text-[10px] text-slate-400 font-medium">Real-time revenue, material costs, and procurement spend tracking</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {/* Budget Status Badge */}
-                        {budgetStatus === 'Over Budget' ? (
-                          <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-rose-50 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-300 flex items-center gap-1.5">
-                            <AlertTriangle size={13} />
-                            <span>🚨 Over Budget</span>
-                          </span>
-                        ) : budgetStatus === 'Near Limit' ? (
-                          <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-amber-50 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 flex items-center gap-1.5">
-                            <Clock size={13} />
-                            <span>⚠️ Near Limit (85-100%)</span>
-                          </span>
-                        ) : budgetStatus === 'Within Budget' ? (
-                          <span className="px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 flex items-center gap-1.5">
-                            <CheckCircle2 size={13} />
-                            <span>✅ Within Budget</span>
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                            Budget Unset
-                          </span>
-                        )}
-
-                        {/* Set / Edit Budget Button */}
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateTargetExpense(selectedDemandPlan)}
-                          className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-bold border border-indigo-200 dark:border-indigo-800 flex items-center gap-1.5 transition-colors cursor-pointer"
-                          title="Set or update the target expense budget ceiling for this plan"
-                        >
-                          <Target size={12} />
-                          <span>{targetExpense > 0 ? 'Edit Budget' : '+ Set Budget'}</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Over-Budget Alert Banner if purchases exceed target */}
-                    {isOverBudget && (
-                      <div className="bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 rounded-xl p-2.5 flex items-start gap-2.5">
-                        <AlertTriangle className="text-rose-600 shrink-0 mt-0.5" size={16} />
-                        <div className="text-xs text-rose-800 dark:text-rose-200">
-                          <strong className="font-black">Budget Overrun Alert:</strong> Committed Purchase Orders (<strong>₹{committedExpense.toLocaleString('en-IN')}</strong>) have exceeded the target budget ceiling (<strong>₹{targetExpense.toLocaleString('en-IN')}</strong>) by <strong className="underline">₹{overrunAmount.toLocaleString('en-IN')}</strong> ({Math.round((committedExpense / targetExpense) * 100)}% of budget utilized).
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 4 Financial KPI Blocks */}
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-                      {/* Metric 1: Total Revenue */}
-                      <div className="bg-slate-50/70 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Projected Revenue (Income)</span>
-                        <div className="text-base sm:text-lg font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
-                          ₹{totalIncome.toLocaleString('en-IN')}
-                        </div>
-                        <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                          {selectedDemandPlan.customerPoNumber ? 'From Customer PO line rates' : 'From FG Selling Prices'}
-                        </span>
-                      </div>
-
-                      {/* Metric 2: Estimated Material Cost */}
-                      <div className="bg-slate-50/70 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Est. Material Shortage Cost</span>
-                        <div className="text-base sm:text-lg font-black font-mono text-slate-800 dark:text-slate-100 mt-0.5">
-                          ₹{totalEstExpense.toLocaleString('en-IN')}
-                        </div>
-                        <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                          Gross: ₹{totalGrossCost.toLocaleString('en-IN')}
-                        </span>
-                      </div>
-
-                      {/* Metric 3: Committed PO Spend */}
-                      <div className="bg-slate-50/70 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Committed PO Spend</span>
-                        <div className={`text-base sm:text-lg font-black font-mono mt-0.5 ${
-                          isOverBudget ? 'text-rose-600' : 'text-indigo-600 dark:text-indigo-400'
-                        }`}>
-                          ₹{committedExpense.toLocaleString('en-IN')}
-                        </div>
-                        <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                          {targetExpense > 0 ? `${budgetUsagePct}% of Target Budget` : 'POs released against this MRP'}
-                        </span>
-                      </div>
-
-                      {/* Metric 4: Target Ceiling & Projected Margin */}
-                      <div className="bg-slate-50/70 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Target Budget</span>
-                          <span className="text-[10px] font-bold text-emerald-600">Margin: {marginPct.toFixed(1)}%</span>
-                        </div>
-                        <div className="text-base sm:text-lg font-black font-mono text-purple-600 dark:text-purple-400 mt-0.5">
-                          {targetExpense > 0 ? `₹${targetExpense.toLocaleString('en-IN')}` : 'Not Set'}
-                        </div>
-                        <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                          Est. Profit: ₹{profit.toLocaleString('en-IN')}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Visual Budget Progress Bar */}
-                    {targetExpense > 0 && (
-                      <div className="space-y-1 pt-1">
-                        <div className="flex items-center justify-between text-[11px] font-bold">
-                          <span className="text-slate-600 dark:text-slate-300">
-                            Budget Utilization: <strong className="font-mono">₹{committedExpense.toLocaleString('en-IN')}</strong> / <span className="font-mono text-slate-400">₹{targetExpense.toLocaleString('en-IN')}</span>
-                          </span>
-                          <span className={`font-mono ${
-                            isOverBudget ? 'text-rose-600 font-black' : committedExpense >= targetExpense * 0.85 ? 'text-amber-600' : 'text-emerald-600'
-                          }`}>
-                            {budgetUsagePct}% {isOverBudget ? '(OVER LIMIT)' : ''}
-                          </span>
-                        </div>
-                        <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              isOverBudget 
-                                ? 'bg-rose-500' 
-                                : committedExpense >= targetExpense * 0.85 
-                                ? 'bg-amber-500' 
-                                : 'bg-gradient-to-r from-emerald-500 to-indigo-500'
-                            }`}
-                            style={{ width: `${Math.min(100, (committedExpense / targetExpense) * 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
 
               {/* FG Items Container (Isolated Scrollable Area) */}
               <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
@@ -2387,13 +2362,21 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                   {fg.fgItem?.name || fg.fgItemName || "FG Item"}
                                 </strong>
                                 {fg.sourceBreakdown && fg.sourceBreakdown.length > 1 ? (
-                                  <div className="flex items-center gap-1 flex-wrap">
-                                    {fg.sourceBreakdown.map((b: any, bIdx: number) => (
-                                      <span key={bIdx} className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200" title={b.customerName ? `${b.customerName}` : ''}>
-                                        {b.customerPoNumber}: {b.quantity} {fg.unit || 'PCS'}
-                                      </span>
-                                    ))}
-                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openLinkedPoModal({
+                                        mrpNumber: selectedDemandPlan.mrpNumber,
+                                        fgItemName: fg.fgItem?.name || fg.fgItemName || "FG Item",
+                                        sourceBreakdown: fg.sourceBreakdown,
+                                      });
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors shadow-2xs"
+                                    title="View customer PO allocation breakdown"
+                                  >
+                                    <span>📄 {fg.sourceBreakdown.length} Linked POs</span>
+                                  </button>
                                 ) : fg.customerPoNumber ? (
                                   <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200">
                                     PO: {fg.customerPoNumber}
@@ -2494,19 +2477,29 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
                             {/* Action: Move to Production */}
                             <td className="p-3.5 text-right">
-                              {selectedDemandPlan.status !== 'In Production' && pct < 100 && (
-                                <button
-                                  onClick={(e) => handleMoveToProduction(selectedDemandPlan._id, e)}
-                                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all ml-auto ${
-                                    isProcurementFulfilled 
-                                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer'
-                                      : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer'
-                                  }`}
-                                  title="Move to Production"
-                                >
-                                  <Play size={11} /> Move to Prod
-                                </button>
-                              )}
+                              {(() => {
+                                const fgPlanned = Number(fg.quantity) || 0;
+                                const fgMovedToProd = Number(fg.movedToProductionQuantity) || 0;
+                                const fgBalToProd = Math.max(0, fgPlanned - fgMovedToProd);
+
+                                if (fgBalToProd === 0) {
+                                  return (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200">
+                                      <CheckCircle2 size={11} /> Moved to Prod
+                                    </span>
+                                  );
+                                }
+
+                                return (
+                                  <button
+                                    onClick={(e) => handleOpenMoveToProduction(selectedDemandPlan, fgIdx, e)}
+                                    className="px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all ml-auto bg-purple-600 hover:bg-purple-700 text-white shadow-xs cursor-pointer"
+                                    title={`Move ${fgBalToProd} units to Production`}
+                                  >
+                                    <Play size={11} /> Move to Prod ({fgBalToProd})
+                                  </button>
+                                );
+                              })()}
                             </td>
                           </tr>
                         );
@@ -2600,22 +2593,32 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                         </div>
 
                         {/* Action: Move to Production */}
-                        {selectedDemandPlan.status !== 'In Production' && pct < 100 && (
-                          <div className="pt-1 flex justify-end">
-                            <button
-                              type="button"
-                              onClick={(e) => handleMoveToProduction(selectedDemandPlan._id, e)}
-                              className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                                isProcurementFulfilled 
-                                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs' 
-                                  : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                              }`}
-                            >
-                              <Play size={12} />
-                              <span>Move to Production</span>
-                            </button>
-                          </div>
-                        )}
+                        <div className="pt-1 flex justify-end">
+                          {(() => {
+                            const fgPlanned = Number(fg.quantity) || 0;
+                            const fgMovedToProd = Number(fg.movedToProductionQuantity) || 0;
+                            const fgBalToProd = Math.max(0, fgPlanned - fgMovedToProd);
+
+                            if (fgBalToProd === 0) {
+                              return (
+                                <div className="w-full py-1.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200">
+                                  <CheckCircle2 size={12} /> Fully Moved to Production
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => handleOpenMoveToProduction(selectedDemandPlan, fgIdx, e)}
+                                className="w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer bg-purple-600 hover:bg-purple-700 text-white shadow-xs"
+                              >
+                                <Play size={12} />
+                                <span>Move to Production ({fgBalToProd} Units)</span>
+                              </button>
+                            );
+                          })()}
+                        </div>
                       </div>
                     );
                   })}
@@ -2741,6 +2744,65 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
           inHouseItems={inHouseItems as any}
           priceLists={priceLists as any}
           initialData={poInitialData}
+        />
+      )}
+
+      {/* Linked Customer POs Popup Modal */}
+      {isLinkedPoModalOpen && linkedPoModalData && (
+        <LinkedCustomerPOsModal
+          isOpen={isLinkedPoModalOpen}
+          onClose={() => {
+            setIsLinkedPoModalOpen(false);
+            setLinkedPoModalData(null);
+          }}
+          mrpNumber={linkedPoModalData.mrpNumber}
+          planTitle={linkedPoModalData.planTitle}
+          customerName={linkedPoModalData.customerName}
+          customerPOs={linkedPoModalData.customerPOs}
+          fgItemName={linkedPoModalData.fgItemName}
+          sourceBreakdown={linkedPoModalData.sourceBreakdown}
+        />
+      )}
+
+      {/* MRP Budget & Financial Dashboard Modal */}
+      {isBudgetModalOpen && selectedDemandPlan && (
+        <MRPBudgetModal
+          isOpen={isBudgetModalOpen}
+          onClose={() => setIsBudgetModalOpen(false)}
+          plan={selectedDemandPlan}
+          token={token}
+          onPlanUpdated={(updatedPlan) => {
+            setSelectedDemandPlan(updatedPlan);
+            setMrpPlans(prev => prev.map(p => p._id === updatedPlan._id ? updatedPlan : p));
+          }}
+        />
+      )}
+
+      {/* Move to Production Modal */}
+      {isMoveToProductionModalOpen && selectedPlanForProduction && (
+        <MoveToProductionModal
+          isOpen={isMoveToProductionModalOpen}
+          onClose={() => {
+            setIsMoveToProductionModalOpen(false);
+            setSelectedPlanForProduction(null);
+            setPreSelectedFgIndex(null);
+          }}
+          plan={selectedPlanForProduction}
+          preSelectedFgIndex={preSelectedFgIndex}
+          onSuccess={async () => {
+            await fetchData();
+            if (selectedDemandPlan) {
+              try {
+                const res = await apiGet(`/api/purchase/mrp/plan/${selectedDemandPlan._id}`, token);
+                if (res?.data) {
+                  setSelectedDemandPlan(res.data);
+                }
+              } catch (e) {
+                console.error("Failed to refresh selected demand plan:", e);
+              }
+            }
+          }}
+          token={token}
         />
       )}
 

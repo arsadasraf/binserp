@@ -287,7 +287,7 @@ export const receiveJobWorkItems = async (req, res) => {
         } else if (isWipWorkflow) {
           // Direct WIP Release: Returns directly back into Shopfloor WIP (WIP stock is tracked in Shopfloor WIP without mutating warehouse stock)
           await recordStockTransaction(req, {
-            itemType: targetItemType === "fg" ? "FGItem" : "Component",
+            itemType: (targetItemType === "rm" || targetItemType === "rawmaterial") ? "RawMaterial" : (targetItemType === "bo" || targetItemType === "boughtout" ? "BoughtOut" : (targetItemType === "fg" ? "FGItem" : "Component")),
             item: targetItemDoc || jobWork._id,
             itemName: matchedItemName,
             unit: "Nos",

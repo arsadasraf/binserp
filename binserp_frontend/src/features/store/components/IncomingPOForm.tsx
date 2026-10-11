@@ -6,6 +6,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useGetIncomingPODispatchHistoryQuery } from "@/src/store/services/storeService";
 import { getCurrencySymbol, CURRENCY_OPTIONS, convertToINR } from "@/src/utils/currencyHelper";
+import { showWarningToast } from "@/src/features/store/utils/storeDialogHelper";
 
 interface IncomingPOFormProps {
   isOpen?: boolean;
@@ -1397,7 +1398,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                           if (['pdf', 'jpg', 'jpeg', 'png'].includes(ext || '')) {
                             setDocumentFile(file);
                           } else {
-                            alert("Only PDF and JPG/JPEG/PNG files are allowed.");
+                            showWarningToast("Only PDF and JPG/JPEG/PNG files are allowed.");
                             e.target.value = "";
                           }
                         }
@@ -1552,3 +1553,5 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
     </div>
   );
 };
+
+export default IncomingPOForm;

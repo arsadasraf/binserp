@@ -8,6 +8,7 @@ import {
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { download4CopyPDF, downloadInvoiceExcelDocument } from '@/src/utils/frontendDocumentHelper';
 import { getCurrencySymbol, convertAmountToWords } from '@/src/utils/currencyHelper';
+import { showDestructiveConfirm } from '@/src/features/store/utils/storeDialogHelper';
 
 interface InvoicePreviewModalProps {
     isOpen: boolean;
@@ -865,8 +866,13 @@ export default function InvoicePreviewModal({
                                 )}
                                 {onDelete && (
                                     <button
-                                        onClick={() => {
-                                            if (confirm(`Are you sure you want to delete Tax Invoice ${invoice.invoiceNumber || ''}? This will revert stock and adjust Customer PO.`)) {
+                                        onClick={async () => {
+                                            const confirmed = await showDestructiveConfirm({
+                                                title: "Delete Tax Invoice",
+                                                text: `Are you sure you want to delete Tax Invoice ${invoice.invoiceNumber || ''}? This will revert stock and adjust Customer PO.`,
+                                                confirmButtonText: "Yes, Delete"
+                                            });
+                                            if (confirmed) {
                                                 onClose();
                                                 onDelete(invoice._id || invoice.id);
                                             }

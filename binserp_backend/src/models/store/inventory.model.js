@@ -33,6 +33,16 @@ export const inventorySchema = new mongoose.Schema(
       default: 1,
       min: 0,
     },
+    primaryRatio: {
+      type: Number,
+      default: 1,
+      min: 0.000001,
+    },
+    secondaryRatio: {
+      type: Number,
+      default: 1,
+      min: 0.000001,
+    },
     currentStock: {
       type: Number,
       required: true,

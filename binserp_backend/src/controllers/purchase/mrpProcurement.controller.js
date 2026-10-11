@@ -1599,23 +1599,132 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
 });
 
 /**
- * 2. MOVE MRP TO PRODUCTION
+ * 2. MOVE MRP TO PRODUCTION (Bulk / Line-Item with Quantities)
  */
 export const moveMRPToProduction = asyncHandler(async (req, res) => {
   const companyId = getCompanyId(req);
   const { id } = req.params;
+  const { items } = req.body || {}; // Optional array of { fgItemId, fgItemName, quantityToMove, itemIndex }
 
   const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
+  const PPCOrder = req.getModel("PPCOrder", ppcOrderSchema);
 
   const plan = await MRPPlan.findOne({ _id: id, company: companyId });
   if (!plan) {
     throw new ApiError(404, "MRP Plan not found");
   }
 
+  const ppcItems = [];
+  const fgItemsList = plan.fgItems || [];
+
+  // Determine which items to move
+  for (let idx = 0; idx < fgItemsList.length; idx++) {
+    const fg = fgItemsList[idx];
+    const fgIdStr = fg.fgItem ? fg.fgItem.toString() : "";
+    const subdocIdStr = fg._id ? fg._id.toString() : "";
+    const fgName = (fg.fgItemName || "").trim().toLowerCase();
+
+    // Check if user specified items; if empty/undefined, consider all lines
+    let reqItem = null;
+    if (Array.isArray(items) && items.length > 0) {
+      reqItem = items.find(i => 
+        (i.fgItemId && (i.fgItemId === subdocIdStr || i.fgItemId === fgIdStr)) ||
+        (i.itemId && (i.itemId === subdocIdStr || i.itemId === fgIdStr)) ||
+        (i.itemIndex !== undefined && Number(i.itemIndex) === idx) ||
+        (i.fgItemName && i.fgItemName.trim().toLowerCase() === fgName)
+      );
+      if (!reqItem) continue; // Not selected by user
+    }
+
+    const currentPlanned = Number(fg.quantity) || 0;
+    const currentMoved = Number(fg.movedToProductionQuantity) || 0;
+    const maxBalance = Math.max(0, currentPlanned - currentMoved);
+
+    // Quantity to move: if user specified, take that up to maxBalance; else take full balance
+    let qtyToMove = reqItem ? Number(reqItem.quantityToMove || reqItem.quantity) : maxBalance;
+    if (isNaN(qtyToMove) || qtyToMove <= 0) {
+      continue;
+    }
+
+    // Cap to remaining balance if balance > 0
+    if (maxBalance > 0 && qtyToMove > maxBalance) {
+      qtyToMove = maxBalance;
+    }
+
+    // Scale nested materials proportional to qtyToMove
+    const rawNested = fg.nestedMaterials || [];
+    const scaledNested = rawNested.map(mat => {
+      const matObj = mat.toObject ? mat.toObject() : { ...mat };
+      const perQty = Number(matObj.quantityPerFG) || 1;
+      return {
+        ...matObj,
+        quantityPerFG: perQty,
+        totalRequired: parseFloat((perQty * qtyToMove).toFixed(4)),
+        movedQuantity: 0,
+        moStatus: "Pending"
+      };
+    });
+
+    // Track moved quantity on FG item
+    fg.movedToProductionQuantity = currentMoved + qtyToMove;
+
+    ppcItems.push({
+      product: fg.fgItem,
+      productName: fg.fgItemName,
+      productCode: fg.fgItemCode || "",
+      itemType: "Assembly",
+      description: fg.description || "",
+      unit: fg.unit || "PCS",
+      price: fg.sellingPrice || 0,
+      quantity: qtyToMove,
+      movedQuantity: 0,
+      moStatus: "Pending",
+      trackingType: "Individual",
+      nestedMaterials: scaledNested,
+      targetDate: fg.targetDate || plan.targetDate
+    });
+  }
+
+  if (ppcItems.length === 0) {
+    throw new ApiError(400, "No valid balance quantities selected to move to production.");
+  }
+
+  // Update plan status
   plan.status = "In Production";
   await plan.save();
 
-  return res.status(200).json(new ApiResponse(200, plan, `MRP Plan #${plan.mrpNumber} moved to Production successfully`));
+  // Create dedicated PPCOrder with PPC-MRP prefix
+  const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const cleanRef = (plan.mrpNumber || 'MRP').replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 16);
+  const ppcOrderNumber = `PPC-MRP-${cleanRef}-${randomSuffix}`;
+
+  const ppcOrder = new PPCOrder({
+    company: companyId,
+    orderNumber: ppcOrderNumber,
+    poReference: plan.customerPoNumber || plan.mrpNumber || "DIRECT",
+    customer: plan.customerPo?.customer || undefined,
+    customerName: plan.customerName || "Internal Demand",
+    mrpNumber: plan.mrpNumber,
+    mrpPlanId: plan._id,
+    sourceType: "MRP_DEMAND",
+    deliveryDate: plan.targetDate || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+    status: "Pending",
+    items: ppcItems,
+    createdBy: req.user?.id || req.user?._id,
+    remarks: `Routed from MRP Demand Plan #${plan.mrpNumber} with full nested BOM breakdown.`
+  });
+
+  await ppcOrder.save();
+
+  const totalMovedQty = ppcItems.reduce((acc, it) => acc + it.quantity, 0);
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      { plan, ppcOrder },
+      `Successfully routed ${totalMovedQty} units across ${ppcItems.length} FG line(s) to PPC Production.`
+    )
+  );
 });
 
 /**
@@ -1656,21 +1765,39 @@ export const bulkGeneratePOFromMRP = asyncHandler(async (req, res) => {
 
     const poNumber = `PO-MRP/${new Date().getFullYear()}/${Math.floor(10000 + Math.random() * 90000)}`;
 
-    const poItems = vItems.map(vi => ({
-      materialName: vi.materialName,
-      materialCode: vi.materialCode || "",
-      itemType: vi.itemType || "RM",
-      quantity: Number(vi.orderQuantity || vi.netShortage || vi.requiredQuantity) || 1,
-      unit: vi.unit || "PCS",
-      rate: Number(vi.rate) || 0,
-      total: (Number(vi.orderQuantity || vi.netShortage || vi.requiredQuantity) || 1) * (Number(vi.rate) || 0),
-      description: `MRP Consolidated: ${vi.sourceMRPs?.join(", ") || "MRP Shortage"}`
-    }));
+    const poItems = vItems.map(vi => {
+      const qty = Number(vi.orderQuantity || vi.netShortage || vi.requiredQuantity) || 1;
+      const rate = Number(vi.rate) || 0;
+      const itemAmount = parseFloat((qty * rate).toFixed(2));
+      const rawType = (vi.itemType ? String(vi.itemType).toLowerCase() : "rm");
+      const normalizedItemType = ["rm", "bo", "consumable", "raw_material", "bought_out", "component", "subassembly", "assembly"].includes(rawType)
+        ? rawType
+        : "rm";
 
-    const subTotal = poItems.reduce((s, i) => s + i.total, 0);
+      return {
+        material: vi.materialId || vi.material || undefined,
+        materialName: vi.materialName,
+        materialCode: vi.materialCode || "",
+        itemType: normalizedItemType,
+        quantity: qty,
+        unit: vi.unit || "PCS",
+        hasSecondaryUnit: Boolean(vi.hasSecondaryUnit),
+        secondaryUnit: vi.secondaryUnit || "",
+        conversionFactor: Number(vi.conversionFactor) || 1,
+        secondaryQuantity: vi.secondaryQuantity,
+        rate: rate,
+        amount: itemAmount,
+        total: itemAmount,
+        taxRate: vendorDoc?.gstRate || 18,
+        taxAmount: parseFloat(((itemAmount * (vendorDoc?.gstRate || 18)) / 100).toFixed(2)),
+        description: `MRP Consolidated: ${vi.sourceMRPs?.join(", ") || "MRP Shortage"}`
+      };
+    });
+
+    const subTotal = parseFloat(poItems.reduce((s, i) => s + (i.amount || 0), 0).toFixed(2));
     const taxRate = vendorDoc?.gstRate || 18;
-    const taxAmount = (subTotal * taxRate) / 100;
-    const grandTotal = subTotal + taxAmount;
+    const taxAmount = parseFloat(((subTotal * taxRate) / 100).toFixed(2));
+    const grandTotal = parseFloat((subTotal + taxAmount).toFixed(2));
 
     const firstMrpSource = vItems[0]?.mrpSources?.[0];
     const firstMrpNumber = vItems[0]?.sourceMRPs?.[0] || firstMrpSource?.mrpNumber;
@@ -1686,9 +1813,13 @@ export const bulkGeneratePOFromMRP = asyncHandler(async (req, res) => {
       vendorAddress: vendorDoc?.billingAddress || vendorDoc?.address || "",
       vendorGst: vendorDoc?.gstin || "",
       items: poItems,
-      subTotal,
+      subtotal: subTotal,
+      subTotal: subTotal,
+      taxRate,
       taxAmount,
+      totalTax: taxAmount,
       grandTotal,
+      totalAmount: grandTotal,
       status: "Draft",
       notes: remarks || `Auto-generated from MRP Procurement Workbench for: ${vItems.map(v => v.materialName).join(", ")}`,
       createdBy: req.user?._id
@@ -1901,7 +2032,21 @@ export const getMRPPPCIntakeBucket = asyncHandler(async (req, res) => {
         orderId: order._id,
         orderNumber: order.orderNumber,
         orderStatus: order.status,
-        mrpNumber: key
+        mrpNumber: key,
+        nestedMaterials: (it.nestedMaterials || []).map(nm => {
+          const reqQty = Number(nm.totalRequired) || ((Number(nm.quantityPerFG) || 1) * qty);
+          const nmMoved = Number(nm.movedQuantity) || 0;
+          return {
+            ...nm,
+            quantityPerFG: Number(nm.quantityPerFG) || 1,
+            totalRequired: reqQty,
+            movedQuantity: nmMoved,
+            remainingQuantity: Math.max(0, reqQty - nmMoved),
+            moStatus: nm.linkedMoNumber 
+              ? (nmMoved >= reqQty ? "MO Created" : "Partially Created") 
+              : (nm.moStatus || "Pending MO Creation")
+          };
+        })
       });
     });
   });
@@ -2040,17 +2185,25 @@ export const getPurchaseBucketMappings = asyncHandler(async (req, res) => {
  */
 export const getEligiblePurchaseItems = asyncHandler(async (req, res) => {
   const companyId = getCompanyId(req);
-  const { primaryUnit, hasSecondaryUnit, secondaryUnit, itemType, search } = req.query;
+  const { primaryUnit, hasSecondaryUnit, secondaryUnit, itemType, search, categoryId } = req.query;
 
-  const isBO = (itemType || "").toLowerCase().includes("bo") || (itemType || "").toLowerCase().includes("bought");
-  const Model = isBO
-    ? req.getModel("BoughtOut", boughtOutSchema)
-    : req.getModel("RawMaterial", rawMaterialSchema);
+  const rawItemType = (itemType || "").toLowerCase();
+  const isAll = rawItemType === "all";
+  const isBO = rawItemType.includes("bo") || rawItemType.includes("bought");
 
-  const query = {
+  const RawMaterial = req.getModel("RawMaterial", rawMaterialSchema);
+  const BoughtOut = req.getModel("BoughtOut", boughtOutSchema);
+  req.getModel("Category", categorySchema);
+  const Inventory = req.getModel("Inventory", inventorySchema);
+
+  const baseQuery = {
     company: companyId,
     status: { $ne: "Deactivated" }
   };
+
+  if (categoryId && categoryId !== "all" && mongoose.Types.ObjectId.isValid(categoryId)) {
+    baseQuery.categoryId = categoryId;
+  }
 
   const validUnits = [];
   if (primaryUnit && primaryUnit.trim() && primaryUnit.trim() !== "null" && primaryUnit.trim() !== "undefined") {
@@ -2086,14 +2239,31 @@ export const getEligiblePurchaseItems = asyncHandler(async (req, res) => {
     });
   }
 
+  const finalQuery = { ...baseQuery };
   if (conditions.length > 0) {
-    query.$and = conditions;
+    finalQuery.$and = conditions;
   }
 
-  const items = await Model.find(query).limit(100).lean();
+  let items = [];
+
+  if (isAll) {
+    const [rmItems, boItems] = await Promise.all([
+      RawMaterial.find(finalQuery).populate("categoryId", "name code").limit(100).lean(),
+      BoughtOut.find(finalQuery).populate("categoryId", "name code").limit(100).lean()
+    ]);
+    items = [
+      ...rmItems.map(i => ({ ...i, itemType: "RM" })),
+      ...boItems.map(i => ({ ...i, itemType: "BO" }))
+    ];
+  } else if (isBO) {
+    const boItems = await BoughtOut.find(finalQuery).populate("categoryId", "name code").limit(150).lean();
+    items = boItems.map(i => ({ ...i, itemType: "BO" }));
+  } else {
+    const rmItems = await RawMaterial.find(finalQuery).populate("categoryId", "name code").limit(150).lean();
+    items = rmItems.map(i => ({ ...i, itemType: "RM" }));
+  }
 
   // Fetch Inventory for current stock of these items
-  const Inventory = req.getModel("Inventory", inventorySchema);
   const itemIds = items.map(i => i._id);
   const stocks = await Inventory.find({ company: companyId, item: { $in: itemIds } }).lean();
   const stockMap = new Map();
@@ -2103,18 +2273,24 @@ export const getEligiblePurchaseItems = asyncHandler(async (req, res) => {
     }
   });
 
-  const formatted = items.map(it => ({
-    _id: it._id,
-    name: it.name,
-    code: it.code || "",
-    description: it.descriptions || it.description || "",
-    unit: it.unit || "PCS",
-    hasSecondaryUnit: Boolean(it.hasSecondaryUnit),
-    secondaryUnit: it.secondaryUnit || "",
-    conversionFactor: Number(it.conversionFactor) || 1,
-    currentStock: stockMap.get(it._id.toString()) || 0,
-    itemType: isBO ? "BO" : "RM"
-  }));
+  const formatted = items.map(it => {
+    const catName = it.categoryId?.name || it.category || "";
+    return {
+      _id: it._id,
+      name: it.name,
+      code: it.code || "",
+      description: it.descriptions || it.description || it.specification || "",
+      descriptions: it.descriptions || it.description || "",
+      category: catName,
+      categoryId: it.categoryId?._id || it.categoryId || null,
+      unit: it.unit || "PCS",
+      hasSecondaryUnit: Boolean(it.hasSecondaryUnit && it.secondaryUnit),
+      secondaryUnit: it.secondaryUnit || "",
+      conversionFactor: Number(it.conversionFactor) || 1,
+      currentStock: stockMap.get(it._id.toString()) || 0,
+      itemType: it.itemType || (isBO ? "BO" : "RM")
+    };
+  });
 
   return res.status(200).json(new ApiResponse(200, formatted, "Fetched eligible purchase items with matching units"));
 });

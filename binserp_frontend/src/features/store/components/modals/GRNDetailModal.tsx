@@ -92,10 +92,33 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
         return sum + getItemAmount(item);
     }, 0) || 0;
 
+    const grnTaxRate = Number(grn.taxRate) || 0;
+    const isTransportationTaxable = grn.isTransportationTaxable === true || grn.isTransportationTaxable === 'true';
+    const transportationTaxRate = grn.transportationTaxRate !== undefined ? Number(grn.transportationTaxRate) : (isTransportationTaxable ? grnTaxRate : 0);
+    const transportationTaxAmount = grn.transportationTaxAmount !== undefined ? Number(grn.transportationTaxAmount) : (isTransportationTaxable ? Number(((Number(grn.transportationCharges || 0) * transportationTaxRate) / 100).toFixed(2)) : 0);
+
+    const isPackingTaxable = grn.isPackingTaxable === true || grn.isPackingTaxable === 'true';
+    const packingTaxRate = grn.packingTaxRate !== undefined ? Number(grn.packingTaxRate) : (isPackingTaxable ? grnTaxRate : 0);
+    const packingTaxAmount = grn.packingTaxAmount !== undefined ? Number(grn.packingTaxAmount) : (isPackingTaxable ? Number(((Number(grn.packingCharges || 0) * packingTaxRate) / 100).toFixed(2)) : 0);
+
+    const roundOff = grn.roundOff !== undefined ? Number(grn.roundOff) : 0;
+    const isRoundOff = grn.isRoundOff !== undefined ? Boolean(grn.isRoundOff) : (roundOff !== 0);
+
+    const itemsTaxTotal = grn.items?.reduce((sum: number, it: any) => {
+        const itemTaxRate = it.taxRate !== undefined && it.taxRate !== null && !isNaN(Number(it.taxRate))
+            ? Number(it.taxRate)
+            : grnTaxRate;
+        const itemTaxAmount = it.taxAmount !== undefined && it.taxAmount !== null && !isNaN(Number(it.taxAmount))
+            ? Number(it.taxAmount)
+            : Number(((getItemAmount(it) * itemTaxRate) / 100).toFixed(2));
+        return sum + itemTaxAmount;
+    }, 0) || 0;
+
     const transportationCharges = Number(grn.transportationCharges) || 0;
     const packingCharges = Number(grn.packingCharges) || 0;
-    const taxAmount = Number(grn.taxAmount) || 0;
-    const grandTotal = grn.totalAmount ? Number(grn.totalAmount) : (itemsSubtotal + taxAmount + transportationCharges + packingCharges);
+    const totalTax = Number(grn.taxAmount) || Number((itemsTaxTotal + transportationTaxAmount + packingTaxAmount).toFixed(2));
+    const hasAnyTax = grnTaxRate > 0 || itemsTaxTotal > 0 || totalTax > 0;
+    const grandTotal = grn.totalAmount ? Number(grn.totalAmount) : (itemsSubtotal + totalTax + transportationCharges + packingCharges + (isRoundOff ? roundOff : 0));
 
     const scroll = (direction: 'left' | 'right') => {
         if (scrollContainerRef.current) {
@@ -260,6 +283,9 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                             <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase">Rej</th>
                                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Unit</th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 uppercase">Rate (₹)</th>
+                                            {hasAnyTax && (
+                                                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase">GST %</th>
+                                            )}
                                             <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 uppercase">Amount (₹)</th>
                                         </tr>
                                     </thead>
@@ -268,6 +294,13 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                             const disp = resolveGrnLineItemDisplay(item);
                                             const desc = item.description || item.descriptions || (typeof item.material === 'object' ? (item.material?.descriptions || item.material?.description) : '');
                                             const hsn = item.hsnCode || item.material?.hsnCode || item.material?.hsn || item.fgItem?.hsnCode || item.fgItem?.hsn || '-';
+                                            const itemTaxRate = item.taxRate !== undefined && item.taxRate !== null && !isNaN(Number(item.taxRate))
+                                                ? Number(item.taxRate)
+                                                : grnTaxRate;
+                                            const itemTaxAmount = item.taxAmount !== undefined && item.taxAmount !== null && !isNaN(Number(item.taxAmount))
+                                                ? Number(item.taxAmount)
+                                                : Number(((disp.lineAmount * itemTaxRate) / 100).toFixed(2));
+
                                             return (
                                                 <tr key={index} className="hover:bg-gray-50">
                                                     <td className="px-4 py-3 text-sm text-gray-900">{index + 1}</td>
@@ -326,6 +359,18 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                                             </div>
                                                         )}
                                                     </td>
+                                                    {hasAnyTax && (
+                                                        <td className="px-4 py-3 text-sm text-center font-mono">
+                                                            <div className="font-bold text-indigo-600 dark:text-indigo-400">
+                                                                {itemTaxRate > 0 ? `${itemTaxRate}%` : '0%'}
+                                                            </div>
+                                                            {itemTaxAmount > 0 && (
+                                                                <div className="text-[10px] text-indigo-500 font-sans">
+                                                                    (+₹{itemTaxAmount.toFixed(2)})
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                    )}
                                                     <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right font-mono">₹{disp.lineAmount.toFixed(2)}</td>
                                                 </tr>
                                             );
@@ -333,27 +378,34 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                     </tbody>
                                     <tfoot className="bg-green-50/60 border-t-2 border-green-200">
                                         <tr>
-                                            <td colSpan={7} className="px-4 py-2.5 text-right text-xs font-semibold text-gray-600">
+                                            <td colSpan={hasAnyTax ? 8 : 7} className="px-4 py-2.5 text-right text-xs font-semibold text-gray-600">
                                                 Items Subtotal:
                                             </td>
                                             <td colSpan={2} className="px-4 py-2.5 text-right text-sm font-semibold text-gray-800">
                                                 ₹{itemsSubtotal.toFixed(2)}
                                             </td>
                                         </tr>
-                                        {taxAmount > 0 && (
+                                        {itemsTaxTotal > 0 && (
                                             <tr>
-                                                <td colSpan={7} className="px-4 py-1.5 text-right text-xs font-semibold text-indigo-600">
-                                                    GST / Tax:
+                                                <td colSpan={hasAnyTax ? 8 : 7} className="px-4 py-1.5 text-right text-xs font-semibold text-indigo-600">
+                                                    Items GST Amount:
                                                 </td>
                                                 <td colSpan={2} className="px-4 py-1.5 text-right text-sm font-semibold text-indigo-700">
-                                                    + ₹{taxAmount.toFixed(2)}
+                                                    + ₹{itemsTaxTotal.toFixed(2)}
                                                 </td>
                                             </tr>
                                         )}
                                         {transportationCharges > 0 && (
                                             <tr>
-                                                <td colSpan={7} className="px-4 py-1.5 text-right text-xs font-semibold text-blue-600">
+                                                <td colSpan={hasAnyTax ? 8 : 7} className="px-4 py-1.5 text-right text-xs font-semibold text-blue-600">
                                                     Transportation Charges:
+                                                    {isTransportationTaxable ? (
+                                                        <span className="text-[11px] font-normal text-blue-800 ml-1.5">
+                                                            (+{transportationTaxRate}% GST: ₹{transportationTaxAmount.toFixed(2)})
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[11px] font-normal text-slate-500 ml-1.5">(Exempt / No Tax)</span>
+                                                    )}
                                                 </td>
                                                 <td colSpan={2} className="px-4 py-1.5 text-right text-sm font-semibold text-blue-700">
                                                     + ₹{transportationCharges.toFixed(2)}
@@ -362,16 +414,43 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                         )}
                                         {packingCharges > 0 && (
                                             <tr>
-                                                <td colSpan={7} className="px-4 py-1.5 text-right text-xs font-semibold text-amber-600">
+                                                <td colSpan={hasAnyTax ? 8 : 7} className="px-4 py-1.5 text-right text-xs font-semibold text-amber-600">
                                                     Packing Charges:
+                                                    {isPackingTaxable ? (
+                                                        <span className="text-[11px] font-normal text-amber-800 ml-1.5">
+                                                            (+{packingTaxRate}% GST: ₹{packingTaxAmount.toFixed(2)})
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[11px] font-normal text-slate-500 ml-1.5">(Exempt / No Tax)</span>
+                                                    )}
                                                 </td>
                                                 <td colSpan={2} className="px-4 py-1.5 text-right text-sm font-semibold text-amber-700">
                                                     + ₹{packingCharges.toFixed(2)}
                                                 </td>
                                             </tr>
                                         )}
+                                        {(isTransportationTaxable || isPackingTaxable) && totalTax > 0 && (
+                                            <tr>
+                                                <td colSpan={hasAnyTax ? 8 : 7} className="px-4 py-1.5 text-right text-xs font-semibold text-indigo-800">
+                                                    Total GST (Items + Charges):
+                                                </td>
+                                                <td colSpan={2} className="px-4 py-1.5 text-right text-sm font-semibold text-indigo-800">
+                                                    + ₹{totalTax.toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        )}
+                                        {isRoundOff && roundOff !== 0 && (
+                                            <tr>
+                                                <td colSpan={hasAnyTax ? 8 : 7} className="px-4 py-1.5 text-right text-xs font-semibold text-emerald-600">
+                                                    Round Off:
+                                                </td>
+                                                <td colSpan={2} className="px-4 py-1.5 text-right text-sm font-semibold text-emerald-700">
+                                                    {roundOff >= 0 ? '+' : ''}₹{roundOff.toFixed(2)}
+                                                </td>
+                                            </tr>
+                                        )}
                                         <tr className="border-t border-green-200 bg-green-100/70">
-                                            <td colSpan={7} className="px-4 py-3.5 text-right text-base font-bold text-gray-900">
+                                            <td colSpan={hasAnyTax ? 8 : 7} className="px-4 py-3.5 text-right text-base font-bold text-gray-900">
                                                 Grand Total Amount:
                                             </td>
                                             <td colSpan={2} className="px-4 py-3.5 text-right">
@@ -391,6 +470,12 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                     const disp = resolveGrnLineItemDisplay(item);
                                     const desc = item.description || item.descriptions || (typeof item.material === 'object' ? (item.material?.descriptions || item.material?.description) : '');
                                     const hsn = item.hsnCode || item.material?.hsnCode || item.material?.hsn || item.fgItem?.hsnCode || item.fgItem?.hsn;
+                                    const itemTaxRate = item.taxRate !== undefined && item.taxRate !== null && !isNaN(Number(item.taxRate))
+                                        ? Number(item.taxRate)
+                                        : grnTaxRate;
+                                    const itemTaxAmount = item.taxAmount !== undefined && item.taxAmount !== null && !isNaN(Number(item.taxAmount))
+                                        ? Number(item.taxAmount)
+                                        : Number(((disp.lineAmount * itemTaxRate) / 100).toFixed(2));
                                     return (
                                         <div key={index} className="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm">
                                             <div className="flex justify-between items-start mb-3">
@@ -450,7 +535,14 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                                 </div>
 
                                                 <div className="col-span-3 border-t border-gray-200 pt-2 mt-2 flex justify-between items-center bg-white p-2 rounded-lg">
-                                                    <span className="font-semibold text-gray-700">Amount</span>
+                                                    <div>
+                                                        <span className="font-semibold text-gray-700">Amount</span>
+                                                        {hasAnyTax && (
+                                                            <span className="text-xs text-indigo-600 font-medium ml-1.5">
+                                                                (GST: {itemTaxRate > 0 ? `${itemTaxRate}%` : '0%'}{itemTaxAmount > 0 ? ` +₹${itemTaxAmount.toFixed(2)}` : ''})
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     <div className="flex items-center gap-1 font-bold text-green-700 font-mono">
                                                         <IndianRupee size={16} />
                                                         <span>₹{disp.lineAmount.toFixed(2)}</span>
@@ -465,22 +557,34 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                         <span>Items Subtotal:</span>
                                         <span className="font-semibold text-gray-800">₹{itemsSubtotal.toFixed(2)}</span>
                                     </div>
-                                    {taxAmount > 0 && (
+                                    {itemsTaxTotal > 0 && (
                                         <div className="flex justify-between items-center text-xs text-indigo-600 font-medium">
-                                            <span>GST / Tax:</span>
-                                            <span className="font-semibold">+ ₹{taxAmount.toFixed(2)}</span>
+                                            <span>Items GST:</span>
+                                            <span className="font-semibold">+ ₹{itemsTaxTotal.toFixed(2)}</span>
                                         </div>
                                     )}
                                     {transportationCharges > 0 && (
                                         <div className="flex justify-between items-center text-xs text-blue-600 font-medium">
-                                            <span>Transportation:</span>
+                                            <span>Transportation: {isTransportationTaxable ? `(+${transportationTaxRate}% GST)` : '(No Tax)'}</span>
                                             <span className="font-semibold">+ ₹{transportationCharges.toFixed(2)}</span>
                                         </div>
                                     )}
                                     {packingCharges > 0 && (
                                         <div className="flex justify-between items-center text-xs text-amber-600 font-medium">
-                                            <span>Packing:</span>
+                                            <span>Packing: {isPackingTaxable ? `(+${packingTaxRate}% GST)` : '(No Tax)'}</span>
                                             <span className="font-semibold">+ ₹{packingCharges.toFixed(2)}</span>
+                                        </div>
+                                    )}
+                                    {(isTransportationTaxable || isPackingTaxable) && totalTax > 0 && (
+                                        <div className="flex justify-between items-center text-xs text-indigo-800 font-medium">
+                                            <span>Total GST (Items + Charges):</span>
+                                            <span className="font-semibold">+ ₹{totalTax.toFixed(2)}</span>
+                                        </div>
+                                    )}
+                                    {isRoundOff && roundOff !== 0 && (
+                                        <div className="flex justify-between items-center text-xs text-emerald-600 font-medium">
+                                            <span>Round Off:</span>
+                                            <span className="font-semibold">{roundOff >= 0 ? '+' : ''}₹{roundOff.toFixed(2)}</span>
                                         </div>
                                     )}
                                     <div className="border-t border-green-200 pt-2 flex justify-between items-center">

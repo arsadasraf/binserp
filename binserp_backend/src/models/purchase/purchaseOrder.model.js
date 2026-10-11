@@ -93,8 +93,12 @@ export const purchaseOrderSchema = new mongoose.Schema(
         },
         itemType: {
           type: String,
-          enum: ["rm", "bo", "consumable", "raw_material", "bought_out", "component", "subassembly", "assembly", "custom"],
+          enum: [
+            "rm", "bo", "consumable", "raw_material", "bought_out", "component", "subassembly", "assembly", "custom",
+            "RM", "BO", "CONSUMABLE", "RAW_MATERIAL", "BOUGHT_OUT", "COMPONENT", "SUBASSEMBLY", "ASSEMBLY", "CUSTOM"
+          ],
           default: "rm",
+          set: (v) => (typeof v === "string" ? v.toLowerCase() : "rm"),
         },
         materialName: { type: String, required: true },
         description: String,
@@ -120,10 +124,22 @@ export const purchaseOrderSchema = new mongoose.Schema(
         rate: { type: Number, required: true },
         taxRate: { type: Number, default: 18 },
         taxAmount: { type: Number, default: 0 },
-        amount: { type: Number, required: true },
+        amount: {
+          type: Number,
+          required: true,
+          default: function () {
+            return this.total || (Number(this.quantity || 0) * Number(this.rate || 0)) || 0;
+          },
+        },
       },
     ],
-    totalAmount: { type: Number, required: true },
+    totalAmount: {
+      type: Number,
+      required: true,
+      default: function () {
+        return this.grandTotal || this.subtotal || this.subTotal || 0;
+      },
+    },
     status: {
       type: String,
       enum: ["Draft", "Released", "Approved", "Partially Received", "Completed", "Cancelled"],
@@ -161,6 +177,38 @@ export const purchaseOrderSchema = new mongoose.Schema(
   },
   { timestamps: true, strict: false }
 );
+
+// Auto-calculate and normalize amounts, totals, and itemType before validation
+purchaseOrderSchema.pre("validate", function (next) {
+  if (this.totalAmount == null) {
+    this.totalAmount = this.grandTotal ?? this.subtotal ?? this.subTotal ?? 0;
+  }
+  if (this.grandTotal == null && this.totalAmount != null) {
+    this.grandTotal = this.totalAmount;
+  }
+  if (this.subtotal == null && this.subTotal != null) {
+    this.subtotal = this.subTotal;
+  }
+  if (this.subTotal == null && this.subtotal != null) {
+    this.subTotal = this.subtotal;
+  }
+  if (Array.isArray(this.items)) {
+    this.items.forEach((item) => {
+      if (item.amount == null) {
+        item.amount = item.total ?? (Number(item.quantity || 0) * Number(item.rate || 0)) ?? 0;
+      }
+      if (item.total == null && item.amount != null) {
+        item.total = item.amount;
+      }
+      if (typeof item.itemType === "string") {
+        item.itemType = item.itemType.toLowerCase();
+      } else if (!item.itemType) {
+        item.itemType = "rm";
+      }
+    });
+  }
+  if (typeof next === "function") next();
+});
 
 // Indexes
 purchaseOrderSchema.index({ company: 1, poNumber: 1 }, { unique: true });

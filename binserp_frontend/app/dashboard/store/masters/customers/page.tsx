@@ -9,6 +9,7 @@ import MasterForm from '@/src/features/store/components/forms/MasterForm';
 import MasterDetailPreviewModal from '@/src/features/store/components/modals/MasterDetailPreviewModal';
 import { StoreFormData } from '@/src/features/store/types/store.types';
 import { AlertCircle, CheckCircle2, X } from 'lucide-react';
+import { showDestructiveConfirm, showDeactivatePrompt, showSuccessToast } from '@/src/features/store/utils/storeDialogHelper';
 
 const extractErrorMessage = (error: any, fallback = "Failed to save customer."): string => {
   if (!error) return fallback;
@@ -91,14 +92,23 @@ export default function CustomersPage() {
 
   const handleDelete = async (id: string) => {
     const target = customers.find((m: any) => m._id === id);
-    if (confirm(`Are you sure you want to delete "${target?.name || 'this customer'}"?`)) {
+    const confirmed = await showDestructiveConfirm(
+      'Delete Customer',
+      `Are you sure you want to delete "${target?.name || 'this customer'}"? This action cannot be undone.`
+    );
+    if (confirmed) {
       try {
         await deleteRecord({ tab: "customer", id }).unwrap();
+        showSuccessToast(`Customer "${target?.name || 'Item'}" deleted.`);
         setToast({ type: 'success', message: `Customer "${target?.name || 'Item'}" deleted successfully.` });
       } catch (error: any) {
         const errMsg = extractErrorMessage(error, "Failed to delete customer");
         if (target && (errMsg.toLowerCase().includes("stock") || errMsg.toLowerCase().includes("active") || errMsg.toLowerCase().includes("transaction") || errMsg.toLowerCase().includes("order") || errMsg.toLowerCase().includes("dc") || errMsg.toLowerCase().includes("invoice"))) {
-          if (confirm(`${errMsg}\n\nWould you like to DEACTIVATE this customer instead?`)) {
+          const shouldDeactivate = await showDeactivatePrompt({
+            itemName: target.name || 'this customer',
+            errorMessage: errMsg
+          });
+          if (shouldDeactivate) {
             handleToggleStatus(target);
           }
         } else {

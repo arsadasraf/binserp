@@ -10,6 +10,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Layers, Box, CheckCircle2, AlertTriangle, ArrowRight, ShieldCheck } from 'lucide-react';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
+import { showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 
 interface MoveToMrpModalProps {
     isOpen: boolean;
@@ -108,7 +109,7 @@ export default function MoveToMrpModal({ isOpen, order, onClose, onSuccess }: Mo
 
             onSuccess(resData.message || 'Stock allocated & shortfall moved to Purchase MRP');
         } catch (err: any) {
-            alert(err.message || 'Failed to move to MRP');
+            await showErrorDialog("Move to MRP Failed", err.message || 'Failed to move to MRP');
         } finally {
             setSubmitting(false);
         }

@@ -24,6 +24,7 @@ import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 import { resolveLineItemDisplay } from '@/src/utils/dualUomHelper';
 import SearchableSelect, { SearchableOption } from '../SearchableSelect';
+import { showDestructiveConfirm, showConfirmDialog, showWarningDialog, showErrorDialog, showSuccessToast, showWarningToast } from '@/src/features/store/utils/storeDialogHelper';
 
 interface POTableProps {
     data: any[];
@@ -256,31 +257,36 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         return false;
     };
 
-    const handleDeleteSafe = (item: any) => {
+    const handleDeleteSafe = async (item: any) => {
         if (checkPoHasGrn(item)) {
-            alert("This Purchase Order cannot be deleted because an Inward Goods Receipt Note (GRN) has already been created for it.");
+            await showWarningDialog("Action Blocked", "This Purchase Order cannot be deleted because an Inward Goods Receipt Note (GRN) has already been created for it.");
             return;
         }
         if (!isEditAllowed(item.createdAt || item.date)) {
             const hrs = getPolicyHours('purchasePo');
-            alert(hrs <= 0 
+            await showWarningDialog("Time-Lock Expired", hrs <= 0 
                 ? "This Purchase Order cannot be deleted because it is locked immediately upon creation by company policy." 
                 : `This Purchase Order cannot be deleted because the ${hrs}-hour edit window has expired.`);
             return;
         }
-        if (window.confirm(`Are you sure you want to delete Outward PO #${item.poNumber || ''}?`)) {
+        const confirmed = await showDestructiveConfirm({
+            title: "Delete Purchase Order",
+            text: `Are you sure you want to delete Outward PO #${item.poNumber || ''}? This action cannot be undone.`,
+            confirmButtonText: "Yes, Delete"
+        });
+        if (confirmed) {
             onDelete(item._id);
         }
     };
 
-    const handleEditSafe = (item: any) => {
+    const handleEditSafe = async (item: any) => {
         if (checkPoHasGrn(item)) {
-            alert("This Purchase Order cannot be edited because an Inward Goods Receipt Note (GRN) has already been created for it.");
+            await showWarningDialog("Action Blocked", "This Purchase Order cannot be edited because an Inward Goods Receipt Note (GRN) has already been created for it.");
             return;
         }
         if (!isEditAllowed(item.createdAt || item.date)) {
             const hrs = getPolicyHours('purchasePo');
-            alert(hrs <= 0 
+            await showWarningDialog("Time-Lock Expired", hrs <= 0 
                 ? "This Purchase Order cannot be edited because it is locked immediately upon creation by company policy." 
                 : `This Purchase Order cannot be edited because the ${hrs}-hour edit window has expired.`);
             return;
@@ -351,11 +357,11 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                 setNewCommentText('');
             } else {
                 const errJson = await res.json().catch(() => ({}));
-                alert(errJson.message || "Failed to add follow-up note.");
+                await showErrorDialog("Error", errJson.message || "Failed to add follow-up note.");
             }
         } catch (e) {
             console.error("Failed to add follow-up:", e);
-            alert("Error posting follow-up note.");
+            await showErrorDialog("Error", "Error posting follow-up note.");
         } finally {
             setIsSubmittingComment(false);
         }
@@ -363,7 +369,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
     const downloadPOAsPDF = async (po: any) => {
         if (isPoPdfLocked(po)) {
-            alert("Approval Required: This Outward Purchase Order must be approved before generating or downloading the official PDF.");
+            await showWarningDialog("Approval Required", "Approval Required: This Outward Purchase Order must be approved before generating or downloading the official PDF.");
             return;
         }
 
@@ -420,7 +426,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             if (!canUserApprove('outwardPo', currentUser, userType)) {
                 const approvers = getApproverNames('outwardPo');
                 const approverListStr = approvers.length > 0 ? `Authorized approvers: ${approvers.join(', ')}` : "Contact company management.";
-                alert(`Approval Permission Denied: You do not have permission to approve this Outward PO. ${approverListStr}`);
+                await showWarningDialog("Approval Permission Denied", `You do not have permission to approve this Outward PO. ${approverListStr}`);
                 return;
             }
         }
@@ -460,11 +466,11 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                     window.location.reload();
                 }
             } else {
-                alert("Failed to update PO status");
+                await showErrorDialog("Status Update Failed", "Failed to update PO status");
             }
         } catch (e) {
             console.error("Failed to update status:", e);
-            alert("Error updating status");
+            await showErrorDialog("Error", "Error updating status");
         } finally {
             setUpdatingStatusId(null);
         }
@@ -613,11 +619,11 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                 setLinkingPO(null);
             } else {
                 const errJson = await res.json().catch(() => ({}));
-                alert(errJson.message || "Failed to update MRP link.");
+                await showErrorDialog("Error", errJson.message || "Failed to update MRP link.");
             }
         } catch (e) {
             console.error("Failed to save MRP link:", e);
-            alert("Error connecting to server to link MRP.");
+            await showErrorDialog("Error", "Error connecting to server to link MRP.");
         } finally {
             setIsSavingLinkMrp(false);
         }
@@ -625,7 +631,13 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
     const handleUnlinkMrp = async () => {
         if (!linkingPO) return;
-        if (!window.confirm("Are you sure you want to unlink this PO from the MRP Plan? The committed expense on the plan will be deducted accordingly.")) {
+        const confirmed = await showConfirmDialog({
+            title: "Unlink MRP Plan?",
+            text: "Are you sure you want to unlink this PO from the MRP Plan? The committed expense on the plan will be deducted accordingly.",
+            confirmButtonText: "Yes, Unlink",
+            confirmButtonColor: "#f59e0b"
+        });
+        if (!confirmed) {
             return;
         }
         setIsSavingLinkMrp(true);
@@ -662,11 +674,11 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                 setLinkingPO(null);
             } else {
                 const errJson = await res.json().catch(() => ({}));
-                alert(errJson.message || "Failed to unlink MRP Plan.");
+                await showErrorDialog("Error", errJson.message || "Failed to unlink MRP Plan.");
             }
         } catch (e) {
             console.error("Failed to unlink MRP Plan:", e);
-            alert("Network error unlinking MRP Plan.");
+            await showErrorDialog("Error", "Network error unlinking MRP Plan.");
         } finally {
             setIsSavingLinkMrp(false);
         }
@@ -1451,7 +1463,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                     {isPoPdfLocked(item) ? (
                                                         <button 
                                                             type="button"
-                                                            onClick={() => alert("Approval Required: Outward PO must be approved by authorized personnel before generating PDF.")}
+                                                            onClick={() => showWarningDialog("Approval Required", "Outward PO must be approved by authorized personnel before generating PDF.")}
                                                             className="p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg transition-colors cursor-pointer" 
                                                             title="PDF Locked: Outward PO requires approval before PDF generation"
                                                         >
@@ -1738,7 +1750,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                             {isPoPdfLocked(item) ? (
                                                 <button 
                                                     type="button"
-                                                    onClick={() => alert("Approval Required: Outward PO must be approved before generating PDF.")}
+                                                    onClick={() => showWarningDialog("Approval Required", "Outward PO must be approved before generating PDF.")}
                                                     className="flex-1 py-2 text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center justify-center gap-1 cursor-pointer"
                                                     title="Approval Required before PDF download"
                                                 >
@@ -2456,7 +2468,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     )}
                                     <button 
                                         type="button"
-                                        onClick={() => alert("Approval Required: This Outward PO must be marked as Approved before generating official PDF.")}
+                                        onClick={() => showWarningDialog("Approval Required", "This Outward PO must be marked as Approved before generating official PDF.")}
                                         className="px-4 py-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
                                         title="Approval Required before generating PDF"
                                     >

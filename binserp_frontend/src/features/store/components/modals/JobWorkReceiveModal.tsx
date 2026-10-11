@@ -7,6 +7,7 @@ import {
 import { JobWorkChallan, JobWorkAssemblyGroup } from "@/src/features/store/types/store.types";
 import { apiPut } from '@/src/lib/api';
 import { compressImage } from '@/src/utils/imageCompressor';
+import { showWarningToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 
 interface JobWorkReceiveModalProps {
     isOpen: boolean;
@@ -80,13 +81,13 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
         const availableSlots = 5 - currentCount;
 
         if (availableSlots <= 0) {
-            alert('Maximum 5 document photos allowed.');
+            showWarningToast('Maximum 5 document photos allowed.');
             return;
         }
 
         const filesToProcess = Array.from(files).slice(0, availableSlots);
         if (files.length > availableSlots) {
-            alert(`Only ${availableSlots} more photo(s) can be attached (max limit: 5).`);
+            showWarningToast(`Only ${availableSlots} more photo(s) can be attached (max limit: 5).`);
         }
 
         try {
@@ -116,7 +117,7 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
             setPhotos(prev => [...prev, ...newPhotos]);
         } catch (err) {
             console.error('Error compressing image:', err);
-            alert('Failed to process image compression.');
+            await showErrorDialog('Compression Error', 'Failed to process image compression.');
         } finally {
             setIsCompressing(false);
             if (galleryInputRef.current) galleryInputRef.current.value = '';

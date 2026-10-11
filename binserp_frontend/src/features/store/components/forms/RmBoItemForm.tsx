@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Customer, Category, Location } from "@/src/features/store/types/store.types";
 import { Package, X } from 'lucide-react';
 import SearchableSelect from '../SearchableSelect';
+import { showWarningToast } from '@/src/features/store/utils/storeDialogHelper';
 
 interface RmBoItemFormProps {
     isOpen: boolean;
@@ -33,7 +34,7 @@ export default function RmBoItemForm({
             const newFiles = Array.from(e.target.files);
             const currentPhotos = formData.photos || [];
             if (currentPhotos.length + newFiles.length > 2) {
-                alert("You can only upload up to 2 photos.");
+                showWarningToast("You can only upload up to 2 photos.");
                 return;
             }
             setFormData({ ...formData, photos: [...currentPhotos, ...newFiles].slice(0, 2) });

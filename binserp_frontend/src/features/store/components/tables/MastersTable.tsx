@@ -12,6 +12,7 @@ import GRNDetailModal from '../modals/GRNDetailModal';
 import MasterDetailModal from '../modals/MasterDetailModal';
 import StoreMasterExcelActions from '../StoreMasterExcelActions';
 import ColumnFilter from './ColumnFilter';
+import { showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 
 interface MastersTableProps {
     data: any[];
@@ -76,7 +77,7 @@ const downloadGRNAsPDF = (grn: any) => {
     } catch (error) {
         console.error('PDF Error:', error);
         console.error('Error details:', (error as any)?.message);
-        alert(`PDF Error: ${(error as any)?.message}. Check console.`);
+        showErrorDialog('PDF Error', `Failed to generate PDF: ${(error as any)?.message || 'Unknown error'}`);
     }
 };
 
@@ -167,7 +168,7 @@ const downloadPOAsPDF = (po: any) => {
     } catch (error) {
         console.error('PDF Error:', error);
         console.error('Error details:', (error as any)?.message);
-        alert(`PDF Error: ${(error as any)?.message}. Check console.`);
+        showErrorDialog('PDF Error', `Failed to generate PDF: ${(error as any)?.message || 'Unknown error'}`);
     }
 };
 

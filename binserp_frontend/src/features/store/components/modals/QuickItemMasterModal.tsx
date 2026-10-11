@@ -28,6 +28,7 @@ export interface QuickItemMasterModalProps {
 }
 
 import { STANDARD_UOMS, getDefaultBaseUom } from "@/src/constants/uomConfig";
+import DualUomRatioInput from "../DualUomRatioInput";
 
 export default function QuickItemMasterModal({
   isOpen,
@@ -73,6 +74,8 @@ export default function QuickItemMasterModal({
   // Dual Unit / Secondary Unit
   const [hasSecondaryUnit, setHasSecondaryUnit] = useState(false);
   const [secondaryUnit, setSecondaryUnit] = useState(initialClassification === 'rm' ? 'NOS' : 'KG');
+  const [primaryRatio, setPrimaryRatio] = useState<number | string>(1);
+  const [secondaryRatio, setSecondaryRatio] = useState<number | string>(1);
   const [conversionFactor, setConversionFactor] = useState<number | "">(1);
 
   // Finished Good specific classification
@@ -105,6 +108,8 @@ export default function QuickItemMasterModal({
       setHsnCode("");
       setHasSecondaryUnit(false);
       setSecondaryUnit(initUnit === 'KG' ? 'NOS' : 'KG');
+      setPrimaryRatio(1);
+      setSecondaryRatio(1);
       setConversionFactor(1);
       setFgType("Component");
       setFormErrors({});
@@ -163,6 +168,8 @@ export default function QuickItemMasterModal({
         description: descriptions.trim(), // Both keys populated for compatibility
         hasSecondaryUnit,
         secondaryUnit: hasSecondaryUnit ? secondaryUnit.trim() : "",
+        primaryRatio: hasSecondaryUnit ? (Number(primaryRatio) || 1) : 1,
+        secondaryRatio: hasSecondaryUnit ? (Number(secondaryRatio) || 1) : 1,
         conversionFactor: hasSecondaryUnit ? Number(conversionFactor) : 1,
         hsnCode: hsnCode.trim(),
         categoryId: categoryId || undefined,
@@ -205,6 +212,8 @@ export default function QuickItemMasterModal({
         unit: unit.trim(),
         hasSecondaryUnit,
         secondaryUnit: hasSecondaryUnit ? secondaryUnit.trim() : "",
+        primaryRatio: hasSecondaryUnit ? (Number(primaryRatio) || 1) : 1,
+        secondaryRatio: hasSecondaryUnit ? (Number(secondaryRatio) || 1) : 1,
         conversionFactor: hasSecondaryUnit ? Number(conversionFactor) : 1,
         categoryId: categoryId || createdItem?.categoryId,
         locationId: locationId || createdItem?.locationId,
@@ -465,69 +474,44 @@ export default function QuickItemMasterModal({
           </div>
 
           {/* Dual Unit / 2nd Unit Toggle Box */}
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/80 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <label className="relative inline-flex items-center cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={hasSecondaryUnit}
-                  onChange={(e) => setHasSecondaryUnit(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-emerald-600"></div>
-                <span className="ml-2.5 text-xs font-bold text-slate-800 dark:text-slate-200">
-                  Dual Unit / Secondary Unit Applicable
-                </span>
-              </label>
-              {hasSecondaryUnit && (
-                <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800 font-mono">
-                  1 {unit || "Unit"} = {conversionFactor || 0} {secondaryUnit || "2nd Unit"}
-                </span>
-              )}
-            </div>
-
-            {hasSecondaryUnit && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200 dark:border-slate-700 animate-in fade-in duration-150">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    2nd Unit (Secondary) <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={secondaryUnit}
-                    onChange={(e) => {
-                      setSecondaryUnit(e.target.value);
-                      if (e.target.value) clearError("secondaryUnit");
-                    }}
-                    className="w-full h-8 px-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold"
-                  >
-                    <option value="">-- Select Secondary Unit --</option>
-                    {STANDARD_UOMS.filter(u => u.value.toUpperCase() !== (unit || '').toUpperCase()).map((u) => (
-                      <option key={u.value} value={u.value}>
-                        {u.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    Conversion Factor (1 {unit || "Unit"} = ? {secondaryUnit || "KG"}) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0.000001"
-                    value={conversionFactor}
-                    onChange={(e) => {
-                      const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                      setConversionFactor(val);
-                      if (val && Number(val) > 0) clearError("conversionFactor");
-                    }}
-                    placeholder="e.g. 0.25 (1 PCS = 0.25 KG)"
-                    className="w-full h-8 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono font-bold"
-                  />
-                </div>
-              </div>
+          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/80">
+            <DualUomRatioInput
+              primaryUnit={unit}
+              hasSecondaryUnit={hasSecondaryUnit}
+              onHasSecondaryUnitChange={setHasSecondaryUnit}
+              secondaryUnit={secondaryUnit}
+              onSecondaryUnitChange={(val) => {
+                setSecondaryUnit(val);
+                if (val) clearError("secondaryUnit");
+              }}
+              primaryRatio={primaryRatio}
+              onPrimaryRatioChange={setPrimaryRatio}
+              secondaryRatio={secondaryRatio}
+              onSecondaryRatioChange={setSecondaryRatio}
+              conversionFactor={conversionFactor}
+              onConversionFactorChange={(val) => {
+                setConversionFactor(val);
+                if (val && Number(val) > 0) clearError("conversionFactor");
+              }}
+              onRatioChange={(updates) => {
+                if (updates.primaryRatio !== undefined) setPrimaryRatio(updates.primaryRatio);
+                if (updates.secondaryRatio !== undefined) setSecondaryRatio(updates.secondaryRatio);
+                if (updates.conversionFactor !== undefined) {
+                  setConversionFactor(updates.conversionFactor);
+                  if (Number(updates.conversionFactor) > 0) clearError("conversionFactor");
+                }
+                if (updates.secondaryUnit !== undefined) {
+                  setSecondaryUnit(updates.secondaryUnit);
+                  if (updates.secondaryUnit) clearError("secondaryUnit");
+                }
+              }}
+              colorScheme="emerald"
+            />
+            {formErrors.secondaryUnit && (
+              <p className="text-[11px] text-red-500 mt-1">{formErrors.secondaryUnit}</p>
+            )}
+            {formErrors.conversionFactor && (
+              <p className="text-[11px] text-red-500 mt-1">{formErrors.conversionFactor}</p>
             )}
           </div>
 

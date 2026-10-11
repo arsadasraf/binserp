@@ -1308,8 +1308,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl w-full max-w-6xl xl:max-w-7xl max-h-[94vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-5 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl w-full max-w-[98vw] 2xl:max-w-[1850px] xl:max-w-[1680px] lg:max-w-[96vw] max-h-[96vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
                 {/* Modal Header */}
                 <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex justify-between items-center shrink-0 border-b border-slate-200 dark:border-slate-800">
                     <div className="flex items-center gap-3 min-w-0">

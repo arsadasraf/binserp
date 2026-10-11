@@ -23,6 +23,7 @@ import SearchableSelect, { SearchableOption } from "../SearchableSelect";
 import { getCurrencySymbol, CURRENCY_OPTIONS, convertToINR } from "@/src/utils/currencyHelper";
 import { computeProfessionalTotalWithRoundOff, RoundingMode } from "@/src/utils/roundingHelper";
 import { apiRequest } from "@/src/lib/api";
+import { showConfirmDialog } from "@/src/features/store/utils/storeDialogHelper";
 
 interface ExtendedBillingModalProps extends BillingModalProps {
     materials?: RmBoItem[];
@@ -296,14 +297,17 @@ export default function BillingModal({
     }, [isOpen, invoiceMaterialType, preloadCategoryOptions]);
 
     // Top-Level Material Category Switcher: Only one type of material per invoice
-    const handleInvoiceMaterialTypeChange = (newType: ItemCategoryType) => {
+    const handleInvoiceMaterialTypeChange = async (newType: ItemCategoryType) => {
         if (newType === invoiceMaterialType) return;
 
         const hasEnteredData = items.some(i => i.materialName || i.fgItem || i.rawMaterial || i.boughtOut || i.consumableItem);
         if (hasEnteredData) {
-            const confirmed = window.confirm(
-                `Switching material category to ${newType.toUpperCase()} will reset all current line items, as only one material type can be invoiced at once. Proceed?`
-            );
+            const confirmed = await showConfirmDialog({
+                title: "Switch Material Category?",
+                text: `Switching material category to ${newType.toUpperCase()} will reset all current line items, as only one material type can be invoiced at once. Proceed?`,
+                confirmButtonText: "Yes, Switch",
+                confirmButtonColor: "#f59e0b"
+            });
             if (!confirmed) return;
         }
 
@@ -411,7 +415,7 @@ export default function BillingModal({
     };
 
     // Handle Unbilled Document Selection (3-Way Matching for GRN / Job Work)
-    const handleSelectUnbilledDoc = (val: string) => {
+    const handleSelectUnbilledDoc = async (val: string) => {
         if (!val) {
             setSelectedGrnId("");
             setSelectedJobWorkId("");
@@ -435,7 +439,16 @@ export default function BillingModal({
 
             if (unbilledItems.length > 0) {
                 const isDefaultBlank = items.length === 1 && !items[0].materialName && !items[0].fgItem && !items[0].rawMaterial;
-                if (isDefaultBlank || window.confirm(`Import ${unbilledItems.length} unbilled line item(s) from GRN ${selectedGrn.grnNumber}?`)) {
+                let shouldImport = isDefaultBlank;
+                if (!shouldImport) {
+                    shouldImport = await showConfirmDialog({
+                        title: "Import GRN Line Items?",
+                        text: `Import ${unbilledItems.length} unbilled line item(s) from GRN ${selectedGrn.grnNumber}?`,
+                        confirmButtonText: "Yes, Import",
+                        confirmButtonColor: "#4f46e5"
+                    });
+                }
+                if (shouldImport) {
                     const grnMatType: ItemCategoryType = selectedGrn.type === 'bo' ? 'bo' : (selectedGrn.type === 'fg' ? 'fg' : 'rm');
                     setInvoiceMaterialType(grnMatType);
                     preloadCategoryOptions(grnMatType);
@@ -510,7 +523,7 @@ export default function BillingModal({
     };
 
     // Handle Customer PO Selection & Auto-fill line items
-    const handleCustomerPoSelect = (poNumber: string) => {
+    const handleCustomerPoSelect = async (poNumber: string) => {
         setCustomerPoReference(poNumber);
         if (!poNumber) return;
 
@@ -529,7 +542,16 @@ export default function BillingModal({
 
         if (unbilledItems.length > 0) {
             const isDefaultBlank = items.length === 1 && !items[0].materialName && !items[0].fgItem && !items[0].rawMaterial;
-            if (isDefaultBlank || window.confirm(`Import ${unbilledItems.length} remaining line item(s) from Customer PO ${poNumber}?`)) {
+            let shouldImport = isDefaultBlank;
+            if (!shouldImport) {
+                shouldImport = await showConfirmDialog({
+                    title: "Import PO Line Items?",
+                    text: `Import ${unbilledItems.length} remaining line item(s) from Customer PO ${poNumber}?`,
+                    confirmButtonText: "Yes, Import",
+                    confirmButtonColor: "#4f46e5"
+                });
+            }
+            if (shouldImport) {
                 // PO items are Finished Goods
                 setInvoiceMaterialType('fg');
                 preloadCategoryOptions('fg');

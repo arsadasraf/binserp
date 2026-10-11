@@ -6,7 +6,15 @@ import { updateInventoryStock } from "./updateInventoryStock.controller.js";
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
 import { componentSchema } from "../../models/ppc/index.js";
-import { rawMaterialSchema, boughtOutSchema, rmBoItemSchema, fgItemSchema } from "../../models/store/index.js";
+import { 
+  rawMaterialSchema, 
+  boughtOutSchema, 
+  rmBoItemSchema, 
+  fgItemSchema,
+  inventorySchema,
+  fgInventoryMonthlySchema,
+  locationSchema
+} from "../../models/store/index.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -569,6 +577,197 @@ export const convertMultipleWipToFg = asyncHandler(async (req, res) => {
         targetComponentName: cleanTargetName
       },
       `Successfully assembled ${producedQty} ${targetUnit} of ${cleanTargetName} from ${consumedItems.length} RM/BO items in Shopfloor WIP`
+    )
+  );
+});
+
+/**
+ * Move Finished Goods (FG) item directly from Shopfloor WIP into Main FG Inventory
+ */
+export const moveWipToFgInventory = asyncHandler(async (req, res) => {
+  const companyId = getCompanyId(req);
+  const { userId, userName } = getUserAudit(req);
+  const {
+    materialId,
+    materialName,
+    quantity,
+    unit = "PCS",
+    hasSecondaryUnit,
+    secondaryUnit,
+    secondaryQuantity,
+    conversionFactor,
+    locationId,
+    location,
+    mrpNumber,
+    remarks
+  } = req.body;
+
+  const transferQty = Number(quantity);
+  if (!transferQty || transferQty <= 0) {
+    throw new ApiError(400, "Valid transfer quantity greater than 0 is required");
+  }
+
+  if (!materialId && !materialName) {
+    throw new ApiError(400, "Finished Goods item identification is required");
+  }
+
+  let cleanId = materialId;
+  if (typeof cleanId === "string" && cleanId.includes("_")) {
+    cleanId = cleanId.split("_").slice(1).join("_");
+  }
+
+  const FGItem = req.getModel("FGItem", fgItemSchema);
+  const Component = req.getModel("Component", componentSchema);
+  const Inventory = req.getModel("Inventory", inventorySchema);
+  const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
+  const Location = req.getModel("Location", locationSchema);
+
+  // 1. Resolve item in FGItem or Component catalog
+  let fgDoc = null;
+  let itemModelType = "FGItem";
+
+  if (cleanId && isValidObjectId(cleanId.toString())) {
+    fgDoc = await FGItem.findOne({ _id: cleanId, company: companyId })
+      || await Component.findOne({ _id: cleanId, company: companyId });
+  }
+
+  if (!fgDoc && materialName) {
+    const cleanName = materialName.trim();
+    fgDoc = await FGItem.findOne({
+      company: companyId,
+      name: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i")
+    }) || await Component.findOne({
+      company: companyId,
+      componentName: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i")
+    });
+  }
+
+  if (fgDoc && fgDoc.componentName && !fgDoc.name) {
+    itemModelType = "Component";
+  }
+
+  const targetName = fgDoc?.name || fgDoc?.componentName || materialName || "Finished Goods";
+  const targetCode = fgDoc?.code || fgDoc?.componentCode || "";
+  const targetUnit = unit || fgDoc?.unit || "PCS";
+  const isDual = Boolean(hasSecondaryUnit || fgDoc?.hasSecondaryUnit);
+  const resolvedSecUnit = secondaryUnit || fgDoc?.secondaryUnit || "";
+  const resolvedConvFactor = Number(conversionFactor || fgDoc?.conversionFactor) || 1;
+  const resolvedSecQty = Number(secondaryQuantity) || (isDual && resolvedConvFactor > 0 ? parseFloat((transferQty * resolvedConvFactor).toFixed(4)) : 0);
+
+  // 2. Increment stock in Master Catalog (FGItem or Component)
+  let previousStock = 0;
+  let newStock = transferQty;
+
+  if (fgDoc) {
+    previousStock = Number(fgDoc.quantity || 0);
+    newStock = previousStock + transferQty;
+    if (itemModelType === "FGItem") {
+      await FGItem.findByIdAndUpdate(fgDoc._id, { $inc: { quantity: transferQty } });
+    } else {
+      await Component.findByIdAndUpdate(fgDoc._id, { $inc: { quantity: transferQty } });
+    }
+  }
+
+  // 3. Resolve Destination Location if provided
+  let resolvedLocationName = location || "";
+  let resolvedLocationId = locationId && isValidObjectId(locationId.toString()) ? locationId : undefined;
+  if (resolvedLocationId && !resolvedLocationName) {
+    const locDoc = await Location.findOne({ _id: resolvedLocationId, company: companyId });
+    if (locDoc) resolvedLocationName = locDoc.name;
+  }
+
+  // 4. Update or Upsert in Inventory Collection
+  let invQuery = {
+    company: companyId,
+    $or: []
+  };
+  if (fgDoc?._id) invQuery.$or.push({ materialId: fgDoc._id });
+  if (targetCode) invQuery.$or.push({ materialCode: targetCode.trim() });
+  if (targetName) invQuery.$or.push({ materialName: targetName.trim() });
+
+  let inventory = null;
+  if (invQuery.$or.length > 0) {
+    inventory = await Inventory.findOne(invQuery);
+  }
+
+  if (inventory) {
+    const updateFields = {
+      $inc: { 
+        currentStock: transferQty,
+        ...(isDual ? { secondaryCurrentStock: resolvedSecQty } : {})
+      }
+    };
+    if (resolvedLocationName) updateFields.$set = { ...(updateFields.$set || {}), location: resolvedLocationName };
+    if (resolvedLocationId) updateFields.$set = { ...(updateFields.$set || {}), locationId: resolvedLocationId };
+    
+    await Inventory.findByIdAndUpdate(inventory._id, updateFields);
+  } else if (fgDoc) {
+    await Inventory.create({
+      company: companyId,
+      materialId: fgDoc._id,
+      materialCode: targetCode || `FG-${Date.now().toString().slice(-6)}`,
+      materialName: targetName,
+      unit: targetUnit,
+      hasSecondaryUnit: isDual,
+      secondaryUnit: resolvedSecUnit,
+      conversionFactor: resolvedConvFactor,
+      currentStock: transferQty,
+      secondaryCurrentStock: resolvedSecQty,
+      itemType: "Finished Goods",
+      location: resolvedLocationName || "Main Store",
+      locationId: resolvedLocationId
+    });
+  }
+
+  // 5. Update Monthly FG Inventory Tracking
+  if (fgDoc && itemModelType === "FGItem") {
+    try {
+      const currentDate = new Date();
+      const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;
+      await FGInventoryMonthly.findOneAndUpdate(
+        { company: companyId, fgItem: fgDoc._id, month: currentMonthStr },
+        { $inc: { totalInwardQuantity: transferQty } },
+        { upsert: true, new: true }
+      );
+    } catch (mErr) {
+      console.warn("Could not update FGInventoryMonthly:", mErr.message);
+    }
+  }
+
+  // 6. Record StockTransaction for Audit Trail & Movement Tracking
+  const docNumber = `WIP-FG-TRF-${Date.now()}`;
+  await recordStockTransaction(req, {
+    itemType: itemModelType,
+    item: fgDoc?._id || (cleanId && isValidObjectId(cleanId.toString()) ? cleanId : undefined),
+    itemName: targetName,
+    unit: targetUnit,
+    hasSecondaryUnit: isDual,
+    secondaryUnit: resolvedSecUnit,
+    secondaryQuantity: resolvedSecQty,
+    conversionFactor: resolvedConvFactor,
+    movementType: "INWARD",
+    transactionCategory: "WIP_TO_FG_STORE_TRANSFER",
+    quantity: transferQty,
+    previousStock,
+    newStock,
+    referenceDocType: "WIPTransfer",
+    referenceDocNumber: docNumber,
+    recipientOrSource: "Main Store FG Inventory",
+    purpose: remarks || `FG transferred from Shopfloor WIP to Main Store Inventory${mrpNumber ? ` (MRP #${mrpNumber})` : ""}`,
+    performedBy: userId,
+    performedByName: userName
+  });
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        docNumber,
+        transferQty,
+        itemName: targetName,
+        newStock
+      },
+      `Successfully transferred ${transferQty} ${targetUnit} of ${targetName} from Shopfloor WIP to Main Store FG Inventory`
     )
   );
 });

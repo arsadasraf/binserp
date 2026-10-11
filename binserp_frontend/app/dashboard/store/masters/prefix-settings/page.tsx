@@ -9,6 +9,7 @@ import { useGetUsersQuery } from '@/src/store/services/userService';
 import { DEFAULT_EXCHANGE_RATES_TO_INR, setGlobalExchangeRates, CURRENCY_OPTIONS, getCurrencySymbol } from '@/src/utils/currencyHelper';
 import { setGlobalTimeLockPolicies } from '@/src/hooks/useTimeLockPolicy';
 import { DEFAULT_APPROVAL_SETTINGS, StoreApprovalSettings, setGlobalApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
+import { showSuccessToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 
 export const DEFAULT_TIME_LOCK_HOURS: Record<string, number> = {
   grn: 24,
@@ -257,14 +258,14 @@ export default function PrefixSettingsPage() {
           setGlobalApprovalSettings(settings.approvalSettings);
         }
         setMessage({ type: 'success', text: 'Store settings, Currency Rates, Time-Locks, and Approval Workflows updated successfully!' });
-        alert('Store settings, Currency, Time-Lock & Approval Workflows saved successfully!');
+        showSuccessToast('Store settings, Currency, Time-Lock & Approval Workflows saved successfully!');
       } else {
         throw new Error(data.message || 'Failed to save prefix settings');
       }
     } catch (error: any) {
       console.error('Error saving prefix settings:', error);
       setMessage({ type: 'error', text: error.message || 'Failed to save prefix settings' });
-      alert(`Error saving settings: ${error.message || 'Failed to save prefix settings'}`);
+      await showErrorDialog('Save Failed', error.message || 'Failed to save prefix settings');
     } finally {
       setSaving(false);
     }

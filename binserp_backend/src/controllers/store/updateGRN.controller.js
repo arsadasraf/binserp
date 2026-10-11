@@ -245,6 +245,7 @@ export const updateGRN = async (req, res) => {
     }
 
     if (Array.isArray(req.body.items)) {
+      const headerTaxRate = req.body.taxRate !== undefined ? (parseFloat(req.body.taxRate) || 0) : (grn.taxRate || 0);
       req.body.items = req.body.items.map(it => {
         const hasSec = Boolean(it.hasSecondaryUnit);
         const secUnit = it.secondaryUnit || '';
@@ -258,13 +259,22 @@ export const updateGRN = async (req, res) => {
         const rateUnit = it.rateUnit || (isSecUnit ? 'secondary' : 'primary');
         const primaryRate = it.primaryRate !== undefined ? Number(it.primaryRate) : (isSecUnit && convFactor > 0 ? Number((itemRate * convFactor).toFixed(3)) : itemRate);
         const secondaryRate = it.secondaryRate !== undefined ? Number(it.secondaryRate) : (hasSec && convFactor > 0 ? (isSecUnit ? itemRate : Number((itemRate / convFactor).toFixed(3))) : itemRate);
+        const itemTaxRate = it.taxRate !== undefined && it.taxRate !== null && !isNaN(parseFloat(it.taxRate))
+          ? parseFloat(it.taxRate)
+          : headerTaxRate;
+        const itemTaxAmount = it.taxAmount !== undefined && it.taxAmount !== null && !isNaN(parseFloat(it.taxAmount))
+          ? parseFloat(it.taxAmount)
+          : Number(((itemAmount * itemTaxRate) / 100).toFixed(2));
+
         return {
           ...it,
           rateUnit,
           primaryRate,
           secondaryRate,
           rate: itemRate,
-          amount: itemAmount
+          amount: itemAmount,
+          taxRate: itemTaxRate,
+          taxAmount: itemTaxAmount
         };
       });
     }
@@ -287,8 +297,35 @@ export const updateGRN = async (req, res) => {
     if (req.body.transportationCharges !== undefined) {
       req.body.transportationCharges = Math.max(0, parseFloat(req.body.transportationCharges) || 0);
     }
+    if (req.body.isTransportationTaxable !== undefined) {
+      req.body.isTransportationTaxable = req.body.isTransportationTaxable === true || req.body.isTransportationTaxable === 'true';
+    }
+    if (req.body.transportationTaxRate !== undefined) {
+      req.body.transportationTaxRate = parseFloat(req.body.transportationTaxRate) || 0;
+    }
+    if (req.body.transportationTaxAmount !== undefined) {
+      req.body.transportationTaxAmount = parseFloat(req.body.transportationTaxAmount) || 0;
+    }
     if (req.body.packingCharges !== undefined) {
       req.body.packingCharges = Math.max(0, parseFloat(req.body.packingCharges) || 0);
+    }
+    if (req.body.isPackingTaxable !== undefined) {
+      req.body.isPackingTaxable = req.body.isPackingTaxable === true || req.body.isPackingTaxable === 'true';
+    }
+    if (req.body.packingTaxRate !== undefined) {
+      req.body.packingTaxRate = parseFloat(req.body.packingTaxRate) || 0;
+    }
+    if (req.body.packingTaxAmount !== undefined) {
+      req.body.packingTaxAmount = parseFloat(req.body.packingTaxAmount) || 0;
+    }
+    if (req.body.preRoundTotal !== undefined) {
+      req.body.preRoundTotal = parseFloat(req.body.preRoundTotal) || 0;
+    }
+    if (req.body.roundOff !== undefined) {
+      req.body.roundOff = parseFloat(req.body.roundOff) || 0;
+    }
+    if (req.body.isRoundOff !== undefined) {
+      req.body.isRoundOff = req.body.isRoundOff === true || req.body.isRoundOff === 'true';
     }
     if (req.body.totalAmount !== undefined) {
       req.body.totalAmount = parseFloat(req.body.totalAmount) || 0;

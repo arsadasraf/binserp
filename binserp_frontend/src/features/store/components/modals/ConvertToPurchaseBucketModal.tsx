@@ -36,6 +36,11 @@ export default function ConvertToPurchaseBucketModal({
   const isBulk = itemsList.length > 1;
   const primaryItem = itemsList[0] || null;
 
+  const isBO = useMemo(() => {
+    const t = (primaryItem?.itemType || '').toLowerCase();
+    return t.includes('bo') || t.includes('bought');
+  }, [primaryItem?.itemType]);
+
   const [loadingEligible, setLoadingEligible] = useState(false);
   const [eligibleItems, setEligibleItems] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,16 +49,41 @@ export default function ConvertToPurchaseBucketModal({
   const [conversionFactorInput, setConversionFactorInput] = useState<string>('1');
   const [submitting, setSubmitting] = useState(false);
 
-  const isBO = useMemo(() => {
-    const t = (primaryItem?.itemType || '').toLowerCase();
-    return t.includes('bo') || t.includes('bought');
-  }, [primaryItem?.itemType]);
+  // Category and Type Filters (defaults to source item's type, with options for all/RM/BO)
+  const [targetTypeFilter, setTargetTypeFilter] = useState<'all' | 'RM' | 'BO'>(isBO ? 'BO' : 'RM');
+  const [categoriesList, setCategoriesList] = useState<any[]>([]);
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
 
   const sourcePrimaryUnit = primaryItem?.unit || 'KG';
   const sourceHasSecondaryUnit = Boolean(primaryItem?.hasSecondaryUnit && primaryItem?.secondaryUnit);
   const sourceSecondaryUnit = primaryItem?.secondaryUnit || '';
   const currentMapping = (!isBulk && primaryItem?.purchaseBucket) ? primaryItem.purchaseBucket : null;
   const isDetachedForPlan = Boolean(primaryItem?.isDetachedForPlan);
+
+  // Sync default type filter when primary item changes
+  useEffect(() => {
+    if (primaryItem) {
+      setTargetTypeFilter(isBO ? 'BO' : 'RM');
+      setSelectedCategoryFilter('all');
+    }
+  }, [primaryItem, isBO]);
+
+  // Fetch all master categories for the category filter dropdown
+  useEffect(() => {
+    if (!isOpen) return;
+    const fetchMasterCategories = async () => {
+      try {
+        const res = await apiGet('/api/store/category', token);
+        const list = res?.data || res?.categories || res || [];
+        if (Array.isArray(list)) {
+          setCategoriesList(list);
+        }
+      } catch (err) {
+        console.warn('Failed to load store categories for purchase bucket modal:', err);
+      }
+    };
+    fetchMasterCategories();
+  }, [isOpen, token]);
 
   // Candidate units from the source item (either primary or secondary)
   const sourceUnits = useMemo(() => {
@@ -97,8 +127,12 @@ export default function ConvertToPurchaseBucketModal({
           primaryUnit: sourcePrimaryUnit,
           hasSecondaryUnit: String(sourceHasSecondaryUnit),
           secondaryUnit: sourceSecondaryUnit,
-          itemType: isBO ? 'BO' : 'RM'
+          itemType: targetTypeFilter
         });
+
+        if (selectedCategoryFilter && selectedCategoryFilter !== 'all') {
+          queryParams.set('categoryId', selectedCategoryFilter);
+        }
 
         const res = await apiGet(`/api/purchase/mrp/eligible-purchase-items?${queryParams.toString()}`, token);
         if (res?.data && Array.isArray(res.data)) {
@@ -118,7 +152,7 @@ export default function ConvertToPurchaseBucketModal({
     };
 
     fetchEligible();
-  }, [isOpen, itemsList, token, sourcePrimaryUnit, sourceHasSecondaryUnit, sourceSecondaryUnit, isBO, currentMapping, mrpPlanId]);
+  }, [isOpen, itemsList, token, sourcePrimaryUnit, sourceHasSecondaryUnit, sourceSecondaryUnit, targetTypeFilter, selectedCategoryFilter, currentMapping, mrpPlanId]);
 
   if (!isOpen || itemsList.length === 0) return null;
 
@@ -214,7 +248,7 @@ export default function ConvertToPurchaseBucketModal({
             conversionFactor: parsedFactor
           })),
           targetPurchaseItemId: targetId,
-          targetPurchaseItemType: isBO ? 'BO' : 'RM',
+          targetPurchaseItemType: selectedTargetItem.itemType || (isBO ? 'BO' : 'RM'),
           targetPurchaseItemName: targetName,
           targetPurchaseItemCode: targetCode,
           targetPurchaseItemDescription: targetDesc,
@@ -241,7 +275,7 @@ export default function ConvertToPurchaseBucketModal({
           sourceItemCode: primaryItem.materialCode || primaryItem.code || '',
           sourceItemDescription: primaryItem.description || '',
           targetPurchaseItemId: targetId,
-          targetPurchaseItemType: isBO ? 'BO' : 'RM',
+          targetPurchaseItemType: selectedTargetItem.itemType || (isBO ? 'BO' : 'RM'),
           targetPurchaseItemName: targetName,
           targetPurchaseItemCode: targetCode,
           targetPurchaseItemDescription: targetDesc,
@@ -372,17 +406,14 @@ export default function ConvertToPurchaseBucketModal({
             <div>
               <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 {isBulk 
-                  ? `Send ${itemsList.length} Items to Purchase ${isBO ? 'Bought-Out' : 'Raw Material'} Bucket`
-                  : `Convert to Purchase ${isBO ? 'Bought-Out' : 'Raw Material'} Bucket`}
+                  ? `Purchase Bucket Mapping (${itemsList.length} Items)`
+                  : `Convert to Purchase Bucket`}
                 {mrpNumber && (
                   <span className="text-xs px-2 py-0.5 rounded-full font-mono font-semibold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                     {mrpNumber}
                   </span>
                 )}
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Consolidate cut sizes or custom blanks into a standard commercial purchase item for unified RFQ & PO release. Mappings can be MRP-specific or global.
-              </p>
             </div>
           </div>
           <button 
@@ -406,7 +437,7 @@ export default function ConvertToPurchaseBucketModal({
                 <div className="p-3 bg-amber-50 dark:bg-amber-950/50 rounded-xl border border-amber-300 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5 shadow-2xs">
                   <Unlink className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-bold">Currently Detached for {mrpNumber || 'this MRP'}:</span> This item is procured directly as an individual item in this plan. Selecting a target bucket below will re-bind it to a bucket.
+                    <span className="font-bold">Currently Detached for {mrpNumber || 'this MRP'}:</span> Procured directly as an individual item in this plan.
                   </div>
                 </div>
               )}
@@ -427,7 +458,7 @@ export default function ConvertToPurchaseBucketModal({
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                       <Layers size={13} className="text-indigo-600" />
-                      <span>{itemsList.length} BOM Cut Sizes Selected</span>
+                      <span>{itemsList.length} BOM Items Selected</span>
                     </span>
                     <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                       {isBO ? 'Bought-Out' : 'Raw Material'}
@@ -446,10 +477,14 @@ export default function ConvertToPurchaseBucketModal({
                               {it.description}
                             </div>
                           )}
-                          <div className="text-[10px] text-slate-400 mt-0.5">
-                            Units: <strong className="font-mono text-slate-600 dark:text-slate-300">{it.unit}</strong>
+                          <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1">
+                            <span className="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-mono font-medium">
+                              Pri: {it.unit}
+                            </span>
                             {it.hasSecondaryUnit && it.secondaryUnit && (
-                              <span> | Sec: <strong className="font-mono text-slate-600 dark:text-slate-300">{it.secondaryUnit}</strong></span>
+                              <span className="px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-mono font-medium">
+                                Sec: {it.secondaryUnit}
+                              </span>
                             )}
                           </div>
                         </div>
@@ -479,7 +514,7 @@ export default function ConvertToPurchaseBucketModal({
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                       <Boxes size={13} className="text-indigo-600" />
-                      <span>Source Cut-Size / Blank (In BOM)</span>
+                      <span>Source Item (In BOM)</span>
                     </span>
                     <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                       {isBO ? 'Bought-Out' : 'Raw Material'}
@@ -524,66 +559,59 @@ export default function ConvertToPurchaseBucketModal({
                     </div>
                   </div>
 
-                  <div className="p-2 bg-indigo-50/60 dark:bg-indigo-950/40 rounded-lg border border-indigo-200/70 dark:border-indigo-800/70 text-xs flex items-center justify-between text-indigo-800 dark:text-indigo-200">
-                    <span className="font-semibold text-[11px]">Configured Units:</span>
-                    <span className="font-mono font-bold text-xs">
-                      {sourcePrimaryUnit} {sourceHasSecondaryUnit ? `+ ${sourceSecondaryUnit}` : '(Single Unit)'}
-                    </span>
+                  {/* Unit Configuration Display */}
+                  <div className="p-2.5 bg-indigo-50/60 dark:bg-indigo-950/40 rounded-lg border border-indigo-200/70 dark:border-indigo-800/70 text-xs flex items-center justify-between text-indigo-900 dark:text-indigo-200">
+                    <span className="font-semibold text-[11px]">Units:</span>
+                    <div className="flex items-center gap-1.5 font-mono text-xs font-bold">
+                      <span className="px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200">
+                        Primary: {sourcePrimaryUnit}
+                      </span>
+                      {sourceHasSecondaryUnit && (
+                        <span className="px-2 py-0.5 rounded bg-purple-50 dark:bg-purple-950/70 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300">
+                          Secondary: {sourceSecondaryUnit}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
 
               {/* Scope Selector: MRP Specific vs. Global Default */}
               {mrpPlanId ? (
-                <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                      Conversion Scope
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-medium">Choose application level</span>
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Mapping Scope
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => setMappingScope('plan')}
-                      className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                      className={`p-2 rounded-lg border text-center text-xs transition-all cursor-pointer ${
                         mappingScope === 'plan'
-                          ? 'bg-indigo-50/90 border-indigo-500 text-indigo-900 dark:bg-indigo-950/80 dark:border-indigo-500 dark:text-indigo-200 font-bold shadow-xs'
-                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs font-bold'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300 font-semibold'
                       }`}
                     >
-                      <div className="flex items-center gap-1.5 font-bold">
-                        <span>⚡</span>
-                        <span className="truncate">{mrpNumber || 'This MRP Plan'}</span>
-                      </div>
-                      <div className="text-[10px] font-normal text-slate-500 dark:text-slate-400 mt-1 leading-tight">
-                        Applies only to this MRP plan. Detachable anytime.
-                      </div>
+                      ⚡ Plan Only ({mrpNumber || 'This MRP'})
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setMappingScope('global')}
-                      className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                      className={`p-2 rounded-lg border text-center text-xs transition-all cursor-pointer ${
                         mappingScope === 'global'
-                          ? 'bg-indigo-50/90 border-indigo-500 text-indigo-900 dark:bg-indigo-950/80 dark:border-indigo-500 dark:text-indigo-200 font-bold shadow-xs'
-                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs font-bold'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300 font-semibold'
                       }`}
                     >
-                      <div className="flex items-center gap-1.5 font-bold">
-                        <span>🌐</span>
-                        <span>Global Default</span>
-                      </div>
-                      <div className="text-[10px] font-normal text-slate-500 dark:text-slate-400 mt-1 leading-tight">
-                        Default for all current & future MRP plans.
-                      </div>
+                      🌐 Global Default
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-xs text-slate-600 dark:text-slate-400 flex items-center gap-2">
+                <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-lg border border-slate-200/80 dark:border-slate-700/80 text-xs text-slate-600 dark:text-slate-400 flex items-center gap-2">
                   <span>🌐</span>
-                  <span><strong>Global Default Mapping:</strong> This will apply across all MRP procurement plans.</span>
+                  <span><strong>Global Default Mapping</strong> (Applies across all plans)</span>
                 </div>
               )}
 
@@ -655,55 +683,134 @@ export default function ConvertToPurchaseBucketModal({
                 </div>
               )}
 
-              {/* Unit Compatibility Guidance Card */}
-              <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl border border-amber-200/90 dark:border-amber-900/60 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
-                <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <div className="font-bold">Flexible Unit Matching Active:</div>
-                  <div className="text-[11px] leading-relaxed text-amber-800 dark:text-amber-300">
-                    Commercial purchasable items that share <strong>at least one unit</strong> (Primary: <strong className="font-mono">{sourcePrimaryUnit}</strong>{sourceHasSecondaryUnit ? <> or Secondary: <strong className="font-mono">{sourceSecondaryUnit}</strong></> : ''}) are eligible.
+            </div>
+
+            {/* RIGHT COLUMN: Target Purchase Item Selection (Filters, Search & List) */}
+            <div className="lg:col-span-7 flex flex-col gap-3 min-w-0">
+              
+              {/* Filter Toolbar: Item Type Switcher & Category Dropdown */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-2.5">
+                
+                {/* Type Tabs */}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-slate-900 p-0.5 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => setTargetTypeFilter('all')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                        targetTypeFilter === 'all'
+                          ? 'bg-white dark:bg-indigo-600 text-slate-900 dark:text-white shadow-xs font-bold'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      All Items
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTargetTypeFilter('RM')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                        targetTypeFilter === 'RM'
+                          ? 'bg-white dark:bg-indigo-600 text-slate-900 dark:text-white shadow-xs font-bold'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      Raw Materials (RM)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTargetTypeFilter('BO')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                        targetTypeFilter === 'BO'
+                          ? 'bg-white dark:bg-indigo-600 text-slate-900 dark:text-white shadow-xs font-bold'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      Bought-Outs (BO)
+                    </button>
+                  </div>
+
+                  <span className="text-[11px] text-slate-400 font-medium ml-auto">
+                    {filteredEligible.length} matching
+                  </span>
+                </div>
+
+                {/* Search & Category Filter Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                  <div className="sm:col-span-7 relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Search by name, description..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-8 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-white font-medium"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="sm:col-span-5 relative">
+                    <select
+                      value={selectedCategoryFilter}
+                      onChange={e => setSelectedCategoryFilter(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-white font-medium cursor-pointer"
+                    >
+                      <option value="all">All Master Categories</option>
+                      {categoriesList.map((cat: any) => (
+                        <option key={cat._id} value={cat._id}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>
 
-            </div>
-
-            {/* RIGHT COLUMN: Target Purchase Item Selection (Search & List) */}
-            <div className="lg:col-span-7 flex flex-col gap-3 min-w-0">
-              
-              <div className="flex items-center justify-between">
-                <label className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-indigo-500" />
-                  <span>Select Target Purchase {isBO ? 'Bought-Out' : 'Raw Material'} (Bucket)</span>
-                </label>
-                <span className="text-[11px] text-slate-400 font-medium">
-                  {filteredEligible.length} compatible items found
-                </span>
-              </div>
-
               {/* Selected Target Card Preview (if chosen) */}
               {selectedTargetItem && (
-                <div className="p-3.5 bg-indigo-50/80 dark:bg-indigo-950/60 rounded-xl border-2 border-indigo-500 flex items-start justify-between gap-3 shadow-xs">
+                <div className="p-3 bg-indigo-50/80 dark:bg-indigo-950/60 rounded-xl border-2 border-indigo-500 flex items-start justify-between gap-3 shadow-xs">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Boxes className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate">
                         {selectedTargetItem.name || selectedTargetItem.targetPurchaseItemName}
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
-                        Selected Bucket
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600 text-white">
+                        Selected Target
                       </span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        {selectedTargetItem.itemType || (isBO ? 'BO' : 'RM')}
+                      </span>
+                      {selectedTargetItem.category && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                          {selectedTargetItem.category}
+                        </span>
+                      )}
                     </div>
                     {(selectedTargetItem.description || selectedTargetItem.descriptions || selectedTargetItem.targetPurchaseItemDescription) && (
                       <div className="text-[11px] text-slate-600 dark:text-slate-300 italic mt-0.5 ml-6 line-clamp-1">
                         {selectedTargetItem.description || selectedTargetItem.descriptions || selectedTargetItem.targetPurchaseItemDescription}
                       </div>
                     )}
-                    <div className="flex flex-wrap items-center gap-3 mt-1.5 ml-6 text-[10px] text-slate-500 dark:text-slate-400">
-                      <span>Live Stock: <strong className="font-mono text-indigo-600 dark:text-indigo-300 font-bold">{selectedTargetItem.currentStock || 0} {selectedTargetItem.unit || sourcePrimaryUnit}</strong></span>
-                      {selectedTargetItem.hasSecondaryUnit && (
-                        <span>• Dual Ratio: <strong className="font-mono">1 {selectedTargetItem.unit} = {selectedTargetItem.conversionFactor} {selectedTargetItem.secondaryUnit}</strong></span>
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5 ml-6 text-[10px]">
+                      <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 font-mono font-semibold">
+                        Primary: {selectedTargetItem.unit || sourcePrimaryUnit}
+                      </span>
+                      {selectedTargetItem.hasSecondaryUnit && selectedTargetItem.secondaryUnit && (
+                        <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 font-mono font-semibold">
+                          Secondary: {selectedTargetItem.secondaryUnit} (1:{selectedTargetItem.conversionFactor || 1})
+                        </span>
                       )}
+                      <span className="font-mono text-indigo-600 dark:text-indigo-400 font-bold ml-1">
+                        Stock: {selectedTargetItem.currentStock || 0} {selectedTargetItem.unit || sourcePrimaryUnit}
+                      </span>
                     </div>
                   </div>
 
@@ -717,40 +824,18 @@ export default function ConvertToPurchaseBucketModal({
                 </div>
               )}
 
-              {/* Keyword Search Input */}
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  autoFocus
-                  placeholder={`Search purchase items by keyword (e.g. 1.5 x 1250 x 2500, CRCA Sheet)...`}
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-9 py-2.5 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-slate-900 outline-none text-slate-900 dark:text-white font-medium shadow-2xs transition-all"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
               {/* Spacious Scrollable Eligible Purchase Items List */}
-              <div className="max-h-[360px] lg:max-h-[440px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs">
+              <div className="max-h-[380px] lg:max-h-[440px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs">
                 {loadingEligible ? (
                   <div className="p-8 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
                     <RefreshCw className="w-5 h-5 animate-spin text-indigo-500" />
-                    <span>Searching compatible purchase items sharing unit ({sourceUnits.join(' / ').toUpperCase()})...</span>
+                    <span>Loading matching items sharing unit ({sourceUnits.join(' / ').toUpperCase()})...</span>
                   </div>
                 ) : filteredEligible.length === 0 ? (
-                  <div className="p-8 text-center text-xs text-slate-400 space-y-1.5">
+                  <div className="p-8 text-center text-xs text-slate-400 space-y-1">
                     <div className="font-bold text-slate-600 dark:text-slate-300">No compatible items found</div>
-                    <p className="max-w-md mx-auto text-slate-400 text-[11px]">
-                      Ensure you have standard purchasable {isBO ? 'bought-outs' : 'raw materials'} registered in Store &gt; Masters that have at least one unit matching <strong>{sourceUnits.join(' or ').toUpperCase()}</strong>.
+                    <p className="text-[11px] text-slate-400">
+                      No purchasable master items found matching category &amp; unit ({sourceUnits.join(' / ').toUpperCase()}).
                     </p>
                   </div>
                 ) : (
@@ -772,24 +857,41 @@ export default function ConvertToPurchaseBucketModal({
                         }`}
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
-                            {elItem.name}
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate">
+                              {elItem.name}
+                            </span>
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                              {elItem.itemType}
+                            </span>
+                            {elItem.category && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                {elItem.category}
+                              </span>
+                            )}
                           </div>
+
                           {(elItem.description || elItem.descriptions) && (
                             <div className="text-[11px] text-slate-500 dark:text-slate-400 italic line-clamp-1 mt-0.5">
                               {elItem.description || elItem.descriptions}
                             </div>
                           )}
-                          <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[10px] text-slate-400">
-                            <span className="font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+
+                          <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[10px]">
+                            <span className="px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 font-mono font-medium">
+                              Pri: {elItem.unit}
+                            </span>
+                            {elItem.hasSecondaryUnit && elItem.secondaryUnit && (
+                              <span className="px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 font-mono font-medium">
+                                Sec: {elItem.secondaryUnit} (1:{elItem.conversionFactor || 1})
+                              </span>
+                            )}
+                            <span className="font-mono text-slate-600 dark:text-slate-300 font-semibold">
                               Stock: {elItem.currentStock || 0} {elItem.unit}
                             </span>
-                            {elItem.hasSecondaryUnit && (
-                              <span>• 1 {elItem.unit} = {elItem.conversionFactor} {elItem.secondaryUnit}</span>
-                            )}
                             {matchedUnitsList.length > 0 && (
-                              <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                Match: {matchedUnitsList.join(', ').toUpperCase()}
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                ✓ Unit Match: {matchedUnitsList.join(', ').toUpperCase()}
                               </span>
                             )}
                           </div>

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import { API_BASE_URL } from '@/src/utils/config';
 import { Building2, MapPin, Landmark, FileCheck2, ShieldCheck, CheckCircle2, Save, Upload } from 'lucide-react';
+import { showSuccessToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 
 interface CompanyInfoData {
   companyName: string;
@@ -200,7 +201,7 @@ export default function CompanyInfoPage() {
       const data = await res.json();
       if (res.ok) {
         setMessage({ type: 'success', text: 'Company Information & Logo saved successfully!' });
-        alert('Company Information & Logo saved successfully!');
+        showSuccessToast('Company Information & Logo saved successfully!');
         const updated = data.info || formData;
         if (updated.logo) {
           let fullLogo = updated.logo;
@@ -217,8 +218,9 @@ export default function CompanyInfoPage() {
       }
     } catch (error: any) {
       console.error('Error saving company info:', error);
-      setMessage({ type: 'error', text: error.message || 'Failed to save company information' });
-      alert(`Error saving Company Info: ${error.message || 'Failed to save company information'}`);
+      const errText = error.message || 'Failed to save company information';
+      setMessage({ type: 'error', text: errText });
+      await showErrorDialog('Save Error', `Error saving Company Info: ${errText}`);
     } finally {
       setSaving(false);
     }

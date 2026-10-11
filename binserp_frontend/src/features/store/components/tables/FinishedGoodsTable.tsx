@@ -6,6 +6,7 @@ import { Edit2, Trash2, Plus, Eye, Layers, ShieldCheck, Power, CheckCircle2, Ale
 import * as XLSX from 'xlsx';
 import StoreMasterExcelActions from '../StoreMasterExcelActions';
 import { RowNotice } from './MaterialTable';
+import { formatUomConversionDisplay, formatUomConversionTooltip } from '@/src/utils/dualUomHelper';
 
 interface FinishedGoodsTableProps {
   data: any[];
@@ -61,6 +62,7 @@ export default function FinishedGoodsTable({
       'Category': item.category?.name || item.categoryId?.name || (typeof item.category === 'string' ? item.category : '-') || '-',
       'Type': item.type || '-',
       'Unit': item.unit || 'Nos',
+      'Secondary Unit': item.hasSecondaryUnit ? (formatUomConversionDisplay(item) || item.secondaryUnit || '-') : 'N/A',
       'HSN Code': item.hsnCode || '-',
       'Status': item.status || (item.isActive === false ? 'Deactivated' : 'Active'),
       'Min Stock': item.minimumStock || item.reorderLevel || 0,
@@ -167,9 +169,9 @@ export default function FinishedGoodsTable({
           {item.hasSecondaryUnit && item.secondaryUnit && (
             <span
               className="inline-flex items-center gap-1 text-[10px] text-purple-600 dark:text-purple-400 font-mono font-bold mt-0.5"
-              title={`Dual Unit: 1 ${item.unit || 'Unit'} = ${item.conversionFactor ?? 1} ${item.secondaryUnit}`}
+              title={formatUomConversionTooltip(item) || `Dual Unit: 1 ${item.unit || 'Unit'} = ${item.conversionFactor ?? 1} ${item.secondaryUnit}`}
             >
-              1 = {item.conversionFactor ?? 1} {item.secondaryUnit}
+              {formatUomConversionDisplay(item) || `1 = ${item.conversionFactor ?? 1} ${item.secondaryUnit}`}
             </span>
           )}
         </div>

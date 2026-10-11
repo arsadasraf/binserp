@@ -345,3 +345,116 @@ export function resolveGrnLineItemDisplay(item: any): ResolvedGrnLineItemDisplay
   };
 }
 
+export interface UomRatioResolution {
+  primaryRatio: number;
+  secondaryRatio: number;
+  conversionFactor: number;
+  formattedRatio: string;
+  tooltipText: string;
+}
+
+/**
+ * Cleanly resolves primaryRatio and secondaryRatio for any item,
+ * with 100% backward compatibility for existing items that only have conversionFactor.
+ */
+export function resolveUomRatios(item: {
+  conversionFactor?: number;
+  primaryRatio?: number;
+  secondaryRatio?: number;
+  unit?: string;
+  secondaryUnit?: string;
+}): UomRatioResolution {
+  const priUnit = (item?.unit || 'NOS').toString().trim() || 'NOS';
+  const secUnit = (item?.secondaryUnit || 'KG').toString().trim() || 'KG';
+
+  const rawPRatio = Number(item?.primaryRatio);
+  const rawSRatio = Number(item?.secondaryRatio);
+  const rawCf = Number(item?.conversionFactor);
+
+  // 1. If explicit ratios exist and are valid (> 0), honor them directly
+  if (!isNaN(rawPRatio) && rawPRatio > 0 && !isNaN(rawSRatio) && rawSRatio > 0) {
+    const derivedCf = rawSRatio / rawPRatio;
+    const cleanCf = (!isNaN(rawCf) && rawCf > 0) ? rawCf : derivedCf;
+    const formatRatio = `${rawPRatio} ${priUnit} = ${rawSRatio} ${secUnit}`;
+    const invCf = cleanCf > 0 ? parseFloat((1 / cleanCf).toFixed(4)) : 0;
+    const tooltipText = `1 ${priUnit} = ${parseFloat(cleanCf.toFixed(4))} ${secUnit} | 1 ${secUnit} = ${invCf} ${priUnit}`;
+    return {
+      primaryRatio: rawPRatio,
+      secondaryRatio: rawSRatio,
+      conversionFactor: cleanCf,
+      formattedRatio: formatRatio,
+      tooltipText
+    };
+  }
+
+  // 2. Backward compatibility: Auto-derive clean ratios from existing conversionFactor
+  const validCf = (!isNaN(rawCf) && rawCf > 0) ? rawCf : 1;
+  let pRatio = 1;
+  let sRatio = 1;
+
+  if (validCf === 1) {
+    pRatio = 1;
+    sRatio = 1;
+  } else if (validCf < 1) {
+    // Check if 1 / conversionFactor is an integer or near-integer
+    // e.g. 0.1 -> 10, 0.05 -> 20, 0.25 -> 4, 0.5 -> 2, 0.00892857 -> 112
+    const inv = 1 / validCf;
+    if (Math.abs(inv - Math.round(inv)) < 0.005) {
+      pRatio = Math.round(inv);
+      sRatio = 1;
+    } else {
+      pRatio = 1;
+      sRatio = parseFloat(validCf.toFixed(4));
+    }
+  } else {
+    // conversionFactor >= 1 (e.g. 1 SHEET = 24.5 KG or 1 BOX = 100 PCS)
+    pRatio = 1;
+    sRatio = parseFloat(validCf.toFixed(4));
+  }
+
+  const formatRatio = `${pRatio} ${priUnit} = ${sRatio} ${secUnit}`;
+  const invCf = validCf > 0 ? parseFloat((1 / validCf).toFixed(4)) : 0;
+  const tooltipText = `1 ${priUnit} = ${parseFloat(validCf.toFixed(4))} ${secUnit} | 1 ${secUnit} = ${invCf} ${priUnit}`;
+
+  return {
+    primaryRatio: pRatio,
+    secondaryRatio: sRatio,
+    conversionFactor: validCf,
+    formattedRatio: formatRatio,
+    tooltipText
+  };
+}
+
+/**
+ * Format clean UOM conversion display for tables, cards, and summaries.
+ * E.g. "10 NOS = 1 KG" or "1 SHEET = 24.5 KG"
+ */
+export function formatUomConversionDisplay(item: {
+  unit?: string;
+  secondaryUnit?: string;
+  hasSecondaryUnit?: boolean;
+  conversionFactor?: number;
+  primaryRatio?: number;
+  secondaryRatio?: number;
+}): string {
+  if (!item || !item.hasSecondaryUnit || !item.secondaryUnit) return '';
+  const resolved = resolveUomRatios(item);
+  return resolved.formattedRatio;
+}
+
+/**
+ * Format rich tooltip text for hover states.
+ */
+export function formatUomConversionTooltip(item: {
+  unit?: string;
+  secondaryUnit?: string;
+  hasSecondaryUnit?: boolean;
+  conversionFactor?: number;
+  primaryRatio?: number;
+  secondaryRatio?: number;
+}): string {
+  if (!item || !item.hasSecondaryUnit || !item.secondaryUnit) return '';
+  const resolved = resolveUomRatios(item);
+  return `Dual Unit: ${resolved.formattedRatio} (${resolved.tooltipText})`;
+}
+

@@ -8,6 +8,7 @@ import { generateFrontendInwardRfqPDF } from '@/src/utils/frontendPdfHelper';
 import { getCurrencySymbol, CURRENCY_OPTIONS, normalizeCurrencyCode } from '@/src/utils/currencyHelper';
 import { useExchangeRates } from '@/src/hooks/useExchangeRates';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
+import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 
 interface InwardRfqTabProps {
     token: string | null;
@@ -209,16 +210,24 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
 
     const handleDeleteRfq = async (rfq: any) => {
         if (!rfq || !rfq._id) return;
-        if (confirm(`Are you sure you want to delete Inward RFQ #${rfq.rfqNumber}? This action cannot be undone.`)) {
+        const confirmed = await showDestructiveConfirm({
+            title: "Delete Inward RFQ",
+            text: `Are you sure you want to delete Inward RFQ #${rfq.rfqNumber}? This action cannot be undone.`,
+            confirmButtonText: "Yes, Delete"
+        });
+        if (confirmed) {
             try {
                 await apiDelete(`/api/sales/incoming-rfq/${rfq._id}`, token);
+                showSuccessToast(`Inward RFQ #${rfq.rfqNumber} deleted successfully`);
                 onSuccess(`Inward RFQ #${rfq.rfqNumber} deleted successfully`);
                 if (selectedRfq && selectedRfq._id === rfq._id) {
                     setSelectedRfq(null);
                 }
                 fetchData();
             } catch (err: any) {
-                onError(err.message || "Failed to delete Inward RFQ");
+                const errMsg = err.message || "Failed to delete Inward RFQ";
+                await showErrorDialog("Delete Failed", errMsg);
+                onError(errMsg);
             }
         }
     };

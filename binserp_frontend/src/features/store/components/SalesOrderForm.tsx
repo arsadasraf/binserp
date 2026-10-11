@@ -4,6 +4,7 @@ import {
   Package, ShoppingCart, Calendar, CheckCircle2, FileUp, Tag
 } from "lucide-react";
 import SearchableSelect from "./SearchableSelect";
+import { showWarningToast, showWarningDialog } from "@/src/features/store/utils/storeDialogHelper";
 
 interface SalesOrderFormProps {
   isOpen?: boolean;
@@ -217,7 +218,7 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.items.some(item => !item.productName.trim() || item.quantity <= 0 || item.rate < 0)) {
-      alert("Please ensure all items have a valid Product Name, quantity > 0, and rate >= 0.");
+      showWarningDialog("Validation Error", "Please ensure all items have a valid Product Name, quantity > 0, and rate >= 0.");
       return;
     }
 
@@ -500,7 +501,7 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
                         if (['pdf', 'jpg', 'jpeg', 'png'].includes(ext || '')) {
                           setDocumentFile(file);
                         } else {
-                          alert("Only PDF and image (JPG/PNG) files are allowed.");
+                          showWarningToast("Only PDF and image (JPG/PNG) files are allowed.");
                           e.target.value = "";
                         }
                       }
@@ -607,3 +608,5 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
     </div>
   );
 };
+
+export default SalesOrderForm;

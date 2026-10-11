@@ -18,6 +18,9 @@ import React from 'react';
 import { StoreFormData, MasterType, Category, Location, Process } from "@/src/features/store/types/store.types";
 import { X, Lock } from 'lucide-react'; // Import X and Lock
 import { STANDARD_UOMS, getDefaultBaseUom } from "@/src/constants/uomConfig";
+import SearchableSelect, { SearchableOption } from '../SearchableSelect';
+import DualUomRatioInput from '../DualUomRatioInput';
+import { showWarningToast } from '@/src/features/store/utils/storeDialogHelper';
 
 const COUNTRIES = ["India", "Other"];
 const STATES = [
@@ -87,6 +90,56 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
             categoryId,
         });
     };
+
+    // Memoized dropdown options with keyword search support & AGENTS.md descriptions
+    const categoryOptions = React.useMemo<SearchableOption[]>(() => {
+        return (categories || []).map((cat: any) => {
+            const val = String(cat._id || cat.id || cat.name || '');
+            const name = String(cat.name || '').trim();
+            const desc = String(cat.description || cat.descriptions || '').trim();
+            return {
+                value: val,
+                label: name,
+                description: desc || undefined,
+                code: cat.code || undefined
+            };
+        }).filter(o => Boolean(o.value));
+    }, [categories]);
+
+    const locationOptions = React.useMemo<SearchableOption[]>(() => {
+        return (locations || []).map((loc: any) => {
+            const val = String(loc._id || loc.id || loc.name || '');
+            const name = String(loc.name || '').trim();
+            const desc = String(loc.description || loc.descriptions || '').trim();
+            return {
+                value: val,
+                label: name,
+                description: desc || undefined,
+                code: loc.code || undefined
+            };
+        }).filter(o => Boolean(o.value));
+    }, [locations]);
+
+    const baseUomOptions = React.useMemo<SearchableOption[]>(() => {
+        return STANDARD_UOMS.map((u) => ({
+            value: u.value,
+            label: u.label,
+            description: u.description,
+            badge: u.category
+        }));
+    }, []);
+
+    const secondaryUomOptions = React.useMemo<SearchableOption[]>(() => {
+        const pri = (formData.unit || defaultBaseUom).toUpperCase();
+        return STANDARD_UOMS
+            .filter((u) => u.value.toUpperCase() !== pri)
+            .map((u) => ({
+                value: u.value,
+                label: u.label,
+                description: u.description,
+                badge: u.category
+            }));
+    }, [formData.unit, defaultBaseUom]);
 
     const [sameAsBilling, setSameAsBilling] = React.useState(false);
 
@@ -194,62 +247,48 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
 
                         {/* Row 2: Category, Location, Unit, HSN Code */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                                 Category
                             </label>
-                            <select
-                                value={typeof formData.categoryId === 'object' ? (formData.categoryId as any)?._id : formData.categoryId || ""}
-                                onChange={(e) => handleCategoryChange(e.target.value)}
-                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                            >
-                                <option value="">Select Category (Optional)</option>
-                                {categories.map((category) => (
-                                    <option key={category._id} value={category._id}>
-                                        {category.name}
-                                    </option>
-                                ))}
-                            </select>
+                            <SearchableSelect
+                                options={categoryOptions}
+                                value={typeof formData.categoryId === 'object' ? String((formData.categoryId as any)?._id || (formData.categoryId as any)?.name || '') : String(formData.categoryId || "")}
+                                onChange={(val: string) => handleCategoryChange(val)}
+                                placeholder="Select or type category..."
+                                allowCustom={true}
+                                innerClassName="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg outline-none cursor-pointer transition-all"
+                            />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                                 Storage Location
                             </label>
-                            <select
-                                value={typeof formData.locationId === 'object' ? (formData.locationId as any)?._id : formData.locationId || ""}
-                                onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
-                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                            >
-                                <option value="">Select Location (Optional)</option>
-                                {locations.map((location) => (
-                                    <option key={location._id} value={location._id}>
-                                        {location.name}
-                                    </option>
-                                ))}
-                            </select>
+                            <SearchableSelect
+                                options={locationOptions}
+                                value={typeof formData.locationId === 'object' ? String((formData.locationId as any)?._id || (formData.locationId as any)?.name || '') : String(formData.locationId || "")}
+                                onChange={(val: string) => setFormData({ ...formData, locationId: val })}
+                                placeholder="Select or type location..."
+                                allowCustom={true}
+                                innerClassName="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg outline-none cursor-pointer transition-all"
+                            />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1 flex items-center justify-between">
                                 <span>Base Unit (Primary UOM) <span className="text-red-500">*</span></span>
                             </label>
-                            <select
+                            <SearchableSelect
+                                options={baseUomOptions}
                                 value={formData.unit || defaultBaseUom}
-                                onChange={(e) => {
-                                    const newUnit = e.target.value;
+                                onChange={(newUnit: string) => {
                                     setFormData({
                                         ...formData,
                                         unit: newUnit,
                                         secondaryUnit: formData.secondaryUnit === newUnit ? "" : formData.secondaryUnit
                                     });
                                 }}
-                                className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 dark:text-slate-100 text-sm font-medium"
-                                required
-                            >
-                                {STANDARD_UOMS.map((u) => (
-                                    <option key={u.value} value={u.value}>
-                                        {u.label}
-                                    </option>
-                                ))}
-                            </select>
+                                placeholder="Select base unit..."
+                                innerClassName="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg outline-none cursor-pointer text-gray-900 dark:text-slate-100 font-medium transition-all"
+                            />
                             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                                 Primary unit used for inventory stock and standard transactions.
                             </p>
@@ -269,104 +308,22 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
 
                         {/* Dual Unit Toggle & Conversion Configuration */}
                         <div className="col-span-1 sm:col-span-2 lg:col-span-4 bg-white dark:bg-slate-800/90 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs">
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                <div className="flex items-center gap-3">
-                                    <label className="relative inline-flex items-center cursor-pointer select-none">
-                                        <input
-                                            type="checkbox"
-                                            checked={Boolean(formData.hasSecondaryUnit)}
-                                            onChange={(e) => {
-                                                const checked = e.target.checked;
-                                                const currentPri = (formData.unit || defaultBaseUom).toUpperCase();
-                                                const fallbackSec = currentPri === 'KG' ? 'NOS' : 'KG';
-                                                setFormData({
-                                                    ...formData,
-                                                    hasSecondaryUnit: checked,
-                                                    secondaryUnit: checked ? (formData.secondaryUnit || fallbackSec) : "",
-                                                    conversionFactor: checked ? (formData.conversionFactor || 1) : 1
-                                                });
-                                            }}
-                                            className="sr-only peer"
-                                        />
-                                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600"></div>
-                                        <span className="ml-3 text-sm font-semibold text-slate-800 dark:text-slate-200">
-                                            Dual Unit / 2nd Unit Applicable
-                                        </span>
-                                    </label>
-                                    <span className="text-xs text-slate-500 dark:text-slate-400 hidden md:inline">
-                                        (e.g., if item is in NOS as primary and KG as secondary, or vice versa)
-                                    </span>
-                                </div>
-
-                                {formData.hasSecondaryUnit && (
-                                    <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/80 rounded-lg text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                                        <span>Formula:</span>
-                                        <span className="font-mono font-bold">
-                                            1 {formData.unit || defaultBaseUom} = {Number(formData.conversionFactor) || 0} {formData.secondaryUnit || "Secondary Unit"}
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Secondary Unit & Conversion Factor Inputs */}
-                            {formData.hasSecondaryUnit && (
-                                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                                            2nd Unit (Secondary Unit) <span className="text-red-500">*</span>
-                                        </label>
-                                        <select
-                                            required={formData.hasSecondaryUnit}
-                                            value={formData.secondaryUnit || ""}
-                                            onChange={(e) => setFormData({ ...formData, secondaryUnit: e.target.value })}
-                                            className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-900 dark:text-white font-medium"
-                                        >
-                                            <option value="">-- Select Secondary Unit --</option>
-                                            {STANDARD_UOMS.filter(u => u.value.toUpperCase() !== (formData.unit || defaultBaseUom).toUpperCase()).map((u) => (
-                                                <option key={u.value} value={u.value}>
-                                                    {u.label}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        <p className="text-[11px] text-slate-500 mt-1">
-                                            Select secondary unit from standardized list.
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                                            Conversion Factor <span className="text-red-500">*</span>
-                                        </label>
-                                        <input
-                                            type="number"
-                                            step="any"
-                                            min="0.000001"
-                                            required={formData.hasSecondaryUnit}
-                                            value={formData.conversionFactor !== undefined && formData.conversionFactor !== null && !isNaN(Number(formData.conversionFactor)) ? formData.conversionFactor : ""}
-                                            onChange={(e) => {
-                                                const val = e.target.value;
-                                                setFormData({
-                                                    ...formData,
-                                                    conversionFactor: val === "" ? ("" as any) : (isNaN(parseFloat(val)) ? 0 : parseFloat(val))
-                                                });
-                                            }}
-                                            className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-900 dark:text-white font-mono font-bold"
-                                            placeholder="e.g. 0.25 (1 NOS = 0.25 KG)"
-                                        />
-                                        <p className="text-[11px] text-slate-500 mt-1">
-                                            How many {formData.secondaryUnit || "2nd units"} in 1 {formData.unit || defaultBaseUom}?
-                                        </p>
-                                    </div>
-
-                                    <div className="col-span-1 sm:col-span-2 lg:col-span-1 flex flex-col justify-center bg-indigo-50/70 dark:bg-indigo-950/40 p-3.5 rounded-lg border border-indigo-200 dark:border-indigo-800 text-xs">
-                                        <span className="font-bold text-indigo-900 dark:text-indigo-200 mb-1">Conversion Summary:</span>
-                                        <div className="text-indigo-800 dark:text-indigo-300 space-y-1 font-mono text-[11px]">
-                                            <div>• 1 {formData.unit || defaultBaseUom} = <span className="font-extrabold text-indigo-700 dark:text-indigo-300">{Number(formData.conversionFactor) || 0}</span> {formData.secondaryUnit || "Secondary Unit"}</div>
-                                            <div>• 100 {formData.unit || defaultBaseUom} = <span className="font-extrabold text-indigo-700 dark:text-indigo-300">{((Number(formData.conversionFactor) || 0) * 100).toFixed(3).replace(/\.?0+$/, '')}</span> {formData.secondaryUnit || "Secondary Unit"}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+                            <DualUomRatioInput
+                                primaryUnit={formData.unit || defaultBaseUom}
+                                hasSecondaryUnit={Boolean(formData.hasSecondaryUnit)}
+                                secondaryUnit={formData.secondaryUnit || ""}
+                                primaryRatio={formData.primaryRatio}
+                                secondaryRatio={formData.secondaryRatio}
+                                conversionFactor={formData.conversionFactor}
+                                onRatioChange={(updates) => {
+                                    setFormData((prev: any) => ({
+                                        ...prev,
+                                        ...updates,
+                                    }));
+                                }}
+                                secondaryUomOptions={secondaryUomOptions}
+                                colorScheme="indigo"
+                            />
                         </div>
 
                         {/* Row 3: Document Attached & Previews */}
@@ -380,7 +337,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                 accept="image/*,application/pdf"
                                 onChange={(e) => {
                                     if (e.target.files && e.target.files.length > 2) {
-                                        alert("You can only upload up to 2 documents.");
+                                        showWarningToast("You can only upload up to 2 documents.");
                                         e.target.value = "";
                                         return;
                                     }
@@ -600,50 +557,38 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                     {masterTab === "inhouse-items" && (
                         <>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                                     Category
                                 </label>
-                                <select
-                                    value={typeof formData.categoryId === 'object' ? (formData.categoryId as any)?._id : formData.categoryId || ""}
-                                    onChange={(e) => handleCategoryChange(e.target.value)}
-                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                                >
-                                    <option value="">Select Category</option>
-                                    {categories.map((category) => (
-                                        <option key={category._id} value={category._id}>
-                                            {category.name}
-                                        </option>
-                                    ))}
-                                </select>
+                                <SearchableSelect
+                                    options={categoryOptions}
+                                    value={typeof formData.categoryId === 'object' ? String((formData.categoryId as any)?._id || (formData.categoryId as any)?.name || '') : String(formData.categoryId || "")}
+                                    onChange={(val: string) => handleCategoryChange(val)}
+                                    placeholder="Select or type category..."
+                                    allowCustom={true}
+                                    innerClassName="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg outline-none cursor-pointer transition-all"
+                                />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-                                <select
-                                    value={typeof formData.locationId === 'object' ? (formData.locationId as any)?._id : formData.locationId || ""}
-                                    onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
-                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                                >
-                                    <option value="">Select Location</option>
-                                    {locations.map((location) => (
-                                        <option key={location._id} value={location._id}>
-                                            {location.name}
-                                        </option>
-                                    ))}
-                                </select>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Location</label>
+                                <SearchableSelect
+                                    options={locationOptions}
+                                    value={typeof formData.locationId === 'object' ? String((formData.locationId as any)?._id || (formData.locationId as any)?.name || '') : String(formData.locationId || "")}
+                                    onChange={(val: string) => setFormData({ ...formData, locationId: val })}
+                                    placeholder="Select or type location..."
+                                    allowCustom={true}
+                                    innerClassName="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg outline-none cursor-pointer transition-all"
+                                />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
-                                <select
+                                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Unit</label>
+                                <SearchableSelect
+                                    options={baseUomOptions}
                                     value={formData.unit ?? "NOS"}
-                                    onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white text-gray-900 font-medium"
-                                >
-                                    {STANDARD_UOMS.map((u) => (
-                                        <option key={u.value} value={u.value}>
-                                            {u.label}
-                                        </option>
-                                    ))}
-                                </select>
+                                    onChange={(val: string) => setFormData({ ...formData, unit: val })}
+                                    placeholder="Select unit..."
+                                    innerClassName="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg outline-none cursor-pointer text-gray-900 dark:text-slate-100 font-medium transition-all"
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">HSN Code</label>

@@ -8,6 +8,7 @@ import { generateFrontendOutwardQuotationPDF } from '@/src/utils/frontendPdfHelp
 import { getCurrencySymbol, CURRENCY_OPTIONS, normalizeCurrencyCode } from '@/src/utils/currencyHelper';
 import { useExchangeRates } from '@/src/hooks/useExchangeRates';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
+import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 
 interface OutwardQuotationTabProps {
     token: string | null;
@@ -565,16 +566,24 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
     const handleDeleteQuote = async (quote: any) => {
         if (!quote || !quote._id) return;
-        if (confirm(`Are you sure you want to delete Outward Quotation #${quote.quotationNumber}? This action cannot be undone.`)) {
+        const confirmed = await showDestructiveConfirm({
+            title: "Delete Outward Quotation",
+            text: `Are you sure you want to delete Outward Quotation #${quote.quotationNumber}? This action cannot be undone.`,
+            confirmButtonText: "Yes, Delete"
+        });
+        if (confirmed) {
             try {
                 await apiDelete(`/api/sales/quotation/${quote._id}`, token);
+                showSuccessToast(`Outward Quotation #${quote.quotationNumber} deleted successfully`);
                 onSuccess(`Outward Quotation #${quote.quotationNumber} deleted successfully`);
                 if (selectedQuote && selectedQuote._id === quote._id) {
                     setSelectedQuote(null);
                 }
                 fetchData();
             } catch (err: any) {
-                onError(err.message || "Failed to delete quotation");
+                const errMsg = err.message || "Failed to delete quotation";
+                await showErrorDialog("Delete Failed", errMsg);
+                onError(errMsg);
             }
         }
     };

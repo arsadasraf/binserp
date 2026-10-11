@@ -7,6 +7,7 @@ import { useStoreData } from "../../components/hooks/useStoreData";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
 import { Plus } from "lucide-react";
 import { useCreateStoreRecordMutation, useDeleteStoreRecordMutation } from "@/src/store/services/storeService";
+import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from "@/src/features/store/utils/storeDialogHelper";
 
 export default function SalesPriceListPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
@@ -27,9 +28,19 @@ export default function SalesPriceListPage() {
         onAddPriceList={() => { setEditingItem(null); setShowModal(true); }}
         onEdit={(item) => { setEditingItem(item); setShowModal(true); }}
         onDelete={async (id) => {
-          if (confirm("Are you sure you want to delete this price list entry?")) {
-            await deleteStoreRecord({ tab: "price-list", id }).unwrap();
-            refetch();
+          const confirmed = await showDestructiveConfirm({
+            title: "Delete Price List Entry",
+            text: "Are you sure you want to delete this price list entry? This action cannot be undone.",
+            confirmButtonText: "Yes, Delete"
+          });
+          if (confirmed) {
+            try {
+              await deleteStoreRecord({ tab: "price-list", id }).unwrap();
+              showSuccessToast("Price list entry deleted successfully");
+              refetch();
+            } catch (err: any) {
+              await showErrorDialog("Delete Failed", err?.data?.message || err?.message || "Failed to delete price list entry");
+            }
           }
         }}
       />
@@ -43,12 +54,13 @@ export default function SalesPriceListPage() {
           onSubmit={async (formData) => {
             try {
               await createStoreRecord({ tab: "price-list", body: formData }).unwrap();
+              showSuccessToast("Price List saved successfully");
               setShowModal(false);
               setEditingItem(null);
               refetch();
             } catch (err: any) {
               console.error("Failed to save Price List", err);
-              alert(err?.data?.message || err?.message || "Failed to save Price List");
+              await showErrorDialog("Save Error", err?.data?.message || err?.message || "Failed to save Price List");
             }
           }}
           initialData={editingItem}

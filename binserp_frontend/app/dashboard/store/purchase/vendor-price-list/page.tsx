@@ -7,6 +7,7 @@ import { useStoreData } from "../../components/hooks/useStoreData";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
 import { Plus, Tag } from "lucide-react";
 import { useCreateStoreRecordMutation, useUpdateStoreRecordMutation, useDeleteStoreRecordMutation } from "@/src/store/services/storeService";
+import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from "@/src/features/store/utils/storeDialogHelper";
 
 export default function PurchaseVendorPriceListPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
@@ -68,14 +69,21 @@ export default function PurchaseVendorPriceListPage() {
         onAddPriceSheet={() => { setEditingItem(null); setShowModal(true); }}
         onEdit={(item) => { setEditingItem(item); setShowModal(true); }}
         onDelete={async (id) => {
-          if (confirm("Are you sure you want to delete this vendor price list configuration?")) {
+          const confirmed = await showDestructiveConfirm({
+            title: "Delete Price Configuration",
+            text: "Are you sure you want to delete this vendor price list configuration? This action cannot be undone.",
+            confirmButtonText: "Yes, Delete"
+          });
+          if (confirmed) {
             try {
               await deleteStoreRecord({ tab: "vendor-price-list", id }).unwrap();
+              showSuccessToast('Price configuration deleted successfully.');
               showFeedback('success', 'Price configuration deleted successfully.');
               refetch();
             } catch (err: any) {
               const errorMsg = err?.data?.message || err?.message || 'Failed to delete price configuration.';
               showFeedback('error', errorMsg);
+              await showErrorDialog('Delete Failed', errorMsg);
             }
           }
         }}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Layers, RefreshCw, Search, ArrowRight, CheckCircle2, 
   AlertTriangle, RotateCcw, Factory, Package, Calendar, 
-  User, Eye, Sparkles, Filter, ChevronRight, Boxes
+  User, Eye, Sparkles, Filter, ChevronRight, Boxes, Truck
 } from 'lucide-react';
 import { apiGet } from '@/src/lib/api';
 import MRP360WipDrawer from '../modals/MRP360WipDrawer';
@@ -103,7 +103,7 @@ export default function MRP360WipTracker({ token }: MRP360WipTrackerProps) {
           <Layers className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
           <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">No Active MRP WIP Plans Found</h3>
           <p className="text-xs text-slate-400 mt-1">
-            Active MRP demand plans will appear here with live 4-stage tracking.
+            Active MRP demand plans will appear here with live 2-stage tracking.
           </p>
         </div>
       ) : (
@@ -138,44 +138,33 @@ export default function MRP360WipTracker({ token }: MRP360WipTrackerProps) {
                   </span>
                 </div>
 
-                {/* 4 Pipeline Stage Progress Bar Grid */}
-                <div className="mt-4 grid grid-cols-3 gap-2 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800">
+                {/* 2 Pipeline Stage Progress Bar Grid */}
+                <div className="mt-4 grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800">
                   <div>
                     <div className="flex justify-between text-[10px] font-bold text-slate-400">
-                      <span>Store Issue</span>
-                      <span className="text-teal-600">{item.stages?.materialIssue}%</span>
+                      <span>Store Material Issue</span>
+                      <span className="text-teal-600 font-mono">{item.stages?.materialIssue}%</span>
                     </div>
-                    <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full mt-1 overflow-hidden">
+                    <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full mt-1.5 overflow-hidden">
                       <div className="bg-teal-500 h-full rounded-full" style={{ width: `${item.stages?.materialIssue}%` }} />
                     </div>
                   </div>
 
                   <div>
                     <div className="flex justify-between text-[10px] font-bold text-slate-400">
-                      <span>Subcontract</span>
-                      <span className="text-indigo-600">{item.stages?.subcontracting}%</span>
+                      <span>FG GRN Inward</span>
+                      <span className="text-emerald-600 font-mono">{item.stages?.fgCompletion}%</span>
                     </div>
-                    <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full mt-1 overflow-hidden">
-                      <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${item.stages?.subcontracting}%` }} />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-[10px] font-bold text-slate-400">
-                      <span>FG Inward</span>
-                      <span className="text-emerald-600">{item.stages?.fgCompletion}%</span>
-                    </div>
-                    <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full mt-1 overflow-hidden">
+                    <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full mt-1.5 overflow-hidden">
                       <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${item.stages?.fgCompletion}%` }} />
                     </div>
                   </div>
                 </div>
 
-                {/* Subcontracting Alert if any */}
-                {item.pendingJobWorkUnits > 0 && (
-                  <div className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1 rounded-lg border border-amber-200 dark:border-amber-800">
-                    <RotateCcw size={12} />
-                    <span>{item.pendingJobWorkUnits} unit(s) currently at Subcontractor Vendors awaiting return/QC</span>
+                {item.hasReturnableDCs && (
+                  <div className="mt-2.5 flex items-center gap-1.5 text-[10.5px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800">
+                    <Truck size={12} className="text-indigo-600" />
+                    <span>Includes Returnable DCs issued directly from Store</span>
                   </div>
                 )}
               </div>

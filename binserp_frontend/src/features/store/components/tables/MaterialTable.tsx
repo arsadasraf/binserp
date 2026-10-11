@@ -5,6 +5,7 @@ import DataTable, { ColumnDef } from '@/src/components/ui/DataTable';
 import { Edit2, Trash2, Plus, Eye, Power, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import StoreMasterExcelActions from '../StoreMasterExcelActions';
+import { formatUomConversionDisplay, formatUomConversionTooltip } from '@/src/utils/dualUomHelper';
 
 export interface RowNotice {
   itemId: string;
@@ -50,7 +51,7 @@ export default function MaterialTable({
       'Item Type': item.itemType || (isBO ? 'Bought Out' : 'Raw Material'),
       'Category': item.category || (typeof item.categoryId === 'object' ? item.categoryId?.name : item.categoryId) || '-',
       'Unit': item.unit || '-',
-      'Secondary Unit': item.hasSecondaryUnit ? (item.secondaryUnit || '-') : 'N/A',
+      'Secondary Unit': item.hasSecondaryUnit ? (formatUomConversionDisplay(item) || item.secondaryUnit || '-') : 'N/A',
       'Conversion Factor': item.hasSecondaryUnit ? (item.conversionFactor ?? 1) : 'N/A',
       'Opening Stock': item.openingStock || 0,
       'Min Stock': item.minimumStock ?? item.minStock ?? 0,
@@ -133,10 +134,10 @@ export default function MaterialTable({
           </span>
           {item.hasSecondaryUnit && item.secondaryUnit && (
             <span 
-              className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 mt-0.5 bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-100 dark:border-indigo-900/60 w-fit inline-block"
-              title={`Dual Unit: 1 ${item.unit || 'Unit'} = ${item.conversionFactor ?? 1} ${item.secondaryUnit}`}
+              className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 mt-0.5 bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-100 dark:border-indigo-900/60 w-fit inline-block"
+              title={formatUomConversionTooltip(item) || `Dual Unit: 1 ${item.unit || 'Unit'} = ${item.conversionFactor ?? 1} ${item.secondaryUnit}`}
             >
-              1 = {item.conversionFactor ?? 1} {item.secondaryUnit}
+              {formatUomConversionDisplay(item) || `1 = ${item.conversionFactor ?? 1} ${item.secondaryUnit}`}
             </span>
           )}
         </div>

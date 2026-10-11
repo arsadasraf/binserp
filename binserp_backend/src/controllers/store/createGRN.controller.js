@@ -318,6 +318,14 @@ export const createGRN = async (req, res) => {
           ? parseFloat(item.amount)
           : Number((billingQty * itemRate).toFixed(2));
 
+        const parsedHeaderTaxRate = parseFloat(taxRate) || 0;
+        const itemTaxRate = item.taxRate !== undefined && item.taxRate !== null && !isNaN(parseFloat(item.taxRate))
+          ? parseFloat(item.taxRate)
+          : parsedHeaderTaxRate;
+        const itemTaxAmount = item.taxAmount !== undefined && item.taxAmount !== null && !isNaN(parseFloat(item.taxAmount))
+          ? parseFloat(item.taxAmount)
+          : Number(((itemAmount * itemTaxRate) / 100).toFixed(2));
+
         itemsArray.push({
           material: validMaterialId,
           consumable: validConsumableId,
@@ -336,6 +344,8 @@ export const createGRN = async (req, res) => {
           primaryRate: item.primaryRate !== undefined ? Number(item.primaryRate) : (isSecUnit && convFactor > 0 ? Number((itemRate * convFactor).toFixed(3)) : itemRate),
           secondaryRate: item.secondaryRate !== undefined ? Number(item.secondaryRate) : (hasSec && convFactor > 0 ? (isSecUnit ? itemRate : Number((itemRate / convFactor).toFixed(3))) : itemRate),
           amount: itemAmount,
+          taxRate: itemTaxRate,
+          taxAmount: itemTaxAmount,
           hasSecondaryUnit: hasSec,
           secondaryUnit: secUnit,
           conversionFactor: convFactor,
@@ -362,6 +372,8 @@ export const createGRN = async (req, res) => {
       const singleAmount = req.body.amount !== undefined && !isNaN(parseFloat(req.body.amount))
         ? parseFloat(req.body.amount)
         : Number((qty * singleRate).toFixed(2));
+      const singleTaxRate = req.body.taxRate !== undefined ? (parseFloat(req.body.taxRate) || 0) : 0;
+      const singleTaxAmount = Number(((singleAmount * singleTaxRate) / 100).toFixed(2));
 
       itemsArray.push({
         material: isValidObjectId(material.toString()) ? material.toString() : undefined,
@@ -375,6 +387,8 @@ export const createGRN = async (req, res) => {
         acceptedQuantity: qcRequired ? 0 : qty,
         rate: singleRate,
         amount: singleAmount,
+        taxRate: singleTaxRate,
+        taxAmount: singleTaxAmount,
       });
     }
 
@@ -383,14 +397,31 @@ export const createGRN = async (req, res) => {
     }
 
     const parsedTaxRate = parseFloat(taxRate) || 0;
+    const parsedTransportationCharges = Math.max(0, parseFloat(transportationCharges) || 0);
+    const isTransportationTaxable = req.body.isTransportationTaxable === true || req.body.isTransportationTaxable === 'true';
+    const transportationTaxRate = isTransportationTaxable
+      ? (req.body.transportationTaxRate !== undefined && !isNaN(parseFloat(req.body.transportationTaxRate)) ? parseFloat(req.body.transportationTaxRate) : parsedTaxRate)
+      : 0;
+    const transportationTaxAmount = isTransportationTaxable
+      ? (req.body.transportationTaxAmount !== undefined && !isNaN(parseFloat(req.body.transportationTaxAmount)) ? parseFloat(req.body.transportationTaxAmount) : Number(((parsedTransportationCharges * transportationTaxRate) / 100).toFixed(2)))
+      : 0;
+
+    const parsedPackingCharges = Math.max(0, parseFloat(packingCharges) || 0);
+    const isPackingTaxable = req.body.isPackingTaxable === true || req.body.isPackingTaxable === 'true';
+    const packingTaxRate = isPackingTaxable
+      ? (req.body.packingTaxRate !== undefined && !isNaN(parseFloat(req.body.packingTaxRate)) ? parseFloat(req.body.packingTaxRate) : parsedTaxRate)
+      : 0;
+    const packingTaxAmount = isPackingTaxable
+      ? (req.body.packingTaxAmount !== undefined && !isNaN(parseFloat(req.body.packingTaxAmount)) ? parseFloat(req.body.packingTaxAmount) : Number(((parsedPackingCharges * packingTaxRate) / 100).toFixed(2)))
+      : 0;
+
+    const itemsTaxTotal = itemsArray.reduce((sum, it) => sum + (it.taxAmount || 0), 0);
     const computedSubtotal = subtotal !== undefined && subtotal !== null && !isNaN(parseFloat(subtotal))
       ? parseFloat(subtotal)
       : itemsArray.reduce((sum, it) => sum + (it.amount !== undefined && !isNaN(it.amount) ? it.amount : (it.quantity * (it.rate || 0))), 0);
     const computedTaxAmount = taxAmount !== undefined && taxAmount !== null && !isNaN(parseFloat(taxAmount))
       ? parseFloat(taxAmount)
-      : (computedSubtotal * parsedTaxRate) / 100;
-    const parsedTransportationCharges = Math.max(0, parseFloat(transportationCharges) || 0);
-    const parsedPackingCharges = Math.max(0, parseFloat(packingCharges) || 0);
+      : Number((itemsTaxTotal + transportationTaxAmount + packingTaxAmount).toFixed(2));
 
     const isRoundOffEnabled = req.body.isRoundOff !== undefined 
       ? (req.body.isRoundOff === 'true' || req.body.isRoundOff === true) 
@@ -434,7 +465,13 @@ export const createGRN = async (req, res) => {
       subtotal: computedSubtotal,
       taxAmount: computedTaxAmount,
       transportationCharges: parsedTransportationCharges,
+      isTransportationTaxable,
+      transportationTaxRate,
+      transportationTaxAmount,
       packingCharges: parsedPackingCharges,
+      isPackingTaxable,
+      packingTaxRate,
+      packingTaxAmount,
       preRoundTotal: rounding.preRoundTotal,
       isRoundOff: rounding.isRoundOffEnabled,
       roundOff: rounding.roundOff,

@@ -6,6 +6,7 @@ import GRNModal from '../modals/GRNModal';
 import ItemDetailsModal from '../modals/ItemDetailsModal';
 import MastersTable from '../tables/MastersTable'; // For GRN History
 import UnifiedGrnHistoryTable from '../tables/UnifiedGrnHistoryTable';
+import { apiGet } from '@/src/lib/api';
 import Swal from 'sweetalert2';
 
 interface InventoryTabProps {
@@ -28,6 +29,8 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
     const [selectedItem, setSelectedItem] = useState<any | null>(null);
     const [showDetails, setShowDetails] = useState(false);
 
+    // Live WIP Inventory State
+    const [wipItems, setWipItems] = useState<any[]>([]);
 
     const {
         data,
@@ -51,6 +54,24 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         priceLists = [],
         refetch,
     } = storeData;
+
+    // Fetch live WIP inventory across all categories (RM, BO, FG)
+    const fetchWipData = async () => {
+        try {
+            const res = await apiGet('/api/store/wip/inventory?type=all', token);
+            if (res && Array.isArray(res.wipItems)) {
+                setWipItems(res.wipItems);
+            }
+        } catch (err) {
+            console.error("Failed to load WIP inventory for store:", err);
+        }
+    };
+
+    useEffect(() => {
+        if (token) {
+            fetchWipData();
+        }
+    }, [token, activeSubTab]);
 
     // Effect to sync activeSubTab with masterTab (for History data fetch)
     useEffect(() => {
@@ -187,11 +208,43 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         };
     }, [combinedInventoryList]);
 
+    // Fast O(1) Lookup Map for live WIP Inventory
+    const wipLookupMap = useMemo(() => {
+        const map = new Map<string, any>();
+        if (!Array.isArray(wipItems)) return map;
+        wipItems.forEach((wip: any) => {
+            if (!wip) return;
+            if (wip.materialId) map.set(String(wip.materialId), wip);
+            if (wip._id) map.set(String(wip._id), wip);
+            if (wip.materialCode) map.set(String(wip.materialCode).trim().toUpperCase(), wip);
+            if (wip.materialName) map.set(String(wip.materialName).trim().toLowerCase(), wip);
+        });
+        return map;
+    }, [wipItems]);
+
+    const findWipItem = (item: any) => {
+        if (!item || wipLookupMap.size === 0) return undefined;
+        const id = item._id ? String(item._id) : '';
+        const matId = item.materialId ? (typeof item.materialId === 'object' ? String(item.materialId._id) : String(item.materialId)) : '';
+        const code = (item.materialCode || item.code || item.componentCode || '').trim().toUpperCase();
+        const name = (item.materialName || item.componentName || item.name || '').trim().toLowerCase();
+
+        return (matId && wipLookupMap.get(matId)) ||
+               (id && wipLookupMap.get(id)) ||
+               (code && wipLookupMap.get(code)) ||
+               (name && wipLookupMap.get(name)) ||
+               undefined;
+    };
+
     // Map RM master data to inventory format (O(N) with Map lookup)
     const mappedRmInventory = useMemo(() => {
         if (!effectiveRmList || effectiveRmList.length === 0) return [];
         return effectiveRmList.map((m: any) => {
             const invItem = inventoryLookups.findItem(m);
+            const wip = findWipItem(m) || (invItem ? findWipItem(invItem) : undefined);
+            const wipStock = Number(wip?.pendingWipQty ?? 0);
+            const shopfloorWip = Number(wip?.shopfloorWipQty ?? 0);
+            const jobWorkWip = Number(wip?.jobWorkWipQty ?? 0);
 
             return {
                 ...m,
@@ -204,6 +257,9 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 descriptions: m.descriptions || m.description || invItem?.description || '-',
                 currentStock: invItem ? (invItem.currentStock !== undefined ? invItem.currentStock : (invItem.quantity || 0)) : (m.quantity !== undefined ? m.quantity : (m.currentStock || 0)),
                 qcPendingStock: invItem ? invItem.qcPendingStock || 0 : 0,
+                wipStock,
+                shopfloorWip,
+                jobWorkWip,
                 reorderLevel: m.minimumStock !== undefined ? m.minimumStock : (invItem?.reorderLevel || 0),
                 unit: m.unit || (m.categoryId as any)?.unit || invItem?.unit || 'PCS',
                 hasSecondaryUnit: Boolean(m.hasSecondaryUnit || invItem?.hasSecondaryUnit),
@@ -228,13 +284,17 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 }
             };
         });
-    }, [effectiveRmList, inventoryLookups]);
+    }, [effectiveRmList, inventoryLookups, wipLookupMap]);
 
     // Map BO master data to inventory format (O(N) with Map lookup)
     const mappedBoInventory = useMemo(() => {
         if (!effectiveBoList || effectiveBoList.length === 0) return [];
         return effectiveBoList.map((m: any) => {
             const invItem = inventoryLookups.findItem(m);
+            const wip = findWipItem(m) || (invItem ? findWipItem(invItem) : undefined);
+            const wipStock = Number(wip?.pendingWipQty ?? 0);
+            const shopfloorWip = Number(wip?.shopfloorWipQty ?? 0);
+            const jobWorkWip = Number(wip?.jobWorkWipQty ?? 0);
 
             return {
                 ...m,
@@ -247,6 +307,9 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 descriptions: m.descriptions || m.description || invItem?.description || '-',
                 currentStock: invItem ? (invItem.currentStock !== undefined ? invItem.currentStock : (invItem.quantity || 0)) : (m.quantity !== undefined ? m.quantity : (m.currentStock || 0)),
                 qcPendingStock: invItem ? invItem.qcPendingStock || 0 : 0,
+                wipStock,
+                shopfloorWip,
+                jobWorkWip,
                 reorderLevel: m.minimumStock !== undefined ? m.minimumStock : (invItem?.reorderLevel || 0),
                 unit: m.unit || (m.categoryId as any)?.unit || invItem?.unit || 'PCS',
                 hasSecondaryUnit: Boolean(m.hasSecondaryUnit || invItem?.hasSecondaryUnit),
@@ -271,7 +334,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 }
             };
         });
-    }, [effectiveBoList, inventoryLookups]);
+    }, [effectiveBoList, inventoryLookups, wipLookupMap]);
 
     // Map Consumable master data to inventory format (O(N) with Map lookup)
     const mappedConsumableInventory = useMemo(() => {
@@ -282,6 +345,11 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
             consumables.forEach((c: any) => {
                 if (!c) return;
                 const invItem = inventoryLookups.findItem(c);
+                const wip = findWipItem(c) || (invItem ? findWipItem(invItem) : undefined);
+                const wipStock = Number(wip?.pendingWipQty ?? 0);
+                const shopfloorWip = Number(wip?.shopfloorWipQty ?? 0);
+                const jobWorkWip = Number(wip?.jobWorkWipQty ?? 0);
+
                 const idKey = String(c._id);
                 seenIds.add(idKey);
                 if (invItem?._id) seenIds.add(String(invItem._id));
@@ -303,6 +371,9 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                     descriptions: c.descriptions || c.description || invItem?.description || '-',
                     currentStock,
                     qcPendingStock: qcPending,
+                    wipStock,
+                    shopfloorWip,
+                    jobWorkWip,
                     reorderLevel: c.minimumStock !== undefined ? c.minimumStock : (invItem?.reorderLevel || 0),
                     unit: c.unit || (c.categoryId as any)?.unit || invItem?.unit || 'PCS',
                     hasSecondaryUnit: Boolean(c.hasSecondaryUnit || invItem?.hasSecondaryUnit),
@@ -340,6 +411,12 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                     if (!seenIds.has(invId) && (!matId || !seenIds.has(matId))) {
                         seenIds.add(invId);
                         if (matId) seenIds.add(matId);
+
+                        const wip = findWipItem(inv);
+                        const wipStock = Number(wip?.pendingWipQty ?? 0);
+                        const shopfloorWip = Number(wip?.shopfloorWipQty ?? 0);
+                        const jobWorkWip = Number(wip?.jobWorkWipQty ?? 0);
+
                         list.push({
                             ...inv,
                             materialName: inv.materialName || inv.name,
@@ -349,6 +426,9 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                             descriptions: inv.descriptions || inv.description || '-',
                             currentStock: inv.currentStock !== undefined ? inv.currentStock : (inv.quantity || 0),
                             qcPendingStock: inv.qcPendingStock || 0,
+                            wipStock,
+                            shopfloorWip,
+                            jobWorkWip,
                             reorderLevel: inv.reorderLevel || 0,
                             unit: inv.unit || 'PCS',
                             category: inv.categoryId || inv.category,
@@ -368,7 +448,25 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         }
 
         return list;
-    }, [consumables, combinedInventoryList, inventoryLookups]);
+    }, [consumables, combinedInventoryList, inventoryLookups, wipLookupMap]);
+
+    // Map In-House / FG items with live WIP stock (O(N) with Map lookup)
+    const mappedInHouseComponents = useMemo(() => {
+        if (!Array.isArray(inHouseComponents)) return [];
+        return inHouseComponents.map((item: any) => {
+            const wip = findWipItem(item);
+            const wipStock = Number(wip?.pendingWipQty ?? 0);
+            const shopfloorWip = Number(wip?.shopfloorWipQty ?? 0);
+            const jobWorkWip = Number(wip?.jobWorkWipQty ?? 0);
+
+            return {
+                ...item,
+                wipStock,
+                shopfloorWip,
+                jobWorkWip,
+            };
+        });
+    }, [inHouseComponents, wipLookupMap]);
 
     // All store inventory materials across RM, BO, and Consumables for multi-category GRNs
     const allStoreMaterials = useMemo(() => {
@@ -479,7 +577,8 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
             ) : (
                     <InventoryTable
                         data={activeSubTab === 'consumable' ? mappedConsumableInventory : activeSubTab === 'rm' ? mappedRmInventory : activeSubTab === 'bo' ? mappedBoInventory : []}
-                        inHouseData={activeSubTab === 'inhouse' ? inHouseComponents : []}
+                        inHouseData={activeSubTab === 'inhouse' ? mappedInHouseComponents : []}
+                        wipLookupMap={wipLookupMap}
                         vendorPriceLists={vendorPriceLists}
                         priceLists={priceLists}
                         onEdit={handleMasterEdit}
@@ -491,7 +590,11 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                             setSelectedItem(item);
                             setShowDetails(true);
                         }}
-                        refetch={storeData.fetchData || refetch}
+                        refetch={() => {
+                            if (storeData.fetchData) storeData.fetchData();
+                            if (refetch) refetch();
+                            fetchWipData();
+                        }}
                         onCreateGRN={() => {
                             setEditingGRN(undefined);
                             setShowGRNModal(true);

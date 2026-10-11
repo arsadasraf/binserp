@@ -46,7 +46,7 @@ export default function Modal({
         "5xl": "max-w-5xl",
         "6xl": "max-w-6xl",
         "7xl": "max-w-7xl",
-        full: "max-w-full mx-4",
+        full: "max-w-[96vw] 2xl:max-w-[1720px] mx-auto",
     }[maxWidth];
 
     return (

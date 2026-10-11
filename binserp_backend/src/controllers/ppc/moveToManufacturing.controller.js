@@ -28,6 +28,13 @@ export const moveProductionToManufacturing = asyncHandler(async (req, res) => {
     return res.status(404).json(new ApiResponse(404, null, "Origin Order not found"));
   }
 
+  // Generate unique, clean MO Order Number upfront
+  const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const cleanRef = (sourceOrder.mrpNumber || sourceOrder.poReference || 'GEN')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .substring(0, 16);
+  const ppcOrderNumber = `MO-${cleanRef}-${randomSuffix}`;
+
   // 2. Build items array for the new Manufacturing Order based on selection
   const ppcItems = [];
 
@@ -37,12 +44,14 @@ export const moveProductionToManufacturing = asyncHandler(async (req, res) => {
     const pName = item.productName || item.materialName;
     const itemIdStr = item._id ? item._id.toString() : null;
 
-    // Match by subdocument itemId, productId, productName, or item index
+    // Match top-level item by subdocument itemId, productId, productName, or item index
     const moveReq = itemsToMove?.find(i => 
-      (itemIdStr && i.itemId && i.itemId.toString() === itemIdStr) ||
-      (pId && i.productId && i.productId.toString() === pId) ||
-      (i.productName && pName && i.productName.trim().toLowerCase() === pName.trim().toLowerCase()) ||
-      (i.itemIndex !== undefined && Number(i.itemIndex) === idx)
+      !i.isSubAssembly && (
+        (itemIdStr && i.itemId && i.itemId.toString() === itemIdStr) ||
+        (pId && i.productId && i.productId.toString() === pId) ||
+        (i.productName && pName && i.productName.trim().toLowerCase() === pName.trim().toLowerCase()) ||
+        (i.itemIndex !== undefined && Number(i.itemIndex) === idx)
+      )
     );
 
     const moveQty = moveReq ? Number(moveReq.quantity) : 0;
@@ -58,19 +67,65 @@ export const moveProductionToManufacturing = asyncHandler(async (req, res) => {
 
       // Update source item tracking
       item.movedQuantity = (Number(item.movedQuantity) || 0) + moveQty;
+      item.linkedMoNumber = ppcOrderNumber;
+      item.linkedMoId = null; // Will link after MO save
+      item.moStatus = (item.movedQuantity || 0) >= item.quantity ? "MO Created" : "Partially Created";
+    }
+
+    // Check nested materials if a sub-assembly was selected for MO creation
+    if (Array.isArray(item.nestedMaterials)) {
+      for (const nested of item.nestedMaterials) {
+        const nName = (nested.materialName || nested.itemName || "").trim().toLowerCase();
+        const nestedReq = itemsToMove?.find(i => 
+          (i.isSubAssembly || i.itemType === "SubAssembly" || i.itemType === "Component") &&
+          i.productName && i.productName.trim().toLowerCase() === nName
+        );
+
+        if (nestedReq && Number(nestedReq.quantity) > 0) {
+          const subQty = Number(nestedReq.quantity);
+          ppcItems.push({
+            productName: nested.materialName || nested.itemName,
+            productCode: nested.materialCode || "",
+            itemType: nested.itemType || "SubAssembly",
+            description: nested.description || "",
+            unit: nested.unit || "PCS",
+            quantity: subQty,
+            trackingType: nestedReq.trackingType || "Individual",
+            jobs: []
+          });
+
+          nested.movedQuantity = (Number(nested.movedQuantity) || 0) + subQty;
+          nested.linkedMoNumber = ppcOrderNumber;
+          nested.moStatus = (nested.movedQuantity || 0) >= (Number(nested.totalRequired) || subQty) ? "MO Created" : "Partially Created";
+        }
+      }
+    }
+  }
+
+  // Also handle any directly provided itemsToMove marked as subassemblies
+  if (Array.isArray(itemsToMove)) {
+    for (const directItem of itemsToMove) {
+      if (directItem.isSubAssembly && !ppcItems.some(p => p.productName?.toLowerCase() === directItem.productName?.toLowerCase())) {
+        const directQty = Number(directItem.quantity) || 0;
+        if (directQty > 0) {
+          ppcItems.push({
+            productName: directItem.productName,
+            productCode: directItem.productCode || "",
+            itemType: directItem.itemType || "SubAssembly",
+            description: directItem.description || "",
+            unit: directItem.unit || "PCS",
+            quantity: directQty,
+            trackingType: directItem.trackingType || "Individual",
+            jobs: []
+          });
+        }
+      }
     }
   }
 
   if (ppcItems.length === 0) {
     return res.status(400).json(new ApiResponse(400, null, "No quantities selected to move."));
   }
-
-  // 3. Generate unique, clean MO Order Number
-  const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
-  const cleanRef = (sourceOrder.mrpNumber || sourceOrder.poReference || 'GEN')
-    .replace(/[^a-zA-Z0-9_-]/g, '')
-    .substring(0, 16);
-  const ppcOrderNumber = `MO-${cleanRef}-${randomSuffix}`;
 
   // 4. Create dedicated Manufacturing Order with end-to-end traceability
   const ppcOrder = new PPCOrder({
@@ -92,22 +147,10 @@ export const moveProductionToManufacturing = asyncHandler(async (req, res) => {
 
   await ppcOrder.save();
 
-  // 5. Update source items with linked MO Number and status
+  // Link ppcOrder._id back to source items
   for (const item of sourceOrder.items) {
-    const pId = item.product?._id ? item.product._id.toString() : (item.product ? item.product.toString() : null);
-    const pName = item.productName || item.materialName;
-    const itemIdStr = item._id ? item._id.toString() : null;
-
-    const moveReq = itemsToMove?.find(i => 
-      (itemIdStr && i.itemId && i.itemId.toString() === itemIdStr) ||
-      (pId && i.productId && i.productId.toString() === pId) ||
-      (i.productName && pName && i.productName.trim().toLowerCase() === pName.trim().toLowerCase())
-    );
-
-    if (moveReq && Number(moveReq.quantity) > 0) {
-      item.linkedMoNumber = ppcOrderNumber;
+    if (item.linkedMoNumber === ppcOrderNumber) {
       item.linkedMoId = ppcOrder._id;
-      item.moStatus = (item.movedQuantity || 0) >= item.quantity ? "MO Created" : "Partially Created";
     }
   }
 
@@ -119,6 +162,7 @@ export const moveProductionToManufacturing = asyncHandler(async (req, res) => {
     sourceOrder.status = "InProgress";
   }
 
+  sourceOrder.markModified('items');
   await sourceOrder.save();
 
   return res.status(201).json({

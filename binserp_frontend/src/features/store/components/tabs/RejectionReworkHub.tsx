@@ -32,7 +32,7 @@ type JwTypeFilter = 'all' | 'store-to-wip' | 'wip-to-wip' | 'store-conversion';
 type DateFilterMode = 'all' | 'daily' | 'monthly';
 
 export default function RejectionReworkHub({ context = 'quality' }: RejectionReworkHubProps) {
-  const [showDashboard, setShowDashboard] = useState<boolean>(true);
+  const [showDashboard, setShowDashboard] = useState<boolean>(false);
   const initialQcType: QCTypeFilter = context === 'store' ? 'IncomingQC' : (context === 'wip-jobwork' ? 'JobWorkQC' : 'all');
   const [activeQcType, setActiveQcType] = useState<QCTypeFilter>(initialQcType);
   const [storeCategory, setStoreCategory] = useState<StoreCategoryFilter>('all');

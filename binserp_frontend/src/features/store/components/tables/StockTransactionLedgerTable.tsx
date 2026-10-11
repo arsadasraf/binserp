@@ -78,7 +78,7 @@ const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
 type DateFilterMode = "preset" | "day" | "month" | "range";
 
 export default function StockTransactionLedgerTable({ token }: StockTransactionLedgerTableProps) {
-  const [showDashboard, setShowDashboard] = useState<boolean>(true);
+  const [showDashboard, setShowDashboard] = useState<boolean>(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);

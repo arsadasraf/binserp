@@ -19,6 +19,7 @@ import StoreCreateOrderModal from "../modals/StoreCreateOrderModal";
 import StoreOrderDetailModal from "../modals/StoreOrderDetailModal";
 import SearchableMultiSelect from "../SearchableMultiSelect";
 import { isSpaceFreeMatch } from "@/src/utils/spaceFreeSearchHelper";
+import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from "@/src/features/store/utils/storeDialogHelper";
 
 interface jsPDFWithPlugin extends jsPDF {
   autoTable: (options: UserOptions) => jsPDF;
@@ -61,7 +62,7 @@ export default function StoreOrdersTab() {
   };
 
   const handleSuccess = (msg: string) => {
-    alert(msg); // Or use a proper toast/alert system
+    showSuccessToast(msg);
     setRefreshKey(prev => prev + 1);
   };
 
@@ -241,39 +242,46 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
     try {
       setIsPlanning(true);
       await planSalesOrder({ id, planDetails }).unwrap();
-      alert("Order successfully planned!");
+      showSuccessToast("Order successfully planned!");
       setShowPlanModal(false);
       setOrderToPlan(null);
       refetch();
     } catch (error: any) {
       console.error("Plan order error:", error);
-      alert(error?.data?.message || "Failed to plan order.");
+      await showErrorDialog("Planning Failed", error?.data?.message || "Failed to plan order.");
     } finally {
       setIsPlanning(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this order?")) return;
+    const confirmed = await showDestructiveConfirm({
+      title: "Delete Order",
+      text: "Are you sure you want to delete this order? This action cannot be undone.",
+      confirmButtonText: "Yes, Delete"
+    });
+    if (!confirmed) return;
     try {
       await deleteOrder({ tab: 'order', id }).unwrap();
+      showSuccessToast("Order deleted successfully");
     } catch (error: any) {
       console.log("Delete error details:", error);
       const errorMessage = error?.data?.message || error?.error || error?.message || "An unexpected error occurred while deleting the order.";
-      alert(errorMessage);
+      await showErrorDialog("Delete Failed", errorMessage);
     }
   };
 
   const handleStatusUpdate = async (orderId: string, newStatus: string) => {
     try {
       await updateStatus({ tab: 'order', id: orderId, body: { status: newStatus } }).unwrap();
+      showSuccessToast("Order status updated successfully");
       if (selectedOrder && selectedOrder._id === orderId) {
         setSelectedOrder({ ...selectedOrder, status: newStatus });
       }
     } catch (error: any) {
       console.log("Status update error details:", error);
       const errorMessage = error?.data?.message || error?.error || error?.message || "Failed to update order status.";
-      alert(errorMessage);
+      await showErrorDialog("Update Failed", errorMessage);
     }
   };
 

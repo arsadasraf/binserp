@@ -4,6 +4,7 @@ import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
 import { validateMasterUniqueness, formatDuplicateKeyError, isPlaceholderCode } from "../../utils/duplicateValidator.helper.js";
 import { checkItemHasTransactions, checkItemStockForDeactivation } from "../../utils/itemLifecycleValidator.helper.js";
+import { resolveBackendUomRatios } from "../../utils/dualUomHelper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -24,7 +25,7 @@ export const createRawMaterial = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    let { name, code, descriptions, minimumStock, categoryId, locationId, unit, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor } = req.body;
+    let { name, code, descriptions, minimumStock, categoryId, locationId, unit, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor, primaryRatio, secondaryRatio } = req.body;
 
     if (!name || !name.toString().trim()) {
       return res.status(400).json({ message: "Raw Material Name is required" });
@@ -32,9 +33,12 @@ export const createRawMaterial = async (req, res) => {
     const cleanName = name.toString().trim();
     const itemUnit = (unit && unit.toString().trim()) || 'KG';
     const itemHsn = (hsnCode || '').toString().trim();
-    const isDualUnit = String(hasSecondaryUnit) === 'true' || hasSecondaryUnit === true;
-    const cleanSecondaryUnit = isDualUnit ? (secondaryUnit || '').toString().trim() : '';
-    const cleanConversionFactor = isDualUnit && Number(conversionFactor) > 0 ? Number(conversionFactor) : 1;
+    const uomRatios = resolveBackendUomRatios({ hasSecondaryUnit, secondaryUnit, conversionFactor, primaryRatio, secondaryRatio });
+    const isDualUnit = uomRatios.hasSecondaryUnit;
+    const cleanSecondaryUnit = uomRatios.secondaryUnit;
+    const cleanConversionFactor = uomRatios.conversionFactor;
+    const cleanPrimaryRatio = uomRatios.primaryRatio;
+    const cleanSecondaryRatio = uomRatios.secondaryRatio;
 
     // Pre-validate uniqueness
     const uniqueness = await validateMasterUniqueness({
@@ -163,6 +167,8 @@ export const createRawMaterial = async (req, res) => {
       hasSecondaryUnit: isDualUnit,
       secondaryUnit: cleanSecondaryUnit,
       conversionFactor: cleanConversionFactor,
+      primaryRatio: cleanPrimaryRatio,
+      secondaryRatio: cleanSecondaryRatio,
       hsnCode: itemHsn,
       ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
       ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
@@ -188,6 +194,8 @@ export const createRawMaterial = async (req, res) => {
             hasSecondaryUnit: isDualUnit,
             secondaryUnit: cleanSecondaryUnit,
             conversionFactor: cleanConversionFactor,
+            primaryRatio: cleanPrimaryRatio,
+            secondaryRatio: cleanSecondaryRatio,
             hsnCode: itemHsn,
             ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
             ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
@@ -218,6 +226,8 @@ export const createRawMaterial = async (req, res) => {
             hasSecondaryUnit: isDualUnit,
             secondaryUnit: cleanSecondaryUnit,
             conversionFactor: cleanConversionFactor,
+            primaryRatio: cleanPrimaryRatio,
+            secondaryRatio: cleanSecondaryRatio,
             currentStock: 0,
             reorderLevel: Number(minimumStock || 0),
             reorderQuantity: 0,
@@ -434,24 +444,38 @@ export const updateRawMaterial = async (req, res) => {
       req.body.unit = req.body.unit.toString().trim();
     }
 
-    if (req.body.hasSecondaryUnit !== undefined) {
-      req.body.hasSecondaryUnit = String(req.body.hasSecondaryUnit) === 'true' || req.body.hasSecondaryUnit === true;
-      if (!req.body.hasSecondaryUnit) {
-        req.body.secondaryUnit = '';
-        req.body.conversionFactor = 1;
-      } else {
-        req.body.secondaryUnit = (req.body.secondaryUnit || '').toString().trim();
-        req.body.conversionFactor = Number(req.body.conversionFactor) > 0 ? Number(req.body.conversionFactor) : 1;
-      }
+    const currentDoc = await RawMaterial.findOne({ _id: id, company: companyId }).lean()
+      || await RmBoItem.findOne({ _id: id, company: companyId }).lean();
+
+    const isDualUomUpdate = (
+      req.body.hasSecondaryUnit !== undefined ||
+      req.body.conversionFactor !== undefined ||
+      req.body.primaryRatio !== undefined ||
+      req.body.secondaryRatio !== undefined ||
+      req.body.secondaryUnit !== undefined
+    );
+
+    if (isDualUomUpdate) {
+      const mergedUomItem = {
+        hasSecondaryUnit: req.body.hasSecondaryUnit !== undefined ? req.body.hasSecondaryUnit : currentDoc?.hasSecondaryUnit,
+        secondaryUnit: req.body.secondaryUnit !== undefined ? req.body.secondaryUnit : currentDoc?.secondaryUnit,
+        conversionFactor: req.body.conversionFactor !== undefined ? req.body.conversionFactor : currentDoc?.conversionFactor,
+        primaryRatio: req.body.primaryRatio !== undefined ? req.body.primaryRatio : currentDoc?.primaryRatio,
+        secondaryRatio: req.body.secondaryRatio !== undefined ? req.body.secondaryRatio : currentDoc?.secondaryRatio,
+        unit: req.body.unit !== undefined ? req.body.unit : currentDoc?.unit,
+      };
+      const uomRatios = resolveBackendUomRatios(mergedUomItem);
+      req.body.hasSecondaryUnit = uomRatios.hasSecondaryUnit;
+      req.body.secondaryUnit = uomRatios.secondaryUnit;
+      req.body.conversionFactor = uomRatios.conversionFactor;
+      req.body.primaryRatio = uomRatios.primaryRatio;
+      req.body.secondaryRatio = uomRatios.secondaryRatio;
     }
 
     // Sanitize code: If code is a placeholder (e.g. "-", "N/A"), strip it so it doesn't overwrite
     if (req.body.code && isPlaceholderCode(req.body.code)) {
       delete req.body.code;
     }
-
-    const currentDoc = await RawMaterial.findOne({ _id: id, company: companyId }).lean()
-      || await RmBoItem.findOne({ _id: id, company: companyId }).lean();
 
     // If existing item currently has a placeholder code (like "-"), upgrade it to a valid unique code
     if (currentDoc && isPlaceholderCode(currentDoc.code)) {
@@ -476,8 +500,6 @@ export const updateRawMaterial = async (req, res) => {
     // Lifecycle check: if deactivating/inactivating
     const isDeactivating = req.body.status === 'Inactive' || req.body.status === 'Deactivated' || req.body.isActive === false;
     if (isDeactivating) {
-      const currentDoc = await RawMaterial.findOne({ _id: id, company: companyId }).lean()
-        || await RmBoItem.findOne({ _id: id, company: companyId }).lean();
       const checkResult = await checkItemStockForDeactivation({
         req,
         companyId,
@@ -527,13 +549,31 @@ export const updateRawMaterial = async (req, res) => {
       if (req.body.unit) invUpdates.unit = req.body.unit.toString().trim();
       if (req.body.name) invUpdates.materialName = req.body.name.toString().trim();
       if (req.body.minimumStock !== undefined) invUpdates.reorderLevel = Number(req.body.minimumStock);
-      if (req.body.hasSecondaryUnit !== undefined) invUpdates.hasSecondaryUnit = req.body.hasSecondaryUnit;
-      if (req.body.secondaryUnit !== undefined) invUpdates.secondaryUnit = req.body.secondaryUnit;
-      if (req.body.conversionFactor !== undefined) invUpdates.conversionFactor = req.body.conversionFactor;
+      if (isDualUomUpdate || req.body.hasSecondaryUnit !== undefined) {
+        invUpdates.hasSecondaryUnit = rawMaterial.hasSecondaryUnit;
+        invUpdates.secondaryUnit = rawMaterial.secondaryUnit;
+        invUpdates.conversionFactor = rawMaterial.conversionFactor;
+        invUpdates.primaryRatio = rawMaterial.primaryRatio;
+        invUpdates.secondaryRatio = rawMaterial.secondaryRatio;
+      }
 
       if (Object.keys(invUpdates).length > 0) {
+        const idMatches = [{ materialId: id }];
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          idMatches.push({ materialId: new mongoose.Types.ObjectId(id) });
+        }
+        if (rawMaterial.code) {
+          idMatches.push({ materialCode: rawMaterial.code });
+        }
+        if (rawMaterial.name) {
+          idMatches.push({ materialName: rawMaterial.name });
+        }
+        if (currentDoc?.name && currentDoc.name !== rawMaterial.name) {
+          idMatches.push({ materialName: currentDoc.name });
+        }
+
         await Inventory.updateMany(
-          { company: companyId, $or: [{ materialId: id }, { materialCode: rawMaterial.code }] },
+          { company: companyId, $or: idMatches },
           { $set: invUpdates }
         );
       }
@@ -541,8 +581,8 @@ export const updateRawMaterial = async (req, res) => {
       console.warn("Inventory sync error on updateRawMaterial:", invErr.message);
     }
 
-    // Auto-propagate UOM & Name changes to BOMs and open Material Requests
-    if (req.body.unit || req.body.name) {
+    // Auto-propagate UOM, Conversion & Name changes to BOMs and open Material Requests
+    if (req.body.unit || req.body.name || isDualUomUpdate) {
       try {
         const FGItem = req.getModel('FGItem', fgItemSchema);
         const BOM = req.getModel('BOM', bomSchema);
@@ -550,17 +590,21 @@ export const updateRawMaterial = async (req, res) => {
 
         const newUnit = req.body.unit;
         const newName = req.body.name;
-        const hasSec = req.body.hasSecondaryUnit ?? rawMaterial.hasSecondaryUnit;
-        const secUnit = req.body.secondaryUnit ?? rawMaterial.secondaryUnit;
-        const cf = req.body.conversionFactor ?? rawMaterial.conversionFactor;
+        const hasSec = rawMaterial.hasSecondaryUnit;
+        const secUnit = rawMaterial.secondaryUnit;
+        const cf = rawMaterial.conversionFactor;
+        const pRatio = rawMaterial.primaryRatio ?? 1;
+        const sRatio = rawMaterial.secondaryRatio ?? 1;
 
         // 1. FG Item embedded BOMs
         const fgSet = {};
-        if (newUnit) {
-          fgSet["bom.$[elem].unit"] = newUnit;
+        if (newUnit) fgSet["bom.$[elem].unit"] = newUnit;
+        if (isDualUomUpdate || newUnit) {
           fgSet["bom.$[elem].hasSecondaryUnit"] = hasSec;
           fgSet["bom.$[elem].secondaryUnit"] = secUnit || "";
           fgSet["bom.$[elem].conversionFactor"] = cf || 1;
+          fgSet["bom.$[elem].primaryRatio"] = pRatio;
+          fgSet["bom.$[elem].secondaryRatio"] = sRatio;
         }
         if (newName) fgSet["bom.$[elem].itemName"] = newName;
         await FGItem.updateMany(
@@ -571,37 +615,45 @@ export const updateRawMaterial = async (req, res) => {
 
         // 2. Standalone BOMs
         const bomSet = {};
-        if (newUnit) {
-          bomSet["items.$[elem].unit"] = newUnit;
+        if (newUnit) bomSet["items.$[elem].unit"] = newUnit;
+        if (isDualUomUpdate || newUnit) {
           bomSet["items.$[elem].hasSecondaryUnit"] = hasSec;
           bomSet["items.$[elem].secondaryUnit"] = secUnit || "";
           bomSet["items.$[elem].conversionFactor"] = cf || 1;
+          bomSet["items.$[elem].primaryRatio"] = pRatio;
+          bomSet["items.$[elem].secondaryRatio"] = sRatio;
         }
         if (newName) bomSet["items.$[elem].materialName"] = newName;
-        await BOM.updateMany(
-          { company: companyId, $or: [{ "items.material": id }, { "items.materialCode": rawMaterial.code }] },
-          { $set: bomSet },
-          { arrayFilters: [{ $or: [{ "elem.material": id }, { "elem.materialCode": rawMaterial.code }] }] }
-        ).catch(() => {});
+        if (Object.keys(bomSet).length > 0) {
+          await BOM.updateMany(
+            { company: companyId, $or: [{ "items.material": id }, { "items.materialCode": rawMaterial.code }] },
+            { $set: bomSet },
+            { arrayFilters: [{ $or: [{ "elem.material": id }, { "elem.materialCode": rawMaterial.code }] }] }
+          ).catch(() => {});
+        }
 
         // 3. Open Material Requests
         const mrSet = {};
-        if (newUnit) {
-          mrSet["items.$[elem].unit"] = newUnit;
+        if (newUnit) mrSet["items.$[elem].unit"] = newUnit;
+        if (isDualUomUpdate || newUnit) {
           mrSet["items.$[elem].hasSecondaryUnit"] = hasSec;
           mrSet["items.$[elem].secondaryUnit"] = secUnit || "";
           mrSet["items.$[elem].conversionFactor"] = cf || 1;
+          mrSet["items.$[elem].primaryRatio"] = pRatio;
+          mrSet["items.$[elem].secondaryRatio"] = sRatio;
         }
         if (newName) mrSet["items.$[elem].materialName"] = newName;
-        await MaterialRequest.updateMany(
-          {
-            company: companyId,
-            status: { $in: ["Pending", "Approved", "Partially Issued"] },
-            $or: [{ "items.material": id }, { "items.materialCode": rawMaterial.code }]
-          },
-          { $set: mrSet },
-          { arrayFilters: [{ $or: [{ "elem.material": id }, { "elem.materialCode": rawMaterial.code }] }] }
-        ).catch(() => {});
+        if (Object.keys(mrSet).length > 0) {
+          await MaterialRequest.updateMany(
+            {
+              company: companyId,
+              status: { $in: ["Pending", "Approved", "Partially Issued"] },
+              $or: [{ "items.material": id }, { "items.materialCode": rawMaterial.code }]
+            },
+            { $set: mrSet },
+            { arrayFilters: [{ $or: [{ "elem.material": id }, { "elem.materialCode": rawMaterial.code }] }] }
+          ).catch(() => {});
+        }
       } catch (propErr) {
         console.warn("BOM/MaterialRequest propagation error:", propErr.message);
       }

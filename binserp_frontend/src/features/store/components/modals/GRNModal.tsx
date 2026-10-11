@@ -27,12 +27,14 @@ import {
     Package,
     ListFilter,
     Search,
-    Check
+    Check,
+    ChevronDown
 } from 'lucide-react';
 import { GRNModalProps } from "@/src/features/store/types/store.types";
 import SearchableSelect from '../SearchableSelect';
 import { computeProfessionalTotalWithRoundOff, RoundingMode } from '@/src/utils/roundingHelper';
 import QuickItemMasterModal from './QuickItemMasterModal';
+import { showWarningToast } from '@/src/features/store/utils/storeDialogHelper';
 import { apiGet } from '@/src/lib/api';
 import { compressImageToFile } from '@/src/utils/imageCompressor';
 import { generateFrontendGrnPDF } from '@/src/utils/frontendPdfHelper';
@@ -51,6 +53,8 @@ interface MaterialEntry {
     locationId?: string;
     rate?: number;
     amount?: number;
+    taxRate?: number;
+    taxAmount?: number;
     hasSecondaryUnit?: boolean;
     secondaryUnit?: string;
     conversionFactor?: number;
@@ -117,9 +121,11 @@ export default function GRNModal({
     // Global Tax Rate (GST) state for RM, BO, Consumables
     const [globalTaxRate, setGlobalTaxRate] = useState<number>(0);
 
-    // Additional receipt charges (Transportation & Packing)
+    // Additional receipt charges (Transportation & Packing) & their taxable state
     const [transportationCharges, setTransportationCharges] = useState<number>(0);
+    const [isTransportationTaxable, setIsTransportationTaxable] = useState<boolean>(false);
     const [packingCharges, setPackingCharges] = useState<number>(0);
+    const [isPackingTaxable, setIsPackingTaxable] = useState<boolean>(false);
     const [isRoundOffEnabled, setIsRoundOffEnabled] = useState<boolean>(true);
     const [roundingMode, setRoundingMode] = useState<RoundingMode>('nearest');
 
@@ -295,9 +301,12 @@ export default function GRNModal({
                 setIsMrpRequired(!!(initialData as any).mrpPlan);
                 setExistingPhotos((initialData as any).photos || []);
                 setQcRequired((initialData as any).qcRequired || false);
-                setGlobalTaxRate(Number((initialData as any).taxRate) || 0);
+                const headerTax = Number((initialData as any).taxRate) || 0;
+                setGlobalTaxRate(headerTax);
                 setTransportationCharges(Number((initialData as any).transportationCharges) || 0);
+                setIsTransportationTaxable(Boolean((initialData as any).isTransportationTaxable));
                 setPackingCharges(Number((initialData as any).packingCharges) || 0);
+                setIsPackingTaxable(Boolean((initialData as any).isPackingTaxable));
                 if ((initialData as any).isRoundOff !== undefined) {
                     setIsRoundOffEnabled(Boolean((initialData as any).isRoundOff));
                 }
@@ -328,6 +337,11 @@ export default function GRNModal({
                         const rateUnit = isSec ? 'secondary' : 'primary';
                         const activeSelectedUnit = isSec ? secUnit : (item.selectedUnit || item.unit || '');
                         const itemRate = Number(item.rate || 0);
+                        const itemTaxRate = (item.taxRate !== undefined && item.taxRate !== null && !isNaN(Number(item.taxRate)))
+                            ? Number(item.taxRate)
+                            : headerTax;
+                        const itemAmountVal = item.amount || Number(((isSec ? secQty : priQty) * itemRate).toFixed(2));
+                        const itemTaxAmount = Number(item.taxAmount !== undefined && item.taxAmount !== null ? item.taxAmount : ((itemAmountVal * itemTaxRate) / 100).toFixed(2));
 
                         return {
                             material: matId,
@@ -339,7 +353,9 @@ export default function GRNModal({
                             category: item.category || '',
                             locationId: item.locationId?._id || item.locationId || item.location?._id || item.location || '',
                             rate: itemRate,
-                            amount: item.amount || 0,
+                            amount: itemAmountVal,
+                            taxRate: itemTaxRate,
+                            taxAmount: itemTaxAmount,
                             hasSecondaryUnit: hasSec,
                             secondaryUnit: secUnit,
                             conversionFactor: convFactor,
@@ -374,7 +390,9 @@ export default function GRNModal({
                 setQcRequired(false);
                 setGlobalTaxRate(0);
                 setTransportationCharges(0);
+                setIsTransportationTaxable(false);
                 setPackingCharges(0);
+                setIsPackingTaxable(false);
                 setPdfFile(null);
                 setPhotoFiles([]);
                 setExistingPhotos([]);
@@ -390,6 +408,9 @@ export default function GRNModal({
                     category: '',
                     locationId: '',
                     rate: 0,
+                    amount: 0,
+                    taxRate: 0,
+                    taxAmount: 0,
                     hasSecondaryUnit: false,
                     secondaryUnit: '',
                     conversionFactor: 0,
@@ -610,6 +631,12 @@ export default function GRNModal({
             isPoSec && poItem.secondaryRate !== undefined && Number(poItem.secondaryRate) > 0 ? poItem.secondaryRate :
             (poItem.rate ?? poItem.unitPrice ?? poItem.price ?? foundPO.rate ?? matchedSafeMat?.rate ?? 0)
         );
+        const lineTaxRate = (poItem.taxRate !== undefined && poItem.taxRate !== null && !isNaN(Number(poItem.taxRate)))
+            ? Number(poItem.taxRate)
+            : (foundPO.taxRate !== undefined && foundPO.taxRate !== null && !isNaN(Number(foundPO.taxRate)) ? Number(foundPO.taxRate) : globalTaxRate);
+        const billingQty = isPoSec ? finalSecQty : finalPriQty;
+        const lineAmount = Number((billingQty * activeRate).toFixed(2));
+        const lineTaxAmount = Number(((lineAmount * lineTaxRate) / 100).toFixed(2));
 
         return {
             material: matId,
@@ -621,6 +648,9 @@ export default function GRNModal({
             category: category || '',
             locationId: locationId || '',
             rate: activeRate,
+            amount: lineAmount,
+            taxRate: lineTaxRate,
+            taxAmount: lineTaxAmount,
             rateUnit: isPoSec ? 'secondary' : 'primary',
             primaryRate: isPoSec && convFactor ? parseFloat((activeRate * convFactor).toFixed(3)) : (poItem.primaryRate || activeRate),
             secondaryRate: !isPoSec && convFactor ? parseFloat((activeRate / convFactor).toFixed(3)) : (poItem.secondaryRate || activeRate),
@@ -674,7 +704,7 @@ export default function GRNModal({
         });
 
         if (selectedEntries.length === 0) {
-            alert("Please select at least one item from the PO to import.");
+            showWarningToast("Please select at least one item from the PO to import.");
             return;
         }
 
@@ -856,6 +886,8 @@ export default function GRNModal({
             locationId: '',
             rate: 0,
             amount: 0,
+            taxRate: globalTaxRate,
+            taxAmount: 0,
             hasSecondaryUnit: false,
             secondaryUnit: '',
             conversionFactor: 0,
@@ -923,6 +955,8 @@ export default function GRNModal({
             current.secondaryRate = pricing.secondaryRate;
             current.rate = pricing.rate;
             current.amount = pricing.amount;
+            const lineTaxRate = current.taxRate !== undefined && current.taxRate !== null ? current.taxRate : globalTaxRate;
+            current.taxAmount = Number(((pricing.amount * lineTaxRate) / 100).toFixed(2));
 
             updated[index] = current;
             return updated;
@@ -967,6 +1001,8 @@ export default function GRNModal({
             current.secondaryRate = pricing.secondaryRate;
             current.rate = pricing.rate;
             current.amount = pricing.amount;
+            const lineTaxRate = current.taxRate !== undefined && current.taxRate !== null ? current.taxRate : globalTaxRate;
+            current.taxAmount = Number(((pricing.amount * lineTaxRate) / 100).toFixed(2));
 
             updated[index] = current;
             return updated;
@@ -1002,9 +1038,33 @@ export default function GRNModal({
             });
 
             current.amount = pricing.amount;
+            const lineTaxRate = current.taxRate !== undefined && current.taxRate !== null ? current.taxRate : globalTaxRate;
+            current.taxAmount = Number(((pricing.amount * lineTaxRate) / 100).toFixed(2));
             updated[index] = current;
             return updated;
         });
+    };
+
+    const isCommercialGRN = grnType !== 'inhouse' && grnType !== 'fg';
+
+    // Helper to calculate row total based on active selected unit
+    const getItemRowTotal = (entry: MaterialEntry) => {
+        if (entry.amount !== undefined && entry.amount !== null && !isNaN(entry.amount) && entry.amount > 0) {
+            return entry.amount;
+        }
+        const isSec = Boolean(entry.hasSecondaryUnit && (entry.rateUnit === 'secondary' || entry.selectedUnit === entry.secondaryUnit));
+        const billingQty = isSec ? (Number(entry.secondaryQuantity) || 0) : (Number(entry.quantity) || 0);
+        return Number((billingQty * (Number(entry.rate) || 0)).toFixed(2));
+    };
+
+    // Helper to calculate row tax
+    const getItemRowTax = (entry: MaterialEntry) => {
+        if (!isCommercialGRN) return 0;
+        const rowTotal = getItemRowTotal(entry);
+        const lineTaxRate = entry.taxRate !== undefined && entry.taxRate !== null && !isNaN(Number(entry.taxRate))
+            ? Number(entry.taxRate)
+            : Number(globalTaxRate) || 0;
+        return Number(((rowTotal * lineTaxRate) / 100).toFixed(2));
     };
 
     const handleMaterialChange = (index: number, field: keyof MaterialEntry, value: any) => {
@@ -1071,6 +1131,8 @@ export default function GRNModal({
                         rate: curRate,
                     });
                     updated[index].amount = pricing.amount;
+                    const lineTaxRate = updated[index].taxRate !== undefined && updated[index].taxRate !== null ? updated[index].taxRate : globalTaxRate;
+                    updated[index].taxAmount = Number(((pricing.amount * lineTaxRate) / 100).toFixed(2));
 
                     // If creating new GRN and choosing first item, auto-align type with itemType if mismatched
                     if (!isEditing && prev.length === 1) {
@@ -1102,6 +1164,8 @@ export default function GRNModal({
                     rate: updated[index].rate || 0,
                 });
                 updated[index].amount = pricing.amount;
+                const lineTaxRate = updated[index].taxRate !== undefined && updated[index].taxRate !== null ? updated[index].taxRate : globalTaxRate;
+                updated[index].taxAmount = Number(((pricing.amount * lineTaxRate) / 100).toFixed(2));
             } else if (field === 'secondaryQuantity') {
                 const sVal = Number(value) || 0;
                 const convFactor = Number(updated[index].conversionFactor) || 1;
@@ -1122,6 +1186,8 @@ export default function GRNModal({
                     rate: updated[index].rate || 0,
                 });
                 updated[index].amount = pricing.amount;
+                const lineTaxRate = updated[index].taxRate !== undefined && updated[index].taxRate !== null ? updated[index].taxRate : globalTaxRate;
+                updated[index].taxAmount = Number(((pricing.amount * lineTaxRate) / 100).toFixed(2));
             } else if (field === 'rate') {
                 const rVal = Math.max(0, Number(value) || 0);
                 const convFactor = Number(updated[index].conversionFactor) || 1;
@@ -1146,6 +1212,8 @@ export default function GRNModal({
                     rate: rVal,
                 });
                 updated[index].amount = pricing.amount;
+                const lineTaxRate = updated[index].taxRate !== undefined && updated[index].taxRate !== null ? updated[index].taxRate : globalTaxRate;
+                updated[index].taxAmount = Number(((pricing.amount * lineTaxRate) / 100).toFixed(2));
             } else if (field === 'selectedUnit') {
                 const hasSec = Boolean(updated[index].hasSecondaryUnit && updated[index].secondaryUnit);
                 const isSec = hasSec && value === updated[index].secondaryUnit;
@@ -1173,10 +1241,31 @@ export default function GRNModal({
                 updated[index].primaryRate = pricing.primaryRate;
                 updated[index].secondaryRate = pricing.secondaryRate;
                 updated[index].amount = pricing.amount;
+                const lineTaxRate = updated[index].taxRate !== undefined && updated[index].taxRate !== null ? updated[index].taxRate : globalTaxRate;
+                updated[index].taxAmount = Number(((pricing.amount * lineTaxRate) / 100).toFixed(2));
+            } else if (field === 'taxRate') {
+                const tVal = Math.max(0, Number(value) || 0);
+                updated[index].taxRate = tVal;
+                const lineAmt = updated[index].amount !== undefined && updated[index].amount !== null ? updated[index].amount : getItemRowTotal(updated[index]);
+                updated[index].taxAmount = Number(((lineAmt * tVal) / 100).toFixed(2));
             }
 
             return updated;
         });
+    };
+
+    // Synchronize global tax rate to all line items by default while preserving individual line override ability
+    const handleGlobalTaxRateChange = (newRate: number) => {
+        const parsedRate = isNaN(newRate) ? 0 : Math.max(0, Math.min(100, newRate));
+        setGlobalTaxRate(parsedRate);
+        setMaterialEntries(prev => prev.map(entry => {
+            const lineAmt = getItemRowTotal(entry);
+            return {
+                ...entry,
+                taxRate: parsedRate,
+                taxAmount: Number(((lineAmt * parsedRate) / 100).toFixed(2))
+            };
+        }));
     };
 
     // Client-Side Photo & Document Compression Handlers
@@ -1259,6 +1348,8 @@ export default function GRNModal({
 
         setFormErrors({});
 
+        const taxRateToSave = isCommercialGRN ? Number(globalTaxRate) || 0 : 0;
+
         const items = materialEntries.map(entry => {
             let matId = entry.material;
             // If matId is empty, try to resolve from safeMaterials by name
@@ -1302,6 +1393,14 @@ export default function GRNModal({
                 locationId: entry.locationId || undefined,
                 rate: itemRate,
                 amount: itemAmount,
+                taxRate: isCommercialGRN
+                    ? (entry.taxRate !== undefined && entry.taxRate !== null && !isNaN(Number(entry.taxRate)) ? Number(entry.taxRate) : taxRateToSave)
+                    : 0,
+                taxAmount: isCommercialGRN
+                    ? (entry.taxAmount !== undefined && entry.taxAmount !== null && !isNaN(Number(entry.taxAmount))
+                        ? Number(entry.taxAmount)
+                        : Number(((itemAmount * (entry.taxRate !== undefined && entry.taxRate !== null && !isNaN(Number(entry.taxRate)) ? Number(entry.taxRate) : taxRateToSave)) / 100).toFixed(2)))
+                    : 0,
             };
         });
 
@@ -1312,16 +1411,23 @@ export default function GRNModal({
         formData.append('qcRequired', String(qcRequired));
         formData.append('items', JSON.stringify(items));
 
-        const isCommercialGRN = grnType !== 'inhouse' && grnType !== 'fg';
         const subtotalCalc = items.reduce((sum, it) => sum + (it.amount || 0), 0);
-        const taxRateToSave = isCommercialGRN ? Number(globalTaxRate) || 0 : 0;
-        const taxAmountCalc = (subtotalCalc * taxRateToSave) / 100;
         const transportCalc = Math.max(0, Number(transportationCharges) || 0);
         const packingCalc = Math.max(0, Number(packingCharges) || 0);
 
+        const transportTaxCalc = isCommercialGRN && isTransportationTaxable
+            ? Number(((transportCalc * taxRateToSave) / 100).toFixed(2))
+            : 0;
+        const packingTaxCalc = isCommercialGRN && isPackingTaxable
+            ? Number(((packingCalc * taxRateToSave) / 100).toFixed(2))
+            : 0;
+
+        const itemsTaxTotalCalc = isCommercialGRN ? items.reduce((sum, it) => sum + (it.taxAmount || 0), 0) : 0;
+        const totalTaxCalc = isCommercialGRN ? Number((itemsTaxTotalCalc + transportTaxCalc + packingTaxCalc).toFixed(2)) : 0;
+
         const rounding = computeProfessionalTotalWithRoundOff({
             subtotal: subtotalCalc,
-            totalTax: taxAmountCalc,
+            totalTax: totalTaxCalc,
             transportationCharges: transportCalc,
             packagingCharges: packingCalc,
             isRoundOffEnabled,
@@ -1330,9 +1436,15 @@ export default function GRNModal({
 
         formData.append('taxRate', String(taxRateToSave));
         formData.append('subtotal', String(subtotalCalc));
-        formData.append('taxAmount', String(taxAmountCalc));
+        formData.append('taxAmount', String(totalTaxCalc));
         formData.append('transportationCharges', String(transportCalc));
+        formData.append('isTransportationTaxable', String(isTransportationTaxable));
+        formData.append('transportationTaxRate', String(isTransportationTaxable ? taxRateToSave : 0));
+        formData.append('transportationTaxAmount', String(transportTaxCalc));
         formData.append('packingCharges', String(packingCalc));
+        formData.append('isPackingTaxable', String(isPackingTaxable));
+        formData.append('packingTaxRate', String(isPackingTaxable ? taxRateToSave : 0));
+        formData.append('packingTaxAmount', String(packingTaxCalc));
         formData.append('preRoundTotal', String(rounding.preRoundTotal));
         formData.append('isRoundOff', String(rounding.isRoundOffEnabled));
         formData.append('roundOff', String(rounding.roundOff));
@@ -1377,9 +1489,13 @@ export default function GRNModal({
                 qcStatus: qcRequired ? 'Pending QC' : 'Passed',
                 taxRate: taxRateToSave,
                 subtotal: subtotalCalc,
-                taxAmount: taxAmountCalc,
+                taxAmount: totalTaxCalc,
                 transportationCharges: transportCalc,
+                isTransportationTaxable,
+                transportationTaxAmount: transportTaxCalc,
                 packingCharges: packingCalc,
+                isPackingTaxable,
+                packingTaxAmount: packingTaxCalc,
                 totalQuantity: items.reduce((sum, it) => sum + it.quantity, 0),
                 totalAmount: rounding.roundedGrandTotal,
                 preRoundTotal: rounding.preRoundTotal,
@@ -1392,34 +1508,31 @@ export default function GRNModal({
         }
     };
 
-    // Helper to calculate row total based on active selected unit
-    const getItemRowTotal = (entry: MaterialEntry) => {
-        if (entry.amount !== undefined && entry.amount !== null && !isNaN(entry.amount) && entry.amount > 0) {
-            return entry.amount;
-        }
-        const isSec = Boolean(entry.hasSecondaryUnit && (entry.rateUnit === 'secondary' || entry.selectedUnit === entry.secondaryUnit));
-        const billingQty = isSec ? (Number(entry.secondaryQuantity) || 0) : (Number(entry.quantity) || 0);
-        return Number((billingQty * (Number(entry.rate) || 0)).toFixed(2));
-    };
-
     // Calculate totals
-    const isCommercialGRN = grnType !== 'inhouse' && grnType !== 'fg';
     const totalItemsCount = materialEntries.filter(m => m.material || m.materialName?.trim()).length;
     const totalQuantity = materialEntries.reduce((sum, m) => sum + (Number(m.quantity) || 0), 0);
     const subtotal = materialEntries.reduce((sum, m) => sum + getItemRowTotal(m), 0);
-    const taxAmount = isCommercialGRN ? (subtotal * (Number(globalTaxRate) || 0)) / 100 : 0;
+    const itemsTaxTotal = isCommercialGRN ? materialEntries.reduce((sum, m) => sum + getItemRowTax(m), 0) : 0;
     const transportAmount = Number(transportationCharges) || 0;
     const packingAmount = Number(packingCharges) || 0;
+    const transportTax = isCommercialGRN && isTransportationTaxable
+        ? Number(((transportAmount * (Number(globalTaxRate) || 0)) / 100).toFixed(2))
+        : 0;
+    const packingTax = isCommercialGRN && isPackingTaxable
+        ? Number(((packingAmount * (Number(globalTaxRate) || 0)) / 100).toFixed(2))
+        : 0;
+    const totalTaxAmount = isCommercialGRN ? Number((itemsTaxTotal + transportTax + packingTax).toFixed(2)) : 0;
+
     const rounding = useMemo(() => {
         return computeProfessionalTotalWithRoundOff({
             subtotal,
-            totalTax: taxAmount,
+            totalTax: totalTaxAmount,
             transportationCharges: transportAmount,
             packagingCharges: packingAmount,
             isRoundOffEnabled,
             roundingMode
         });
-    }, [subtotal, taxAmount, transportAmount, packingAmount, isRoundOffEnabled, roundingMode]);
+    }, [subtotal, totalTaxAmount, transportAmount, packingAmount, isRoundOffEnabled, roundingMode]);
     const grandTotalWithTax = rounding.roundedGrandTotal;
 
     const theme = {
@@ -1501,13 +1614,23 @@ export default function GRNModal({
                             {createdGRNData.transportationCharges > 0 && (
                                 <div>
                                     <span className="text-[10px] font-bold text-blue-500 uppercase">🚚 Transport</span>
-                                    <p className="font-bold text-blue-600 dark:text-blue-400 mt-0.5">+ ₹{(createdGRNData.transportationCharges || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                                    <p className="font-bold text-blue-600 dark:text-blue-400 mt-0.5">
+                                        + ₹{(createdGRNData.transportationCharges || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        {createdGRNData.isTransportationTaxable && (
+                                            <span className="text-[9.5px] font-semibold text-blue-700 dark:text-blue-300 ml-1">(+GST)</span>
+                                        )}
+                                    </p>
                                 </div>
                             )}
                             {createdGRNData.packingCharges > 0 && (
                                 <div>
                                     <span className="text-[10px] font-bold text-amber-500 uppercase">📦 Packing</span>
-                                    <p className="font-bold text-amber-600 dark:text-amber-400 mt-0.5">+ ₹{(createdGRNData.packingCharges || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                                    <p className="font-bold text-amber-600 dark:text-amber-400 mt-0.5">
+                                        + ₹{(createdGRNData.packingCharges || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        {createdGRNData.isPackingTaxable && (
+                                            <span className="text-[9.5px] font-semibold text-amber-700 dark:text-amber-300 ml-1">(+GST)</span>
+                                        )}
+                                    </p>
                                 </div>
                             )}
                             <div>
@@ -2212,6 +2335,9 @@ export default function GRNModal({
                                         <th className="py-2.5 px-3 w-32 lg:w-36 text-center shrink-0">Unit & Stock</th>
                                         <th className="py-2.5 px-3 w-36 lg:w-40 shrink-0">Qty Received <span className="text-red-500">*</span></th>
                                         <th className="py-2.5 px-3 w-32 lg:w-36 shrink-0">Rate (₹ / Unit)</th>
+                                        {isCommercialGRN && (
+                                            <th className="py-2.5 px-3 w-28 lg:w-32 text-center shrink-0">GST (%)</th>
+                                        )}
                                         <th className="py-2.5 px-3 w-36 lg:w-44 text-right shrink-0 whitespace-nowrap">Total (₹)</th>
                                         <th className="py-2.5 px-3 w-20 text-center shrink-0">Actions</th>
                                     </tr>
@@ -2408,8 +2534,54 @@ export default function GRNModal({
                                                         </div>
                                                     )}
                                                 </td>
+                                                {isCommercialGRN && (
+                                                    <td className="py-2 px-3 w-28 lg:w-32 shrink-0">
+                                                        <div className="relative">
+                                                            <select
+                                                                value={entry.taxRate !== undefined && entry.taxRate !== null ? Number(entry.taxRate) : Number(globalTaxRate)}
+                                                                onChange={(e) => {
+                                                                    if (e.target.value === 'custom') {
+                                                                        const customVal = window.prompt('Enter custom GST rate (%) for this item:', String(entry.taxRate ?? globalTaxRate ?? 18));
+                                                                        if (customVal !== null) {
+                                                                            const parsed = Math.max(0, Math.min(100, parseFloat(customVal) || 0));
+                                                                            handleMaterialChange(index, 'taxRate', parsed);
+                                                                        }
+                                                                        return;
+                                                                    }
+                                                                    const val = parseFloat(e.target.value);
+                                                                    handleMaterialChange(index, 'taxRate', isNaN(val) ? 0 : val);
+                                                                }}
+                                                                className="w-full h-9 pl-2 pr-6 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-center text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer appearance-none"
+                                                                title="Select GST Rate"
+                                                            >
+                                                                {[0, 5, 12, 18, 28].map(rate => (
+                                                                    <option key={rate} value={rate} className="text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 font-medium">
+                                                                        {rate === 0 ? '0% (Exempt)' : `${rate}% GST`}
+                                                                    </option>
+                                                                ))}
+                                                                {entry.taxRate !== undefined && entry.taxRate !== null && ![0, 5, 12, 18, 28].includes(Number(entry.taxRate)) && (
+                                                                    <option value={Number(entry.taxRate)} className="text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 font-medium">
+                                                                        {entry.taxRate}% (Custom)
+                                                                    </option>
+                                                                )}
+                                                                <option value="custom" className="text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 font-medium">
+                                                                    Custom %...
+                                                                </option>
+                                                            </select>
+                                                            <ChevronDown size={14} className="absolute right-2 top-2.5 text-slate-400 pointer-events-none" />
+                                                        </div>
+                                                        <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium text-center mt-0.5 truncate" title={`Line GST Amount: ₹${getItemRowTax(entry).toFixed(2)}`}>
+                                                            +₹{getItemRowTax(entry).toFixed(2)}
+                                                        </div>
+                                                    </td>
+                                                )}
                                                 <td className="py-2 px-3 w-36 lg:w-44 text-right font-mono font-bold text-slate-900 dark:text-slate-100 shrink-0 whitespace-nowrap">
                                                     <div>₹{rowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                                    {isCommercialGRN && (
+                                                        <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium font-sans mt-0.5" title="Gross row total with GST">
+                                                            Incl: ₹{(rowTotal + getItemRowTax(entry)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </div>
+                                                    )}
                                                     {activeQty > 0 && (Number(entry.rate) || 0) > 0 && (
                                                         <div className="text-[9.5px] font-normal text-slate-400 font-sans mt-0.5">
                                                             {activeQty} {activeUnit} × ₹{entry.rate}
@@ -2650,6 +2822,53 @@ export default function GRNModal({
                                             </div>
                                         </div>
 
+                                        {/* Mobile GST Rate Input */}
+                                        {isCommercialGRN && (
+                                            <div className="flex items-center justify-between pt-1 text-xs bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-100 dark:border-slate-800">
+                                                <label className="text-[10px] font-bold uppercase text-slate-500">
+                                                    GST Rate:
+                                                </label>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="relative w-32">
+                                                        <select
+                                                            value={entry.taxRate !== undefined && entry.taxRate !== null ? Number(entry.taxRate) : Number(globalTaxRate)}
+                                                            onChange={(e) => {
+                                                                if (e.target.value === 'custom') {
+                                                                    const customVal = window.prompt('Enter custom GST rate (%) for this item:', String(entry.taxRate ?? globalTaxRate ?? 18));
+                                                                    if (customVal !== null) {
+                                                                        const parsed = Math.max(0, Math.min(100, parseFloat(customVal) || 0));
+                                                                        handleMaterialChange(index, 'taxRate', parsed);
+                                                                    }
+                                                                    return;
+                                                                }
+                                                                const val = parseFloat(e.target.value);
+                                                                handleMaterialChange(index, 'taxRate', isNaN(val) ? 0 : val);
+                                                            }}
+                                                            className="w-full h-8 pl-2 pr-5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold text-center text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer appearance-none"
+                                                        >
+                                                            {[0, 5, 12, 18, 28].map(rate => (
+                                                                <option key={rate} value={rate} className="text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 font-medium">
+                                                                    {rate === 0 ? '0% (Exempt)' : `${rate}% GST`}
+                                                                </option>
+                                                            ))}
+                                                            {entry.taxRate !== undefined && entry.taxRate !== null && ![0, 5, 12, 18, 28].includes(Number(entry.taxRate)) && (
+                                                                <option value={Number(entry.taxRate)} className="text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 font-medium">
+                                                                    {entry.taxRate}% (Custom)
+                                                                </option>
+                                                            )}
+                                                            <option value="custom" className="text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 font-medium">
+                                                                    Custom %...
+                                                                </option>
+                                                        </select>
+                                                        <ChevronDown size={12} className="absolute right-1.5 top-2.5 text-slate-400 pointer-events-none" />
+                                                    </div>
+                                                    <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                                                        +₹{getItemRowTax(entry).toFixed(2)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {/* Mobile Stock Info */}
                                         {entry.material && (
                                             <div className="text-[10px] text-slate-500 flex justify-between bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded-lg border border-slate-100 dark:border-slate-800">
@@ -2671,9 +2890,16 @@ export default function GRNModal({
                                                     </span>
                                                 )}
                                             </div>
-                                            <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                                                ₹{rowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                            </span>
+                                            <div className="text-right">
+                                                <div className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                                                    ₹{rowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </div>
+                                                {isCommercialGRN && (
+                                                    <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium font-sans">
+                                                        Incl: ₹{(rowTotal + getItemRowTax(entry)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 );
@@ -2707,7 +2933,7 @@ export default function GRNModal({
                                                 <button
                                                     key={rate}
                                                     type="button"
-                                                    onClick={() => setGlobalTaxRate(rate)}
+                                                    onClick={() => handleGlobalTaxRateChange(rate)}
                                                     className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
                                                         isActive
                                                             ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-500 scale-[1.02]'
@@ -2731,7 +2957,7 @@ export default function GRNModal({
                                             value={globalTaxRate === 0 && ![0, 5, 12, 18, 28].includes(globalTaxRate) ? '' : globalTaxRate}
                                             onChange={(e) => {
                                                 const val = parseFloat(e.target.value);
-                                                setGlobalTaxRate(isNaN(val) ? 0 : Math.max(0, Math.min(100, val)));
+                                                handleGlobalTaxRateChange(isNaN(val) ? 0 : Math.max(0, Math.min(100, val)));
                                             }}
                                             placeholder="0"
                                             className="w-10 bg-transparent text-center font-bold text-slate-800 dark:text-slate-200 outline-none text-xs"
@@ -2744,7 +2970,7 @@ export default function GRNModal({
                                     {globalTaxRate > 0 ? (
                                         <span className="text-indigo-600 dark:text-indigo-400 font-bold flex items-center gap-1">
                                             <CheckCircle2 size={12} />
-                                            {globalTaxRate}% GST applied globally
+                                            {globalTaxRate}% GST applied to line items
                                         </span>
                                     ) : (
                                         <span className="text-slate-400 italic">0% GST (Tax Exempt / Non-GST)</span>
@@ -2753,20 +2979,20 @@ export default function GRNModal({
                             </div>
                         )}
 
-                        {/* Additional Charges Bar (Transportation & Packing) */}
+                        {/* Additional Charges Bar (Transportation & Packing with Tax Toggles) */}
                         {isCommercialGRN && (
-                            <div className="p-3 bg-slate-50/90 dark:bg-slate-900/60 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                            <div className="p-3 bg-gradient-to-r from-slate-50 via-blue-50/20 to-slate-50 dark:from-slate-900/80 dark:via-blue-950/20 dark:to-slate-900/80 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
                                 <div className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200">
                                     <Truck size={15} className="text-blue-600 dark:text-blue-400" />
-                                    <span>Additional Charges:</span>
+                                    <span>Additional Charges & Taxes:</span>
                                 </div>
 
-                                <div className="flex items-center gap-4 flex-wrap">
-                                    {/* Transportation Charges Input */}
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                                <div className="flex items-center gap-3.5 flex-wrap">
+                                    {/* Transportation Charges & Tax Toggle */}
+                                    <div className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl px-2.5 py-1.5 shadow-2xs">
+                                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
                                             <Truck size={13} className="text-blue-500" />
-                                            Transportation (₹):
+                                            Transport (₹):
                                         </span>
                                         <input
                                             type="number"
@@ -2778,13 +3004,30 @@ export default function GRNModal({
                                                 setTransportationCharges(isNaN(val) ? 0 : Math.max(0, val));
                                             }}
                                             placeholder="0.00"
-                                            className="w-28 h-8 px-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 outline-none text-right font-mono"
+                                            className="w-24 h-7 px-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 outline-none text-right font-mono"
                                         />
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsTransportationTaxable(prev => !prev)}
+                                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer border ${
+                                                isTransportationTaxable
+                                                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 shadow-2xs ring-1 ring-blue-500/20'
+                                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200/80 dark:hover:bg-slate-700'
+                                            }`}
+                                            title={isTransportationTaxable ? 'Transportation is included in GST. Click to make Non-Taxable.' : 'Transportation is exempt from GST. Click to include in GST.'}
+                                        >
+                                            <span className={`w-2 h-2 rounded-full ${isTransportationTaxable ? 'bg-blue-600 dark:bg-blue-400' : 'bg-slate-400'}`} />
+                                            <span>
+                                                {isTransportationTaxable
+                                                    ? `Taxable (+${globalTaxRate}% GST${transportTax > 0 ? `: ₹${transportTax.toFixed(2)}` : ''})`
+                                                    : 'Non-Taxable'}
+                                            </span>
+                                        </button>
                                     </div>
 
-                                    {/* Packing Charges Input */}
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                                    {/* Packing Charges & Tax Toggle */}
+                                    <div className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl px-2.5 py-1.5 shadow-2xs">
+                                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
                                             <Package size={13} className="text-amber-500" />
                                             Packing (₹):
                                         </span>
@@ -2798,8 +3041,25 @@ export default function GRNModal({
                                                 setPackingCharges(isNaN(val) ? 0 : Math.max(0, val));
                                             }}
                                             placeholder="0.00"
-                                            className="w-28 h-8 px-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-amber-500 outline-none text-right font-mono"
+                                            className="w-24 h-7 px-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-amber-500 outline-none text-right font-mono"
                                         />
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsPackingTaxable(prev => !prev)}
+                                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer border ${
+                                                isPackingTaxable
+                                                    ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 shadow-2xs ring-1 ring-amber-500/20'
+                                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200/80 dark:hover:bg-slate-700'
+                                            }`}
+                                            title={isPackingTaxable ? 'Packaging is included in GST. Click to make Non-Taxable.' : 'Packaging is exempt from GST. Click to include in GST.'}
+                                        >
+                                            <span className={`w-2 h-2 rounded-full ${isPackingTaxable ? 'bg-amber-600 dark:bg-amber-400' : 'bg-slate-400'}`} />
+                                            <span>
+                                                {isPackingTaxable
+                                                    ? `Taxable (+${globalTaxRate}% GST${packingTax > 0 ? `: ₹${packingTax.toFixed(2)}` : ''})`
+                                                    : 'Non-Taxable'}
+                                            </span>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -2823,9 +3083,11 @@ export default function GRNModal({
                                         </div>
 
                                         <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                                            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-500">GST ({globalTaxRate}%):</span>
+                                            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-500">
+                                                {isTransportationTaxable || isPackingTaxable ? 'Total GST:' : `GST (${globalTaxRate}%):`}
+                                            </span>
                                             <span className="font-bold text-indigo-600 dark:text-indigo-400">
-                                                + ₹{taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                + ₹{totalTaxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </span>
                                         </div>
 
@@ -2835,6 +3097,11 @@ export default function GRNModal({
                                                 <span className="font-bold text-blue-600 dark:text-blue-400">
                                                     + ₹{transportationCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </span>
+                                                {isTransportationTaxable && (
+                                                    <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">
+                                                        (+{globalTaxRate}% GST)
+                                                    </span>
+                                                )}
                                             </div>
                                         )}
 
@@ -2844,6 +3111,11 @@ export default function GRNModal({
                                                 <span className="font-bold text-amber-600 dark:text-amber-400">
                                                     + ₹{packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </span>
+                                                {isPackingTaxable && (
+                                                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                                                        (+{globalTaxRate}% GST)
+                                                    </span>
+                                                )}
                                             </div>
                                         )}
                                     </>

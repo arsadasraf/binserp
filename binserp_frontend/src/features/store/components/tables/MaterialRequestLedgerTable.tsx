@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { generateMaterialRequestReportPDF } from '@/src/utils/generateMaterialRequestReportPDF';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
+import { showWarningToast } from '@/src/features/store/utils/storeDialogHelper';
 
 interface MaterialRequestLedgerTableProps {
   requests: any[];
@@ -169,7 +170,7 @@ export default function MaterialRequestLedgerTable({
   // Export to CSV
   const handleExportCSV = () => {
     if (filteredRequests.length === 0) {
-      alert("No records to export.");
+      showWarningToast("No records to export.");
       return;
     }
 

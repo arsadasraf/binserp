@@ -82,6 +82,7 @@ export const mrpPlanSchema = new mongoose.Schema(
         description: { type: String, default: "" },
         quantity: { type: Number, required: true },
         receivedQuantity: { type: Number, default: 0 },
+        movedToProductionQuantity: { type: Number, default: 0 },
         unit: { type: String, default: "PCS" },
         sellingPrice: { type: Number, default: 0 }, // Converted selling price in INR
         totalPrice: { type: Number, default: 0 }, // Converted total price in INR

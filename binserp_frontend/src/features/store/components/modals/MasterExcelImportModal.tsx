@@ -17,6 +17,7 @@ import {
     ParsedMasterExcelResult 
 } from '@/src/utils/excelMasterHelper';
 import { API_BASE_URL } from '@/src/utils/config';
+import { showConfirmDialog, showErrorDialog, showWarningToast, showSuccessToast } from '@/src/features/store/utils/storeDialogHelper';
 
 interface MasterExcelImportModalProps {
     isOpen: boolean;
@@ -89,7 +90,7 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
         } catch (error: any) {
             console.error("Failed to parse Excel file:", error);
             const msg = error?.message ? `Failed to parse Excel file: ${error.message}` : "Failed to parse Excel file. Please ensure it is a valid .xlsx or .xls file.";
-            alert(msg);
+            showErrorDialog("Parse Failed", msg);
         } finally {
             setParsing(false);
         }
@@ -104,7 +105,7 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
 
     const handleUploadSubmit = async () => {
         if (!parsedResult || parsedResult.validRows.length === 0) {
-            alert("No valid rows to import.");
+            showWarningToast("No valid rows to import.");
             return;
         }
 
@@ -112,9 +113,12 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
 
         // Duplicate item name alert gatekeeper
         if (existingDuplicates.length > 0 && !overwrite) {
-            const confirmed = confirm(
-                `⚠️ Warning: ${existingDuplicates.length} item(s) in this file already exist in your system:\n\n• ${existingDuplicates.slice(0, 5).join('\n• ')}${existingDuplicates.length > 5 ? `\n...and ${existingDuplicates.length - 5} more` : ''}\n\nDuplicate item names are not permitted. Would you like to UPDATE the existing items with the values from this Excel file instead?`
-            );
+            const confirmed = await showConfirmDialog({
+                title: "Duplicate Items Detected",
+                text: `${existingDuplicates.length} item(s) in this file already exist in your system (${existingDuplicates.slice(0, 3).join(', ')}${existingDuplicates.length > 3 ? ` and ${existingDuplicates.length - 3} more` : ''}). Duplicate item names are not permitted. Would you like to UPDATE the existing items with the values from this Excel file instead?`,
+                confirmButtonText: "Yes, Update Existing",
+                confirmButtonColor: "#f59e0b"
+            });
             if (confirmed) {
                 setOverwrite(true);
                 willOverwrite = true;
@@ -143,16 +147,16 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
                 const data = await res.json();
                 const totalInserted = data?.data?.insertedCount ?? parsedResult.validRows.length;
                 const totalUpdated = data?.data?.updatedCount ?? 0;
-                alert(`Successfully imported ${totalInserted} items! ${totalUpdated > 0 ? `(${totalUpdated} updated)` : ''}`);
+                showSuccessToast(`Successfully imported ${totalInserted} items! ${totalUpdated > 0 ? `(${totalUpdated} updated)` : ''}`);
                 onSuccess();
                 onClose();
             } else {
                 const errJson = await res.json();
-                alert(`Bulk import prevented: ${errJson.message || 'Server error'}`);
+                await showErrorDialog("Bulk Import Prevented", errJson.message || 'Server error');
             }
         } catch (error) {
             console.error("Bulk import submission error:", error);
-            alert("Error submitting bulk import.");
+            await showErrorDialog("Import Failed", "Error submitting bulk import.");
         } finally {
             setSubmitting(false);
         }

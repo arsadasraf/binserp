@@ -7,6 +7,7 @@ import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
 import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
 import { checkItemHasTransactions, checkItemStockForDeactivation } from "../../utils/itemLifecycleValidator.helper.js";
+import { resolveBackendUomRatios } from "../../utils/dualUomHelper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -55,6 +56,8 @@ const resolveBomComponentUnits = async (req, bomList) => {
       hasSecondaryUnit: Boolean(masterComp?.hasSecondaryUnit ?? b.hasSecondaryUnit),
       secondaryUnit: (masterComp?.secondaryUnit ?? b.secondaryUnit ?? '').toString().trim(),
       conversionFactor: Number(masterComp?.conversionFactor ?? b.conversionFactor) || 1,
+      primaryRatio: Number(masterComp?.primaryRatio ?? b.primaryRatio) || 1,
+      secondaryRatio: Number(masterComp?.secondaryRatio ?? b.secondaryRatio) || 1,
       secondaryQuantity: b.secondaryQuantity !== undefined ? Number(b.secondaryQuantity) : undefined,
       selectedUnit: b.selectedUnit || canonicalUom,
       inputQuantity: b.inputQuantity !== undefined ? Number(b.inputQuantity) : (Number(b.quantity) || 1),
@@ -69,11 +72,14 @@ export const createFGItem = async (req, res) => {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    let { name, code, type, description, location, category, categoryId, unit, bom, revisionNumber, reorderLevel, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor } = req.body;
+    let { name, code, type, description, location, category, categoryId, unit, bom, revisionNumber, reorderLevel, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor, primaryRatio, secondaryRatio } = req.body;
 
-    const parsedHasSecondary = hasSecondaryUnit === 'true' || hasSecondaryUnit === true;
-    const parsedSecondaryUnit = (secondaryUnit || "").toString().trim();
-    const parsedConversionFactor = isNaN(Number(conversionFactor)) || Number(conversionFactor) <= 0 ? 1 : Number(conversionFactor);
+    const uomRatios = resolveBackendUomRatios({ hasSecondaryUnit, secondaryUnit, conversionFactor, primaryRatio, secondaryRatio });
+    const parsedHasSecondary = uomRatios.hasSecondaryUnit;
+    const parsedSecondaryUnit = uomRatios.secondaryUnit;
+    const parsedConversionFactor = uomRatios.conversionFactor;
+    const parsedPrimaryRatio = uomRatios.primaryRatio;
+    const parsedSecondaryRatio = uomRatios.secondaryRatio;
 
     if (!name || !type) {
       return res.status(400).json({ message: "Name and Type are required" });
@@ -157,6 +163,8 @@ export const createFGItem = async (req, res) => {
       hasSecondaryUnit: parsedHasSecondary,
       secondaryUnit: parsedSecondaryUnit,
       conversionFactor: parsedConversionFactor,
+      primaryRatio: parsedPrimaryRatio,
+      secondaryRatio: parsedSecondaryRatio,
       hsnCode: (hsnCode || "").toString().trim(),
       reorderLevel: isNaN(Number(reorderLevel)) ? 0 : Number(reorderLevel),
       bom: cleanedBom,
@@ -353,7 +361,7 @@ export const updateFGItem = async (req, res) => {
     const companyId = getCompanyId(req);
     const { id } = req.params;
     
-    let { name, code, type, description, location, category, categoryId, unit, bom, revisionNumber, reorderLevel, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor } = req.body;
+    let { name, code, type, description, location, category, categoryId, unit, bom, revisionNumber, reorderLevel, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor, primaryRatio, secondaryRatio } = req.body;
 
     let updateData = { name, code, type, description, revisionNumber };
     if (unit && unit.toString().trim()) {
@@ -361,14 +369,23 @@ export const updateFGItem = async (req, res) => {
     }
     if (hsnCode !== undefined) updateData.hsnCode = (hsnCode || "").toString().trim();
 
-    if (hasSecondaryUnit !== undefined) {
-      updateData.hasSecondaryUnit = hasSecondaryUnit === 'true' || hasSecondaryUnit === true;
-    }
-    if (secondaryUnit !== undefined) {
-      updateData.secondaryUnit = (secondaryUnit || "").toString().trim();
-    }
-    if (conversionFactor !== undefined) {
-      updateData.conversionFactor = isNaN(Number(conversionFactor)) || Number(conversionFactor) <= 0 ? 1 : Number(conversionFactor);
+    const currentDoc = await FGItem.findOne({ _id: id, company: companyId }).lean();
+    if (!currentDoc) return res.status(404).json({ message: "FG Item not found" });
+
+    if (hasSecondaryUnit !== undefined || secondaryUnit !== undefined || conversionFactor !== undefined || primaryRatio !== undefined || secondaryRatio !== undefined) {
+      const uomRatios = resolveBackendUomRatios({
+        hasSecondaryUnit: hasSecondaryUnit !== undefined ? hasSecondaryUnit : currentDoc?.hasSecondaryUnit,
+        secondaryUnit: secondaryUnit !== undefined ? secondaryUnit : currentDoc?.secondaryUnit,
+        conversionFactor: conversionFactor !== undefined ? conversionFactor : currentDoc?.conversionFactor,
+        primaryRatio: primaryRatio !== undefined ? primaryRatio : currentDoc?.primaryRatio,
+        secondaryRatio: secondaryRatio !== undefined ? secondaryRatio : currentDoc?.secondaryRatio,
+        unit: unit !== undefined ? unit : currentDoc?.unit
+      });
+      updateData.hasSecondaryUnit = uomRatios.hasSecondaryUnit;
+      updateData.secondaryUnit = uomRatios.secondaryUnit;
+      updateData.conversionFactor = uomRatios.conversionFactor;
+      updateData.primaryRatio = uomRatios.primaryRatio;
+      updateData.secondaryRatio = uomRatios.secondaryRatio;
     }
 
     if (reorderLevel !== undefined) {
@@ -420,11 +437,8 @@ export const updateFGItem = async (req, res) => {
 
     // Pre-validate compound uniqueness if name or revisionNumber is changed
     if (name !== undefined || revisionNumber !== undefined) {
-      const currentItem = await FGItem.findOne({ _id: id, company: companyId }).lean();
-      if (!currentItem) return res.status(404).json({ message: "FG Item not found" });
-
-      const finalName = name !== undefined ? name : currentItem.name;
-      const finalRev = revisionNumber !== undefined ? revisionNumber : (currentItem.revisionNumber || "");
+      const finalName = name !== undefined ? name : currentDoc.name;
+      const finalRev = revisionNumber !== undefined ? revisionNumber : (currentDoc.revisionNumber || "");
 
       const uniqueness = await validateMasterUniqueness({
         Model: FGItem,
@@ -442,7 +456,6 @@ export const updateFGItem = async (req, res) => {
     // Lifecycle check: if deactivating/inactivating
     const isDeactivating = req.body.status === 'Inactive' || req.body.status === 'Deactivated' || req.body.isActive === false;
     if (isDeactivating) {
-      const currentDoc = await FGItem.findOne({ _id: id, company: companyId }).lean();
       const checkResult = await checkItemStockForDeactivation({
         req,
         companyId,
@@ -477,10 +490,26 @@ export const updateFGItem = async (req, res) => {
       if (updateData.hasSecondaryUnit !== undefined) invUpdates.hasSecondaryUnit = updateData.hasSecondaryUnit;
       if (updateData.secondaryUnit !== undefined) invUpdates.secondaryUnit = updateData.secondaryUnit;
       if (updateData.conversionFactor !== undefined) invUpdates.conversionFactor = updateData.conversionFactor;
+      if (updateData.primaryRatio !== undefined) invUpdates.primaryRatio = updateData.primaryRatio;
+      if (updateData.secondaryRatio !== undefined) invUpdates.secondaryRatio = updateData.secondaryRatio;
 
       if (Object.keys(invUpdates).length > 0) {
+        const idMatches = [{ materialId: id }];
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          idMatches.push({ materialId: new mongoose.Types.ObjectId(id) });
+        }
+        if (fgItem.code) {
+          idMatches.push({ materialCode: fgItem.code });
+        }
+        if (fgItem.name) {
+          idMatches.push({ materialName: fgItem.name });
+        }
+        if (currentDoc?.name && currentDoc.name !== fgItem.name) {
+          idMatches.push({ materialName: currentDoc.name });
+        }
+
         await Inventory.updateMany(
-          { company: companyId, $or: [{ materialId: id }, { materialCode: fgItem.code }] },
+          { company: companyId, $or: idMatches },
           { $set: invUpdates }
         );
       }

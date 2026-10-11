@@ -235,7 +235,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     // Fast O(1) matched option lookup
     const matchedOption = useMemo(() => {
         if (!stringValue) return null;
-        return uniqueOptions.find((o) => o.value === stringValue) || null;
+        return uniqueOptions.find((o) => o.value === stringValue || o.label === stringValue) || null;
     }, [uniqueOptions, stringValue]);
 
     const selectedOption = matchedOption || (displayLabel ? { value: stringValue || displayLabel, label: displayLabel } : stringValue ? { value: stringValue, label: stringValue } : null);
@@ -442,7 +442,28 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                         className="overflow-y-auto divide-y divide-gray-100 dark:divide-slate-800 flex-1 custom-scrollbar min-h-[60px]"
                     >
                         {visibleOptions.length > 0 ? (
-                            visibleOptions.map((o, idx) => {
+                            <>
+                                {allowCustom && searchTerm.trim() && !exactMatch && (
+                                    <div
+                                        className="px-3.5 py-2.5 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 cursor-pointer font-bold flex items-center gap-1.5 transition-colors border-b border-emerald-100 dark:border-emerald-900/40"
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            const customVal = searchTerm.trim();
+                                            if (onCreateCustom) {
+                                                onCreateCustom(customVal);
+                                            } else {
+                                                onChange(customVal);
+                                            }
+                                            setIsOpen(false);
+                                            setSearchTerm("");
+                                        }}
+                                    >
+                                        <PackagePlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                        <span>Use &quot;{searchTerm.trim()}&quot;</span>
+                                    </div>
+                                )}
+                                {visibleOptions.map((o, idx) => {
                                 const isSelected = value === o.value;
                                 const isHighlighted = highlightedIndex === idx;
                                 const { name, code } = formatOptionLabel(o.label);
@@ -515,7 +536,8 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                                         )}
                                     </div>
                                 );
-                            })
+                            })}
+                            </>
                         ) : isSearching ? (
                             <div className="px-3 py-6 text-xs text-gray-400 dark:text-slate-500 text-center flex flex-col items-center gap-2">
                                 <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />

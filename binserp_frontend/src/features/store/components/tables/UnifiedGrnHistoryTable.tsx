@@ -52,18 +52,19 @@ import { generateFrontendGrnPDF } from "@/src/utils/frontendPdfHelper";
 import { ItemNameAndDescription, getItemDescription } from "@/src/utils/itemDisplayHelper";
 import { API_BASE_URL } from "@/src/utils/config";
 import { isSpaceFreeMatch } from "@/src/utils/spaceFreeSearchHelper";
+import { showErrorDialog } from "@/src/features/store/utils/storeDialogHelper";
 
 const downloadGRNAsPDF = (grn: any, companyInfo?: any) => {
   try {
     generateFrontendGrnPDF({ grn, companyInfo });
   } catch (error: any) {
     console.error("PDF Error:", error);
-    alert(`PDF Generation Error: ${error.message}`);
+    showErrorDialog("PDF Error", `PDF Generation Error: ${error.message}`);
   }
 };
 
 export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFilter }: UnifiedGrnHistoryTableProps) {
-  const [showDashboard, setShowDashboard] = useState<boolean>(true);
+  const [showDashboard, setShowDashboard] = useState<boolean>(false);
   // Fetch standard GRNs and FG GRNs
   const { data: standardGrns = [], isLoading: isLoadingGrn, refetch: refetchGrn } = useGetStoreDataQuery("grn");
   const { data: fgGrns = [], isLoading: isLoadingFgGrn, refetch: refetchFgGrn } = useGetStoreDataQuery("fg-grn");

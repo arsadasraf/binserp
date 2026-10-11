@@ -10,7 +10,9 @@ import {
 import { apiGet, apiPost, apiPut, apiPatch } from '@/src/lib/api';
 import { generateNestedBOMPDF } from '@/src/utils/generateNestedBOMPDF';
 import { generateNestedBOMExcel } from '@/src/utils/generateNestedBOMExcel';
+import { generateTypeClassificationExcel } from '@/src/utils/generateTypeClassificationExcel';
 import ConvertToPurchaseBucketModal from '@/src/features/store/components/modals/ConvertToPurchaseBucketModal';
+import LinkedCustomerPOsModal from '@/src/features/store/components/modals/LinkedCustomerPOsModal';
 import ColumnFilter from '../tables/ColumnFilter';
 import Swal from 'sweetalert2';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
@@ -59,6 +61,7 @@ export default function MRPProcurementWorkbench({
   const [selectedCustomerFilter, setSelectedCustomerFilter] = useState<string>('all');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const customerDropdownRef = useRef<HTMLDivElement>(null);
+  const [isCustomerPoModalOpen, setIsCustomerPoModalOpen] = useState(false);
 
   // Filter Tab 1: Planning Status Multi-Select State
   const [selectedPlanningStatuses, setSelectedPlanningStatuses] = useState<string[]>([]);
@@ -210,6 +213,27 @@ export default function MRPProcurementWorkbench({
     });
     return Array.from(custSet).filter(Boolean).sort();
   }, [mrpTreeList]);
+
+  // Computed linked customer POs array for selected MRP plan
+  const linkedCustomerPOs = useMemo(() => {
+    if (!selectedPlan) return [];
+    if (Array.isArray(selectedPlan.customerPOs) && selectedPlan.customerPOs.length > 0) {
+      return selectedPlan.customerPOs;
+    }
+    if (selectedPlan.customerPoNumber || selectedPlan.customerName) {
+      return [{
+        customerPoNumber: selectedPlan.customerPoNumber || 'N/A',
+        customerName: selectedPlan.customerName || 'Internal Demand',
+        poDate: selectedPlan.poDate || selectedPlan.planDate || selectedPlan.createdAt,
+        targetDate: selectedPlan.targetDate || selectedPlan.deliveryDate,
+        totalAmount: selectedPlan.totalIncome || 0,
+        totalAmountInINR: selectedPlan.totalIncome || 0,
+        currency: selectedPlan.currency || 'INR',
+        exchangeRate: selectedPlan.exchangeRate || 1
+      }];
+    }
+    return [];
+  }, [selectedPlan]);
 
   // Unified Date preset matching helper
   const matchDatePreset = (
@@ -1013,6 +1037,64 @@ export default function MRPProcurementWorkbench({
     });
   };
 
+  // Excel Export for Active Type Classification Tab (Filtered & Respects Checkbox Selection)
+  const handleExportCurrentTypeExcel = () => {
+    if (isBucketSubView) {
+      if (filteredBuckets.length === 0) {
+        Swal.fire('No Data to Export', 'There are no purchase buckets matching the active filters to export.', 'info');
+        return;
+      }
+
+      const hasSelection = selectedKeys.size > 0;
+      const targetBuckets = hasSelection
+        ? filteredBuckets.filter((b: any, bIdx: number) => {
+            const bKey = b.bucketKey || `bucket_${b.targetPurchaseItemId || bIdx}`;
+            return selectedKeys.has(bKey);
+          })
+        : filteredBuckets;
+
+      if (hasSelection && targetBuckets.length === 0) {
+        Swal.fire('No Matching Selection', 'None of the selected items match the current bucket view.', 'info');
+        return;
+      }
+
+      generateTypeClassificationExcel({
+        plan: selectedPlan,
+        activeTypeTab,
+        isBucketView: true,
+        buckets: targetBuckets,
+        isSubsetSelected: hasSelection
+      });
+      return;
+    }
+
+    if (filteredConsolidatedList.length === 0) {
+      Swal.fire('No Data to Export', `There are no ${activeTypeTab.toUpperCase()} items matching the active filters to export.`, 'info');
+      return;
+    }
+
+    const hasSelection = selectedKeys.size > 0;
+    const targetItems = hasSelection
+      ? filteredConsolidatedList.filter((item: any, idx: number) => {
+          const rowKey = item.materialKey || item.materialId || item._id || `mat_row_${idx}`;
+          return selectedKeys.has(rowKey);
+        })
+      : filteredConsolidatedList;
+
+    if (hasSelection && targetItems.length === 0) {
+      Swal.fire('No Matching Selection', `None of the selected items are present in the ${activeTypeTab.toUpperCase()} table.`, 'info');
+      return;
+    }
+
+    generateTypeClassificationExcel({
+      plan: selectedPlan,
+      activeTypeTab,
+      isBucketView: false,
+      items: targetItems,
+      isSubsetSelected: hasSelection
+    });
+  };
+
   // Open Manual Outward PO Modal prefilled with selected items
   const handleOpenManualPO = async () => {
     if (selectedItems.length === 0) {
@@ -1203,9 +1285,10 @@ export default function MRPProcurementWorkbench({
         mrpPlanId: selectedPlan?._id,
         mrpNumber: selectedPlan?.mrpNumber,
         items: selectedItems.map((it: any) => ({
+          materialId: it.materialId || it._id || it.material?._id,
           materialName: it.materialName,
           materialCode: it.materialCode,
-          itemType: it.itemType,
+          itemType: (it.itemType || 'rm').toLowerCase(),
           orderQuantity: it.netShortage || it.requiredQuantity,
           unit: it.unit,
           hasSecondaryUnit: Boolean(it.hasSecondaryUnit && it.secondaryUnit),
@@ -1778,6 +1861,21 @@ export default function MRPProcurementWorkbench({
               ))}
             </select>
           </div>
+
+          {/* Excel Export for Active Filtered Type Classification */}
+          <button
+            type="button"
+            onClick={handleExportCurrentTypeExcel}
+            className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0 whitespace-nowrap"
+            title={`Export ${selectedKeys.size > 0 ? `${selectedKeys.size} selected` : 'all filtered'} ${isBucketSubView ? 'purchase buckets' : activeTypeTab.toUpperCase()} items to Excel`}
+          >
+            <FileSpreadsheet size={13} />
+            <span>
+              {selectedKeys.size > 0
+                ? `Export Selected (${selectedKeys.size})`
+                : `Export Excel (${isBucketSubView ? filteredBuckets.length : filteredConsolidatedList.length})`}
+            </span>
+          </button>
 
           {/* Common Purchasing Actions: RFQ & PO */}
           <button
@@ -4002,49 +4100,59 @@ export default function MRPProcurementWorkbench({
       {selectedPlan && (
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-2">
           
-          {/* Top Header Bar with Navigation and PDF Export (PINNED) */}
-          <div className="shrink-0 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-2">
+          {/* Top Header Bar with Navigation, Customer PO Popup & Actions (SINGLE LINE PINNED) */}
+          <div className="shrink-0 bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between gap-3 overflow-x-auto no-scrollbar whitespace-nowrap min-w-0">
             
-            <div className="flex items-center gap-3">
+            {/* Left Section: Back, MRP Number, Customer & PO Popup Trigger, Budget Guard */}
+            <div className="flex items-center gap-2 shrink-0 min-w-0">
               <button
+                type="button"
                 onClick={handleBackToList}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1 text-xs font-bold cursor-pointer"
+                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shrink-0"
+                title="Back to All MRP Plans"
               >
                 <ArrowLeft size={14} />
                 <span>All MRPs</span>
               </button>
 
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="px-2.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-mono font-black">
-                    {selectedPlan.mrpNumber}
+              <span className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-mono font-black shrink-0">
+                {selectedPlan.mrpNumber}
+              </span>
+
+              {/* Customer & PO Details Button (Opens Popup Modal) */}
+              <button
+                type="button"
+                onClick={() => setIsCustomerPoModalOpen(true)}
+                className="px-2.5 py-1 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 font-bold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs shrink-0"
+                title={`Click to view Customer & PO details\nCustomer: ${selectedPlan.customerName || 'Internal Demand'}\nPO: ${selectedPlan.customerPoNumber || 'N/A'}`}
+              >
+                <Building2 size={12} className="text-purple-600 dark:text-purple-400 shrink-0" />
+                <span>Customer & PO</span>
+                {linkedCustomerPOs.length > 1 && (
+                  <span className="px-1.5 py-0.2 rounded-xs text-[10px] font-bold bg-purple-200 dark:bg-purple-900 text-purple-900 dark:text-purple-200">
+                    {linkedCustomerPOs.length}
                   </span>
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    {selectedPlan.customerName}
-                  </span>
-                  {selectedPlan.customerPoNumber && (
-                    <span className="text-[10px] text-slate-400 font-mono">PO: {selectedPlan.customerPoNumber}</span>
-                  )}
-                  {/* Budget Guard Pill */}
-                  {selectedPlan.targetExpense > 0 && (
-                    <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-mono font-bold flex items-center gap-1 ${
-                      selectedPlan.committedExpense > selectedPlan.targetExpense
-                        ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200'
-                        : selectedPlan.committedExpense >= selectedPlan.targetExpense * 0.85
-                        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200'
-                        : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200'
-                    }`} title={`Committed: ₹${(selectedPlan.committedExpense || 0).toLocaleString('en-IN')} / Target: ₹${selectedPlan.targetExpense.toLocaleString('en-IN')}`}>
-                      <Target size={11} />
-                      <span>Budget: ₹{(selectedPlan.committedExpense || 0).toLocaleString('en-IN')} / ₹{selectedPlan.targetExpense.toLocaleString('en-IN')}</span>
-                      {selectedPlan.committedExpense > selectedPlan.targetExpense && <span className="font-black text-rose-600">🚨 (Over)</span>}
-                    </span>
-                  )}
-                </div>
-              </div>
+                )}
+              </button>
+
+              {/* Budget Guard Pill */}
+              {selectedPlan.targetExpense > 0 && (
+                <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-mono font-bold flex items-center gap-1 shrink-0 ${
+                  selectedPlan.committedExpense > selectedPlan.targetExpense
+                    ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200'
+                    : selectedPlan.committedExpense >= selectedPlan.targetExpense * 0.85
+                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200'
+                    : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200'
+                }`} title={`Committed: ₹${(selectedPlan.committedExpense || 0).toLocaleString('en-IN')} / Target: ₹${selectedPlan.targetExpense.toLocaleString('en-IN')}`}>
+                  <Target size={11} />
+                  <span>Budget: ₹{(selectedPlan.committedExpense || 0).toLocaleString('en-IN')} / ₹{selectedPlan.targetExpense.toLocaleString('en-IN')}</span>
+                  {selectedPlan.committedExpense > selectedPlan.targetExpense && <span className="font-black text-rose-600">🚨 (Over)</span>}
+                </span>
+              )}
             </div>
 
             {/* View Mode Switcher & Top Actions */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scroll-smooth touch-pan-x flex-nowrap sm:flex-wrap justify-between sm:justify-end no-scrollbar">
+            <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
               
               {/* Mode Toggle: Nested Tree vs Type Classification */}
               <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold shrink-0">
@@ -4828,6 +4936,18 @@ export default function MRPProcurementWorkbench({
             fetchWorkbenchData(selectedPlan?._id);
             setSelectedKeys(new Set());
           }}
+        />
+      )}
+
+      {/* Modal: Customer & PO Details Popup */}
+      {isCustomerPoModalOpen && selectedPlan && (
+        <LinkedCustomerPOsModal
+          isOpen={isCustomerPoModalOpen}
+          onClose={() => setIsCustomerPoModalOpen(false)}
+          mrpNumber={selectedPlan.mrpNumber}
+          planTitle={selectedPlan.title || `${selectedPlan.customerName || 'Customer'} Demand`}
+          customerName={selectedPlan.customerName}
+          customerPOs={linkedCustomerPOs}
         />
       )}
     </div>

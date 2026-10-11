@@ -9,6 +9,7 @@ import MasterForm from '@/src/features/store/components/forms/MasterForm';
 import MasterDetailPreviewModal from '@/src/features/store/components/modals/MasterDetailPreviewModal';
 import { StoreFormData } from '@/src/features/store/types/store.types';
 import { AlertCircle, CheckCircle2, X } from 'lucide-react';
+import { showDestructiveConfirm, showSuccessToast } from '@/src/features/store/utils/storeDialogHelper';
 
 const extractErrorMessage = (error: any, fallback = "Failed to save category."): string => {
   if (!error) return fallback;
@@ -55,10 +56,15 @@ export default function CategoriesPage() {
 
   const handleDelete = async (id: string) => {
     const target = categories.find((c: any) => c._id === id);
-    if (confirm(`Are you sure you want to delete "${target?.name || 'this category'}"?`)) {
+    const confirmed = await showDestructiveConfirm(
+      'Delete Category',
+      `Are you sure you want to delete "${target?.name || 'this category'}"? This action cannot be undone.`
+    );
+    if (confirmed) {
       try {
         await deleteRecord({ tab: "category", id }).unwrap();
         setPreviewItem(null);
+        showSuccessToast(`Category "${target?.name || 'Item'}" deleted.`);
         setToast({ type: 'success', message: `Category "${target?.name || 'Item'}" deleted successfully.` });
       } catch (error) {
         const errMsg = extractErrorMessage(error, "Failed to delete category");

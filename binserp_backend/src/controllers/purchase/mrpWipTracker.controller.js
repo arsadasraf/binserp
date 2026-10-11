@@ -19,6 +19,9 @@ const getCompanyId = (req) => {
 
 /**
  * GET 360° WIP TRACKER FOR A SPECIFIC MRP PLAN
+ * Streamlined 2-Stage Pipeline:
+ * Stage 1: Store Material Issue (Direct Store Issue + Returnable DCs from Store)
+ * Stage 2: FG GRN Inward & Clearance (Planned FG + Unplanned Returns + Receipts Log)
  */
 export const getMRP360WipTracker = asyncHandler(async (req, res) => {
   const companyId = getCompanyId(req);
@@ -32,17 +35,20 @@ export const getMRP360WipTracker = asyncHandler(async (req, res) => {
   const Job = req.getModel("Job", jobSchema);
   req.getModel("Vendor", vendorSchema);
 
-  const mrpPlan = await MRPPlan.findOne({ _id: id, company: companyId });
+  const mrpPlan = await MRPPlan.findOne({ _id: id, company: companyId })
+    .populate("fgItems.fgItem", "name code unit description specification")
+    .populate("rmRequirements.material", "name code unit category descriptions description specification")
+    .populate("boRequirements.material", "name code unit category descriptions description specification");
+
   if (!mrpPlan) {
     throw new ApiError(404, "MRP Plan not found");
   }
 
   const mrpNumber = mrpPlan.mrpNumber;
   const custPoNumber = mrpPlan.customerPoNumber;
-
   const mrpPlanIdStr = mrpPlan._id.toString();
 
-  // Search filter across related records by mrpNumber or Customer PO
+  // Search filter across related records by mrpNumber, mrpPlan ObjectId, or Customer PO
   const mrpQueryFilter = {
     company: companyId,
     $or: [
@@ -54,180 +60,402 @@ export const getMRP360WipTracker = asyncHandler(async (req, res) => {
     ]
   };
 
-  // Fetch all 4 WIP stage records in parallel
-  const [materialIssues, jobWorkChallans, jobWorkQCRecords, fgGRNs, ppcJobs] = await Promise.all([
-    MaterialIssue.find(mrpQueryFilter).populate("issuedTo", "name department").sort({ date: -1 }),
-    JobWorkChallan.find(mrpQueryFilter).populate("vendor", "name code phone").sort({ date: -1 }),
-    JobWorkQC.find({ company: companyId }).sort({ createdAt: -1 }),
-    FGGRN.find(mrpQueryFilter).sort({ date: -1 }),
-    Job.find({
-      company: companyId,
-      $or: [
-        { mrpNumber: mrpNumber },
-        ...(custPoNumber ? [{ poNumber: custPoNumber }] : [])
-      ]
-    }).sort({ createdAt: -1 })
+  // Fetch all related store issue, returnable DC, and FG GRN records
+  const [materialIssues, jobWorkChallans, fgGRNs] = await Promise.all([
+    MaterialIssue.find(mrpQueryFilter)
+      .populate("issuedTo", "name department")
+      .populate("items.material", "name code unit descriptions description specification")
+      .populate("items.consumable", "name code unit descriptions description specification")
+      .sort({ date: -1 }),
+    JobWorkChallan.find(mrpQueryFilter)
+      .populate("vendor", "name code phone")
+      .sort({ date: -1 }),
+    FGGRN.find(mrpQueryFilter)
+      .populate("receivedBy", "name")
+      .populate("items.fgItem", "name code unit description specification")
+      .sort({ date: -1 })
   ]);
 
-  // ================= 1. STAGE 1: MATERIAL ISSUE WIP =================
+  // =========================================================================
+  // 1. STAGE 1: MATERIAL ISSUE FROM STORE (Direct Issue + Returnable DC)
+  // =========================================================================
   const issuedItemsMap = new Map();
+
+  const registerIssuedItem = ({
+    materialName,
+    materialCode = "",
+    description = "",
+    unit = "PCS",
+    quantity = 0,
+    sourceType, // 'Store Material Issue' | 'Returnable DC'
+    docNumber,
+    date,
+    recipient
+  }) => {
+    const cleanName = (materialName || "").trim();
+    if (!cleanName || quantity <= 0) return;
+    const key = cleanName.toLowerCase();
+
+    if (!issuedItemsMap.has(key)) {
+      issuedItemsMap.set(key, {
+        materialName: cleanName,
+        materialCode,
+        description,
+        unit: unit || "PCS",
+        directIssueQuantity: 0,
+        returnableDcQuantity: 0,
+        totalIssuedQuantity: 0,
+        issueHistory: []
+      });
+    }
+
+    const entry = issuedItemsMap.get(key);
+    if (!entry.description && description) {
+      entry.description = description;
+    }
+    if (!entry.materialCode && materialCode) {
+      entry.materialCode = materialCode;
+    }
+
+    if (sourceType === 'Store Material Issue') {
+      entry.directIssueQuantity += quantity;
+    } else {
+      entry.returnableDcQuantity += quantity;
+    }
+    entry.totalIssuedQuantity += quantity;
+
+    entry.issueHistory.push({
+      sourceType,
+      docNumber,
+      date,
+      quantity,
+      recipient: recipient || "Shopfloor",
+      unit: unit || entry.unit
+    });
+  };
+
+  // A. Ingest Direct Material Issues from Store
   materialIssues.forEach(issue => {
     (issue.items || []).forEach(item => {
-      const key = (item.materialName || "").trim().toLowerCase();
-      if (!issuedItemsMap.has(key)) {
-        issuedItemsMap.set(key, {
-          materialName: item.materialName,
-          materialCode: item.materialCode || "",
-          issuedQuantity: 0,
-          unit: item.unit || "PCS",
-          issueHistory: []
-        });
-      }
-      const entry = issuedItemsMap.get(key);
+      const matName = item.material?.name || item.consumable?.name || item.materialName;
+      const matDesc = item.material?.descriptions || item.material?.description || item.consumable?.descriptions || item.description || "";
+      const matCode = item.material?.code || item.materialCode || "";
       const qty = Number(item.quantity || item.issuedQuantity) || 0;
-      entry.issuedQuantity += qty;
-      entry.issueHistory.push({
-        issueNumber: issue.issueNumber,
+
+      registerIssuedItem({
+        materialName: matName,
+        materialCode: matCode,
+        description: matDesc,
+        unit: item.unit || "PCS",
+        quantity: qty,
+        sourceType: 'Store Material Issue',
+        docNumber: issue.issueNumber,
         date: issue.date,
-        issuedTo: issue.issuedTo?.name || issue.department || "Shopfloor",
-        quantity: qty
+        recipient: issue.issuedTo?.name || issue.department || "Shopfloor"
       });
     });
   });
 
-  const plannedMaterials = [
-    ...(mrpPlan.rmRequirements || []).map(r => ({ materialName: r.materialName, materialCode: r.materialCode, description: r.description || "", requiredQty: r.requiredQuantity, unit: r.unit, type: "RM" })),
-    ...(mrpPlan.boRequirements || []).map(b => ({ materialName: b.materialName, materialCode: b.materialCode, description: b.description || "", requiredQty: b.requiredQuantity, unit: b.unit, type: "BO" }))
+  // B. Ingest Returnable Delivery Challans (Job Work Challans) issued directly from Store
+  jobWorkChallans.forEach(jw => {
+    const docNo = jw.challanNumber;
+    const date = jw.date;
+    const vendorName = jw.vendor?.name || jw.vendorName || "Subcontractor Vendor";
+
+    const processJwItem = (it) => {
+      const itemName = it.itemName || it.materialName;
+      const itemDesc = it.description || "";
+      const qty = Number(it.quantitySent || it.quantity) || 0;
+
+      registerIssuedItem({
+        materialName: itemName,
+        materialCode: it.itemCode || "",
+        description: itemDesc,
+        unit: it.unit || "PCS",
+        quantity: qty,
+        sourceType: 'Returnable DC',
+        docNumber: docNo,
+        date: date,
+        recipient: vendorName
+      });
+    };
+
+    (jw.items || []).forEach(processJwItem);
+    (jw.assemblyGroups || []).forEach(grp => (grp.items || []).forEach(processJwItem));
+  });
+
+  // C. Planned Materials from BOM (RM & BO Requirements)
+  const plannedMaterialsMap = new Map();
+  const plannedMaterialsList = [
+    ...(mrpPlan.rmRequirements || []).map(r => ({
+      materialName: r.material?.name || r.materialName,
+      materialCode: r.material?.code || r.materialCode || "",
+      description: r.material?.descriptions || r.material?.description || r.description || "",
+      requiredQty: Number(r.requiredQuantity) || 0,
+      unit: r.unit || r.material?.unit || "PCS",
+      type: "Raw Material"
+    })),
+    ...(mrpPlan.boRequirements || []).map(b => ({
+      materialName: b.material?.name || b.materialName,
+      materialCode: b.material?.code || b.materialCode || "",
+      description: b.material?.descriptions || b.material?.description || b.description || "",
+      requiredQty: Number(b.requiredQuantity) || 0,
+      unit: b.unit || b.material?.unit || "PCS",
+      type: "Bought Out"
+    }))
   ];
 
   let totalMaterialRequired = 0;
-  let totalMaterialIssued = 0;
+  let totalMaterialIssuedCapped = 0;
+  let totalMaterialIssuedActual = 0;
+  let totalOverIssuedQuantity = 0;
 
-  const materialIssueAnalysis = plannedMaterials.map(pm => {
+  // Process BOM Planned Materials
+  const plannedMaterialsAnalysis = plannedMaterialsList.map(pm => {
     const key = (pm.materialName || "").trim().toLowerCase();
-    const issuedData = issuedItemsMap.get(key) || { issuedQuantity: 0, issueHistory: [] };
+    plannedMaterialsMap.set(key, true);
 
+    const issuedData = issuedItemsMap.get(key) || {
+      directIssueQuantity: 0,
+      returnableDcQuantity: 0,
+      totalIssuedQuantity: 0,
+      issueHistory: []
+    };
+
+    const issuedQty = issuedData.totalIssuedQuantity;
     totalMaterialRequired += pm.requiredQty;
-    totalMaterialIssued += Math.min(pm.requiredQty, issuedData.issuedQuantity);
+    totalMaterialIssuedActual += issuedQty;
+    totalMaterialIssuedCapped += Math.min(pm.requiredQty, issuedQty);
 
-    const pendingToIssue = Math.max(0, pm.requiredQty - issuedData.issuedQuantity);
-    const issuePercent = pm.requiredQty > 0 ? Math.min(100, Math.round((issuedData.issuedQuantity / pm.requiredQty) * 100)) : 100;
+    const pendingToIssue = Math.max(0, pm.requiredQty - issuedQty);
+    const isOverIssued = issuedQty > pm.requiredQty;
+    const excessQuantity = isOverIssued ? issuedQty - pm.requiredQty : 0;
+    if (isOverIssued) {
+      totalOverIssuedQuantity += excessQuantity;
+    }
+
+    const issuePercent = pm.requiredQty > 0
+      ? Math.round((issuedQty / pm.requiredQty) * 100)
+      : (issuedQty > 0 ? 100 : 0);
 
     return {
       materialName: pm.materialName,
       materialCode: pm.materialCode,
-      description: pm.description || "",
+      description: pm.description || issuedData.description || "",
       itemType: pm.type,
       requiredQuantity: pm.requiredQty,
-      issuedQuantity: issuedData.issuedQuantity,
+      issuedQuantity: issuedQty,
+      directIssueQuantity: issuedData.directIssueQuantity,
+      returnableDcQuantity: issuedData.returnableDcQuantity,
       pendingToIssue,
+      isOverIssued,
+      excessQuantity,
+      overIssuePercent: pm.requiredQty > 0 && isOverIssued ? Math.round((excessQuantity / pm.requiredQty) * 100) : 0,
       unit: pm.unit,
       issuePercent,
       issueHistory: issuedData.issueHistory,
-      status: issuePercent >= 100 ? "Fully Issued" : issuePercent > 0 ? "Partially Issued" : "Not Issued"
+      isNonBOM: false,
+      status: isOverIssued
+        ? `Over-Issued (+${excessQuantity} ${pm.unit})`
+        : issuePercent >= 100
+        ? "Fully Issued"
+        : issuePercent > 0
+        ? `Partially Issued (${issuePercent}%)`
+        : "Not Issued"
     };
+  });
+
+  // D. Non-BOM Materials (Items issued for this MRP that were NOT in the BOM)
+  const nonBomMaterialsAnalysis = [];
+  issuedItemsMap.forEach((entry, key) => {
+    if (!plannedMaterialsMap.has(key)) {
+      totalMaterialIssuedActual += entry.totalIssuedQuantity;
+      totalOverIssuedQuantity += entry.totalIssuedQuantity;
+
+      nonBomMaterialsAnalysis.push({
+        materialName: entry.materialName,
+        materialCode: entry.materialCode,
+        description: entry.description,
+        itemType: "Non-BOM / Extra Store Issue",
+        requiredQuantity: 0,
+        issuedQuantity: entry.totalIssuedQuantity,
+        directIssueQuantity: entry.directIssueQuantity,
+        returnableDcQuantity: entry.returnableDcQuantity,
+        pendingToIssue: 0,
+        isOverIssued: true,
+        excessQuantity: entry.totalIssuedQuantity,
+        overIssuePercent: 100,
+        unit: entry.unit,
+        issuePercent: 100,
+        issueHistory: entry.issueHistory,
+        isNonBOM: true,
+        status: `Non-BOM Extra (+${entry.totalIssuedQuantity} ${entry.unit})`
+      });
+    }
   });
 
   const materialIssueOverallProgress = totalMaterialRequired > 0
-    ? Math.round((totalMaterialIssued / totalMaterialRequired) * 100)
-    : (materialIssues.length > 0 ? 100 : 0);
+    ? Math.min(100, Math.round((totalMaterialIssuedCapped / totalMaterialRequired) * 100))
+    : (materialIssues.length > 0 || jobWorkChallans.length > 0 ? 100 : 0);
 
-  // ================= 2. STAGE 2: SHOPFLOOR PPC WIP =================
-  const ppcJobAnalysis = ppcJobs.map(job => {
-    const targetQty = Number(job.targetQuantity || job.quantity) || 1;
-    const completedQty = Number(job.completedQuantity || job.producedQuantity) || 0;
-    const rejectedQty = Number(job.rejectedQuantity || job.scrapQuantity) || 0;
-    const progressPercent = Math.min(100, Math.round((completedQty / targetQty) * 100));
+  // =========================================================================
+  // 2. STAGE 2: FG GRN INWARD & RETURN WITH THIS MRP
+  // =========================================================================
+  const fgReceivedMap = new Map();
+
+  fgGRNs.forEach(grn => {
+    (grn.items || []).forEach(it => {
+      const itemName = it.fgItem?.name || it.itemName;
+      const cleanName = (itemName || "").trim();
+      if (!cleanName) return;
+      const key = cleanName.toLowerCase();
+
+      const acceptedQty = Number(it.acceptedQuantity != null ? it.acceptedQuantity : (it.quantity || it.receivedQuantity)) || 0;
+      const rejectedQty = Number(it.rejectedQuantity || 0);
+
+      if (!fgReceivedMap.has(key)) {
+        fgReceivedMap.set(key, {
+          itemName: cleanName,
+          itemCode: it.fgItem?.code || "",
+          description: it.fgItem?.description || it.description || "",
+          unit: it.unit || it.fgItem?.unit || "Nos",
+          receivedQuantity: 0,
+          rejectedQuantity: 0,
+          receiptHistory: []
+        });
+      }
+
+      const entry = fgReceivedMap.get(key);
+      entry.receivedQuantity += acceptedQty;
+      entry.rejectedQuantity += rejectedQty;
+      entry.receiptHistory.push({
+        grnNumber: grn.grnNumber,
+        date: grn.date,
+        receivedBy: grn.receivedBy?.name || "Store Executive",
+        acceptedQuantity: acceptedQty,
+        rejectedQuantity: rejectedQty,
+        qcStatus: grn.qcStatus || "Completed",
+        remarks: grn.remarks || ""
+      });
+    });
+  });
+
+  const plannedFgMap = new Map();
+  let targetFGQuantity = 0;
+  let totalFGReceived = 0;
+  let totalFGSurplusQuantity = 0;
+
+  // Process Planned Finished Goods
+  const plannedFGAnalysis = (mrpPlan.fgItems || []).map(fg => {
+    const itemName = fg.fgItem?.name || fg.fgItemName || "FG Item";
+    const key = itemName.trim().toLowerCase();
+    plannedFgMap.set(key, true);
+
+    const targetQty = Number(fg.quantity) || 0;
+    targetFGQuantity += targetQty;
+
+    const receivedData = fgReceivedMap.get(key) || {
+      receivedQuantity: 0,
+      rejectedQuantity: 0,
+      receiptHistory: []
+    };
+
+    const recQty = receivedData.receivedQuantity;
+    totalFGReceived += recQty;
+
+    const balanceQty = Math.max(0, targetQty - recQty);
+    const isSurplus = recQty > targetQty;
+    const surplusQty = isSurplus ? recQty - targetQty : 0;
+    if (isSurplus) {
+      totalFGSurplusQuantity += surplusQty;
+    }
+
+    const completionPercent = targetQty > 0
+      ? Math.round((recQty / targetQty) * 100)
+      : (recQty > 0 ? 100 : 0);
 
     return {
-      jobId: job._id,
-      jobNumber: job.jobNumber,
-      partName: job.partName || job.componentName || "Component",
+      fgItemName: itemName,
+      fgItemCode: fg.fgItem?.code || fg.fgItemCode || "",
+      description: fg.fgItem?.description || fg.description || receivedData.description || "",
+      bomNumber: fg.bomNumber || "BOM-Active",
       targetQuantity: targetQty,
-      completedQuantity: completedQty,
-      rejectedQuantity: rejectedQty,
-      progressPercent,
-      currentOperation: job.currentOperation || "In Machining",
-      machineName: job.machineName || "CNC / Lathe Workstation",
-      status: job.status || (progressPercent >= 100 ? "Completed" : "In Progress")
+      receivedQuantity: recQty,
+      balanceQuantity: balanceQty,
+      isSurplus,
+      surplusQuantity: surplusQty,
+      surplusPercent: targetQty > 0 && isSurplus ? Math.round((surplusQty / targetQty) * 100) : 0,
+      rejectedQuantity: receivedData.rejectedQuantity,
+      unit: fg.unit || receivedData.unit || "Nos",
+      completionPercent,
+      receiptHistory: receivedData.receiptHistory,
+      isUnplanned: false,
+      status: isSurplus
+        ? `Surplus Inward (+${surplusQty} ${fg.unit || 'Nos'})`
+        : completionPercent >= 100
+        ? "100% Inwarded"
+        : completionPercent > 0
+        ? `Partially Received (${completionPercent}%)`
+        : "Pending Inward"
     };
   });
 
-  const ppcOverallProgress = ppcJobAnalysis.length > 0
-    ? Math.round(ppcJobAnalysis.reduce((sum, j) => sum + j.progressPercent, 0) / ppcJobAnalysis.length)
-    : (materialIssueOverallProgress >= 50 ? 50 : 0);
+  // Process Unplanned FG Items (Items received in FG GRN that were NOT in MRP fgItems)
+  const unplannedFGAnalysis = [];
+  fgReceivedMap.forEach((entry, key) => {
+    if (!plannedFgMap.has(key)) {
+      totalFGReceived += entry.receivedQuantity;
+      totalFGSurplusQuantity += entry.receivedQuantity;
 
-  // ================= 3. STAGE 3: SUBCONTRACTING JOB WORK WIP =================
-  let totalJWQuantitySent = 0;
-  let totalJWQuantityReceived = 0;
-
-  const jobWorkAnalysis = jobWorkChallans.map(jw => {
-    const sent = (jw.items || []).reduce((sum, it) => sum + (Number(it.quantitySent || it.quantity) || 0), 0);
-    const rec = (jw.receiveHistory || []).reduce((sum, rh) => sum + (Number(rh.acceptedQuantity || rh.quantity) || 0), 0);
-
-    totalJWQuantitySent += sent;
-    totalJWQuantityReceived += rec;
-
-    const pendingAtVendor = Math.max(0, sent - rec);
-    const clearancePercent = sent > 0 ? Math.min(100, Math.round((rec / sent) * 100)) : 100;
-
-    return {
-      challanId: jw._id,
-      challanNumber: jw.challanNumber,
-      jobWorkType: jw.jobWorkType || "store-conversion",
-      vendorName: jw.vendorName || jw.vendor?.name || "Subcontractor",
-      processType: jw.processType || "Machining / Coating",
-      dateSent: jw.date,
-      quantitySent: sent,
-      quantityReceived: rec,
-      pendingAtVendor,
-      clearancePercent,
-      status: jw.status || (clearancePercent >= 100 ? "Closed" : "Pending Return")
-    };
+      unplannedFGAnalysis.push({
+        fgItemName: entry.itemName,
+        fgItemCode: entry.itemCode || "",
+        description: entry.description,
+        bomNumber: "Non-BOM Item",
+        targetQuantity: 0,
+        receivedQuantity: entry.receivedQuantity,
+        balanceQuantity: 0,
+        isSurplus: true,
+        surplusQuantity: entry.receivedQuantity,
+        surplusPercent: 100,
+        rejectedQuantity: entry.rejectedQuantity,
+        unit: entry.unit,
+        completionPercent: 100,
+        receiptHistory: entry.receiptHistory,
+        isUnplanned: true,
+        status: `Unplanned FG Return (+${entry.receivedQuantity} ${entry.unit})`
+      });
+    }
   });
-
-  const jobWorkOverallProgress = totalJWQuantitySent > 0
-    ? Math.round((totalJWQuantityReceived / totalJWQuantitySent) * 100)
-    : 100; // If no job work required for this MRP, consider it 100%
-
-  // ================= 4. STAGE 4: FINISHED GOODS INWARD WIP =================
-  const targetFGQuantity = (mrpPlan.fgItems || []).reduce((sum, fg) => sum + (Number(fg.quantity) || 0), 0);
-  const totalFGReceived = fgGRNs.reduce((sum, fg) => {
-    return sum + (fg.items || []).reduce((iSum, it) => iSum + (Number(it.acceptedQuantity || it.quantity) || 0), 0);
-  }, 0);
 
   const fgCompletionPercent = targetFGQuantity > 0
     ? Math.min(100, Math.round((totalFGReceived / targetFGQuantity) * 100))
-    : 0;
+    : (totalFGReceived > 0 ? 100 : 0);
 
-  // ================= 5. OVERALL MRP HEALTH & BOTTLENECK ANALYSIS =================
-  let currentStage = "Stage 1: Material Issue";
+  // =========================================================================
+  // 3. TWO-STAGE OVERALL PIPELINE & BOTTLENECK ANALYSIS
+  // =========================================================================
+  let currentStage = "Stage 1: Store Material Issuance";
   let bottleneck = null;
 
   if (materialIssueOverallProgress < 100) {
     currentStage = "Stage 1: Store Material Issuance";
-    const unissuedCount = materialIssueAnalysis.filter(m => m.issuePercent < 100).length;
-    bottleneck = `${unissuedCount} planned material(s) still pending Store Issue to shopfloor.`;
-  } else if (ppcOverallProgress < 100) {
-    currentStage = "Stage 2: Shopfloor PPC Production";
-    bottleneck = "In-house machining and component routing in progress.";
-  } else if (totalJWQuantitySent > 0 && jobWorkOverallProgress < 100) {
-    currentStage = "Stage 3: Subcontracting / Job Work";
-    const pendingChallans = jobWorkAnalysis.filter(j => j.clearancePercent < 100);
-    bottleneck = `${pendingChallans.length} Returnable Challan(s) pending return/QC from subcontractors.`;
+    const pendingBOMCount = plannedMaterialsAnalysis.filter(m => m.pendingToIssue > 0).length;
+    bottleneck = `${pendingBOMCount} planned BOM material(s) still pending Store Issue / Returnable DC to shopfloor.`;
   } else if (fgCompletionPercent < 100) {
-    currentStage = "Stage 4: Final Assembly & FG Clearance";
-    bottleneck = `${targetFGQuantity - totalFGReceived} units pending Final FG GRN receipt.`;
+    currentStage = "Stage 2: FG GRN Inward Clearance";
+    const balanceUnits = Math.max(0, targetFGQuantity - totalFGReceived);
+    bottleneck = `${balanceUnits} Finished Good unit(s) pending Final FG GRN receipt into Store.`;
   } else {
     currentStage = "Completed (Ready for Dispatch)";
-    bottleneck = "All production and quality clearance completed.";
+    bottleneck = totalFGSurplusQuantity > 0
+      ? `All production completed with +${totalFGSurplusQuantity} surplus Finished Goods received!`
+      : "All store material issuance and finished goods receipts completed.";
   }
 
   const overallProgress = Math.round(
-    (materialIssueOverallProgress * 0.25) +
-    (ppcOverallProgress * 0.25) +
-    (jobWorkOverallProgress * 0.25) +
-    (fgCompletionPercent * 0.25)
+    (materialIssueOverallProgress * 0.5) +
+    (fgCompletionPercent * 0.5)
   );
 
   return res.status(200).json(new ApiResponse(200, {
@@ -247,25 +475,34 @@ export const getMRP360WipTracker = asyncHandler(async (req, res) => {
       currentStage,
       bottleneck,
       stage1_MaterialIssue: materialIssueOverallProgress,
-      stage2_ShopfloorPPC: ppcOverallProgress,
-      stage3_JobWorkSubcontracting: jobWorkOverallProgress,
+      stage2_FGReturn: fgCompletionPercent,
+      // Backward compatibility aliases
+      stage2_ShopfloorPPC: materialIssueOverallProgress >= 100 ? 100 : materialIssueOverallProgress,
+      stage3_JobWorkSubcontracting: materialIssueOverallProgress >= 100 ? 100 : materialIssueOverallProgress,
       stage4_FGAssembly: fgCompletionPercent
     },
+    // Streamlined Stage 1
     stage1_MaterialIssues: {
       overallProgress: materialIssueOverallProgress,
-      materials: materialIssueAnalysis,
-      rawIssuesCount: materialIssues.length
+      totalRequiredQuantity: totalMaterialRequired,
+      totalIssuedQuantity: totalMaterialIssuedActual,
+      totalOverIssuedQuantity: totalOverIssuedQuantity,
+      materials: plannedMaterialsAnalysis, // BOM Materials
+      nonBomMaterials: nonBomMaterialsAnalysis, // Non-BOM Store Issued Materials
+      directIssuesCount: materialIssues.length,
+      returnableDcsCount: jobWorkChallans.length
     },
-    stage2_ShopfloorPPC: {
-      overallProgress: ppcOverallProgress,
-      jobs: ppcJobAnalysis
+    // Streamlined Stage 2
+    stage2_FGGRN: {
+      overallProgress: fgCompletionPercent,
+      targetQuantity: targetFGQuantity,
+      receivedQuantity: totalFGReceived,
+      surplusQuantity: totalFGSurplusQuantity,
+      plannedItems: plannedFGAnalysis, // Planned FG Demand
+      unplannedItems: unplannedFGAnalysis, // Unplanned Extra FG Returns
+      receipts: fgGRNs
     },
-    stage3_JobWork: {
-      overallProgress: jobWorkOverallProgress,
-      totalSent: totalJWQuantitySent,
-      totalReceived: totalJWQuantityReceived,
-      challans: jobWorkAnalysis
-    },
+    // Backward compatibility aliases for existing views
     stage4_FGGRN: {
       overallProgress: fgCompletionPercent,
       targetQuantity: targetFGQuantity,
@@ -293,7 +530,7 @@ export const getAllMRPWipOverview = asyncHandler(async (req, res) => {
 
   const [allIssues, allJWChallans, allFGGRNs] = await Promise.all([
     MaterialIssue.find({ company: companyId }).select("mrpNumber items"),
-    JobWorkChallan.find({ company: companyId }).select("mrpNumber items receiveHistory jobWorkType"),
+    JobWorkChallan.find({ company: companyId }).select("mrpNumber items assemblyGroups"),
     FGGRN.find({ company: companyId }).select("mrpNumber items")
   ]);
 
@@ -329,17 +566,14 @@ export const getAllMRPWipOverview = asyncHandler(async (req, res) => {
     const relatedFG = fgByMRP.get(mrpNum) || [];
 
     const totalRequiredMaterials = (plan.rmRequirements || []).length + (plan.boRequirements || []).length;
-    const materialStageProgress = totalRequiredMaterials > 0 ? (relatedIssues.length > 0 ? 100 : 0) : 100;
-
-    const jwSent = relatedJW.reduce((sum, j) => sum + (j.items || []).reduce((s, it) => s + (Number(it.quantitySent || it.quantity) || 0), 0), 0);
-    const jwRec = relatedJW.reduce((sum, j) => sum + (j.receiveHistory || []).reduce((s, it) => s + (Number(it.acceptedQuantity || it.quantity) || 0), 0), 0);
-    const jwStageProgress = jwSent > 0 ? Math.min(100, Math.round((jwRec / jwSent) * 100)) : 100;
+    const hasAnyStoreExit = relatedIssues.length > 0 || relatedJW.length > 0;
+    const materialStageProgress = totalRequiredMaterials > 0 ? (hasAnyStoreExit ? 100 : 0) : 100;
 
     const targetFG = (plan.fgItems || []).reduce((s, f) => s + (Number(f.quantity) || 0), 0);
     const receivedFG = relatedFG.reduce((s, f) => s + (f.items || []).reduce((is, it) => is + (Number(it.acceptedQuantity || it.quantity) || 0), 0), 0);
     const fgStageProgress = targetFG > 0 ? Math.min(100, Math.round((receivedFG / targetFG) * 100)) : 0;
 
-    const overallProgress = Math.round((materialStageProgress * 0.3) + (jwStageProgress * 0.3) + (fgStageProgress * 0.4));
+    const overallProgress = Math.round((materialStageProgress * 0.5) + (fgStageProgress * 0.5));
 
     return {
       _id: plan._id,
@@ -353,11 +587,10 @@ export const getAllMRPWipOverview = asyncHandler(async (req, res) => {
       overallProgress,
       stages: {
         materialIssue: materialStageProgress,
-        subcontracting: jwStageProgress,
         fgCompletion: fgStageProgress
       },
-      hasActiveJobWork: jwSent > 0,
-      pendingJobWorkUnits: Math.max(0, jwSent - jwRec)
+      hasReturnableDCs: relatedJW.length > 0,
+      totalIssuesCount: relatedIssues.length + relatedJW.length
     };
   });
 

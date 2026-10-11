@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Camera, FileText, User, Calendar, Hash, Package } from 'lucide-react';
 import { useGetStoreDataQuery, useCreateStoreRecordMutation, useUpdateStoreRecordMutation } from "@/src/store/services/storeService";
 import SearchableSelect from '../SearchableSelect';
+import { showWarningToast } from "@/src/features/store/utils/storeDialogHelper";
 
 interface StoreCreateOrderModalProps {
     isOpen: boolean;
@@ -95,7 +96,7 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
             if (selectedInfo) {
                 const isDuplicate = newItems.some((item, i) => i !== index && item.componentId === value);
                 if (isDuplicate) {
-                    alert("This product is already added to the order. Please adjust the quantity of the existing row instead.");
+                    showWarningToast("This product is already added to the order. Please adjust the quantity of the existing row instead.");
                     return;
                 }
                 newItems[index].unit = selectedInfo.unit || "Nos";

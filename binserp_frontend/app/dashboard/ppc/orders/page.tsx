@@ -9,7 +9,7 @@ import {
 } from "@/src/store/services/ppcService";
 import { useHeader } from "@/src/context/HeaderContext";
 import { 
-  Hammer, Eye, Trash2, ChevronRight, ChevronDown, 
+  Hammer, Eye, Trash2, ChevronRight, ChevronDown, ChevronUp, Layers, Filter,
   Search, RefreshCw, Factory, Boxes, Plus
 } from 'lucide-react';
 import CreateOrderModal from "../components/CreateOrderModal";
@@ -45,6 +45,8 @@ export default function PPCOrdersPage() {
   const [mrpSearchTerm, setMrpSearchTerm] = useState<string>('');
   const [mrpStatusFilter, setMrpStatusFilter] = useState<string>('All');
   const [expandedMrpKey, setExpandedMrpKey] = useState<string | null>(null);
+  const [expandedBomKeys, setExpandedBomKeys] = useState<Record<string, boolean>>({});
+  const [showRmBoInBom, setShowRmBoInBom] = useState<boolean>(false);
 
   // Manufacturing Orders Filter State
   const [mfgSearchTerm, setMfgSearchTerm] = useState<string>('');
@@ -339,112 +341,361 @@ export default function PPCOrdersPage() {
                                   const isMoCreated = moved >= qty && qty > 0;
                                   const isPartial = moved > 0 && moved < qty;
 
+                                  const itemBomKey = `${bucket.mrpNumber}_${itmIdx}`;
+                                  const isBomExpanded = Boolean(expandedBomKeys[itemBomKey]);
+                                  const nestedList: any[] = item.nestedMaterials || [];
+                                  const subAssyCount = nestedList.filter((m: any) => (m.itemType || '').toLowerCase().includes('sub')).length;
+                                  const compCount = nestedList.filter((m: any) => (m.itemType || '').toLowerCase() === 'component').length;
+                                  const rmBoCount = nestedList.filter((m: any) => ['rm', 'bo', 'consumable'].includes((m.itemType || '').toLowerCase())).length;
+
                                   return (
-                                    <tr key={itmIdx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                                      
-                                      {/* Item Name & Technical Description */}
-                                      <td className="px-4 py-3">
-                                        <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
-                                          {name}
-                                        </div>
-                                        {desc && (
-                                          <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
-                                            {desc}
+                                    <React.Fragment key={itmIdx}>
+                                      <tr className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                                        
+                                        {/* Item Name & Technical Description per AGENTS.md */}
+                                        <td className="px-4 py-3">
+                                          <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                                            {name}
                                           </div>
-                                        )}
-                                      </td>
+                                          {desc && (
+                                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                                              {desc}
+                                            </div>
+                                          )}
 
-                                      {/* BOM Classification */}
-                                      <td className="px-3 py-3">
-                                        <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
-                                          type.toLowerCase().includes('sub') ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300' :
-                                          type.toLowerCase().includes('assembly') ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300' :
-                                          'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300'
-                                        }`}>
-                                          {type}
-                                        </span>
-                                      </td>
-
-                                      {/* Required Qty */}
-                                      <td className="px-3 py-3 text-center font-bold text-slate-900 dark:text-white">
-                                        {qty} <span className="text-[10px] text-slate-400 font-normal">{item.unit || "PCS"}</span>
-                                      </td>
-
-                                      {/* Moved to MO */}
-                                      <td className="px-3 py-3 text-center font-mono font-semibold text-slate-700 dark:text-slate-300">
-                                        {moved}
-                                      </td>
-
-                                      {/* Remaining Qty */}
-                                      <td className="px-3 py-3 text-center font-mono font-bold text-purple-600 dark:text-purple-400">
-                                        {remaining}
-                                      </td>
-
-                                      {/* Manufacturing Status */}
-                                      <td className="px-4 py-3 text-center">
-                                        {isMoCreated ? (
-                                          <div className="inline-flex flex-col items-center">
-                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200">
-                                              MO Created
-                                            </span>
-                                            {item.linkedMoNumber && (
-                                              <span className="text-[10px] font-mono text-slate-400 mt-0.5">
-                                                {item.linkedMoNumber}
+                                          {/* Toggle Button for Nested BOM Breakdown */}
+                                          {nestedList.length > 0 && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setExpandedBomKeys(prev => ({ ...prev, [itemBomKey]: !prev[itemBomKey] }))}
+                                              className="inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 rounded-lg text-[11px] font-bold text-purple-700 dark:text-purple-300 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900/60 border border-purple-200/80 dark:border-purple-800/80 transition-all cursor-pointer shadow-2xs"
+                                            >
+                                              <Layers size={13} className="text-purple-600 dark:text-purple-400" />
+                                              <span>
+                                                {isBomExpanded ? "Hide Nested BOM" : `Nested BOM Breakdown (${subAssyCount} Sub-Assy, ${compCount} Components${rmBoCount > 0 ? `, ${rmBoCount} RM/BO` : ''})`}
                                               </span>
-                                            )}
-                                          </div>
-                                        ) : isPartial ? (
-                                          <div className="inline-flex flex-col items-center">
-                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200">
-                                              Partial ({moved}/{qty})
-                                            </span>
-                                            {item.linkedMoNumber && (
-                                              <span className="text-[10px] font-mono text-slate-400 mt-0.5">
-                                                {item.linkedMoNumber}
-                                              </span>
-                                            )}
-                                          </div>
-                                        ) : (
-                                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200">
-                                            Pending MO Creation
+                                              {isBomExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                            </button>
+                                          )}
+                                        </td>
+
+                                        {/* BOM Classification */}
+                                        <td className="px-3 py-3">
+                                          <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                                            type.toLowerCase().includes('sub') ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300' :
+                                            type.toLowerCase().includes('assembly') ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300' :
+                                            'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300'
+                                          }`}>
+                                            {type}
                                           </span>
-                                        )}
-                                      </td>
+                                        </td>
 
-                                      {/* Action Button */}
-                                      <td className="px-4 py-3 text-right">
-                                        {remaining > 0 ? (
-                                          <button
-                                            onClick={() => {
-                                              const targetOrder = (bucket.orders || []).find((o: any) => o._id === item.orderId) || {
-                                                _id: item.orderId,
-                                                orderNumber: item.orderNumber,
-                                                mrpNumber: bucket.mrpNumber,
-                                                poReference: bucket.poReference,
-                                                customerName: bucket.customerName,
-                                                items: [item]
-                                              };
-                                              setMoveToMfgOrder(targetOrder);
-                                            }}
-                                            className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5 ml-auto cursor-pointer"
-                                          >
-                                            <Hammer size={12} />
-                                            <span>Create MO</span>
-                                          </button>
-                                        ) : (
-                                          <button
-                                            onClick={() => {
-                                              setSubTab("manufacturing-orders");
-                                              setMfgSearchTerm(item.linkedMoNumber || bucket.mrpNumber);
-                                            }}
-                                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all ml-auto cursor-pointer"
-                                          >
-                                            View MO
-                                          </button>
-                                        )}
-                                      </td>
+                                        {/* Required Qty */}
+                                        <td className="px-3 py-3 text-center font-bold text-slate-900 dark:text-white">
+                                          {qty} <span className="text-[10px] text-slate-400 font-normal">{item.unit || "PCS"}</span>
+                                        </td>
 
-                                    </tr>
+                                        {/* Moved to MO */}
+                                        <td className="px-3 py-3 text-center font-mono font-semibold text-slate-700 dark:text-slate-300">
+                                          {moved}
+                                        </td>
+
+                                        {/* Remaining Qty */}
+                                        <td className="px-3 py-3 text-center font-mono font-bold text-purple-600 dark:text-purple-400">
+                                          {remaining}
+                                        </td>
+
+                                        {/* Manufacturing Status */}
+                                        <td className="px-4 py-3 text-center">
+                                          {isMoCreated ? (
+                                            <div className="inline-flex flex-col items-center">
+                                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200">
+                                                MO Created
+                                              </span>
+                                              {item.linkedMoNumber && (
+                                                <span className="text-[10px] font-mono text-slate-400 mt-0.5">
+                                                  {item.linkedMoNumber}
+                                                </span>
+                                              )}
+                                            </div>
+                                          ) : isPartial ? (
+                                            <div className="inline-flex flex-col items-center">
+                                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200">
+                                                Partial ({moved}/{qty})
+                                              </span>
+                                              {item.linkedMoNumber && (
+                                                <span className="text-[10px] font-mono text-slate-400 mt-0.5">
+                                                  {item.linkedMoNumber}
+                                                </span>
+                                              )}
+                                            </div>
+                                          ) : (
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200">
+                                              Pending MO Creation
+                                            </span>
+                                          )}
+                                        </td>
+
+                                        {/* Action Button */}
+                                        <td className="px-4 py-3 text-right">
+                                          {remaining > 0 ? (
+                                            <button
+                                              onClick={() => {
+                                                const targetOrder = (bucket.orders || []).find((o: any) => o._id === item.orderId) || {
+                                                  _id: item.orderId,
+                                                  orderNumber: item.orderNumber,
+                                                  mrpNumber: bucket.mrpNumber,
+                                                  poReference: bucket.poReference,
+                                                  customerName: bucket.customerName,
+                                                  items: [item]
+                                                };
+                                                setMoveToMfgOrder(targetOrder);
+                                              }}
+                                              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5 ml-auto cursor-pointer"
+                                            >
+                                              <Hammer size={12} />
+                                              <span>Create MO</span>
+                                            </button>
+                                          ) : (
+                                            <button
+                                              onClick={() => {
+                                                setSubTab("manufacturing-orders");
+                                                setMfgSearchTerm(item.linkedMoNumber || bucket.mrpNumber);
+                                              }}
+                                              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all ml-auto cursor-pointer"
+                                            >
+                                              View MO
+                                            </button>
+                                          )}
+                                        </td>
+
+                                      </tr>
+
+                                      {/* Nested Hierarchical BOM Breakdown Drawer/Sub-table */}
+                                      {isBomExpanded && (
+                                        <tr className="bg-slate-50/70 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800">
+                                          <td colSpan={7} className="p-3 sm:p-4">
+                                            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
+                                              
+                                              {/* Nested BOM Header Toolbar */}
+                                              <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800">
+                                                <div className="flex items-center gap-2">
+                                                  <span className="p-1.5 bg-purple-100 dark:bg-purple-950 text-purple-600 dark:text-purple-400 rounded-lg">
+                                                    <Layers size={14} />
+                                                  </span>
+                                                  <div>
+                                                    <h5 className="text-xs font-bold text-slate-900 dark:text-white">
+                                                      Nested BOM Hierarchy for {name}
+                                                    </h5>
+                                                    <span className="text-[11px] text-slate-500">
+                                                      {subAssyCount} Sub-Assemblies, {compCount} Components {rmBoCount > 0 ? `• ${rmBoCount} RM & BO Items` : ''}
+                                                    </span>
+                                                  </div>
+                                                </div>
+
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setShowRmBoInBom(prev => !prev)}
+                                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all border flex items-center gap-1.5 cursor-pointer ${
+                                                    showRmBoInBom
+                                                      ? "bg-purple-600 text-white border-purple-600 shadow-2xs"
+                                                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200"
+                                                  }`}
+                                                >
+                                                  <Filter size={11} />
+                                                  <span>{showRmBoInBom ? "Hide Raw Materials & Bought-Outs" : `Show RM & BO Items (${rmBoCount})`}</span>
+                                                </button>
+                                              </div>
+
+                                              {/* Hierarchical Sub-assembly & Component Table */}
+                                              <div className="overflow-x-auto">
+                                                <table className="w-full text-left text-xs">
+                                                  <thead className="bg-slate-50/80 dark:bg-slate-800/40 text-slate-500 font-bold uppercase text-[10px] border-b border-slate-200/60 dark:border-slate-800">
+                                                    <tr>
+                                                      <th className="px-4 py-2.5">Level & Technical Description</th>
+                                                      <th className="px-3 py-2.5">Type</th>
+                                                      <th className="px-3 py-2.5 text-center">Per FG</th>
+                                                      <th className="px-3 py-2.5 text-center">Total Req</th>
+                                                      <th className="px-3 py-2.5 text-center">Current Stock</th>
+                                                      <th className="px-3 py-2.5 text-center">Shortage</th>
+                                                      <th className="px-3 py-2.5 text-center">MO Status</th>
+                                                      <th className="px-4 py-2.5 text-right">Planning Action</th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                                                    {nestedList
+                                                      .filter((nm: any) => {
+                                                        const rawType = (nm.itemType || '').toLowerCase();
+                                                        const isMfg = rawType.includes('sub') || rawType === 'component' || rawType.includes('assembly');
+                                                        return showRmBoInBom || isMfg;
+                                                      })
+                                                      .map((nm: any, nmIdx: number) => {
+                                                        const rawType = (nm.itemType || '').toLowerCase();
+                                                        const isMfg = rawType.includes('sub') || rawType === 'component' || rawType.includes('assembly');
+                                                        const lvl = Number(nm.level) || 1;
+                                                        const isNmMoCreated = nm.linkedMoNumber || (Number(nm.movedQuantity) || 0) >= (Number(nm.totalRequired) || 1);
+
+                                                        return (
+                                                          <tr
+                                                            key={nmIdx}
+                                                            className={`transition-colors ${
+                                                              isMfg ? 'hover:bg-purple-50/30 dark:hover:bg-purple-950/20' : 'bg-slate-50/30 dark:bg-slate-900/40 text-slate-600'
+                                                            }`}
+                                                          >
+                                                            {/* Indented Item Name & Description per AGENTS.md */}
+                                                            <td className="px-4 py-2.5">
+                                                              <div 
+                                                                style={{ paddingLeft: `${(lvl - 1) * 20}px` }} 
+                                                                className="flex items-start gap-1.5"
+                                                              >
+                                                                <span className="text-slate-400 font-mono text-xs select-none">↳</span>
+                                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold shrink-0 ${
+                                                                  lvl === 1 ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300' :
+                                                                  lvl === 2 ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' :
+                                                                  'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                                                }`}>
+                                                                  L{lvl}
+                                                                </span>
+                                                                <div className="min-w-0">
+                                                                  <div className="font-bold text-xs text-slate-900 dark:text-white">
+                                                                    {nm.materialName || nm.itemName}
+                                                                  </div>
+                                                                  {nm.description && (
+                                                                    <div className="text-[10px] text-slate-500 italic mt-0.5 line-clamp-1">
+                                                                      {nm.description}
+                                                                    </div>
+                                                                  )}
+                                                                  {nm.parentItemName && (
+                                                                    <span className="text-[9px] text-slate-400 block mt-0.5">
+                                                                      Under: {nm.parentItemName}
+                                                                    </span>
+                                                                  )}
+                                                                </div>
+                                                              </div>
+                                                            </td>
+
+                                                            {/* Type Badge */}
+                                                            <td className="px-3 py-2.5">
+                                                              <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                                                                rawType.includes('sub') ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300' :
+                                                                rawType === 'component' ? 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300' :
+                                                                rawType.includes('assembly') ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300' :
+                                                                rawType === 'bo' ? 'bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300' :
+                                                                'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+                                                              }`}>
+                                                                {nm.itemType || 'Part'}
+                                                              </span>
+                                                            </td>
+
+                                                            {/* Quantity Per FG */}
+                                                            <td className="px-3 py-2.5 text-center font-mono font-semibold text-slate-600 dark:text-slate-400">
+                                                              {nm.quantityPerFG || 1}
+                                                            </td>
+
+                                                            {/* Total Required */}
+                                                            <td className="px-3 py-2.5 text-center font-mono font-bold text-slate-900 dark:text-white">
+                                                              {nm.totalRequired} <span className="text-[9px] text-slate-400 font-normal">{nm.unit || 'PCS'}</span>
+                                                            </td>
+
+                                                            {/* Current Stock */}
+                                                            <td className="px-3 py-2.5 text-center font-mono text-slate-700 dark:text-slate-300">
+                                                              {nm.currentStock || 0}
+                                                            </td>
+
+                                                            {/* Shortage */}
+                                                            <td className="px-3 py-2.5 text-center font-mono">
+                                                              {(nm.shortage || 0) > 0 ? (
+                                                                <span className="font-bold text-amber-600 dark:text-amber-400">
+                                                                  {nm.shortage}
+                                                                </span>
+                                                             ) : (
+                                                                <span className="text-emerald-600 font-bold">0</span>
+                                                              )}
+                                                            </td>
+
+                                                            {/* MO Status */}
+                                                            <td className="px-3 py-2.5 text-center">
+                                                              {isMfg ? (
+                                                                isNmMoCreated ? (
+                                                                  <div className="inline-flex flex-col items-center">
+                                                                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200">
+                                                                      MO Created
+                                                                    </span>
+                                                                    {nm.linkedMoNumber && (
+                                                                      <span className="text-[9px] font-mono text-slate-400 mt-0.5">
+                                                                        {nm.linkedMoNumber}
+                                                                      </span>
+                                                                    )}
+                                                                  </div>
+                                                                ) : (
+                                                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200">
+                                                                    Pending
+                                                                  </span>
+                                                                )
+                                                              ) : (
+                                                                <span className="text-[10px] text-slate-400 italic">Procured</span>
+                                                              )}
+                                                            </td>
+
+                                                            {/* Planning Action */}
+                                                            <td className="px-4 py-2.5 text-right">
+                                                              {isMfg ? (
+                                                                isNmMoCreated ? (
+                                                                  <button
+                                                                    onClick={() => {
+                                                                      setSubTab("manufacturing-orders");
+                                                                      setMfgSearchTerm(nm.linkedMoNumber || bucket.mrpNumber);
+                                                                    }}
+                                                                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-[11px] font-bold transition-all ml-auto cursor-pointer"
+                                                                  >
+                                                                    View MO
+                                                                  </button>
+                                                                ) : (
+                                                                  <button
+                                                                    onClick={() => {
+                                                                      const targetOrder = (bucket.orders || []).find((o: any) => o._id === item.orderId) || {
+                                                                        _id: item.orderId,
+                                                                        orderNumber: item.orderNumber,
+                                                                        mrpNumber: bucket.mrpNumber,
+                                                                        poReference: bucket.poReference,
+                                                                        customerName: bucket.customerName,
+                                                                        items: [item]
+                                                                      };
+                                                                      setMoveToMfgOrder({
+                                                                        ...targetOrder,
+                                                                        items: [{
+                                                                          productName: nm.materialName || nm.itemName,
+                                                                          materialName: nm.materialName || nm.itemName,
+                                                                          description: nm.description,
+                                                                          quantity: nm.remainingQuantity || nm.totalRequired,
+                                                                          unit: nm.unit || 'PCS',
+                                                                          itemType: nm.itemType || "SubAssembly",
+                                                                          isSubAssembly: true
+                                                                        }]
+                                                                      });
+                                                                    }}
+                                                                    className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-[11px] font-bold shadow-2xs transition-all flex items-center gap-1 ml-auto cursor-pointer"
+                                                                    title={`Create Manufacturing Order for ${nm.materialName || 'Sub-Assembly'}`}
+                                                                  >
+                                                                    <Hammer size={11} />
+                                                                    <span>Create MO</span>
+                                                                  </button>
+                                                                )
+                                                              ) : (
+                                                                <span className="text-[10px] text-slate-400 italic">Procured Material</span>
+                                                              )}
+                                                            </td>
+                                                          </tr>
+                                                        );
+                                                      })}
+                                                  </tbody>
+                                                </table>
+                                              </div>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </React.Fragment>
                                   );
                                 })}
                               </tbody>

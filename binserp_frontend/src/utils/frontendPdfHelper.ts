@@ -2682,9 +2682,13 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
     let totalAccQty = 0;
     let totalRejQty = 0;
     let totalVal = 0;
+    let totalItemsTax = 0;
 
     let itemsTableRowsHtml = '';
     const items = grn.items || [];
+    const grnTaxRate = Number(grn.taxRate) || 0;
+    const hasItemTax = items.some((item: any) => (item.taxRate !== undefined && Number(item.taxRate) > 0) || (item.taxAmount !== undefined && Number(item.taxAmount) > 0));
+    const hasAnyTax = grnTaxRate > 0 || hasItemTax || (Number(grn.taxAmount) > 0);
 
     items.forEach((item: any, idx: number) => {
         const disp = resolveGrnLineItemDisplay(item);
@@ -2692,10 +2696,18 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
         const desc = item.description || item.descriptions || item.material?.description || item.material?.descriptions || '';
         const hsn = item.hsnCode || item.material?.hsnCode || item.material?.hsn || item.fgItem?.hsnCode || item.component?.hsnCode || '-';
 
+        const itemTaxRate = (item.taxRate !== undefined && item.taxRate !== null && !isNaN(Number(item.taxRate)))
+            ? Number(item.taxRate)
+            : grnTaxRate;
+        const itemTaxAmount = (item.taxAmount !== undefined && item.taxAmount !== null && !isNaN(Number(item.taxAmount)))
+            ? Number(item.taxAmount)
+            : Number(((disp.lineAmount * itemTaxRate) / 100).toFixed(2));
+
         totalRcvQty += disp.baseQty;
         totalAccQty += disp.baseAcceptedQty;
         totalRejQty += disp.baseRejectedQty;
         totalVal += disp.lineAmount;
+        totalItemsTax += itemTaxAmount;
 
         const rcvDisplay = disp.hasSecondaryUnit
             ? `<div>${disp.displayQty}</div><div style="font-size: 9px; color: #4f46e5; font-weight: bold;">(≈ ${disp.isSecondary ? `${disp.baseQty} ${disp.baseUnit}` : `${disp.secondaryQty} ${disp.secondaryUnit}`})</div>`
@@ -2732,18 +2744,37 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
                     ₹${disp.displayRate.toFixed(2)}
                     <div style="font-size: 8.5px; color: #64748b;">/${disp.displayUnit}</div>
                 </td>
+                ${hasAnyTax ? `
+                <td style="padding: 6px 8px; text-align: center; font-weight: 600; color: #4f46e5;">
+                    ${itemTaxRate > 0 ? `${itemTaxRate}%` : '0%'}
+                    ${itemTaxAmount > 0 ? `<div style="font-size: 8px; color: #6366f1; font-weight: normal;">(+₹${itemTaxAmount.toFixed(2)})</div>` : ''}
+                </td>
+                ` : ''}
                 <td style="padding: 6px 8px; text-align: right; font-weight: bold; color: #0f172a;">₹${disp.lineAmount.toFixed(2)}</td>
             </tr>
         `;
     });
 
-    const grnTaxRate = Number(grn.taxRate) || 0;
     const grnSubtotal = Number(grn.subtotal) || totalVal;
     const grnTransportationCharges = Number(grn.transportationCharges) || 0;
+    const isTransportationTaxable = grn.isTransportationTaxable === true || grn.isTransportationTaxable === 'true';
+    const transportationTaxRate = grn.transportationTaxRate !== undefined ? Number(grn.transportationTaxRate) : (isTransportationTaxable ? grnTaxRate : 0);
+    const transportationTaxAmount = grn.transportationTaxAmount !== undefined ? Number(grn.transportationTaxAmount) : (isTransportationTaxable ? Number(((grnTransportationCharges * transportationTaxRate) / 100).toFixed(2)) : 0);
+
     const grnPackingCharges = Number(grn.packingCharges) || 0;
-    const grnTaxAmount = Number(grn.taxAmount) || (grnTaxRate > 0 ? (grnSubtotal * grnTaxRate) / 100 : 0);
-    const grnGrandTotal = Number(grn.totalAmount) || (grnSubtotal + grnTaxAmount + grnTransportationCharges + grnPackingCharges);
-    const hasExtraCharges = grnTaxRate > 0 || grnTransportationCharges > 0 || grnPackingCharges > 0;
+    const isPackingTaxable = grn.isPackingTaxable === true || grn.isPackingTaxable === 'true';
+    const packingTaxRate = grn.packingTaxRate !== undefined ? Number(grn.packingTaxRate) : (isPackingTaxable ? grnTaxRate : 0);
+    const packingTaxAmount = grn.packingTaxAmount !== undefined ? Number(grn.packingTaxAmount) : (isPackingTaxable ? Number(((grnPackingCharges * packingTaxRate) / 100).toFixed(2)) : 0);
+
+    const grnTaxAmount = Number(grn.taxAmount) !== undefined && !isNaN(Number(grn.taxAmount)) && Number(grn.taxAmount) > 0
+        ? Number(grn.taxAmount)
+        : Number((totalItemsTax + transportationTaxAmount + packingTaxAmount).toFixed(2));
+
+    const roundOff = grn.roundOff !== undefined ? Number(grn.roundOff) : 0;
+    const isRoundOff = grn.isRoundOff !== undefined ? Boolean(grn.isRoundOff) : (roundOff !== 0);
+
+    const grnGrandTotal = Number(grn.totalAmount) || (grnSubtotal + grnTaxAmount + grnTransportationCharges + grnPackingCharges + (isRoundOff ? roundOff : 0));
+    const hasExtraCharges = hasAnyTax || grnTransportationCharges > 0 || grnPackingCharges > 0 || (isRoundOff && roundOff !== 0);
 
     const pagesHtml = copyTypes.map((copyTitle) => `
         <div class="page" style="page-break-after: always; width: 100%; max-width: 800px; margin: 0 auto 30px auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); border: 1px solid #e2e8f0;">
@@ -2817,6 +2848,7 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
                         <th style="padding: 7px 8px; width: 55px; text-align: center;">Rej Qty</th>
                         <th style="padding: 7px 8px; width: 45px; text-align: center;">Unit</th>
                         <th style="padding: 7px 8px; width: 65px; text-align: right;">Rate (₹)</th>
+                        ${hasAnyTax ? `<th style="padding: 7px 8px; width: 55px; text-align: center;">GST %</th>` : ''}
                         <th style="padding: 7px 8px; width: 80px; text-align: right;">Total (₹)</th>
                     </tr>
                 </thead>
@@ -2831,29 +2863,53 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
                         <td style="padding: 7px 8px; text-align: center; color: ${totalRejQty > 0 ? '#dc2626' : '#64748b'};">${totalRejQty}</td>
                         <td></td>
                         <td></td>
+                        ${hasAnyTax ? '<td></td>' : ''}
                         <td style="padding: 7px 8px; text-align: right; font-size: 11px; color: ${hasExtraCharges ? '#1e293b' : '#4f46e5'}; font-weight: 800;">₹${grnSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
-                    ${grnTaxRate > 0 ? `
+                    ${totalItemsTax > 0 ? `
                     <tr style="background: #f8fafc; font-weight: bold; font-size: 11px;">
-                        <td colspan="8" style="padding: 5px 8px; text-align: right; color: #4f46e5; font-size: 10px; text-transform: uppercase;">GST (${grnTaxRate}%):</td>
-                        <td style="padding: 5px 8px; text-align: right; font-size: 11px; color: #4f46e5; font-weight: 700;">+ ₹${grnTaxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td colspan="${hasAnyTax ? 9 : 8}" style="padding: 5px 8px; text-align: right; color: #4f46e5; font-size: 10px; text-transform: uppercase;">Items GST:</td>
+                        <td style="padding: 5px 8px; text-align: right; font-size: 11px; color: #4f46e5; font-weight: 700;">+ ₹${totalItemsTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                     ` : ''}
                     ${grnTransportationCharges > 0 ? `
                     <tr style="background: #f8fafc; font-weight: bold; font-size: 11px;">
-                        <td colspan="8" style="padding: 5px 8px; text-align: right; color: #2563eb; font-size: 10px; text-transform: uppercase;">Transportation Charges:</td>
+                        <td colspan="${hasAnyTax ? 9 : 8}" style="padding: 5px 8px; text-align: right; color: #2563eb; font-size: 10px; text-transform: uppercase;">
+                            Transportation Charges:
+                            ${isTransportationTaxable ? `<span style="font-size: 9px; color: #1d4ed8; text-transform: none; margin-left: 4px;">(+${transportationTaxRate}% GST: ₹${transportationTaxAmount.toFixed(2)})</span>` : '<span style="font-size: 9px; color: #64748b; text-transform: none; margin-left: 4px;">(Exempt / No Tax)</span>'}
+                        </td>
                         <td style="padding: 5px 8px; text-align: right; font-size: 11px; color: #2563eb; font-weight: 700;">+ ₹${grnTransportationCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                     ` : ''}
                     ${grnPackingCharges > 0 ? `
                     <tr style="background: #f8fafc; font-weight: bold; font-size: 11px;">
-                        <td colspan="8" style="padding: 5px 8px; text-align: right; color: #d97706; font-size: 10px; text-transform: uppercase;">Packing Charges:</td>
+                        <td colspan="${hasAnyTax ? 9 : 8}" style="padding: 5px 8px; text-align: right; color: #d97706; font-size: 10px; text-transform: uppercase;">
+                            Packing Charges:
+                            ${isPackingTaxable ? `<span style="font-size: 9px; color: #b45309; text-transform: none; margin-left: 4px;">(+${packingTaxRate}% GST: ₹${packingTaxAmount.toFixed(2)})</span>` : '<span style="font-size: 9px; color: #64748b; text-transform: none; margin-left: 4px;">(Exempt / No Tax)</span>'}
+                        </td>
                         <td style="padding: 5px 8px; text-align: right; font-size: 11px; color: #d97706; font-weight: 700;">+ ₹${grnPackingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                    ` : ''}
+                    ${(isTransportationTaxable || isPackingTaxable) && grnTaxAmount > 0 ? `
+                    <tr style="background: #f8fafc; font-weight: bold; font-size: 11px;">
+                        <td colspan="${hasAnyTax ? 9 : 8}" style="padding: 5px 8px; text-align: right; color: #4338ca; font-size: 10px; text-transform: uppercase;">Total GST (Items + Charges):</td>
+                        <td style="padding: 5px 8px; text-align: right; font-size: 11px; color: #4338ca; font-weight: 800;">+ ₹${grnTaxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                    ` : (!isTransportationTaxable && !isPackingTaxable && grnTaxAmount > 0 && totalItemsTax === 0 ? `
+                    <tr style="background: #f8fafc; font-weight: bold; font-size: 11px;">
+                        <td colspan="${hasAnyTax ? 9 : 8}" style="padding: 5px 8px; text-align: right; color: #4f46e5; font-size: 10px; text-transform: uppercase;">GST (${grnTaxRate}%):</td>
+                        <td style="padding: 5px 8px; text-align: right; font-size: 11px; color: #4f46e5; font-weight: 700;">+ ₹${grnTaxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                    ` : '')}
+                    ${(isRoundOff && roundOff !== 0) ? `
+                    <tr style="background: #f8fafc; font-weight: bold; font-size: 11px;">
+                        <td colspan="${hasAnyTax ? 9 : 8}" style="padding: 5px 8px; text-align: right; color: #059669; font-size: 10px; text-transform: uppercase;">Round Off:</td>
+                        <td style="padding: 5px 8px; text-align: right; font-size: 11px; color: #059669; font-weight: 700;">${roundOff >= 0 ? '+' : ''}₹${roundOff.toFixed(2)}</td>
                     </tr>
                     ` : ''}
                     ${hasExtraCharges ? `
                     <tr style="background: #eef2ff; font-weight: 900; font-size: 12px; border-top: 1px solid #c7d2fe;">
-                        <td colspan="8" style="padding: 8px; text-align: right; text-transform: uppercase; color: #1e1b4b;">Whole GRN Price (with GST & Charges):</td>
+                        <td colspan="${hasAnyTax ? 9 : 8}" style="padding: 8px; text-align: right; text-transform: uppercase; color: #1e1b4b;">Whole GRN Price (with GST & Charges):</td>
                         <td style="padding: 8px; text-align: right; font-size: 12px; color: #059669; font-weight: 900;">₹${grnGrandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                     ` : ''}

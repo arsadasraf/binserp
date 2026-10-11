@@ -239,11 +239,11 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
           }
         }
       } else if (isWipWorkflow) {
-        // Store-to-WIP or WIP-to-WIP: Always goes back into Shopfloor Active WIP, never Main FG Store
+        const qcItemType = (resolvedType === "rm" || resolvedType === "rawmaterial") ? "RawMaterial" : (resolvedType === "bo" || resolvedType === "boughtout" ? "BoughtOut" : (resolvedType === "fg" ? "FGItem" : "Component"));
         await recordStockTransaction(req, {
-          itemType: "Component",
+          itemType: qcItemType,
           item: itemId,
-          itemName: itemName || "WIP FG Component",
+          itemName: itemName || "WIP Component",
           unit: unit || "Nos",
           movementType: "INWARD",
           transactionCategory: "JOBWORK_QC_WIP_RELEASE",

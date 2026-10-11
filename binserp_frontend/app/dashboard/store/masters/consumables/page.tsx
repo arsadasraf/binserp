@@ -9,6 +9,7 @@ import MasterForm from '@/src/features/store/components/forms/MasterForm';
 import MasterDetailPreviewModal from '@/src/features/store/components/modals/MasterDetailPreviewModal';
 import { StoreFormData } from '@/src/features/store/types/store.types';
 import { AlertCircle, CheckCircle2, X } from 'lucide-react';
+import { showDestructiveConfirm, showDeactivatePrompt, showSuccessToast } from '@/src/features/store/utils/storeDialogHelper';
 
 const extractErrorMessage = (error: any, fallback = "Failed to save Consumable Item."): string => {
   if (!error) return fallback;
@@ -86,16 +87,25 @@ export default function ConsumablesPage() {
 
   const handleDelete = async (id: string) => {
     const target = consumables.find((m: any) => m._id === id);
-    if (confirm(`Are you sure you want to delete "${target?.name || 'this consumable item'}"?`)) {
+    const confirmed = await showDestructiveConfirm(
+      'Delete Consumable Item',
+      `Are you sure you want to delete "${target?.name || 'this consumable item'}"? This action cannot be undone.`
+    );
+    if (confirmed) {
       try {
         await deleteRecord({ tab: "consumable-item", id }).unwrap();
+        showSuccessToast(`Consumable "${target?.name || 'Item'}" deleted.`);
         setToast({ type: 'success', message: `Consumable "${target?.name || 'Item'}" deleted successfully.` });
       } catch (error: any) {
         const errMsg = extractErrorMessage(error, "Failed to delete item");
         if (target) {
           setRowNotice({ itemId: id, message: errMsg, type: 'error' });
           if (errMsg.toLowerCase().includes("stock") || errMsg.toLowerCase().includes("active") || errMsg.toLowerCase().includes("transaction")) {
-            if (confirm(`${errMsg}\n\nWould you like to DEACTIVATE this item instead?`)) {
+            const shouldDeactivate = await showDeactivatePrompt({
+              itemName: target.name || 'this consumable item',
+              errorMessage: errMsg
+            });
+            if (shouldDeactivate) {
               handleToggleStatus(target);
             }
           }

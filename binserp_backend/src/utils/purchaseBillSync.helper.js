@@ -44,6 +44,15 @@ export const syncGRNToPurchaseBill = async (req, grn, action = "update") => {
       return deleteResult;
     }
 
+    const taxRate = Number(grn.taxRate) || 0;
+    const isTransportationTaxable = grn.isTransportationTaxable === true || grn.isTransportationTaxable === 'true';
+    const transportationTaxRate = grn.transportationTaxRate !== undefined ? Number(grn.transportationTaxRate) : (isTransportationTaxable ? taxRate : 0);
+    const transportationTaxAmount = grn.transportationTaxAmount !== undefined ? Number(grn.transportationTaxAmount) : (isTransportationTaxable ? Number(((Number(grn.transportationCharges || 0) * transportationTaxRate) / 100).toFixed(2)) : 0);
+
+    const isPackingTaxable = grn.isPackingTaxable === true || grn.isPackingTaxable === 'true';
+    const packingTaxRate = grn.packingTaxRate !== undefined ? Number(grn.packingTaxRate) : (isPackingTaxable ? taxRate : 0);
+    const packingTaxAmount = grn.packingTaxAmount !== undefined ? Number(grn.packingTaxAmount) : (isPackingTaxable ? Number(((Number(grn.packingCharges || 0) * packingTaxRate) / 100).toFixed(2)) : 0);
+
     // Prepare Items with description per AGENTS.md
     const items = (grn.items || []).map((it) => {
       const isSec = Boolean(it.hasSecondaryUnit && it.selectedUnit && it.selectedUnit === it.secondaryUnit);
@@ -55,6 +64,10 @@ export const syncGRNToPurchaseBill = async (req, grn, action = "update") => {
         typeof it.amount === "number" && !isNaN(it.amount) && it.amount > 0
           ? it.amount
           : Number((rate * billingQty).toFixed(2));
+      const itemTaxRate = it.taxRate !== undefined && it.taxRate !== null ? Number(it.taxRate) : taxRate;
+      const itemTaxAmount = it.taxAmount !== undefined && it.taxAmount !== null
+        ? Number(it.taxAmount)
+        : Number(((amount * itemTaxRate) / 100).toFixed(2));
 
       return {
         material: it.material,
@@ -69,12 +82,14 @@ export const syncGRNToPurchaseBill = async (req, grn, action = "update") => {
         selectedUnit: it.selectedUnit || "",
         rate: rate,
         amount: amount,
+        taxRate: itemTaxRate,
+        taxAmount: itemTaxAmount,
       };
     });
 
     const subtotal = Number(grn.subtotal) || items.reduce((s, it) => s + it.amount, 0);
-    const taxRate = Number(grn.taxRate) || 0;
-    const taxAmount = Number(grn.taxAmount) || (taxRate > 0 ? (subtotal * taxRate) / 100 : 0);
+    const itemsTaxTotal = items.reduce((s, it) => s + (it.taxAmount || 0), 0);
+    const taxAmount = Number(grn.taxAmount) || Number((itemsTaxTotal + transportationTaxAmount + packingTaxAmount).toFixed(2));
     const transportationCharges = Number(grn.transportationCharges) || 0;
     const packingCharges = Number(grn.packingCharges) || 0;
     const grandTotal =
@@ -113,7 +128,13 @@ export const syncGRNToPurchaseBill = async (req, grn, action = "update") => {
       bill.taxAmount = taxAmount;
       bill.totalTax = taxAmount;
       bill.transportationCharges = transportationCharges;
+      bill.isTransportationTaxable = isTransportationTaxable;
+      bill.transportationTaxRate = transportationTaxRate;
+      bill.transportationTaxAmount = transportationTaxAmount;
       bill.packingCharges = packingCharges;
+      bill.isPackingTaxable = isPackingTaxable;
+      bill.packingTaxRate = packingTaxRate;
+      bill.packingTaxAmount = packingTaxAmount;
       bill.grandTotal = grandTotal;
 
       const paid = Number(bill.paidAmount) || 0;
@@ -164,7 +185,13 @@ export const syncGRNToPurchaseBill = async (req, grn, action = "update") => {
         taxAmount,
         totalTax: taxAmount,
         transportationCharges,
+        isTransportationTaxable,
+        transportationTaxRate,
+        transportationTaxAmount,
         packingCharges,
+        isPackingTaxable,
+        packingTaxRate,
+        packingTaxAmount,
         grandTotal,
         paymentTerms,
         creditDays,

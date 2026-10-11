@@ -37,6 +37,16 @@ const fgBOMItemSchema = new mongoose.Schema({
     type: Number,
     default: 1,
   },
+  primaryRatio: {
+    type: Number,
+    default: 1,
+    min: 0.000001,
+  },
+  secondaryRatio: {
+    type: Number,
+    default: 1,
+    min: 0.000001,
+  },
   secondaryQuantity: {
     type: Number,
   },
@@ -114,6 +124,16 @@ export const fgItemSchema = new mongoose.Schema(
       type: Number,
       default: 1,
       min: 0,
+    },
+    primaryRatio: {
+      type: Number,
+      default: 1,
+      min: 0.000001,
+    },
+    secondaryRatio: {
+      type: Number,
+      default: 1,
+      min: 0.000001,
     },
     hsnCode: {
       type: String,

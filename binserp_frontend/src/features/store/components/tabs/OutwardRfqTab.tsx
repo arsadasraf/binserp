@@ -8,6 +8,7 @@ import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 import { syncQuantities } from '@/src/utils/dualUomHelper';
+import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 
 interface OutwardRfqTabProps {
     token: string | null;
@@ -203,16 +204,24 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
 
     const handleDeleteRfq = async (rfq: any) => {
         if (!rfq || !rfq._id) return;
-        if (confirm(`Are you sure you want to delete Outward RFQ #${rfq.rfqNumber}? This action cannot be undone.`)) {
+        const confirmed = await showDestructiveConfirm({
+            title: "Delete Outward RFQ",
+            text: `Are you sure you want to delete Outward RFQ #${rfq.rfqNumber}? This action cannot be undone.`,
+            confirmButtonText: "Yes, Delete"
+        });
+        if (confirmed) {
             try {
                 await apiDelete(`/api/purchase/rfq/${rfq._id}`, token);
+                showSuccessToast(`Outward RFQ #${rfq.rfqNumber} deleted successfully`);
                 onSuccess(`Outward RFQ #${rfq.rfqNumber} deleted successfully`);
                 if (selectedRfq && selectedRfq._id === rfq._id) {
                     setSelectedRfq(null);
                 }
                 fetchData();
             } catch (err: any) {
-                onError(err.message || "Failed to delete Outward RFQ");
+                const errMsg = err.message || "Failed to delete Outward RFQ";
+                await showErrorDialog("Delete Failed", errMsg);
+                onError(errMsg);
             }
         }
     };

@@ -98,6 +98,8 @@ export const purchaseBillSchema = new mongoose.Schema(
         selectedUnit: { type: String, default: "" },
         rate: { type: Number, required: true, default: 0, min: 0 },
         amount: { type: Number, required: true, default: 0, min: 0 },
+        taxRate: { type: Number, default: 0 },
+        taxAmount: { type: Number, default: 0 },
       },
     ],
 
@@ -127,10 +129,34 @@ export const purchaseBillSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    isTransportationTaxable: {
+      type: Boolean,
+      default: false,
+    },
+    transportationTaxRate: {
+      type: Number,
+      default: 0,
+    },
+    transportationTaxAmount: {
+      type: Number,
+      default: 0,
+    },
     packingCharges: {
       type: Number,
       default: 0,
       min: 0,
+    },
+    isPackingTaxable: {
+      type: Boolean,
+      default: false,
+    },
+    packingTaxRate: {
+      type: Number,
+      default: 0,
+    },
+    packingTaxAmount: {
+      type: Number,
+      default: 0,
     },
     preRoundTotal: {
       type: Number,

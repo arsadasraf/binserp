@@ -102,7 +102,7 @@ export default function FGItemForm({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[95vw] md:max-w-4xl overflow-hidden flex flex-col max-h-[90vh] h-[90vh]">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[96vw] 2xl:max-w-[1720px] overflow-hidden flex flex-col max-h-[92vh] h-[92vh]">
                 <div className="bg-gradient-to-r from-violet-600 to-purple-600 p-5 flex justify-between items-center text-white shrink-0">
                     <div>
                         <h2 className="text-xl font-bold flex items-center gap-2">

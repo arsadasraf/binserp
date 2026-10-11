@@ -19,6 +19,7 @@ import { getCurrencySymbol, CURRENCY_OPTIONS, normalizeCurrencyCode } from '@/sr
 import { getPoOaNumber } from '@/src/utils/oaHelper';
 import { useExchangeRates } from '@/src/hooks/useExchangeRates';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
+import { showDestructiveConfirm, showWarningDialog, showErrorDialog, showSuccessToast } from '@/src/features/store/utils/storeDialogHelper';
 
 interface CustomerPoTabProps {
     token: string | null;
@@ -127,17 +128,27 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const handleDeletePo = async (po: any) => {
         if (!isEditAllowed(po.createdAt || po.date)) {
             const hrs = getPolicyHours('customerPo');
-            onError(hrs <= 0 ? "Customer PO is locked immediately upon creation by company policy" : `Customer PO can only be deleted within ${hrs} hours of creation`);
+            const lockMsg = hrs <= 0 ? "Customer PO is locked immediately upon creation by company policy" : `Customer PO can only be deleted within ${hrs} hours of creation`;
+            await showWarningDialog("Time-Lock Expired", lockMsg);
+            onError(lockMsg);
             return;
         }
-        if (!window.confirm(`Are you sure you want to delete Customer PO #${po.poNumber}?`)) return;
+        const confirmed = await showDestructiveConfirm({
+            title: "Delete Customer PO",
+            text: `Are you sure you want to delete Customer PO #${po.poNumber}? This action cannot be undone.`,
+            confirmButtonText: "Yes, Delete"
+        });
+        if (!confirmed) return;
 
         try {
             await apiDelete(`/api/sales/incoming-po/${po._id}`, token);
+            showSuccessToast(`Customer PO #${po.poNumber} deleted successfully`);
             onSuccess(`Customer PO #${po.poNumber} deleted successfully`);
             fetchData();
         } catch (err: any) {
-            onError(err.message || "Failed to delete Customer PO");
+            const errMsg = err.message || "Failed to delete Customer PO";
+            await showErrorDialog("Delete Failed", errMsg);
+            onError(errMsg);
         }
     };
 

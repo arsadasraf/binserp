@@ -3,6 +3,7 @@ import { RmBoItem } from "@/src/features/store/types/store.types";
 import { X, Plus, Trash2, Package, ShoppingCart, Boxes, Layers, Sparkles, ListFilter, Search, Check } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
 import { apiGet } from "@/src/lib/api";
+import { showWarningDialog, showWarningToast } from "@/src/features/store/utils/storeDialogHelper";
 
 export type RequestInventoryType = "rm" | "bo" | "consumable" | "fg";
 
@@ -404,7 +405,7 @@ export default function MaterialRequestModal({
         if (!activeSelectedPlan) return;
         const bomItems = getMrpBomItems(activeSelectedPlan, formData.type);
         if (bomItems.length === 0) {
-            alert(`No ${formData.type.toUpperCase()} items found in MRP Plan #${activeSelectedPlan.mrpNumber}`);
+            showWarningDialog("No Items Found", `No ${formData.type.toUpperCase()} items found in MRP Plan #${activeSelectedPlan.mrpNumber}`);
             return;
         }
         // Pre-select all available items
@@ -427,7 +428,7 @@ export default function MaterialRequestModal({
         });
 
         if (selectedItems.length === 0) {
-            alert("Please select at least one item from the MRP Plan to import.");
+            showWarningToast("Please select at least one item from the MRP Plan to import.");
             return;
         }
 
@@ -1096,7 +1097,7 @@ export default function MaterialRequestModal({
                         <button
                             onClick={() => {
                                 if (isMrpMissing) {
-                                    alert(`MRP Plan is compulsory for ${formData.type.toUpperCase()} Material Requests. Please select an active MRP Plan.`);
+                                    showWarningDialog("MRP Plan Required", `MRP Plan is compulsory for ${formData.type.toUpperCase()} Material Requests. Please select an active MRP Plan.`);
                                     return;
                                 }
                                 const cleanedItems = (formData.items || []).filter(item => {
@@ -1105,7 +1106,7 @@ export default function MaterialRequestModal({
                                     return name.length > 0 || Boolean(id);
                                 });
                                 if (cleanedItems.length === 0) {
-                                    alert("Please select at least one item before submitting.");
+                                    showWarningToast("Please select at least one item before submitting.");
                                     return;
                                 }
                                 onSubmit({

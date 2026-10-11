@@ -75,7 +75,8 @@ import {
   returnWipToStore,
   recordWipScrap,
   convertWipMaterialToComponent,
-  convertMultipleWipToFg
+  convertMultipleWipToFg,
+  moveWipToFgInventory
 } from "../controllers/store/index.js";
 
 import {
@@ -223,6 +224,7 @@ router.post("/wip/return-to-store", returnWipToStore);
 router.post("/wip/scrap", recordWipScrap);
 router.post("/wip/convert-to-component", convertWipMaterialToComponent);
 router.post("/wip/convert-multiple-to-fg", convertMultipleWipToFg);
+router.post("/wip/move-to-fg-inventory", moveWipToFgInventory);
 
 // Store Fulfillment & MRP routes
 router.get("/fulfillment", getFulfillments);

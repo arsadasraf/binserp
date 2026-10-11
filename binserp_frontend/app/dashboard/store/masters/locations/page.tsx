@@ -9,6 +9,7 @@ import MasterForm from '@/src/features/store/components/forms/MasterForm';
 import MasterDetailPreviewModal from '@/src/features/store/components/modals/MasterDetailPreviewModal';
 import { StoreFormData } from '@/src/features/store/types/store.types';
 import { AlertCircle, CheckCircle2, X } from 'lucide-react';
+import { showDestructiveConfirm, showSuccessToast } from '@/src/features/store/utils/storeDialogHelper';
 
 const extractErrorMessage = (error: any, fallback = "Failed to save location."): string => {
   if (!error) return fallback;
@@ -55,10 +56,15 @@ export default function LocationsPage() {
 
   const handleDelete = async (id: string) => {
     const target = locations.find((l: any) => l._id === id);
-    if (confirm(`Are you sure you want to delete "${target?.name || 'this location'}"?`)) {
+    const confirmed = await showDestructiveConfirm(
+      'Delete Location',
+      `Are you sure you want to delete "${target?.name || 'this location'}"? This action cannot be undone.`
+    );
+    if (confirmed) {
       try {
         await deleteRecord({ tab: "location", id }).unwrap();
         setPreviewItem(null);
+        showSuccessToast(`Location "${target?.name || 'Item'}" deleted.`);
         setToast({ type: 'success', message: `Location "${target?.name || 'Item'}" deleted successfully.` });
       } catch (error) {
         const errMsg = extractErrorMessage(error, "Failed to delete location");

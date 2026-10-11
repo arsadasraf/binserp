@@ -106,6 +106,7 @@ export const ppcOrderSchema = new mongoose.Schema(
             unit: String
           }
         ],
+        nestedMaterials: [mongoose.Schema.Types.Mixed],
         processSnapshot: [mongoose.Schema.Types.Mixed],
         photosSnapshot: [String],
         // Linked Jobs (Traceability IDs)

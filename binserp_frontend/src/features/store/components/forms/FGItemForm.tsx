@@ -1,7 +1,12 @@
 import React, { useMemo, useCallback } from 'react';
 import { Category, Location } from "@/src/features/store/types/store.types";
-import { X, Plus, Trash2, Box, Layers, ShoppingBag, Paperclip, FileText, Upload, AlertTriangle, ChevronDown, Lock } from 'lucide-react';
+import { 
+    X, Plus, Trash2, Box, Layers, ShoppingBag, Paperclip, FileText, 
+    Upload, AlertTriangle, ChevronDown, Lock, Warehouse, MapPin, 
+    Hash, BellRing, Scale, ArrowRightLeft, Sparkles, Calculator 
+} from 'lucide-react';
 import SearchableSelect, { SearchableOption } from '../SearchableSelect';
+import DualUomRatioInput from '../DualUomRatioInput';
 import { STANDARD_UOMS } from '@/src/constants/uomConfig';
 
 interface FGItemFormProps {
@@ -88,6 +93,47 @@ export default function FGItemForm({
             categoryId: val,
         }));
     };
+
+    // Memoized dropdown options with keyword search support & AGENTS.md descriptions
+    const categoryOptions = useMemo<SearchableOption[]>(() => {
+        return (categories || []).map((c: any) => {
+            const val = String(c._id || c.id || c.name || '');
+            const name = String(c.name || '').trim();
+            const desc = String(c.description || c.descriptions || '').trim();
+            return {
+                value: val,
+                label: name,
+                description: desc || undefined,
+                code: c.code || undefined
+            };
+        }).filter(o => Boolean(o.value));
+    }, [categories]);
+
+    const locationOptions = useMemo<SearchableOption[]>(() => {
+        return (locations || []).map((l: any) => {
+            const val = String(l._id || l.id || l.name || '');
+            const name = String(l.name || '').trim();
+            const desc = String(l.description || l.descriptions || '').trim();
+            return {
+                value: val,
+                label: name,
+                description: desc || undefined,
+                code: l.code || undefined
+            };
+        }).filter(o => Boolean(o.value));
+    }, [locations]);
+
+    const secondaryUomOptions = useMemo<SearchableOption[]>(() => {
+        const pri = (formData.unit || 'NOS').toUpperCase();
+        return STANDARD_UOMS
+            .filter((u) => u.value.toUpperCase() !== pri)
+            .map((u) => ({
+                value: u.value,
+                label: u.label,
+                description: u.description,
+                badge: u.category
+            }));
+    }, [formData.unit]);
 
     // Helper to track duplicate BOM items by compound key (itemType:itemId)
     const duplicateInfo = React.useMemo(() => {
@@ -513,8 +559,8 @@ export default function FGItemForm({
                                 Category
                             </label>
                             <SearchableSelect
-                                options={(categories || []).map(c => ({ value: c._id, label: c.name || '' }))}
-                                value={typeof formData.categoryId === 'object' ? (formData.categoryId?._id || '') : (formData.categoryId || (typeof formData.category === 'object' ? formData.category?._id : formData.category) || '')}
+                                options={categoryOptions}
+                                value={typeof formData.categoryId === 'object' ? String(formData.categoryId?._id || formData.categoryId?.name || '') : String(formData.categoryId || (typeof formData.category === 'object' ? formData.category?._id || formData.category?.name : formData.category) || '')}
                                 onChange={handleCategoryChange}
                                 allowCustom={true}
                                 placeholder="Select or type category..."
@@ -583,166 +629,110 @@ export default function FGItemForm({
                 </div>
 
                 {/* Storage & Inventory Card */}
-                <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-gray-200 dark:border-slate-800 shadow-xs space-y-4">
-                    <div className="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-slate-800 text-sm font-bold text-gray-900 dark:text-white">
-                        <div className="w-1.5 h-4 bg-purple-600 rounded-full" />
-                        <span>Storage & Inventory</span>
+                <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+                    {/* Section Header */}
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white">
+                            <div className="w-1.5 h-4 bg-purple-600 rounded-full" />
+                            <span>Storage & Inventory</span>
+                        </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    {/* Primary Parameters Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        {/* 1. Storage Location */}
                         <div>
-                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                                 Storage Location
                             </label>
                             <SearchableSelect
-                                options={(locations || []).map(l => ({ value: l._id, label: l.name || '' }))}
-                                value={typeof formData.location === 'object' ? formData.location?._id : formData.location || ''}
+                                options={locationOptions}
+                                value={typeof formData.location === 'object' ? String(formData.location?._id || formData.location?.name || '') : String(formData.location || '')}
                                 onChange={(val: any) => setFormData((prev: any) => ({ ...prev, location: val }))}
-                                placeholder="Select Location"
+                                allowCustom={true}
+                                placeholder="Select or type location..."
+                                innerClassName="w-full h-10 px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg outline-none cursor-pointer text-slate-900 dark:text-white transition-all flex items-center justify-between shadow-2xs hover:border-purple-400 focus:border-purple-500"
                             />
                         </div>
 
+                        {/* 2. Base Unit (Primary UOM - Locked) */}
                         <div>
-                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                                <span>Unit <span className="text-red-500">*</span></span>
-                                <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
+                                <span>Primary Unit <span className="text-red-500">*</span></span>
+                                <span className="text-[10px] text-slate-400 font-normal flex items-center gap-0.5">
                                     <Lock size={9} /> Fixed
                                 </span>
                             </label>
-                            <div className="w-full px-3 py-2 text-xs sm:text-sm bg-slate-100 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg text-gray-900 dark:text-white font-bold flex items-center justify-between select-none cursor-not-allowed">
-                                <span className="font-mono">NOS</span>
-                                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
-                                    Finished Goods Standard
-                                </span>
+                            <div className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-lg text-slate-900 dark:text-white font-bold flex items-center justify-between select-none cursor-not-allowed shadow-2xs">
+                                <span className="font-mono text-xs sm:text-sm tracking-wider">NOS</span>
+                                <span className="text-[10px] text-slate-400 font-normal">Fixed</span>
                             </div>
                         </div>
 
+                        {/* 3. HSN Code */}
                         <div>
-                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
-                                HSN Code
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                                HSN / SAC Code
                             </label>
                             <input
                                 type="text"
                                 name="hsnCode"
                                 value={formData.hsnCode || ''}
                                 onChange={handleChange}
-                                className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-gray-900 dark:text-white font-mono"
+                                className="w-full h-10 px-3 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none text-slate-900 dark:text-white font-mono tracking-wider shadow-2xs transition-all"
                                 placeholder="e.g. 8481"
                             />
                         </div>
 
+                        {/* 4. Reorder Level */}
                         <div>
-                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                                 Reorder Level
                             </label>
-                            <input
-                                type="number"
-                                name="reorderLevel"
-                                value={formData.reorderLevel !== undefined ? formData.reorderLevel : ''}
-                                onChange={handleChange}
-                                className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-gray-900 dark:text-white"
-                                placeholder="Min stock"
-                            />
+                            <div className="relative flex items-center">
+                                <input
+                                    type="number"
+                                    name="reorderLevel"
+                                    min="0"
+                                    value={formData.reorderLevel !== undefined ? formData.reorderLevel : ''}
+                                    onChange={handleChange}
+                                    className="w-full h-10 pl-3 pr-14 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none text-slate-900 dark:text-white shadow-2xs transition-all font-mono"
+                                    placeholder="0"
+                                />
+                                <span className="absolute right-2 px-1.5 py-0.5 text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 rounded pointer-events-none select-none">
+                                    NOS
+                                </span>
+                            </div>
                         </div>
                     </div>
 
-                    {/* Dual Unit Toggle & Conversion Configuration */}
-                    <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                                <label className="relative inline-flex items-center cursor-pointer select-none">
-                                    <input
-                                        type="checkbox"
-                                        checked={Boolean(formData.hasSecondaryUnit)}
-                                        onChange={(e) => {
-                                            const checked = e.target.checked;
-                                            setFormData((prev: any) => ({
-                                                ...prev,
-                                                hasSecondaryUnit: checked,
-                                                secondaryUnit: checked ? (prev.secondaryUnit || "KG") : "",
-                                                conversionFactor: checked ? (prev.conversionFactor || 1) : 1
-                                            }));
-                                        }}
-                                        className="sr-only peer"
-                                    />
-                                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-purple-600"></div>
-                                    <span className="ml-3 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200">
-                                        Dual Unit / 2nd Unit Applicable
-                                    </span>
-                                </label>
-                                <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden md:inline">
-                                    (e.g., if FG item is in Nos as 1st unit and KG as 2nd unit)
-                                </span>
-                            </div>
-
-                            {formData.hasSecondaryUnit && (
-                                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800/80 rounded-lg text-xs font-semibold text-purple-700 dark:text-purple-300">
-                                    <span>Formula:</span>
-                                    <span className="font-mono">
-                                        1 {formData.unit || "Unit"} = {Number(formData.conversionFactor) || 0} {formData.secondaryUnit || "Sec Unit"}
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Secondary Unit & Conversion Factor Inputs */}
-                        {formData.hasSecondaryUnit && (
-                            <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                        2nd Unit (Secondary Unit) <span className="text-red-500">*</span>
-                                    </label>
-                                    <select
-                                        required={formData.hasSecondaryUnit}
-                                        value={formData.secondaryUnit || ""}
-                                        onChange={(e) => setFormData((prev: any) => ({ ...prev, secondaryUnit: e.target.value }))}
-                                        className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-slate-900 dark:text-white font-medium"
-                                    >
-                                        <option value="">-- Select Secondary Unit --</option>
-                                        {STANDARD_UOMS.filter(u => u.value.toUpperCase() !== (formData.unit || 'NOS').toUpperCase()).map((u) => (
-                                            <option key={u.value} value={u.value}>
-                                                {u.label}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <p className="text-[11px] text-slate-500 mt-1">
-                                        Choose secondary tracking unit from standard list.
-                                    </p>
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                        Conversion Factor (1 {formData.unit || "Unit"} = how many {formData.secondaryUnit || "KG"}?) <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="number"
-                                        step="any"
-                                        min="0.000001"
-                                        required={formData.hasSecondaryUnit}
-                                        value={formData.conversionFactor !== undefined && formData.conversionFactor !== null && !isNaN(Number(formData.conversionFactor)) ? formData.conversionFactor : ""}
-                                        onChange={(e) => {
-                                            const val = e.target.value;
-                                            setFormData((prev: any) => ({
-                                                ...prev,
-                                                conversionFactor: val === "" ? ("" as any) : (isNaN(parseFloat(val)) ? 0 : parseFloat(val))
-                                            }));
-                                        }}
-                                        className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-slate-900 dark:text-white font-mono"
-                                        placeholder="e.g. 0.25 (1 Nos = 0.25 KG)"
-                                    />
-                                    <p className="text-[11px] text-slate-500 mt-1">
-                                        Enter how many {formData.secondaryUnit || "2nd units"} in 1 {formData.unit || "1st unit"}.
-                                    </p>
-                                </div>
-
-                                <div className="col-span-1 sm:col-span-2 lg:col-span-1 flex flex-col justify-center bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
-                                    <span className="font-bold text-slate-700 dark:text-slate-300 mb-0.5">Live Equivalent</span>
-                                    <span className="text-[11px] text-slate-500">
-                                        10 {formData.unit || "Nos"} = <strong className="text-purple-600 dark:text-purple-400 font-mono">{(10 * (Number(formData.conversionFactor) || 0)).toFixed(2)} {formData.secondaryUnit || "KG"}</strong>
-                                    </span>
-                                </div>
-                            </div>
-                        )}
+                    {/* Dual Unit Container */}
+                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3.5 transition-all">
+                        <DualUomRatioInput
+                            primaryUnit={formData.unit || "NOS"}
+                            hasSecondaryUnit={Boolean(formData.hasSecondaryUnit)}
+                            onHasSecondaryUnitChange={(checked) => {
+                                setFormData((prev: any) => ({
+                                    ...prev,
+                                    hasSecondaryUnit: checked,
+                                    secondaryUnit: checked ? (prev.secondaryUnit || "KG") : "",
+                                    primaryRatio: checked ? (prev.primaryRatio || 1) : 1,
+                                    secondaryRatio: checked ? (prev.secondaryRatio || 1) : 1,
+                                    conversionFactor: checked ? (prev.conversionFactor || 1) : 1
+                                }));
+                            }}
+                            secondaryUnit={formData.secondaryUnit || ""}
+                            onSecondaryUnitChange={(val) => setFormData((prev: any) => ({ ...prev, secondaryUnit: val }))}
+                            primaryRatio={formData.primaryRatio !== undefined ? formData.primaryRatio : 1}
+                            onPrimaryRatioChange={(val) => setFormData((prev: any) => ({ ...prev, primaryRatio: val }))}
+                            secondaryRatio={formData.secondaryRatio !== undefined ? formData.secondaryRatio : 1}
+                            onSecondaryRatioChange={(val) => setFormData((prev: any) => ({ ...prev, secondaryRatio: val }))}
+                            conversionFactor={formData.conversionFactor !== undefined ? formData.conversionFactor : 1}
+                            onConversionFactorChange={(val) => setFormData((prev: any) => ({ ...prev, conversionFactor: val }))}
+                            onRatioChange={(updates) => setFormData((prev: any) => ({ ...prev, ...updates }))}
+                            secondaryUomOptions={secondaryUomOptions}
+                            colorScheme="purple"
+                        />
                     </div>
                 </div>
 

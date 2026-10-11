@@ -5,6 +5,7 @@ import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 import { generateSingleMaterialRequestSlipPDF } from '@/src/utils/generateMaterialRequestReportPDF';
 import { API_BASE_URL } from '@/src/utils/config';
 import { evaluateItemStock } from '@/src/utils/stockValidationHelper';
+import { showWarningDialog, showErrorDialog, showSuccessToast } from '@/src/features/store/utils/storeDialogHelper';
 
 interface MaterialRequestDetailsModalProps {
     isOpen: boolean;
@@ -46,7 +47,7 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
         if (!userCanApprove) {
             const approvers = getApproverNames('materialRequest');
             const approversMsg = approvers.length > 0 ? `Authorized approvers: ${approvers.join(', ')}` : "Contact company management.";
-            alert(`Approval Permission Denied: You do not have permission to approve this Material Request. ${approversMsg}`);
+            await showWarningDialog("Approval Permission Denied", `You do not have permission to approve this Material Request. ${approversMsg}`);
             return;
         }
 
@@ -76,10 +77,10 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                 approvedByName: currentUser?.name || 'You',
                 approvedAt: new Date().toISOString()
             }));
-            alert('Material Request approved successfully! PDF generation is now unlocked.');
+            showSuccessToast('Material Request approved successfully! PDF generation is now unlocked.');
         } catch (e: any) {
             console.error("Approve error:", e);
-            alert(e.message || "Failed to approve requisition");
+            await showErrorDialog("Approval Failed", e.message || "Failed to approve requisition");
         } finally {
             setIsApproving(false);
         }
@@ -353,7 +354,7 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                         {isPdfLocked ? (
                             <button
                                 type="button"
-                                onClick={() => alert("Approval Required: This Material Request must be approved by an authorized user before generating or downloading the official PDF.")}
+                                onClick={() => showWarningDialog("Approval Required", "This Material Request must be approved by an authorized user before generating or downloading the official PDF.")}
                                 className="px-4 py-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer shadow-2xs"
                                 title="Requisition must be approved before generating PDF"
                             >

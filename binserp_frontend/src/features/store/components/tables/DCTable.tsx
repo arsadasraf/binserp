@@ -5,6 +5,7 @@ import { download4CopyPDF, downloadFrontendExcel, downloadDCExcelDocument } from
 import DCPreviewModal from '../modals/DCPreviewModal';
 import SearchableMultiSelect from '../SearchableMultiSelect';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
+import { showDestructiveConfirm, showInfoDialog } from '@/src/features/store/utils/storeDialogHelper';
 
 interface DCTableProps {
     data: any[];
@@ -15,7 +16,7 @@ interface DCTableProps {
 }
 
 const generateEWayBill = (dc: any) => {
-    alert(`Generating E-Way Bill for DC: ${dc.dcNumber}`);
+    showInfoDialog("E-Way Bill", `Generating E-Way Bill for DC: ${dc.dcNumber}`);
 };
 
 const formatDateTime = (dateStr?: string | Date) => {
@@ -691,8 +692,13 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                                             </button>
 
                                                             <button 
-                                                                onClick={() => {
-                                                                    if (window.confirm(`Are you sure you want to delete Delivery Challan ${item.dcNumber}? Inventory will be restored and Customer PO status will revert.`)) {
+                                                                onClick={async () => {
+                                                                    const confirmed = await showDestructiveConfirm({
+                                                                        title: "Delete Delivery Challan",
+                                                                        text: `Are you sure you want to delete Delivery Challan ${item.dcNumber}? Inventory will be restored and Customer PO status will revert.`,
+                                                                        confirmButtonText: "Yes, Delete"
+                                                                    });
+                                                                    if (confirmed) {
                                                                         onDelete(item._id);
                                                                     }
                                                                 }} 
@@ -784,8 +790,13 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                                     </span>
                                                 )}
                                                 <button onClick={() => onEdit(item)} className="p-1.5 text-blue-600 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800 text-xs font-bold"><Edit2 size={13} /></button>
-                                                <button onClick={() => {
-                                                    if (window.confirm(`Delete Delivery Challan ${item.dcNumber}?`)) {
+                                                <button onClick={async () => {
+                                                    const confirmed = await showDestructiveConfirm({
+                                                        title: "Delete Delivery Challan",
+                                                        text: `Delete Delivery Challan ${item.dcNumber}?`,
+                                                        confirmButtonText: "Yes, Delete"
+                                                    });
+                                                    if (confirmed) {
                                                         onDelete(item._id);
                                                     }
                                                 }} className="p-1.5 text-rose-600 bg-rose-50 dark:bg-rose-900/30 rounded-lg border border-rose-200 dark:border-rose-800 text-xs font-bold"><Trash2 size={13} /></button>

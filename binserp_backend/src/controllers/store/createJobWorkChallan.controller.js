@@ -351,11 +351,15 @@ export const createJobWorkChallan = async (req, res) => {
           let retName = ret.receivedItemName || ret.itemName || "";
           const retType = ret.receivedItemType || "fg";
 
-          if (retType === "bo" && retId) {
+          if ((retType === "bo" || retType === "rm" || retType === "rawmaterial") && retId) {
             const retMat = await Material.findById(retId);
             if (retMat) retName = retMat.name;
-          } else if ((retType === "inhouse" || retType === "fg") && retId) {
-            const retFg = await FGItem.findById(retId);
+          } else if ((retType === "inhouse" || retType === "fg" || retType === "component" || retType === "subassembly" || retType === "assembly") && retId) {
+            let retFg = await FGItem.findById(retId);
+            if (!retFg) {
+              const Component = req.getModel("Component", componentSchema);
+              retFg = await Component.findById(retId);
+            }
             if (retFg) retName = retFg.name || retFg.componentName;
           }
 
@@ -396,11 +400,15 @@ export const createJobWorkChallan = async (req, res) => {
         let validReceivedItemId = isValidObjectId(receivedItemId) ? receivedItemId : null;
         let finalReceivedItemName = receivedItemName || item.itemToBeReceived || itemName;
 
-        if (receivedItemType === "bo" && validReceivedItemId) {
+        if ((receivedItemType === "bo" || receivedItemType === "rm" || receivedItemType === "rawmaterial") && validReceivedItemId) {
           const retMat = await Material.findById(validReceivedItemId);
           if (retMat) finalReceivedItemName = retMat.name;
-        } else if ((receivedItemType === "inhouse" || receivedItemType === "fg") && validReceivedItemId) {
-          const retFg = await FGItem.findById(validReceivedItemId);
+        } else if ((receivedItemType === "inhouse" || receivedItemType === "fg" || receivedItemType === "component" || receivedItemType === "subassembly" || receivedItemType === "assembly") && validReceivedItemId) {
+          let retFg = await FGItem.findById(validReceivedItemId);
+          if (!retFg) {
+            const Component = req.getModel("Component", componentSchema);
+            retFg = await Component.findById(validReceivedItemId);
+          }
           if (retFg) finalReceivedItemName = retFg.name || retFg.componentName;
         }
 
