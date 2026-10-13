@@ -20,7 +20,7 @@ export const createPurchaseBill = asyncHandler(async (req, res) => {
   const companyId = getCompanyId(req);
 
   const {
-    billNumber,
+    billNumber: rawBillNumber,
     supplierInvoiceNumber,
     date,
     vendorName,
@@ -31,8 +31,11 @@ export const createPurchaseBill = asyncHandler(async (req, res) => {
     grn,
     grnCategory = "rm",
     billType = "material",
+    serviceCategory = "",
+    sacCode = "",
     jobWorkChallan,
     jobWorkChallanNumber,
+    jobWorkGrnNumber = "",
     items,
     subtotal,
     taxRate,
@@ -41,15 +44,33 @@ export const createPurchaseBill = asyncHandler(async (req, res) => {
     transportationCharges,
     packingCharges,
     grandTotal,
+    tdsApplicable = false,
+    tdsSection = "",
+    tdsRate = 0,
+    tdsAmount = 0,
+    netPayableAmount,
     paymentTerms = "30 Days Net",
     creditDays = 30,
     dueDate,
     remarks
   } = req.body;
 
+  let billNumber = (rawBillNumber || "").trim();
+  if (!billNumber) {
+    const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    if (billType === "job-work-service") {
+      billNumber = `JWBILL-${todayStr}-${randomSuffix}`;
+    } else if (billType === "other-service") {
+      billNumber = `SBILL-${todayStr}-${randomSuffix}`;
+    } else {
+      billNumber = `PBILL-${todayStr}-${randomSuffix}`;
+    }
+  }
+
   const existingBill = await PurchaseBill.findOne({ billNumber, company: companyId });
   if (existingBill) {
-    throw new ApiError(400, "Purchase Bill with this number already exists");
+    throw new ApiError(400, `Purchase Bill with number '${billNumber}' already exists.`);
   }
 
   // 1. THREE-WAY MATCHING & GRN VALIDATION (For Material Bills)
@@ -92,6 +113,15 @@ export const createPurchaseBill = asyncHandler(async (req, res) => {
   const parsedPacking = Number(packingCharges) || 0;
   const parsedGrandTotal = Number(grandTotal) || (parsedSubtotal + parsedTax + parsedTransport + parsedPacking);
 
+  const isTds = Boolean(tdsApplicable === true || tdsApplicable === 'true');
+  const parsedTdsRate = Number(tdsRate) || 0;
+  const parsedTdsAmount = isTds
+    ? (Number(tdsAmount) > 0 ? Number(tdsAmount) : Number(((parsedSubtotal * parsedTdsRate) / 100).toFixed(2)))
+    : 0;
+  const parsedNetPayable = netPayableAmount !== undefined && Number(netPayableAmount) >= 0
+    ? Number(netPayableAmount)
+    : Math.max(0, Number((parsedGrandTotal - parsedTdsAmount).toFixed(2)));
+
   // 3. CREATE PURCHASE BILL
   const newBill = await PurchaseBill.create({
     company: companyId,
@@ -106,8 +136,11 @@ export const createPurchaseBill = asyncHandler(async (req, res) => {
     grn: matchedGrn?._id || (grn && isValidObjectId(grn.toString()) ? grn.toString() : undefined),
     grnCategory: grnCategory || matchedGrn?.type || "rm",
     billType,
+    serviceCategory: serviceCategory || "",
+    sacCode: sacCode || "",
     jobWorkChallan: matchedJobWork?._id || (jobWorkChallan && isValidObjectId(jobWorkChallan.toString()) ? jobWorkChallan.toString() : undefined),
     jobWorkChallanNumber: matchedJobWork?.challanNumber || jobWorkChallanNumber || "",
+    jobWorkGrnNumber: jobWorkGrnNumber || "",
     items: items || [],
     subtotal: parsedSubtotal,
     taxRate: Number(taxRate) || 0,
@@ -116,12 +149,17 @@ export const createPurchaseBill = asyncHandler(async (req, res) => {
     transportationCharges: parsedTransport,
     packingCharges: parsedPacking,
     grandTotal: parsedGrandTotal,
+    tdsApplicable: isTds,
+    tdsSection: tdsSection || "",
+    tdsRate: parsedTdsRate,
+    tdsAmount: parsedTdsAmount,
+    netPayableAmount: parsedNetPayable,
     paymentTerms: paymentTerms || `${parsedCreditDays} Days Net`,
     creditDays: parsedCreditDays,
     dueDate: calculatedDueDate,
     paymentStatus: calculatedDueDate < new Date() ? "Overdue" : "Unpaid",
     paidAmount: 0,
-    balanceAmount: parsedGrandTotal,
+    balanceAmount: parsedNetPayable,
     paymentHistory: [],
     comments: [],
     remarks: remarks || "",
@@ -166,10 +204,16 @@ export const getPurchaseBills = asyncHandler(async (req, res) => {
     vendorId,
     paymentStatus,
     grnCategory,
+    billType,
     search
   } = req.query;
 
   const filter = { company: companyId };
+
+  // Bill Type Filter
+  if (billType && billType !== "all") {
+    filter.billType = billType;
+  }
 
   // Date Range Filter
   if (startDate || endDate) {
@@ -228,9 +272,9 @@ export const getPurchaseBills = asyncHandler(async (req, res) => {
   }
 
   const bills = await PurchaseBill.find(filter)
-    .populate("vendor", "name email phone address gstNumber gstin")
+    .populate("vendor", "name vendorName email phone address gstNumber gstin")
     .populate("grn", "grnNumber date totalAmount billingStatus qcStatus")
-    .populate("jobWorkChallan", "challanNumber date totalAmount billingStatus")
+    .populate("jobWorkChallan", "challanNumber date totalAmount totalJobWorkCharges billingStatus status items receiveHistory")
     .sort({ date: -1, createdAt: -1 });
 
   const now = new Date();
@@ -510,8 +554,14 @@ export const getUnbilledDocs = asyncHandler(async (req, res) => {
   }
 
   const [unbilledGrns, unbilledJobWorks] = await Promise.all([
-    GRN.find(grnFilter).select('grnNumber date supplier supplierName items totalAmount billingStatus qcStatus').lean(),
-    JobWorkChallan.find(jwFilter).select('challanNumber date vendor vendorName items assemblyGroups status billingStatus jobWorkType').lean()
+    GRN.find(grnFilter)
+      .select('grnNumber date supplier supplierName items totalAmount billingStatus qcStatus')
+      .populate('supplier', 'name vendorName code gstin gstNumber address')
+      .lean(),
+    JobWorkChallan.find(jwFilter)
+      .select('challanNumber date vendor vendorName items assemblyGroups totalJobWorkCharges receiveHistory status billingStatus jobWorkType purpose')
+      .populate('vendor', 'name vendorName code gstin gstNumber address')
+      .lean()
   ]);
 
   return res.status(200).json(new ApiResponse(200, { unbilledGrns, unbilledJobWorks }, "Unbilled documents fetched successfully"));

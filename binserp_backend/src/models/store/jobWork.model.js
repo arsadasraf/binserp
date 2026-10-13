@@ -318,6 +318,18 @@ export const jobWorkSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    notes: {
+      type: [String],
+      default: [],
+    },
+    terms: {
+      type: [String],
+      default: [],
+    },
+    remarks: {
+      type: String,
+      default: "",
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -326,8 +338,22 @@ export const jobWorkSchema = new mongoose.Schema(
       {
         date: { type: Date, default: Date.now },
         grnNumber: String,
+        returnDocType: {
+          type: String,
+          enum: ["dc", "invoice", "both"],
+          default: "dc"
+        },
+        customerDcNumber: { type: String, default: "" },
         vendorDcNumber: String,
         vendorInvoiceDate: Date,
+        invoiceNumber: { type: String, default: "" },
+        invoiceDate: Date,
+        pdfDocument: {
+          url: String,
+          filename: String,
+          fileType: String,
+          sizeKb: Number
+        },
         vehicleNo: String,
         itemId: mongoose.Schema.Types.ObjectId,
         returningItemId: mongoose.Schema.Types.ObjectId,

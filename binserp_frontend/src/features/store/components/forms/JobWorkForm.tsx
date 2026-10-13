@@ -12,13 +12,22 @@ import {
   FileText, 
   FileSpreadsheet,
   AlertTriangle,
-  AlertCircle
+  AlertCircle,
+  Lock
 } from 'lucide-react';
 import { Vendor, RmBoItem, JobWorkFormData, JobWorkSupplier, JobWorkReturningItem, JobWorkAssemblyOutputItem, JobWorkAssemblyGroup, JOB_WORK_PURPOSES } from "@/src/features/store/types/store.types";
 import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import { generateDocument } from '@/src/utils/documentHelper';
 import { getItemDescription } from '@/src/utils/itemDisplayHelper';
 import SearchableSelect from '../SearchableSelect';
+
+export const DEFAULT_JOB_WORK_NOTES: string[] = [
+    "Material sent on Returnable Delivery Challan for job-work processing only and not for sale.",
+    "Please process and return the finished items on or before the agreed expected delivery date.",
+    "Process scrap, turnings, and rejections (if any) must be accounted for and returned along with the processed goods.",
+    "Kindly quote our Delivery Challan number and date on all your return challans, delivery notes, and service invoices.",
+    "The subcontractor/consignee shall be held liable for any loss, damage, or shortage while the material is under custody."
+];
 
 interface JobWorkFormProps {
     isOpen: boolean;
@@ -149,7 +158,8 @@ export default function JobWorkForm({
                     }
                 ]
             }
-        ]
+        ],
+        notes: (initialData?.notes && initialData.notes.length > 0) ? initialData.notes : [...DEFAULT_JOB_WORK_NOTES]
     });
 
     const [wipRmItems, setWipRmItems] = useState<any[]>([]);
@@ -266,6 +276,74 @@ export default function JobWorkForm({
         return 0;
     }, [formData.jobWorkType, inventoryList, rawMaterials, boughtOuts, materials, inHouseItems, wipRmItems, wipBoItems, wipFgItems]);
 
+    // Helper to get quantity originally sent in this DC (for initialData when editing)
+    const getInitialItemQuantity = useCallback((itemId: string): number => {
+        if (!initialData || !itemId) return 0;
+        const cleanId = (val: any) => {
+            if (!val) return '';
+            const s = typeof val === 'object' && val !== null ? (val._id || val.id || '') : String(val);
+            return s.includes('_') ? s.split('_').slice(1).join('_') : s;
+        };
+        const targetClean = cleanId(itemId);
+        let totalQty = 0;
+
+        if (initialData.operationMode === 'assembly' && Array.isArray((initialData as any).assemblyGroups)) {
+            (initialData as any).assemblyGroups.forEach((grp: any) => {
+                (grp.items || []).forEach((it: any) => {
+                    const itClean = cleanId(it.item);
+                    if (itClean === targetClean || String(it.item) === String(itemId)) {
+                        totalQty += Number(it.quantitySent) || 0;
+                    }
+                });
+            });
+        }
+
+        if (Array.isArray(initialData.items)) {
+            initialData.items.forEach((it: any) => {
+                const itClean = cleanId(it.item);
+                if (itClean === targetClean || String(it.item) === String(itemId)) {
+                    totalQty += Number(it.quantitySent) || 0;
+                }
+            });
+        }
+
+        return totalQty;
+    }, [initialData]);
+
+    // Helper to get effective available stock: Live stock + quantity already allocated in this DC (if editing)
+    const getEffectiveAvailableStock = useCallback((itemId: string, itemType: string): number => {
+        const liveStock = getItemStock(itemId, itemType);
+        const inDcQty = getInitialItemQuantity(itemId);
+        return liveStock + inDcQty;
+    }, [getItemStock, getInitialItemQuantity]);
+
+    // Helper to resolve Master Item with Dual UOM details
+    const getMasterItem = useCallback((itemId: string, itemType: string) => {
+        if (!itemId) return null;
+        const cleanId = (val: any) => {
+            if (!val) return '';
+            const s = typeof val === 'object' && val !== null ? (val._id || val.id || '') : String(val);
+            return s.includes('_') ? s.split('_').slice(1).join('_') : s;
+        };
+        const targetClean = cleanId(itemId);
+
+        if (itemType === 'rm') {
+            const foundWip = (wipRmItems || []).find((r: any) => cleanId(r.materialId || r._id || r.id) === targetClean);
+            if (foundWip) return foundWip;
+            return (rawMaterials.length > 0 ? rawMaterials : materials).find((m: any) => cleanId(m._id || m.id) === targetClean) || null;
+        }
+        if (itemType === 'bo') {
+            const foundWip = (wipBoItems || []).find((b: any) => cleanId(b.materialId || b._id || b.id) === targetClean);
+            if (foundWip) return foundWip;
+            return (boughtOuts.length > 0 ? boughtOuts : materials).find((m: any) => cleanId(m._id || m.id) === targetClean) || null;
+        }
+        if (itemType === 'fg' || itemType === 'inhouse' || itemType === 'component' || itemType === 'subassembly' || itemType === 'assembly') {
+            const sourceList = [...wipFgItems, ...(inHouseItems || [])];
+            return sourceList.find((i: any) => cleanId(i.materialId || i.id || i._id) === targetClean) || null;
+        }
+        return null;
+    }, [wipRmItems, wipBoItems, wipFgItems, rawMaterials, boughtOuts, materials, inHouseItems]);
+
     // Populate suppliers combining jobWorkSuppliers and regular vendors
     const supplierOptions = useMemo(() => {
         const combined = [...jobWorkSuppliers, ...vendors];
@@ -281,37 +359,43 @@ export default function JobWorkForm({
         return Array.from(uniqueMap.values());
     }, [vendors, jobWorkSuppliers]);
 
-    // Item options for Raw Materials (RM) with live stock display
+    // Item options for Raw Materials (RM) with live stock display (accounting for current DC in edit mode)
     const rmOptions = useMemo(() => {
         const sourceList = rawMaterials.length > 0 ? rawMaterials : (materials || []).filter((m: any) => m.type !== 'bo' && m.itemType !== 'bo');
         return sourceList.map((m: any) => {
-            const stock = getItemStock(m._id, 'rm');
+            const liveStock = getItemStock(m._id, 'rm');
+            const inDcQty = getInitialItemQuantity(m._id);
+            const effectiveStock = liveStock + inDcQty;
             const unit = m.unit || (m as any).categoryId?.unit || 'PCS';
             const desc = getItemDescription(m);
             const descSuffix = desc ? ` — ${desc}` : '';
+            const dcSuffix = inDcQty > 0 ? ` (${inDcQty} in this DC)` : '';
             return {
                 value: m._id,
-                label: `${m.name || 'Raw Material'}${descSuffix} • Stock: ${stock} ${unit}`
+                label: `${m.name || 'Raw Material'}${descSuffix} • Stock: ${effectiveStock} ${unit}${dcSuffix}`
             };
         });
-    }, [rawMaterials, materials, getItemStock]);
+    }, [rawMaterials, materials, getItemStock, getInitialItemQuantity]);
 
-    // Item options for Bought Outs (BO) with live stock display
+    // Item options for Bought Outs (BO) with live stock display (accounting for current DC in edit mode)
     const boOptions = useMemo(() => {
         const sourceList = boughtOuts.length > 0 ? boughtOuts : (materials || []).filter((m: any) => m.type === 'bo' || m.itemType === 'bo');
         return sourceList.map((m: any) => {
-            const stock = getItemStock(m._id, 'bo');
+            const liveStock = getItemStock(m._id, 'bo');
+            const inDcQty = getInitialItemQuantity(m._id);
+            const effectiveStock = liveStock + inDcQty;
             const unit = m.unit || (m as any).categoryId?.unit || 'PCS';
             const desc = getItemDescription(m);
             const descSuffix = desc ? ` — ${desc}` : '';
+            const dcSuffix = inDcQty > 0 ? ` (${inDcQty} in this DC)` : '';
             return {
                 value: m._id,
-                label: `${m.name || 'Bought Out Item'}${descSuffix} • Stock: ${stock} ${unit}`
+                label: `${m.name || 'Bought Out Item'}${descSuffix} • Stock: ${effectiveStock} ${unit}${dcSuffix}`
             };
         });
-    }, [boughtOuts, materials, getItemStock]);
+    }, [boughtOuts, materials, getItemStock, getInitialItemQuantity]);
 
-    // Item options for In-House / Finished Goods (FG) with live Shopfloor WIP stock display (strictly excluding Job Work and Main Store FG stock)
+    // Item options for In-House / Finished Goods (FG) with live Shopfloor WIP stock display (accounting for current DC in edit mode)
     const fgOptions = useMemo(() => {
         const itemMap = new Map<string, any>();
         (inHouseItems || []).forEach((item: any) => {
@@ -328,66 +412,97 @@ export default function JobWorkForm({
         const combined = Array.from(itemMap.values());
         const sourceList = combined.length > 0 ? combined : (wipFgItems.length > 0 ? wipFgItems : (inHouseItems || []));
         return sourceList.map((i: any) => {
-            const stock = i.shopfloorWipQty !== undefined ? (Number(i.shopfloorWipQty) || 0) : getItemStock(i._id || i.materialId, 'fg');
+            const targetId = i.materialId || i.id || i._id;
+            const liveStock = i.shopfloorWipQty !== undefined ? (Number(i.shopfloorWipQty) || 0) : getItemStock(targetId, 'fg');
+            const inDcQty = getInitialItemQuantity(targetId);
+            const effectiveStock = liveStock + inDcQty;
             const unit = i.unit || 'PCS';
             const nameStr = i.materialName || i.name || i.componentName || 'Finished Good / Component';
             const desc = getItemDescription(i);
             const descSuffix = desc ? ` — ${desc}` : '';
+            const dcSuffix = inDcQty > 0 ? ` (${inDcQty} in this DC)` : '';
             return {
-                value: i.materialId || i.id || i._id,
-                label: `${nameStr}${descSuffix} • Shopfloor WIP: ${stock} ${unit}`
+                value: targetId,
+                label: `${nameStr}${descSuffix} • Shopfloor WIP: ${effectiveStock} ${unit}${dcSuffix}`
             };
         });
-    }, [wipFgItems, inHouseItems, getItemStock]);
+    }, [wipFgItems, inHouseItems, getItemStock, getInitialItemQuantity]);
 
-    // WIP-to-WIP Outward Options: strictly items that currently have positive available Shopfloor WIP stock (> 0)
+    // WIP-to-WIP Outward Options: items that currently have positive available Shopfloor WIP stock (> 0) OR are already allocated to this DC
     const wipRmOptions = useMemo(() => {
         return wipRmItems
-            .filter((item: any) => (Number(item.shopfloorWipQty) || 0) > 0)
+            .filter((item: any) => {
+                const targetId = item.materialId || item.id || item._id;
+                const liveStock = Number(item.shopfloorWipQty) || 0;
+                const inDcQty = getInitialItemQuantity(targetId);
+                return liveStock > 0 || inDcQty > 0;
+            })
             .map((item: any) => {
-                const stock = Number(item.shopfloorWipQty) || 0;
+                const targetId = item.materialId || item.id || item._id;
+                const liveStock = Number(item.shopfloorWipQty) || 0;
+                const inDcQty = getInitialItemQuantity(targetId);
+                const effectiveStock = liveStock + inDcQty;
                 const unit = item.unit || 'PCS';
                 const nameStr = item.materialName || item.name || 'Raw Material';
                 const desc = getItemDescription(item);
                 const descSuffix = desc ? ` — ${desc}` : '';
+                const dcSuffix = inDcQty > 0 ? ` (${inDcQty} in this DC)` : '';
                 return {
-                    value: item.materialId || item.id || item._id,
-                    label: `${nameStr}${descSuffix} • WIP Stock: ${stock} ${unit}`
+                    value: targetId,
+                    label: `${nameStr}${descSuffix} • WIP Stock: ${effectiveStock} ${unit}${dcSuffix}`
                 };
             });
-    }, [wipRmItems]);
+    }, [wipRmItems, getInitialItemQuantity]);
 
     const wipBoOptions = useMemo(() => {
         return wipBoItems
-            .filter((item: any) => (Number(item.shopfloorWipQty) || 0) > 0)
+            .filter((item: any) => {
+                const targetId = item.materialId || item.id || item._id;
+                const liveStock = Number(item.shopfloorWipQty) || 0;
+                const inDcQty = getInitialItemQuantity(targetId);
+                return liveStock > 0 || inDcQty > 0;
+            })
             .map((item: any) => {
-                const stock = Number(item.shopfloorWipQty) || 0;
+                const targetId = item.materialId || item.id || item._id;
+                const liveStock = Number(item.shopfloorWipQty) || 0;
+                const inDcQty = getInitialItemQuantity(targetId);
+                const effectiveStock = liveStock + inDcQty;
                 const unit = item.unit || 'PCS';
                 const nameStr = item.materialName || item.name || 'Bought Out Item';
                 const desc = getItemDescription(item);
                 const descSuffix = desc ? ` — ${desc}` : '';
+                const dcSuffix = inDcQty > 0 ? ` (${inDcQty} in this DC)` : '';
                 return {
-                    value: item.materialId || item.id || item._id,
-                    label: `${nameStr}${descSuffix} • WIP Stock: ${stock} ${unit}`
+                    value: targetId,
+                    label: `${nameStr}${descSuffix} • WIP Stock: ${effectiveStock} ${unit}${dcSuffix}`
                 };
             });
-    }, [wipBoItems]);
+    }, [wipBoItems, getInitialItemQuantity]);
 
     const wipFgOutwardOptions = useMemo(() => {
         return wipFgItems
-            .filter((item: any) => (Number(item.shopfloorWipQty) || 0) > 0)
+            .filter((item: any) => {
+                const targetId = item.materialId || item.id || item._id;
+                const liveStock = Number(item.shopfloorWipQty) || 0;
+                const inDcQty = getInitialItemQuantity(targetId);
+                return liveStock > 0 || inDcQty > 0;
+            })
             .map((item: any) => {
-                const stock = Number(item.shopfloorWipQty) || 0;
+                const targetId = item.materialId || item.id || item._id;
+                const liveStock = Number(item.shopfloorWipQty) || 0;
+                const inDcQty = getInitialItemQuantity(targetId);
+                const effectiveStock = liveStock + inDcQty;
                 const unit = item.unit || 'PCS';
                 const nameStr = item.materialName || item.name || item.componentName || 'Finished Good / Component';
                 const desc = getItemDescription(item);
                 const descSuffix = desc ? ` — ${desc}` : '';
+                const dcSuffix = inDcQty > 0 ? ` (${inDcQty} in this DC)` : '';
                 return {
-                    value: item.materialId || item.id || item._id,
-                    label: `${nameStr}${descSuffix} • WIP Stock: ${stock} ${unit}`
+                    value: targetId,
+                    label: `${nameStr}${descSuffix} • WIP Stock: ${effectiveStock} ${unit}${dcSuffix}`
                 };
             });
-    }, [wipFgItems]);
+    }, [wipFgItems, getInitialItemQuantity]);
 
     const [fetchedMrpPlans, setFetchedMrpPlans] = useState<any[]>([]);
 
@@ -447,82 +562,273 @@ export default function JobWorkForm({
             const { _id, items, vendor, ...rest } = initialData;
             const vendorId = typeof vendor === 'object' && vendor !== null ? ((vendor as any)._id || '') : (vendor || '');
 
+            const rawPurpose = (initialData as any).purpose || (initialData as any).items?.[0]?.processType || 'Machining';
+            const isStandardPurpose = (JOB_WORK_PURPOSES as readonly string[]).includes(rawPurpose);
+            const resolvedPurpose = isStandardPurpose ? rawPurpose : 'Others';
+            const resolvedOtherPurpose = (initialData as any).otherPurpose || (!isStandardPurpose ? rawPurpose : '');
+
+            // Hydrate assembly groups if present
+            const hydratedAssemblyGroups = Array.isArray((initialData as any).assemblyGroups) && (initialData as any).assemblyGroups.length > 0
+                ? (initialData as any).assemblyGroups.map((grp: any, gIdx: number) => {
+                    const grpItems = (grp.items || []).map((gIt: any) => {
+                        const gItId = typeof gIt.item === 'object' && gIt.item !== null ? (gIt.item._id || '') : (gIt.item || '');
+                        const gMaster = getMasterItem(gItId, gIt.itemType || 'rm');
+                        const gHasSec = Boolean(gIt.hasSecondaryUnit ?? gMaster?.hasSecondaryUnit ?? (gMaster?.secondaryUnit && Number(gMaster?.conversionFactor) > 0));
+                        const gSecUnit = gIt.secondaryUnit || gMaster?.secondaryUnit || '';
+                        const gConv = Number(gIt.conversionFactor || gMaster?.conversionFactor) || 1;
+                        const gPriUnit = gIt.unit || gMaster?.unit || (gMaster as any)?.categoryId?.unit || 'PCS';
+                        const gSelectedUnit = gIt.selectedUnit || (gHasSec && gIt.secondaryQuantitySent && !gIt.quantitySent ? gSecUnit : gPriUnit);
+                        const gSentQty = Number(gIt.quantitySent != null ? gIt.quantitySent : 1);
+                        const gSecQty = Number(gIt.secondaryQuantitySent != null ? gIt.secondaryQuantitySent : (gHasSec ? (gSentQty * gConv) : 0));
+                        const gRate = Number(gIt.processRate != null ? gIt.processRate : gIt.unitPrice) || 0;
+                        const gIsSec = Boolean(gHasSec && gSecUnit && gSelectedUnit === gSecUnit);
+                        const gActiveQty = gIsSec ? gSecQty : gSentQty;
+                        const gAmt = gIt.processAmount != null && !isNaN(Number(gIt.processAmount)) && Number(gIt.processAmount) > 0
+                            ? Number(gIt.processAmount)
+                            : parseFloat((gActiveQty * gRate).toFixed(2));
+                        return {
+                            ...gIt,
+                            item: gItId,
+                            itemName: gIt.itemName || gMaster?.name || gMaster?.materialName || '',
+                            itemType: gIt.itemType || 'rm',
+                            unit: gPriUnit,
+                            hasSecondaryUnit: gHasSec,
+                            secondaryUnit: gSecUnit,
+                            conversionFactor: gConv,
+                            secondaryQuantitySent: gSecQty,
+                            selectedUnit: gSelectedUnit,
+                            quantitySent: gSentQty,
+                            processRate: gRate,
+                            unitPrice: gRate,
+                            processAmount: gAmt,
+                            description: gIt.description || gMaster?.descriptions || gMaster?.description || ''
+                        };
+                    });
+
+                    const grpOut = grp.assemblyOutputItem || {};
+                    const outId = typeof grpOut.item === 'object' && grpOut.item !== null ? (grpOut.item._id || '') : (grpOut.item || '');
+                    const outMaster = getMasterItem(outId, grpOut.itemType || 'fg');
+                    const outHasSec = Boolean(grpOut.hasSecondaryUnit ?? outMaster?.hasSecondaryUnit ?? (outMaster?.secondaryUnit && Number(outMaster?.conversionFactor) > 0));
+                    const outSecUnit = grpOut.secondaryUnit || outMaster?.secondaryUnit || '';
+                    const outConv = Number(grpOut.conversionFactor || outMaster?.conversionFactor) || 1;
+                    const outPriUnit = grpOut.receivingUnit || outMaster?.unit || 'PCS';
+                    const outSelectedUnit = grpOut.selectedUnit || (outHasSec && grpOut.secondaryQuantityToBeReceived && !grpOut.quantityToBeReceived ? outSecUnit : outPriUnit);
+                    const outQty = Number(grpOut.quantityToBeReceived != null ? grpOut.quantityToBeReceived : 1);
+                    const outSecQty = Number(grpOut.secondaryQuantityToBeReceived != null ? grpOut.secondaryQuantityToBeReceived : (outHasSec ? (outQty * outConv) : 0));
+                    const outRate = Number(grpOut.processRate != null ? grpOut.processRate : 0);
+                    const outIsSec = Boolean(outHasSec && outSecUnit && outSelectedUnit === outSecUnit);
+                    const outActiveQty = outIsSec ? outSecQty : outQty;
+                    const outAmt = grpOut.processAmount != null && !isNaN(Number(grpOut.processAmount)) && Number(grpOut.processAmount) > 0
+                        ? Number(grpOut.processAmount)
+                        : parseFloat((outActiveQty * outRate).toFixed(2));
+
+                    return {
+                        ...grp,
+                        groupName: grp.groupName || `Assembly Line Item #${gIdx + 1}`,
+                        items: grpItems,
+                        assemblyOutputItem: {
+                            ...grpOut,
+                            item: outId,
+                            itemName: grpOut.itemName || outMaster?.name || outMaster?.componentName || '',
+                            itemType: grpOut.itemType || 'fg',
+                            receivingUnit: outPriUnit,
+                            hasSecondaryUnit: outHasSec,
+                            secondaryUnit: outSecUnit,
+                            conversionFactor: outConv,
+                            quantityToBeReceived: outQty,
+                            secondaryQuantityToBeReceived: outSecQty,
+                            selectedUnit: outSelectedUnit,
+                            processRate: outRate,
+                            processAmount: outAmt,
+                            description: grpOut.description || outMaster?.description || ''
+                        }
+                    };
+                })
+                : undefined;
+
+            // Hydrate standalone assemblyOutputItem
+            let hydratedAssemblyOutput = (initialData as any).assemblyOutputItem;
+            if (hydratedAssemblyOutput) {
+                const outId = typeof hydratedAssemblyOutput.item === 'object' && hydratedAssemblyOutput.item !== null ? (hydratedAssemblyOutput.item._id || '') : (hydratedAssemblyOutput.item || '');
+                const outMaster = getMasterItem(outId, hydratedAssemblyOutput.itemType || 'fg');
+                const outHasSec = Boolean(hydratedAssemblyOutput.hasSecondaryUnit ?? outMaster?.hasSecondaryUnit ?? (outMaster?.secondaryUnit && Number(outMaster?.conversionFactor) > 0));
+                const outSecUnit = hydratedAssemblyOutput.secondaryUnit || outMaster?.secondaryUnit || '';
+                const outConv = Number(hydratedAssemblyOutput.conversionFactor || outMaster?.conversionFactor) || 1;
+                const outPriUnit = hydratedAssemblyOutput.receivingUnit || outMaster?.unit || 'PCS';
+                const outSelectedUnit = hydratedAssemblyOutput.selectedUnit || (outHasSec && hydratedAssemblyOutput.secondaryQuantityToBeReceived && !hydratedAssemblyOutput.quantityToBeReceived ? outSecUnit : outPriUnit);
+                const outQty = Number(hydratedAssemblyOutput.quantityToBeReceived != null ? hydratedAssemblyOutput.quantityToBeReceived : 1);
+                const outSecQty = Number(hydratedAssemblyOutput.secondaryQuantityToBeReceived != null ? hydratedAssemblyOutput.secondaryQuantityToBeReceived : (outHasSec ? (outQty * outConv) : 0));
+                const outRate = Number(hydratedAssemblyOutput.processRate != null ? hydratedAssemblyOutput.processRate : 0);
+                const outIsSec = Boolean(outHasSec && outSecUnit && outSelectedUnit === outSecUnit);
+                const outActiveQty = outIsSec ? outSecQty : outQty;
+                const outAmt = hydratedAssemblyOutput.processAmount != null && !isNaN(Number(hydratedAssemblyOutput.processAmount)) && Number(hydratedAssemblyOutput.processAmount) > 0
+                    ? Number(hydratedAssemblyOutput.processAmount)
+                    : parseFloat((outActiveQty * outRate).toFixed(2));
+
+                hydratedAssemblyOutput = {
+                    ...hydratedAssemblyOutput,
+                    item: outId,
+                    itemName: hydratedAssemblyOutput.itemName || outMaster?.name || outMaster?.componentName || '',
+                    itemType: hydratedAssemblyOutput.itemType || 'fg',
+                    receivingUnit: outPriUnit,
+                    hasSecondaryUnit: outHasSec,
+                    secondaryUnit: outSecUnit,
+                    conversionFactor: outConv,
+                    quantityToBeReceived: outQty,
+                    secondaryQuantityToBeReceived: outSecQty,
+                    selectedUnit: outSelectedUnit,
+                    processRate: outRate,
+                    processAmount: outAmt,
+                    description: hydratedAssemblyOutput.description || outMaster?.description || ''
+                };
+            }
+
+            const hydratedItems = (items || []).map((it: any) => {
+                const itId = typeof it.item === 'object' && it.item !== null ? (it.item._id || '') : (it.item || '');
+                const master = getMasterItem(itId, it.itemType || 'rm');
+                const hasSec = Boolean(it.hasSecondaryUnit ?? master?.hasSecondaryUnit ?? (master?.secondaryUnit && Number(master?.conversionFactor) > 0));
+                const secUnit = it.secondaryUnit || master?.secondaryUnit || '';
+                const convFactor = Number(it.conversionFactor || master?.conversionFactor) || 1;
+                const priUnit = it.unit || master?.unit || (master as any)?.categoryId?.unit || 'PCS';
+                const selectedUnit = it.selectedUnit || (hasSec && it.secondaryQuantitySent && !it.quantitySent ? secUnit : priUnit);
+                const sentQty = Number(it.quantitySent != null ? it.quantitySent : 1);
+                const secQtySent = Number(it.secondaryQuantitySent != null ? it.secondaryQuantitySent : (hasSec ? (sentQty * convFactor) : 0));
+                const rateVal = Number(it.processRate != null ? it.processRate : it.unitPrice) || 0;
+                const isSec = Boolean(hasSec && secUnit && selectedUnit === secUnit);
+                const activeSentQty = isSec ? secQtySent : sentQty;
+                const itemProcessAmount = it.processAmount != null && !isNaN(Number(it.processAmount)) && Number(it.processAmount) > 0
+                    ? Number(it.processAmount)
+                    : parseFloat((activeSentQty * rateVal).toFixed(2));
+
+                let retItems: JobWorkReturningItem[] = [];
+                if (Array.isArray(it.returningItems) && it.returningItems.length > 0) {
+                    retItems = it.returningItems.map((r: any) => {
+                        const retId = typeof r.receivedItem === 'object' && r.receivedItem !== null ? (r.receivedItem._id || '') : (r.receivedItem || '');
+                        const retMaster = getMasterItem(retId, r.receivedItemType || 'fg');
+                        const retHasSec = Boolean(r.hasSecondaryUnit ?? retMaster?.hasSecondaryUnit ?? (retMaster?.secondaryUnit && Number(retMaster?.conversionFactor) > 0));
+                        const retSecUnit = r.secondaryUnit || retMaster?.secondaryUnit || '';
+                        const retConv = Number(r.conversionFactor || retMaster?.conversionFactor) || 1;
+                        const retPriUnit = r.receivingUnit || retMaster?.unit || 'PCS';
+                        const retSelectedUnit = r.selectedUnit || (retHasSec && r.secondaryQuantityToBeReceived && !r.quantityToBeReceived ? retSecUnit : retPriUnit);
+                        const retQty = Number(r.quantityToBeReceived != null ? r.quantityToBeReceived : 1);
+                        const retSecQty = Number(r.secondaryQuantityToBeReceived != null ? r.secondaryQuantityToBeReceived : (retHasSec ? (retQty * retConv) : 0));
+                        const retRate = Number(r.processRate != null ? r.processRate : (r.rate != null ? r.rate : 0)) || 0;
+                        const isRetSec = Boolean(retHasSec && retSecUnit && retSelectedUnit === retSecUnit);
+                        const activeRetQty = isRetSec ? retSecQty : retQty;
+                        const retAmount = Number(r.processAmount) != null && !isNaN(Number(r.processAmount)) && Number(r.processAmount) > 0
+                            ? Number(r.processAmount)
+                            : parseFloat((activeRetQty * retRate).toFixed(2));
+                        return {
+                            receivedItem: retId,
+                            receivedItemName: r.receivedItemName || r.itemName || retMaster?.name || retMaster?.componentName || '',
+                            receivedItemType: r.receivedItemType || 'fg',
+                            quantityToBeReceived: retQty,
+                            receivingUnit: retPriUnit,
+                            hasSecondaryUnit: retHasSec,
+                            secondaryUnit: retSecUnit,
+                            conversionFactor: retConv,
+                            secondaryQuantityToBeReceived: retSecQty,
+                            selectedUnit: retSelectedUnit,
+                            processRate: retRate,
+                            processAmount: retAmount,
+                            description: r.description || retMaster?.descriptions || retMaster?.description || ''
+                        };
+                    });
+                } else {
+                    const legacyRetId = typeof it.receivedItem === 'object' && it.receivedItem !== null ? (it.receivedItem._id || '') : (it.receivedItem || '');
+                    const legacyRetMaster = getMasterItem(legacyRetId, it.receivedItemType || 'fg');
+                    const retHasSec = Boolean(it.hasSecondaryUnit ?? legacyRetMaster?.hasSecondaryUnit ?? (legacyRetMaster?.secondaryUnit && Number(legacyRetMaster?.conversionFactor) > 0));
+                    const retSecUnit = it.secondaryUnit || legacyRetMaster?.secondaryUnit || '';
+                    const retConv = Number(it.conversionFactor || legacyRetMaster?.conversionFactor) || 1;
+                    const retPriUnit = it.receivingUnit || it.unit || legacyRetMaster?.unit || 'PCS';
+                    const retSelectedUnit = it.selectedUnit || (retHasSec && it.secondaryQuantityToBeReceived && !it.quantityToBeReceived ? retSecUnit : retPriUnit);
+                    const retQty = Number(it.quantityToBeReceived != null ? it.quantityToBeReceived : (it.quantitySent || 1));
+                    const retSecQty = Number(it.secondaryQuantityToBeReceived != null ? it.secondaryQuantityToBeReceived : (retHasSec ? (retQty * retConv) : 0));
+                    const legacyRate = Number(it.processRate != null ? it.processRate : 0);
+                    const isRetSec = Boolean(retHasSec && retSecUnit && retSelectedUnit === retSecUnit);
+                    const activeRetQty = isRetSec ? retSecQty : retQty;
+
+                    retItems = [{
+                        receivedItem: legacyRetId,
+                        receivedItemName: it.receivedItemName || it.itemToBeReceived || it.itemName || legacyRetMaster?.name || '',
+                        receivedItemType: it.receivedItemType || 'fg',
+                        quantityToBeReceived: retQty,
+                        receivingUnit: retPriUnit,
+                        hasSecondaryUnit: retHasSec,
+                        secondaryUnit: retSecUnit,
+                        conversionFactor: retConv,
+                        secondaryQuantityToBeReceived: retSecQty,
+                        selectedUnit: retSelectedUnit,
+                        processRate: legacyRate,
+                        processAmount: parseFloat((activeRetQty * legacyRate).toFixed(2)),
+                        description: it.description || legacyRetMaster?.descriptions || legacyRetMaster?.description || ''
+                    }];
+                }
+
+                // Check if 1:1 auto-synced return item
+                const isSame = it.isSameItemReturning !== undefined
+                    ? Boolean(it.isSameItemReturning)
+                    : (retItems.length === 1 && (
+                        !retItems[0].receivedItem ||
+                        String(retItems[0].receivedItem) === String(itId) ||
+                        retItems[0].receivedItemName === it.itemName
+                    ));
+
+                if (isSame && retItems.length > 0) {
+                    retItems[0] = {
+                        ...retItems[0],
+                        receivedItem: itId,
+                        receivedItemName: it.itemName || retItems[0].receivedItemName,
+                        receivedItemType: it.itemType || 'rm',
+                        quantityToBeReceived: sentQty,
+                        receivingUnit: priUnit,
+                        hasSecondaryUnit: hasSec,
+                        secondaryUnit: secUnit,
+                        conversionFactor: convFactor,
+                        secondaryQuantityToBeReceived: secQtySent,
+                        selectedUnit: selectedUnit,
+                        processRate: Number(retItems[0].processRate != null ? retItems[0].processRate : rateVal),
+                        processAmount: parseFloat((activeSentQty * (Number(retItems[0].processRate != null ? retItems[0].processRate : rateVal))).toFixed(2)),
+                        description: it.description || retItems[0].description
+                    };
+                }
+
+                return {
+                    item: itId,
+                    itemName: it.itemName || master?.name || master?.materialName || '',
+                    itemType: it.itemType || 'rm',
+                    quantitySent: sentQty,
+                    unit: priUnit,
+                    hasSecondaryUnit: hasSec,
+                    secondaryUnit: secUnit,
+                    conversionFactor: convFactor,
+                    secondaryQuantitySent: secQtySent,
+                    selectedUnit: selectedUnit,
+                    processType: it.processType || (resolvedPurpose === 'Others' ? (resolvedOtherPurpose || 'Job Work') : resolvedPurpose),
+                    purpose: it.purpose || resolvedPurpose,
+                    processRate: rateVal,
+                    processAmount: itemProcessAmount,
+                    unitPrice: rateVal,
+                    description: it.description || master?.descriptions || master?.description || '',
+                    isSameItemReturning: isSame,
+                    returningItems: retItems
+                };
+            });
+
             setFormData(prev => ({
                 ...prev,
                 ...rest,
                 vendor: vendorId,
                 jobWorkType: (initialData as any).jobWorkType || 'store-conversion',
-                purpose: (initialData as any).purpose || (initialData as any).items?.[0]?.processType || 'Machining',
-                otherPurpose: (initialData as any).otherPurpose || '',
+                purpose: resolvedPurpose,
+                otherPurpose: resolvedOtherPurpose,
                 mrpNumber: (initialData as any).mrpNumber || '',
                 mrpPlan: (initialData as any).mrpPlan || '',
                 ewayBillNo: (initialData as any).ewayBillNo || prev.ewayBillNo || '',
-                items: (items || []).map((it: any) => {
-                    let retItems: JobWorkReturningItem[] = [];
-                    const itId = typeof it.item === 'object' && it.item !== null ? (it.item._id || '') : (it.item || '');
-
-                    if (Array.isArray(it.returningItems) && it.returningItems.length > 0) {
-                        retItems = it.returningItems.map((r: any) => {
-                            const retId = typeof r.receivedItem === 'object' && r.receivedItem !== null ? (r.receivedItem._id || '') : (r.receivedItem || '');
-                            const retQty = Number(r.quantityToBeReceived) || 1;
-                            const retRate = Number(r.processRate != null ? r.processRate : (r.rate != null ? r.rate : 0)) || 0;
-                            const retAmount = Number(r.processAmount) != null && !isNaN(Number(r.processAmount)) && Number(r.processAmount) > 0
-                                ? Number(r.processAmount)
-                                : parseFloat((retQty * retRate).toFixed(2));
-                            return {
-                                receivedItem: retId,
-                                receivedItemName: r.receivedItemName || r.itemName || '',
-                                receivedItemType: r.receivedItemType || 'fg',
-                                quantityToBeReceived: retQty,
-                                receivingUnit: r.receivingUnit || 'PCS',
-                                hasSecondaryUnit: Boolean(r.hasSecondaryUnit),
-                                secondaryUnit: r.secondaryUnit || '',
-                                conversionFactor: Number(r.conversionFactor) || 1,
-                                secondaryQuantityToBeReceived: Number(r.secondaryQuantityToBeReceived) || 0,
-                                selectedUnit: r.selectedUnit || r.receivingUnit || 'PCS',
-                                processRate: retRate,
-                                processAmount: retAmount,
-                                description: r.description || ''
-                            };
-                        });
-                    } else {
-                        const legacyRetId = typeof it.receivedItem === 'object' && it.receivedItem !== null ? (it.receivedItem._id || '') : (it.receivedItem || '');
-                        const retQty = Number(it.quantityToBeReceived) || Number(it.quantitySent) || 1;
-                        const legacyRate = Number(it.processRate != null ? it.processRate : 0);
-                        retItems = [{
-                            receivedItem: legacyRetId,
-                            receivedItemName: it.receivedItemName || it.itemToBeReceived || it.itemName || '',
-                            receivedItemType: it.receivedItemType || 'fg',
-                            quantityToBeReceived: retQty,
-                            receivingUnit: it.receivingUnit || it.unit || 'PCS',
-                            hasSecondaryUnit: Boolean(it.hasSecondaryUnit),
-                            secondaryUnit: it.secondaryUnit || '',
-                            conversionFactor: Number(it.conversionFactor) || 1,
-                            secondaryQuantityToBeReceived: Number(it.secondaryQuantityToBeReceived) || 0,
-                            selectedUnit: it.selectedUnit || it.receivingUnit || it.unit || 'PCS',
-                            processRate: legacyRate,
-                            processAmount: parseFloat((retQty * legacyRate).toFixed(2)),
-                            description: it.description || ''
-                        }];
-                    }
-
-                    const rateVal = Number(it.processRate != null ? it.processRate : it.unitPrice) || 0;
-                    const sentQty = Number(it.quantitySent) || 1;
-
-                    return {
-                        item: itId,
-                        itemName: it.itemName || '',
-                        itemType: it.itemType || 'rm',
-                        quantitySent: sentQty,
-                        unit: it.unit || 'PCS',
-                        processType: it.processType || 'Job Work',
-                        processRate: rateVal,
-                        processAmount: sentQty * rateVal,
-                        unitPrice: rateVal,
-                        description: it.description || '',
-                        returningItems: retItems
-                    };
-                })
+                notes: (initialData as any).notes && Array.isArray((initialData as any).notes) && (initialData as any).notes.length > 0 ? (initialData as any).notes : [...DEFAULT_JOB_WORK_NOTES],
+                items: hydratedItems,
+                assemblyGroups: hydratedAssemblyGroups || prev.assemblyGroups,
+                assemblyOutputItem: hydratedAssemblyOutput || prev.assemblyOutputItem
             }));
             setSuccessData(null);
         } else if (isOpen && !initialData) {
@@ -606,7 +912,8 @@ export default function JobWorkForm({
                             }
                         ]
                     }
-                ]
+                ],
+                notes: [...DEFAULT_JOB_WORK_NOTES]
             });
         }
     }, [isOpen, initialData]);
@@ -615,20 +922,23 @@ export default function JobWorkForm({
     const syncSameReturningItem = (item: any): JobWorkReturningItem[] => {
         const existingRet = (item.returningItems && item.returningItems[0]) || {};
         const rate = Number(existingRet.processRate != null ? existingRet.processRate : (item.processRate || 0));
-        const qty = Number(item.quantitySent) || 0;
+        const priQty = Number(item.quantitySent) || 0;
+        const secQty = Number(item.secondaryQuantitySent) || 0;
+        const isSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit && item.selectedUnit === item.secondaryUnit);
+        const activeQty = isSec ? secQty : priQty;
         return [{
             receivedItem: item.item || '',
             receivedItemName: item.itemName || '',
             receivedItemType: item.itemType || 'rm',
-            quantityToBeReceived: qty,
+            quantityToBeReceived: priQty,
             receivingUnit: item.unit || 'PCS',
             hasSecondaryUnit: Boolean(item.hasSecondaryUnit),
             secondaryUnit: item.secondaryUnit || '',
             conversionFactor: Number(item.conversionFactor) || 1,
             selectedUnit: item.selectedUnit || item.unit || 'PCS',
-            secondaryQuantityToBeReceived: Number(item.secondaryQuantitySent) || 0,
+            secondaryQuantityToBeReceived: secQty,
             processRate: rate,
-            processAmount: parseFloat((qty * rate).toFixed(2)),
+            processAmount: parseFloat((activeQty * rate).toFixed(2)),
             description: item.description || ''
         }];
     };
@@ -778,8 +1088,8 @@ export default function JobWorkForm({
                 current.conversionFactor = Number(foundMat.conversionFactor) || 1;
                 current.selectedUnit = current.unit;
 
-                // Auto-populate Quantity Sent with Available Stock in store/WIP
-                const availStock = getItemStock(selectedId, type);
+                // Auto-populate Quantity Sent with Available Stock in store/WIP (accounting for current DC in edit mode)
+                const availStock = getEffectiveAvailableStock(selectedId, type);
                 const initQty = availStock > 0 ? availStock : (Number(current.quantitySent) || 0);
                 current.quantitySent = initQty;
                 current.secondaryQuantitySent = hasSec ? parseFloat((initQty * current.conversionFactor).toFixed(4)) : 0;
@@ -818,6 +1128,10 @@ export default function JobWorkForm({
 
         if (field === 'selectedUnit') {
             current.selectedUnit = value;
+            const isSec = Boolean(current.hasSecondaryUnit && current.secondaryUnit && value === current.secondaryUnit);
+            const activeQty = isSec ? (Number(current.secondaryQuantitySent) || 0) : (Number(current.quantitySent) || 0);
+            const currentRate = Number(current.processRate != null ? current.processRate : current.unitPrice) || 0;
+            current.processAmount = parseFloat((activeQty * currentRate).toFixed(2));
             if (current.isSameItemReturning !== false) {
                 current.returningItems = syncSameReturningItem(current);
             }
@@ -828,10 +1142,12 @@ export default function JobWorkForm({
             current.processType = value === 'Others' ? (formData.otherPurpose || 'Job Work') : value;
         }
 
-        if (field === 'processRate') {
+        if (field === 'processRate' || field === 'unitPrice') {
             current.processRate = value;
             current.unitPrice = value;
-            current.processAmount = (Number(current.quantitySent) || 0) * (Number(value) || 0);
+            const isSec = Boolean(current.hasSecondaryUnit && current.secondaryUnit && current.selectedUnit === current.secondaryUnit);
+            const activeQty = isSec ? (Number(current.secondaryQuantitySent) || 0) : (Number(current.quantitySent) || 0);
+            current.processAmount = parseFloat((activeQty * (Number(value) || 0)).toFixed(2));
             if (current.isSameItemReturning !== false) {
                 current.returningItems = syncSameReturningItem(current);
             }
@@ -844,7 +1160,9 @@ export default function JobWorkForm({
                 current.secondaryQuantitySent = parseFloat((num * Number(current.conversionFactor)).toFixed(4));
             }
             const currentRate = Number(current.processRate != null ? current.processRate : current.unitPrice) || 0;
-            current.processAmount = num * currentRate;
+            const isSec = Boolean(current.hasSecondaryUnit && current.secondaryUnit && current.selectedUnit === current.secondaryUnit);
+            const activeQty = isSec ? (Number(current.secondaryQuantitySent) || 0) : num;
+            current.processAmount = parseFloat((activeQty * currentRate).toFixed(2));
             if (current.isSameItemReturning !== false) {
                 current.returningItems = syncSameReturningItem(current);
             }
@@ -857,7 +1175,9 @@ export default function JobWorkForm({
             const priVal = (conv > 0 && secNum > 0) ? parseFloat((secNum / conv).toFixed(4)) : 0;
             current.quantitySent = priVal;
             const currentRate = Number(current.processRate != null ? current.processRate : current.unitPrice) || 0;
-            current.processAmount = priVal * currentRate;
+            const isSec = Boolean(current.hasSecondaryUnit && current.secondaryUnit && current.selectedUnit === current.secondaryUnit);
+            const activeQty = isSec ? secNum : priVal;
+            current.processAmount = parseFloat((activeQty * currentRate).toFixed(2));
             if (current.isSameItemReturning !== false) {
                 current.returningItems = syncSameReturningItem(current);
             }
@@ -868,7 +1188,8 @@ export default function JobWorkForm({
         // Calculate total estimated process price
         const totalProcPrice = newItems.reduce((acc, it) => {
             const r = Number(it.processRate != null ? it.processRate : it.unitPrice) || 0;
-            const q = Number(it.quantitySent) || 0;
+            const isSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit && it.selectedUnit === it.secondaryUnit);
+            const q = isSec ? (Number(it.secondaryQuantitySent) || 0) : (Number(it.quantitySent) || 0);
             return acc + (q * r);
         }, 0);
 
@@ -927,13 +1248,18 @@ export default function JobWorkForm({
 
         if (field === 'selectedUnit') {
             currentRet.selectedUnit = value;
+            const isSec = Boolean(currentRet.hasSecondaryUnit && currentRet.secondaryUnit && value === currentRet.secondaryUnit);
+            const activeQty = isSec ? (Number(currentRet.secondaryQuantityToBeReceived) || 0) : (Number(currentRet.quantityToBeReceived) || 0);
+            const r = Number(currentRet.processRate) || 0;
+            currentRet.processAmount = parseFloat((activeQty * r).toFixed(2));
         }
 
         if (field === 'processRate') {
             const r = Number(value) || 0;
             currentRet.processRate = r;
-            const q = Number(currentRet.quantityToBeReceived) || 0;
-            currentRet.processAmount = parseFloat((q * r).toFixed(2));
+            const isSec = Boolean(currentRet.hasSecondaryUnit && currentRet.secondaryUnit && currentRet.selectedUnit === currentRet.secondaryUnit);
+            const activeQty = isSec ? (Number(currentRet.secondaryQuantityToBeReceived) || 0) : (Number(currentRet.quantityToBeReceived) || 0);
+            currentRet.processAmount = parseFloat((activeQty * r).toFixed(2));
         }
 
         if (field === 'quantityToBeReceived') {
@@ -943,7 +1269,9 @@ export default function JobWorkForm({
                 currentRet.secondaryQuantityToBeReceived = parseFloat((num * Number(currentRet.conversionFactor)).toFixed(4));
             }
             const r = Number(currentRet.processRate) || 0;
-            currentRet.processAmount = parseFloat((num * r).toFixed(2));
+            const isSec = Boolean(currentRet.hasSecondaryUnit && currentRet.secondaryUnit && currentRet.selectedUnit === currentRet.secondaryUnit);
+            const activeQty = isSec ? (Number(currentRet.secondaryQuantityToBeReceived) || 0) : num;
+            currentRet.processAmount = parseFloat((activeQty * r).toFixed(2));
         }
 
         if (field === 'secondaryQuantityToBeReceived') {
@@ -953,7 +1281,9 @@ export default function JobWorkForm({
             const priVal = (conv > 0 && secNum > 0) ? parseFloat((secNum / conv).toFixed(4)) : 0;
             currentRet.quantityToBeReceived = priVal;
             const r = Number(currentRet.processRate) || 0;
-            currentRet.processAmount = parseFloat((priVal * r).toFixed(2));
+            const isSec = Boolean(currentRet.hasSecondaryUnit && currentRet.secondaryUnit && currentRet.selectedUnit === currentRet.secondaryUnit);
+            const activeQty = isSec ? secNum : priVal;
+            currentRet.processAmount = parseFloat((activeQty * r).toFixed(2));
         }
 
         if (field === 'receivedItemType') {
@@ -1145,8 +1475,8 @@ export default function JobWorkForm({
                 currentItem.conversionFactor = Number(foundMat.conversionFactor) || 1;
                 currentItem.selectedUnit = currentItem.unit;
 
-                // Auto-populate Quantity Sent with Available Stock in store/WIP
-                const availStock = getItemStock(selectedId, currentItem.itemType);
+                // Auto-populate Quantity Sent with Available Stock in store/WIP (accounting for current DC in edit mode)
+                const availStock = getEffectiveAvailableStock(selectedId, currentItem.itemType);
                 const initQty = availStock > 0 ? availStock : (Number(currentItem.quantitySent) || 0);
                 currentItem.quantitySent = initQty;
                 currentItem.secondaryQuantitySent = hasSec ? parseFloat((initQty * currentItem.conversionFactor).toFixed(4)) : 0;
@@ -1161,6 +1491,10 @@ export default function JobWorkForm({
 
         if (field === 'selectedUnit') {
             currentItem.selectedUnit = value;
+            const isSec = Boolean(currentItem.hasSecondaryUnit && currentItem.secondaryUnit && value === currentItem.secondaryUnit);
+            const activeQty = isSec ? (Number(currentItem.secondaryQuantitySent) || 0) : (Number(currentItem.quantitySent) || 0);
+            const r = Number(currentItem.processRate != null ? currentItem.processRate : currentItem.unitPrice) || 0;
+            currentItem.processAmount = parseFloat((activeQty * r).toFixed(2));
         }
 
         if (field === 'secondaryQuantitySent') {
@@ -1170,7 +1504,9 @@ export default function JobWorkForm({
             const priVal = (conv > 0 && secNum > 0) ? parseFloat((secNum / conv).toFixed(4)) : 0;
             currentItem.quantitySent = priVal;
             const r = Number(currentItem.processRate != null ? currentItem.processRate : currentItem.unitPrice) || 0;
-            currentItem.processAmount = priVal * r;
+            const isSec = Boolean(currentItem.hasSecondaryUnit && currentItem.secondaryUnit && currentItem.selectedUnit === currentItem.secondaryUnit);
+            const activeQty = isSec ? secNum : priVal;
+            currentItem.processAmount = parseFloat((activeQty * r).toFixed(2));
         }
 
         if (field === 'quantitySent') {
@@ -1180,15 +1516,18 @@ export default function JobWorkForm({
                 currentItem.secondaryQuantitySent = parseFloat((q * Number(currentItem.conversionFactor)).toFixed(4));
             }
             const r = Number(currentItem.processRate != null ? currentItem.processRate : currentItem.unitPrice) || 0;
-            currentItem.processAmount = q * r;
+            const isSec = Boolean(currentItem.hasSecondaryUnit && currentItem.secondaryUnit && currentItem.selectedUnit === currentItem.secondaryUnit);
+            const activeQty = isSec ? (Number(currentItem.secondaryQuantitySent) || 0) : q;
+            currentItem.processAmount = parseFloat((activeQty * r).toFixed(2));
         }
 
-        if (field === 'processRate') {
+        if (field === 'processRate' || field === 'unitPrice') {
             const r = Number(value) || 0;
             currentItem.processRate = value;
             currentItem.unitPrice = value;
-            const q = Number(currentItem.quantitySent) || 0;
-            currentItem.processAmount = q * r;
+            const isSec = Boolean(currentItem.hasSecondaryUnit && currentItem.secondaryUnit && currentItem.selectedUnit === currentItem.secondaryUnit);
+            const activeQty = isSec ? (Number(currentItem.secondaryQuantitySent) || 0) : (Number(currentItem.quantitySent) || 0);
+            currentItem.processAmount = parseFloat((activeQty * r).toFixed(2));
         }
 
         if (field === 'purpose') {
@@ -1266,12 +1605,18 @@ export default function JobWorkForm({
 
         if (field === 'selectedUnit') {
             currentOut.selectedUnit = value;
+            const isSec = Boolean(currentOut.hasSecondaryUnit && currentOut.secondaryUnit && value === currentOut.secondaryUnit);
+            const activeQty = isSec ? (Number(currentOut.secondaryQuantityToBeReceived) || 0) : (Number(currentOut.quantityToBeReceived) || 1);
+            const r = Number(currentOut.processRate) || 0;
+            currentOut.processAmount = parseFloat((activeQty * r).toFixed(2));
         }
 
         if (field === 'processRate') {
             const r = Number(value) || 0;
             currentOut.processRate = r;
-            currentOut.processAmount = (Number(currentOut.quantityToBeReceived) || 1) * r;
+            const isSec = Boolean(currentOut.hasSecondaryUnit && currentOut.secondaryUnit && currentOut.selectedUnit === currentOut.secondaryUnit);
+            const activeQty = isSec ? (Number(currentOut.secondaryQuantityToBeReceived) || 0) : (Number(currentOut.quantityToBeReceived) || 1);
+            currentOut.processAmount = parseFloat((activeQty * r).toFixed(2));
         }
 
         if (field === 'quantityToBeReceived') {
@@ -1281,7 +1626,9 @@ export default function JobWorkForm({
                 currentOut.secondaryQuantityToBeReceived = parseFloat((q * Number(currentOut.conversionFactor)).toFixed(4));
             }
             const r = Number(currentOut.processRate) || 0;
-            currentOut.processAmount = q * r;
+            const isSec = Boolean(currentOut.hasSecondaryUnit && currentOut.secondaryUnit && currentOut.selectedUnit === currentOut.secondaryUnit);
+            const activeQty = isSec ? (Number(currentOut.secondaryQuantityToBeReceived) || 0) : q;
+            currentOut.processAmount = parseFloat((activeQty * r).toFixed(2));
         }
 
         if (field === 'secondaryQuantityToBeReceived') {
@@ -1290,7 +1637,9 @@ export default function JobWorkForm({
             const conv = Number(currentOut.conversionFactor) || 1;
             currentOut.quantityToBeReceived = (conv > 0 && secNum > 0) ? parseFloat((secNum / conv).toFixed(4)) : 0;
             const r = Number(currentOut.processRate) || 0;
-            currentOut.processAmount = currentOut.quantityToBeReceived * r;
+            const isSec = Boolean(currentOut.hasSecondaryUnit && currentOut.secondaryUnit && currentOut.selectedUnit === currentOut.secondaryUnit);
+            const activeQty = isSec ? secNum : (Number(currentOut.quantityToBeReceived) || 0);
+            currentOut.processAmount = parseFloat((activeQty * r).toFixed(2));
         }
 
         currentGroups[grpIdx] = {
@@ -1363,6 +1712,27 @@ export default function JobWorkForm({
             assemblyOutputItem: currentOut,
             estimatedPrice: currentOut.processAmount && currentOut.processAmount > 0 ? currentOut.processAmount : formData.estimatedPrice
         });
+    };
+
+    // Important Notes / Remarks handlers (Serial-wise)
+    const handleNoteChange = (idx: number, value: string) => {
+        const nextNotes = [...(formData.notes || [])];
+        nextNotes[idx] = value;
+        setFormData(prev => ({ ...prev, notes: nextNotes }));
+    };
+
+    const addNoteRow = () => {
+        const nextNotes = [...(formData.notes || []), ''];
+        setFormData(prev => ({ ...prev, notes: nextNotes }));
+    };
+
+    const removeNoteRow = (idx: number) => {
+        const nextNotes = (formData.notes || []).filter((_, i) => i !== idx);
+        setFormData(prev => ({ ...prev, notes: nextNotes }));
+    };
+
+    const resetDefaultNotes = () => {
+        setFormData(prev => ({ ...prev, notes: [...DEFAULT_JOB_WORK_NOTES] }));
     };
 
     // Handle Operation Mode Switch (Discrete vs Assembly/Welding)
@@ -1551,7 +1921,7 @@ export default function JobWorkForm({
                             if (!it.quantitySent || Number(it.quantitySent) <= 0) {
                                 errors[`grp_${g}_item_${i}_quantitySent`] = 'Quantity sent must be > 0';
                             } else if (it.item) {
-                                const availStock = getItemStock(it.item, it.itemType);
+                                const availStock = getEffectiveAvailableStock(it.item, it.itemType);
                                 const reqQty = Number(it.quantitySent) || 0;
                                 if (availStock <= 0) {
                                     errors[`grp_${g}_item_${i}_quantitySent`] = `Out of stock`;
@@ -1581,7 +1951,7 @@ export default function JobWorkForm({
                 if (!item.quantitySent || Number(item.quantitySent) <= 0) {
                     errors[`item_${i}_quantitySent`] = 'Quantity sent must be > 0';
                 } else if (item.item) {
-                    const availStock = getItemStock(item.item, item.itemType);
+                    const availStock = getEffectiveAvailableStock(item.item, item.itemType);
                     const reqQty = Number(item.quantitySent) || 0;
 
                     if (availStock <= 0) {
@@ -1629,17 +1999,28 @@ export default function JobWorkForm({
         try {
             setLoading(true);
 
-            // Prepare flattened items for payload if in assembly mode
-            let submitItems: any[] = formData.items;
+            // Prepare items for payload
+            let submitItems: any[] = [];
             if (formData.operationMode === 'assembly' && formData.assemblyGroups && formData.assemblyGroups.length > 0) {
-                submitItems = [];
                 formData.assemblyGroups.forEach((g) => {
                     (g.items || []).forEach((it: any) => {
                         submitItems.push({
                             ...it,
+                            processType: it.processType || (it.purpose === 'Others' ? (formData.otherPurpose || 'Job Work') : (it.purpose || formData.purpose || 'Welding & Assembly')),
                             returningItems: []
                         });
                     });
+                });
+            } else {
+                submitItems = formData.items.map(it => {
+                    const itemCopy = { ...it };
+                    if (itemCopy.purpose === 'Others' && !itemCopy.processType) {
+                        itemCopy.processType = formData.otherPurpose || 'Job Work';
+                    }
+                    if (itemCopy.isSameItemReturning !== false && itemCopy.item) {
+                        itemCopy.returningItems = syncSameReturningItem(itemCopy);
+                    }
+                    return itemCopy;
                 });
             }
 
@@ -1647,17 +2028,27 @@ export default function JobWorkForm({
                 ? (formData.assemblyGroups || []).reduce((acc, g) => acc + (Number(g.assemblyOutputItem?.processAmount) || 0), 0)
                 : (formData.items || []).reduce((acc, it) => acc + (it.returningItems || []).reduce((subAcc: number, r: any) => subAcc + (Number(r.processAmount) || 0), 0), 0);
 
-            const payload = {
+            const payload: any = {
                 ...formData,
                 items: submitItems,
                 assemblyGroups: formData.operationMode === 'assembly' ? formData.assemblyGroups : undefined,
                 assemblyOutputItem: formData.operationMode === 'assembly' && formData.assemblyGroups && formData.assemblyGroups.length > 0
                     ? formData.assemblyGroups[0].assemblyOutputItem
-                    : formData.assemblyOutputItem,
+                    : undefined,
                 totalJobWorkCharges: calculatedTotalCharges > 0 ? calculatedTotalCharges : (formData.totalJobWorkCharges || 0),
                 mrpPlan: formData.mrpPlan ? formData.mrpPlan : undefined,
                 mrpNumber: formData.mrpNumber ? formData.mrpNumber : undefined,
             };
+
+            if (formData.operationMode !== 'assembly') {
+                delete payload.assemblyOutputItem;
+                delete payload.assemblyGroups;
+            } else if (payload.assemblyOutputItem && (!payload.assemblyOutputItem.item || String(payload.assemblyOutputItem.item).trim() === '')) {
+                payload.assemblyOutputItem = {
+                    ...payload.assemblyOutputItem,
+                    item: undefined
+                };
+            }
 
             let res;
             if (initialData && (initialData as any)._id) {
@@ -1678,7 +2069,8 @@ export default function JobWorkForm({
 
     const handleDownloadPDF = async () => {
         try {
-            await generateDocument('pdf', 'Returnable DC', [{ doc: successData, companyInfo }]);
+            const allVendors = [...(jobWorkSuppliers || []), ...(vendors || [])];
+            await generateDocument('pdf', 'returnable_dc', { doc: successData, companyInfo, vendors: allVendors });
         } catch (error) {
             onError('Failed to generate PDF');
         }
@@ -1785,7 +2177,9 @@ export default function JobWorkForm({
                             <div className="flex items-center gap-2">
                                 <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
                                 <span className="text-xs font-bold">
-                                    Please fill in the highlighted compulsory field{Object.keys(formErrors).length > 1 ? 's' : ''} before creating Challan.
+                                    {initialData 
+                                        ? `Please correct the highlighted field${Object.keys(formErrors).length > 1 ? 's' : ''} before updating Challan.` 
+                                        : `Please fill in the highlighted compulsory field${Object.keys(formErrors).length > 1 ? 's' : ''} before creating Challan.`}
                                 </span>
                             </div>
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200 dark:bg-rose-900 text-rose-900 dark:text-rose-200">
@@ -1795,17 +2189,32 @@ export default function JobWorkForm({
                     )}
 
                     {/* Segmented Returnable DC Type Bar with Clear Direction Subtitles */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 gap-1.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 gap-1.5 relative">
+                        {initialData && (
+                            <div className="sm:col-span-3 pb-1 text-center flex items-center justify-center gap-1.5 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                                <Lock size={12} className="text-indigo-500" />
+                                <span>Workflow type is locked when editing an existing Returnable DC</span>
+                            </div>
+                        )}
                         <button
                             type="button"
-                            onClick={() => handleDcTypeChange('store-conversion')}
-                            className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 text-center ${
+                            disabled={!!initialData}
+                            onClick={() => !initialData && handleDcTypeChange('store-conversion')}
+                            title={initialData ? "Workflow type cannot be modified after DC creation" : undefined}
+                            className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 text-center ${
+                                initialData ? 'cursor-not-allowed' : 'cursor-pointer'
+                            } ${
                                 (formData.jobWorkType || 'store-conversion') === 'store-conversion'
                                     ? 'bg-indigo-600 text-white shadow-xs'
-                                    : 'text-slate-600 dark:text-slate-400 hover:bg-white/80 dark:hover:bg-slate-700'
+                                    : initialData 
+                                        ? 'text-slate-400 dark:text-slate-600 opacity-60'
+                                        : 'text-slate-600 dark:text-slate-400 hover:bg-white/80 dark:hover:bg-slate-700'
                             }`}
                         >
-                            <span className="font-extrabold text-xs">🏭 RM Conversion</span>
+                            <span className="font-extrabold text-xs flex items-center gap-1">
+                                🏭 RM Conversion
+                                {initialData && (formData.jobWorkType || 'store-conversion') === 'store-conversion' && <Lock size={10} />}
+                            </span>
                             <span className={`text-[10px] font-medium leading-tight ${
                                 (formData.jobWorkType || 'store-conversion') === 'store-conversion'
                                     ? 'text-indigo-100'
@@ -1817,14 +2226,23 @@ export default function JobWorkForm({
 
                         <button
                             type="button"
-                            onClick={() => handleDcTypeChange('store-to-wip')}
-                            className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 text-center ${
+                            disabled={!!initialData}
+                            onClick={() => !initialData && handleDcTypeChange('store-to-wip')}
+                            title={initialData ? "Workflow type cannot be modified after DC creation" : undefined}
+                            className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 text-center ${
+                                initialData ? 'cursor-not-allowed' : 'cursor-pointer'
+                            } ${
                                 formData.jobWorkType === 'store-to-wip'
                                     ? 'bg-indigo-600 text-white shadow-xs'
-                                    : 'text-slate-600 dark:text-slate-400 hover:bg-white/80 dark:hover:bg-slate-700'
+                                    : initialData 
+                                        ? 'text-slate-400 dark:text-slate-600 opacity-60'
+                                        : 'text-slate-600 dark:text-slate-400 hover:bg-white/80 dark:hover:bg-slate-700'
                             }`}
                         >
-                            <span className="font-extrabold text-xs">🔄 Store to WIP</span>
+                            <span className="font-extrabold text-xs flex items-center gap-1">
+                                🔄 Store to WIP
+                                {initialData && formData.jobWorkType === 'store-to-wip' && <Lock size={10} />}
+                            </span>
                             <span className={`text-[10px] font-medium leading-tight ${
                                 formData.jobWorkType === 'store-to-wip'
                                     ? 'text-indigo-100'
@@ -1836,14 +2254,23 @@ export default function JobWorkForm({
 
                         <button
                             type="button"
-                            onClick={() => handleDcTypeChange('wip-to-wip')}
-                            className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 text-center ${
+                            disabled={!!initialData}
+                            onClick={() => !initialData && handleDcTypeChange('wip-to-wip')}
+                            title={initialData ? "Workflow type cannot be modified after DC creation" : undefined}
+                            className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 text-center ${
+                                initialData ? 'cursor-not-allowed' : 'cursor-pointer'
+                            } ${
                                 formData.jobWorkType === 'wip-to-wip'
                                     ? 'bg-indigo-600 text-white shadow-xs'
-                                    : 'text-slate-600 dark:text-slate-400 hover:bg-white/80 dark:hover:bg-slate-700'
+                                    : initialData 
+                                        ? 'text-slate-400 dark:text-slate-600 opacity-60'
+                                        : 'text-slate-600 dark:text-slate-400 hover:bg-white/80 dark:hover:bg-slate-700'
                             }`}
                         >
-                            <span className="font-extrabold text-xs">📦 WIP to WIP</span>
+                            <span className="font-extrabold text-xs flex items-center gap-1">
+                                📦 WIP to WIP
+                                {initialData && formData.jobWorkType === 'wip-to-wip' && <Lock size={10} />}
+                            </span>
                             <span className={`text-[10px] font-medium leading-tight ${
                                 formData.jobWorkType === 'wip-to-wip'
                                     ? 'text-indigo-100'
@@ -2298,6 +2725,15 @@ export default function JobWorkForm({
                                                                         <option key={p} value={p}>{p}</option>
                                                                     ))}
                                                                 </select>
+                                                                {((sentItem.purpose || formData.purpose) === 'Others') && (
+                                                                    <input
+                                                                        type="text"
+                                                                        value={sentItem.processType || ''}
+                                                                        placeholder={formData.otherPurpose || "Custom process name..."}
+                                                                        onChange={(e) => handleGroupOutwardItemChange(grpIdx, itemIdx, 'processType', e.target.value)}
+                                                                        className="w-full h-7 px-2 mt-1 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-lg text-[11px] font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                                    />
+                                                                )}
                                                             </div>
 
                                                             {/* Unit (Dual-Unit Aware) */}
@@ -2366,7 +2802,7 @@ export default function JobWorkForm({
                                                             {/* Process Price (₹) */}
                                                             <div className="sm:col-span-1 lg:col-span-1">
                                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                                    Price (₹)
+                                                                    Price (₹/{sentItem.hasSecondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit ? sentItem.secondaryUnit : (sentItem.unit || 'unit')})
                                                                 </label>
                                                                 <input
                                                                     type="number"
@@ -2385,7 +2821,10 @@ export default function JobWorkForm({
                                                                     Amount
                                                                 </label>
                                                                 <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-slate-700 dark:text-slate-200 truncate">
-                                                                    ₹{((Number(sentItem.quantitySent) || 0) * (Number(sentItem.processRate != null ? sentItem.processRate : sentItem.unitPrice) || 0)).toFixed(2)}
+                                                                    ₹{(sentItem.processAmount !== undefined 
+                                                                        ? Number(sentItem.processAmount) 
+                                                                        : (((sentItem.hasSecondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit ? Number(sentItem.secondaryQuantitySent) : Number(sentItem.quantitySent)) || 0) * (Number(sentItem.processRate != null ? sentItem.processRate : sentItem.unitPrice) || 0))
+                                                                    ).toFixed(2)}
                                                                 </div>
                                                             </div>
 
@@ -2473,14 +2912,25 @@ export default function JobWorkForm({
                                                 {/* Receiving Unit */}
                                                 <div className="sm:col-span-1 lg:col-span-1">
                                                     <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                                        Unit
+                                                        Unit {group.assemblyOutputItem?.hasSecondaryUnit && <span className="text-[9px] text-amber-600 font-bold">(Dual)</span>}
                                                     </label>
-                                                    <input
-                                                        type="text"
-                                                        value={group.assemblyOutputItem?.receivingUnit || 'PCS'}
-                                                        onChange={(e) => handleGroupAssemblyOutputChange(grpIdx, 'receivingUnit', e.target.value)}
-                                                        className="w-full h-9 px-2 border rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 uppercase"
-                                                    />
+                                                    {group.assemblyOutputItem?.hasSecondaryUnit && group.assemblyOutputItem?.secondaryUnit ? (
+                                                        <select
+                                                            value={group.assemblyOutputItem?.selectedUnit || group.assemblyOutputItem?.receivingUnit || 'PCS'}
+                                                            onChange={(e) => handleGroupAssemblyOutputChange(grpIdx, 'selectedUnit', e.target.value)}
+                                                            className="w-full h-9 px-1 border border-indigo-300 dark:border-indigo-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500/20 outline-none cursor-pointer"
+                                                        >
+                                                            <option value={group.assemblyOutputItem?.receivingUnit}>{group.assemblyOutputItem?.receivingUnit} (Pri)</option>
+                                                            <option value={group.assemblyOutputItem?.secondaryUnit}>{group.assemblyOutputItem?.secondaryUnit} (Sec)</option>
+                                                        </select>
+                                                    ) : (
+                                                        <input
+                                                            type="text"
+                                                            value={group.assemblyOutputItem?.receivingUnit || 'PCS'}
+                                                            onChange={(e) => handleGroupAssemblyOutputChange(grpIdx, 'receivingUnit', e.target.value)}
+                                                            className="w-full h-9 px-2 border rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 uppercase"
+                                                        />
+                                                    )}
                                                 </div>
 
                                                 {/* Process Type */}
@@ -2499,7 +2949,7 @@ export default function JobWorkForm({
                                                 {/* Process Rate */}
                                                 <div className="sm:col-span-1 lg:col-span-2">
                                                     <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                                        Rate (₹)
+                                                        Rate (₹/{group.assemblyOutputItem?.hasSecondaryUnit && group.assemblyOutputItem?.selectedUnit === group.assemblyOutputItem?.secondaryUnit ? group.assemblyOutputItem?.secondaryUnit : (group.assemblyOutputItem?.receivingUnit || 'unit')})
                                                     </label>
                                                     <input
                                                         type="number"
@@ -2726,6 +3176,15 @@ export default function JobWorkForm({
                                                                 <option key={p} value={p}>{p}</option>
                                                             ))}
                                                         </select>
+                                                        {((sentItem.purpose || formData.purpose) === 'Others') && (
+                                                            <input
+                                                                type="text"
+                                                                value={sentItem.processType || ''}
+                                                                placeholder={formData.otherPurpose || "Custom process name..."}
+                                                                onChange={(e) => handleSentItemChange(itemIdx, 'processType', e.target.value)}
+                                                                className="w-full h-7 px-2 mt-1 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-lg text-[11px] font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                            />
+                                                        )}
                                                     </div>
 
                                                     {/* Unit (Dual-Unit Aware) */}
@@ -2809,7 +3268,9 @@ export default function JobWorkForm({
                                                     <div className="sm:col-span-1 lg:col-span-1 xl:col-span-1">
                                                         <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between" title="Material value declared for transit insurance / E-Way Bill">
                                                             <span>Mat Value</span>
-                                                            <span className="text-[9px] text-slate-400 font-normal">₹/{sentItem.unit || 'unit'}</span>
+                                                            <span className="text-[9px] text-slate-400 font-normal">
+                                                                ₹/{sentItem.hasSecondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit ? sentItem.secondaryUnit : (sentItem.unit || 'unit')}
+                                                            </span>
                                                         </label>
                                                         <input
                                                             type="number"
@@ -2829,7 +3290,10 @@ export default function JobWorkForm({
                                                             Mat Value
                                                         </label>
                                                         <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-slate-700 dark:text-slate-200 truncate">
-                                                            ₹{((Number(sentItem.quantitySent) || 0) * (Number(sentItem.unitPrice != null ? sentItem.unitPrice : sentItem.processRate) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                            ₹{(
+                                                                ((sentItem.hasSecondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit ? Number(sentItem.secondaryQuantitySent) : Number(sentItem.quantitySent)) || 0) * 
+                                                                (Number(sentItem.unitPrice != null ? sentItem.unitPrice : sentItem.processRate) || 0)
+                                                            ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -2906,49 +3370,62 @@ export default function JobWorkForm({
                                                                 </div>
                                                             </div>
 
-                                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end pt-1">
-                                                                {/* Return Qty display */}
-                                                                <div className="sm:col-span-4 lg:col-span-4">
-                                                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                                        Returning Quantity (1:1 with Sent Qty)
-                                                                    </label>
-                                                                    <div className="h-9 px-3 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center justify-between shadow-2xs">
-                                                                        <span>{sentItem.quantitySent ?? 0} {sentItem.unit || 'PCS'}</span>
-                                                                        {sentItem.hasSecondaryUnit && sentItem.secondaryUnit && (
-                                                                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
-                                                                                ({sentItem.secondaryQuantitySent || 0} {sentItem.secondaryUnit})
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
+                                                            {(() => {
+                                                                const isSecSelected = Boolean(sentItem.hasSecondaryUnit && sentItem.secondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit);
+                                                                const activeQty = isSecSelected ? (sentItem.secondaryQuantitySent ?? 0) : (sentItem.quantitySent ?? 0);
+                                                                const activeUnit = isSecSelected ? sentItem.secondaryUnit : (sentItem.unit || 'PCS');
+                                                                const altQty = isSecSelected ? (sentItem.quantitySent ?? 0) : (sentItem.secondaryQuantitySent ?? 0);
+                                                                const altUnit = isSecSelected ? (sentItem.unit || 'PCS') : sentItem.secondaryUnit;
 
-                                                                {/* Job Work Rate (₹/unit) */}
-                                                                <div className="sm:col-span-4 lg:col-span-4">
-                                                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                                        <span>Job Work Rate</span>
-                                                                        <span className="text-[9px] text-slate-400 font-mono">₹/{sentItem.unit || 'unit'}</span>
-                                                                    </label>
-                                                                    <input
-                                                                        type="number"
-                                                                        min="0"
-                                                                        step="any"
-                                                                        value={(sentItem.returningItems?.[0]?.processRate !== undefined) ? sentItem.returningItems[0].processRate : ''}
-                                                                        onChange={(e) => handleReturningItemChange(itemIdx, 0, 'processRate', e.target.value)}
-                                                                        placeholder="0.00"
-                                                                        className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-right bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                                                                    />
-                                                                </div>
+                                                                return (
+                                                                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end pt-1">
+                                                                        {/* Return Qty display (in Selected UOM) */}
+                                                                        <div className="sm:col-span-4 lg:col-span-4">
+                                                                            <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                                                <span>Returning Quantity (1:1 with Sent Qty)</span>
+                                                                                <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
+                                                                                    In {activeUnit}
+                                                                                </span>
+                                                                            </label>
+                                                                            <div className="h-9 px-3 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center justify-between shadow-2xs">
+                                                                                <span className="text-emerald-700 dark:text-emerald-300 font-extrabold">{activeQty} {activeUnit}</span>
+                                                                                {sentItem.hasSecondaryUnit && sentItem.secondaryUnit && (
+                                                                                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                                                                                        ({altQty} {altUnit})
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
 
-                                                                {/* Job Work Amount Subtotal */}
-                                                                <div className="sm:col-span-4 lg:col-span-4 flex flex-col justify-center">
-                                                                    <label className="block text-[9px] font-semibold text-slate-400 uppercase tracking-tight mb-1 text-right">
-                                                                        JW Amount
-                                                                    </label>
-                                                                    <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400">
-                                                                        ₹{((Number(sentItem.quantitySent) || 0) * (Number(sentItem.returningItems?.[0]?.processRate) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                        {/* Job Work Rate (₹/activeUnit) */}
+                                                                        <div className="sm:col-span-4 lg:col-span-4">
+                                                                            <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                                                <span>Job Work Rate</span>
+                                                                                <span className="text-[9px] text-slate-400 font-mono">₹/{activeUnit}</span>
+                                                                            </label>
+                                                                            <input
+                                                                                type="number"
+                                                                                min="0"
+                                                                                step="any"
+                                                                                value={(sentItem.returningItems?.[0]?.processRate !== undefined) ? sentItem.returningItems[0].processRate : ''}
+                                                                                onChange={(e) => handleReturningItemChange(itemIdx, 0, 'processRate', e.target.value)}
+                                                                                placeholder="0.00"
+                                                                                className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-right bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                                            />
+                                                                        </div>
+
+                                                                        {/* Job Work Amount Subtotal */}
+                                                                        <div className="sm:col-span-4 lg:col-span-4 flex flex-col justify-center">
+                                                                            <label className="block text-[9px] font-semibold text-slate-400 uppercase tracking-tight mb-1 text-right">
+                                                                                JW Amount
+                                                                            </label>
+                                                                            <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400">
+                                                                                ₹{((Number(activeQty) || 0) * (Number(sentItem.returningItems?.[0]?.processRate) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                            </div>
+                                                                        </div>
                                                                     </div>
-                                                                </div>
-                                                            </div>
+                                                                );
+                                                            })()}
                                                         </div>
                                                     ) : (
                                                         /* Returning Item Sub-Rows when Toggle is OFF */
@@ -3134,7 +3611,9 @@ export default function JobWorkForm({
                                                                     <div className="sm:col-span-2 lg:col-span-2">
                                                                         <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
                                                                             <span>JW Rate</span>
-                                                                            <span className="text-[9px] text-slate-400 font-mono">₹/{retItem.selectedUnit || retItem.receivingUnit || 'unit'}</span>
+                                                                            <span className="text-[9px] text-slate-400 font-mono">
+                                                                                ₹/{retItem.hasSecondaryUnit && retItem.selectedUnit === retItem.secondaryUnit ? retItem.secondaryUnit : (retItem.receivingUnit || 'unit')}
+                                                                            </span>
                                                                         </label>
                                                                         <input
                                                                             type="number"
@@ -3153,7 +3632,10 @@ export default function JobWorkForm({
                                                                             JW Amount
                                                                         </label>
                                                                         <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400 truncate">
-                                                                            ₹{((Number(retItem.quantityToBeReceived) || 0) * (Number(retItem.processRate) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                            ₹{(retItem.processAmount !== undefined 
+                                                                                ? Number(retItem.processAmount) 
+                                                                                : (((retItem.hasSecondaryUnit && retItem.selectedUnit === retItem.secondaryUnit ? Number(retItem.secondaryQuantityToBeReceived) : Number(retItem.quantityToBeReceived)) || 0) * (Number(retItem.processRate) || 0))
+                                                                            ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                                         </div>
                                                                     </div>
 
@@ -3249,6 +3731,70 @@ export default function JobWorkForm({
                                     ₹{(Number(formData.totalJobWorkCharges) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </div>
                             </div>
+                        </div>
+                    </div>
+
+                    {/* Section 4: Important Notes & Delivery Challan Remarks (Serial-Wise) */}
+                    <div className="bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-700/60 space-y-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
+                            <div className="flex items-center gap-2">
+                                <FileText size={15} className="text-indigo-600 dark:text-indigo-400" />
+                                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                    Important Notes & Delivery Challan Remarks
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                    (Prints serial-wise at end of Returnable DC PDF)
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={resetDefaultNotes}
+                                    className="text-[10px] font-semibold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300 underline cursor-pointer"
+                                    title="Restore standard demo remarks"
+                                >
+                                    Reset to Demo Notes
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={addNoteRow}
+                                    className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                >
+                                    <Plus size={12} />
+                                    <span>Add Note</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            {(formData.notes && formData.notes.length > 0) ? (
+                                formData.notes.map((note, idx) => (
+                                    <div key={idx} className="flex items-center gap-2">
+                                        <div className="w-7 h-8 flex items-center justify-center font-mono font-bold text-xs bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 rounded-lg border border-slate-200 dark:border-slate-700 shrink-0 shadow-2xs">
+                                            {idx + 1}.
+                                        </div>
+                                        <input
+                                            type="text"
+                                            value={note}
+                                            onChange={(e) => handleNoteChange(idx, e.target.value)}
+                                            placeholder={`Important note / condition #${idx + 1}...`}
+                                            className="flex-1 h-8 px-3 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-slate-800 dark:text-slate-200 font-medium"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => removeNoteRow(idx)}
+                                            className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                            title="Delete note"
+                                        >
+                                            <Trash2 size={13} />
+                                        </button>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center py-2 text-xs text-slate-400 italic">
+                                    No custom notes added. Click "+ Add Note" or "Reset to Demo Notes".
+                                </div>
+                            )}
                         </div>
                     </div>
 

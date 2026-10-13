@@ -74,14 +74,26 @@ export const purchaseBillSchema = new mongoose.Schema(
     },
     billType: {
       type: String,
-      enum: ["material", "job-work-service"],
+      enum: ["material", "job-work-service", "other-service"],
       default: "material",
+      index: true,
+    },
+    serviceCategory: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    sacCode: {
+      type: String,
+      default: "",
+      trim: true,
     },
     jobWorkChallan: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "JobWorkChallan",
     },
     jobWorkChallanNumber: String,
+    jobWorkGrnNumber: String,
 
     // Line items with description per AGENTS.md standard
     items: [
@@ -89,8 +101,10 @@ export const purchaseBillSchema = new mongoose.Schema(
         material: { type: mongoose.Schema.Types.ObjectId, ref: "RawMaterial" },
         consumable: { type: mongoose.Schema.Types.ObjectId, ref: "Consumable" },
         materialName: { type: String, required: true },
+        serviceName: { type: String, default: "" },
         description: { type: String, default: "" }, // Technical description per AGENTS.md
         hsnCode: { type: String, default: "" },
+        sacCode: { type: String, default: "" },
         quantity: { type: Number, required: true, default: 0, min: 0 },
         unit: { type: String, default: "PCS" },
         secondaryQuantity: { type: Number, default: 0 },
@@ -177,6 +191,32 @@ export const purchaseBillSchema = new mongoose.Schema(
       default: "nearest",
     },
     grandTotal: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // TDS (Tax Deducted at Source) & Net Payable
+    tdsApplicable: {
+      type: Boolean,
+      default: false,
+    },
+    tdsSection: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    tdsRate: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    tdsAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    netPayableAmount: {
       type: Number,
       default: 0,
       min: 0,

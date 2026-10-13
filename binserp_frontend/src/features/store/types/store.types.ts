@@ -535,6 +535,7 @@ export interface JobWorkReturningItem {
     quantityToBeReceived: number;
     quantityReceived?: number;
     receivingUnit: string;
+    unit?: string;
     hasSecondaryUnit?: boolean;
     secondaryUnit?: string;
     conversionFactor?: number;
@@ -651,6 +652,9 @@ export interface JobWorkChallan {
     };
     status: 'Open' | 'Partial' | 'Closed' | 'Overdue';
     totalJobWorkCharges?: number;
+    notes?: string[];
+    terms?: string[];
+    remarks?: string;
     items: JobWorkItem[];
     receiveHistory?: Array<{
         _id?: string;
@@ -668,7 +672,21 @@ export interface JobWorkChallan {
         acceptedQuantity?: number;
         rejectedQuantity?: number;
         reworkQuantity?: number;
-        qcStatus?: string;
+        returnDocType?: 'dc' | 'invoice' | 'both';
+        customerDcNumber?: string;
+        invoiceNumber?: string;
+        invoiceDate?: string;
+        pdfDocument?: {
+            url: string;
+            filename: string;
+            fileType?: string;
+            sizeKb?: number;
+        };
+        documents?: Array<{
+            url: string;
+            filename: string;
+            fileType?: string;
+        }>;
         remarks?: string;
     }>;
     createdAt: string;
@@ -706,6 +724,7 @@ export interface JobWorkFormData {
         itemType: 'rm' | 'bo' | 'fg' | 'inhouse';
         processType: string;
         purpose?: string;
+        customProcess?: string;
         processRate?: number;
         processAmount?: number;
         quantitySent: number;
@@ -728,6 +747,9 @@ export interface JobWorkFormData {
         receivingUnit?: string;
         itemToBeReceived?: string;
     }[];
+    notes?: string[];
+    terms?: string[];
+    remarks?: string;
 }
 
 // Props interfaces for components

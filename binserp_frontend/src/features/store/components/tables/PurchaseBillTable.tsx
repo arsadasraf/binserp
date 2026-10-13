@@ -19,7 +19,9 @@ import { PurchaseBill, PurchaseBillMetrics } from '@/src/features/purchase/types
 import SearchableSelect from '../SearchableSelect';
 import RecordPaymentModal from '../modals/RecordPaymentModal';
 import PurchaseBillDetailModal from '../modals/PurchaseBillDetailModal';
+import CreateServiceBillModal from '../modals/CreateServiceBillModal';
 import { API_BASE_URL } from '@/src/utils/config';
+import { Plus, Briefcase, Wrench } from 'lucide-react';
 
 interface PurchaseBillTableProps {
   bills: PurchaseBill[];
@@ -27,6 +29,8 @@ interface PurchaseBillTableProps {
   loading: boolean;
   onRefresh: () => void;
   vendors?: any[];
+  selectedBillType?: string;
+  onBillTypeChange?: (type: string) => void;
   startDate: string;
   endDate: string;
   onDateChange: (start: string, end: string) => void;
@@ -46,6 +50,8 @@ export default function PurchaseBillTable({
   loading,
   onRefresh,
   vendors = [],
+  selectedBillType = 'material',
+  onBillTypeChange,
   startDate,
   endDate,
   onDateChange,
@@ -60,6 +66,7 @@ export default function PurchaseBillTable({
 }: PurchaseBillTableProps) {
   const [selectedBillForPayment, setSelectedBillForPayment] = useState<PurchaseBill | null>(null);
   const [selectedBillForDetail, setSelectedBillForDetail] = useState<PurchaseBill | null>(null);
+  const [isCreateServiceBillOpen, setIsCreateServiceBillOpen] = useState<boolean>(false);
   const [syncing, setSyncing] = useState<boolean>(false);
   const [syncMessage, setSyncMessage] = useState<string>("");
   
@@ -312,6 +319,61 @@ export default function PurchaseBillTable({
         </div>
       )}
 
+      {/* Segmented Filter Navigation: Material GRNs (Default), Job Work, Other Services, All Bills */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 custom-scrollbar">
+        <button
+          type="button"
+          onClick={() => onBillTypeChange?.('material')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+            selectedBillType === 'material'
+              ? 'bg-indigo-600 text-white shadow-2xs'
+              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Package size={13} />
+          <span>📦 Material GRNs (Default)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onBillTypeChange?.('job-work-service')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+            selectedBillType === 'job-work-service'
+              ? 'bg-emerald-600 text-white shadow-2xs'
+              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Wrench size={13} />
+          <span>⚙️ Job Work Invoices</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onBillTypeChange?.('other-service')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+            selectedBillType === 'other-service'
+              ? 'bg-amber-600 text-white shadow-2xs'
+              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Briefcase size={13} />
+          <span>🛠️ Other Service Bills</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onBillTypeChange?.('all')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+            selectedBillType === 'all'
+              ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900 shadow-2xs'
+              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Layers size={13} />
+          <span>📑 All Bills</span>
+        </button>
+      </div>
+
       {/* Unified Single-Line Control & Filter Toolbar */}
       <div className="bg-white dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex flex-wrap lg:flex-nowrap items-center gap-2 text-xs">
         {/* 1. Global Search Box */}
@@ -501,6 +563,17 @@ export default function PurchaseBillTable({
             )}
           </button>
 
+          {/* Add Service Bill Button */}
+          <button
+            type="button"
+            onClick={() => setIsCreateServiceBillOpen(true)}
+            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs hover:shadow-md transition-all cursor-pointer shrink-0"
+            title="Record Returnable Job Work Invoice or Other Service Bill"
+          >
+            <Plus size={14} />
+            <span>+ Add Service Bill</span>
+          </button>
+
           {/* Sync from GRNs Button */}
           <button
             type="button"
@@ -535,7 +608,7 @@ export default function PurchaseBillTable({
                 <th className="py-3 px-3 w-10 text-center">#</th>
                 <th className="py-3 px-3 min-w-[140px]">Bill # & Date</th>
                 <th className="py-3 px-3 min-w-[180px]">Supplier / Vendor</th>
-                <th className="py-3 px-2.5 w-24 text-center">Category</th>
+                <th className="py-3 px-2.5 min-w-[110px] text-center">Type & Category</th>
                 <th className="py-3 px-3 min-w-[220px]">Item Name & Description</th>
                 <th className="py-3 px-3 w-32 text-right">Bill Amount (₹)</th>
                 <th className="py-3 px-3 w-32 text-center">Terms & Due Date</th>
@@ -610,11 +683,37 @@ export default function PurchaseBillTable({
                         )}
                       </td>
 
-                      {/* Category */}
+                      {/* Type & Category */}
                       <td className="py-3 px-2.5 text-center">
-                        <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                          {bill.grnCategory?.toUpperCase() || 'RM'}
-                        </span>
+                        {bill.billType === 'job-work-service' ? (
+                          <div>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                              ⚙️ Job Work DC
+                            </span>
+                            {bill.jobWorkChallanNumber && (
+                              <div className="font-mono text-[9px] text-slate-500 mt-0.5 truncate max-w-[100px] mx-auto">
+                                {bill.jobWorkChallanNumber}
+                              </div>
+                            )}
+                          </div>
+                        ) : bill.billType === 'other-service' ? (
+                          <div>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                              🛠️ Service Bill
+                            </span>
+                            {bill.serviceCategory && (
+                              <div className="text-[9px] text-slate-500 mt-0.5 truncate max-w-[100px] mx-auto">
+                                {bill.serviceCategory}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div>
+                            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                              📦 {bill.grnCategory?.toUpperCase() || 'RM'}
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Item Name & Technical Description per AGENTS.md */}
@@ -622,11 +721,16 @@ export default function PurchaseBillTable({
                         {firstItem ? (
                           <div>
                             <div className="font-bold text-slate-800 dark:text-slate-100">
-                              {firstItem.materialName || 'Item'}
+                              {firstItem.serviceName || firstItem.materialName || 'Service / Item'}
                             </div>
                             {firstItem.description && (
                               <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
                                 📝 {firstItem.description}
+                              </div>
+                            )}
+                            {firstItem.sacCode && (
+                              <div className="text-[9.5px] font-mono text-slate-400 mt-0.5">
+                                SAC: {firstItem.sacCode}
                               </div>
                             )}
                             {itemsCount > 1 && (
@@ -645,6 +749,16 @@ export default function PurchaseBillTable({
                         <div className="font-mono font-black text-slate-900 dark:text-slate-100 text-xs">
                           ₹{Number(bill.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
+                        {bill.tdsApplicable && Number(bill.tdsAmount || 0) > 0 && (
+                          <div className="text-[9.5px] text-rose-500 font-semibold mt-0.5" title={`TDS deducted under ${bill.tdsSection || '194C'}`}>
+                            TDS: -₹{Number(bill.tdsAmount).toFixed(2)}
+                          </div>
+                        )}
+                        {bill.netPayableAmount !== undefined && Number(bill.netPayableAmount) > 0 && bill.netPayableAmount !== bill.grandTotal && (
+                          <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold font-mono">
+                            Net: ₹{Number(bill.netPayableAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                        )}
                         {(Number(bill.transportationCharges || 0) > 0 || Number(bill.packingCharges || 0) > 0) && (
                           <div className="text-[9.5px] text-slate-400 mt-0.5" title="Additional charges included">
                             Incl. 🚚₹{bill.transportationCharges || 0} 📦₹{bill.packingCharges || 0}
@@ -758,6 +872,19 @@ export default function PurchaseBillTable({
             setSelectedBillForPayment(selectedBillForDetail);
             setSelectedBillForDetail(null);
           }}
+        />
+      )}
+
+      {/* Create Service Bill Modal */}
+      {isCreateServiceBillOpen && (
+        <CreateServiceBillModal
+          isOpen={isCreateServiceBillOpen}
+          onClose={() => setIsCreateServiceBillOpen(false)}
+          onSuccess={() => {
+            setIsCreateServiceBillOpen(false);
+            onRefresh();
+          }}
+          vendors={vendors}
         />
       )}
     </div>

@@ -24,8 +24,13 @@ export const receiveJobWorkItems = async (req, res) => {
     let { 
       items: receivedItems,
       grnNumber: customGrnNumber,
+      returnDocType = "dc",
+      customerDcNumber,
       vendorDcNumber,
       vendorInvoiceDate,
+      invoiceNumber,
+      invoiceDate,
+      pdfDocument,
       vehicleNo,
       qcRequired = true,
       qcStatus,
@@ -78,6 +83,7 @@ export const receiveJobWorkItems = async (req, res) => {
       let targetItemDoc = null;
       let targetItemType = "fg";
       let matchedItemRate = 0;
+      let matchedItemUnit = "PCS";
 
       // 1. Locate returning item and update inward counters on Challan
       if (jobWork.operationMode === "assembly") {
@@ -94,16 +100,34 @@ export const receiveJobWorkItems = async (req, res) => {
         }
 
         if (matchedGrp && matchedGrp.assemblyOutputItem) {
-          matchedItemName = matchedGrp.assemblyOutputItem.itemName || matchedItemName;
-          targetItemDoc = matchedGrp.assemblyOutputItem.item;
-          targetItemType = (matchedGrp.assemblyOutputItem.itemType || "fg").toLowerCase();
-          matchedItemRate = Number(matchedGrp.assemblyOutputItem.processRate) || 0;
+          const out = matchedGrp.assemblyOutputItem;
+          matchedItemName = out.itemName || matchedItemName;
+          targetItemDoc = out.item;
+          targetItemType = (out.itemType || "fg").toLowerCase();
+          matchedItemRate = Number(out.processRate) || 0;
+          const isOutSec = Boolean(out.hasSecondaryUnit && out.secondaryUnit && out.selectedUnit === out.secondaryUnit);
+          matchedItemUnit = isOutSec ? out.secondaryUnit : (out.receivingUnit || "PCS");
 
-          matchedGrp.assemblyOutputItem.quantityReceived = (matchedGrp.assemblyOutputItem.quantityReceived || 0) + qtyNum;
-          if (matchedGrp.assemblyOutputItem.quantityReceived >= matchedGrp.assemblyOutputItem.quantityToBeReceived) {
-            matchedGrp.assemblyOutputItem.status = "Completed";
+          if (isOutSec) {
+            out.secondaryQuantityReceived = (out.secondaryQuantityReceived || 0) + qtyNum;
+            const factor = Number(out.conversionFactor) || 1;
+            out.quantityReceived = (out.quantityReceived || 0) + (qtyNum / factor);
+            const targetSec = Number(out.secondaryQuantityToBeReceived) || (Number(out.quantityToBeReceived || 0) * factor);
+            if (out.secondaryQuantityReceived >= targetSec) {
+              out.status = "Completed";
+            } else {
+              out.status = "Partial";
+            }
           } else {
-            matchedGrp.assemblyOutputItem.status = "Partial";
+            out.quantityReceived = (out.quantityReceived || 0) + qtyNum;
+            if (out.hasSecondaryUnit && out.secondaryUnit) {
+              out.secondaryQuantityReceived = (out.secondaryQuantityReceived || 0) + (qtyNum * (Number(out.conversionFactor) || 1));
+            }
+            if (out.quantityReceived >= (out.quantityToBeReceived || 0)) {
+              out.status = "Completed";
+            } else {
+              out.status = "Partial";
+            }
           }
 
           const isGrpComplete = matchedGrp.assemblyOutputItem.status === "Completed";
@@ -124,19 +148,38 @@ export const receiveJobWorkItems = async (req, res) => {
           // Sync first group with legacy assemblyOutputItem if present
           if (jobWork.assemblyOutputItem && String(jobWork.assemblyGroups[0]?._id) === String(matchedGrp._id)) {
             jobWork.assemblyOutputItem.quantityReceived = matchedGrp.assemblyOutputItem.quantityReceived;
+            jobWork.assemblyOutputItem.secondaryQuantityReceived = matchedGrp.assemblyOutputItem.secondaryQuantityReceived;
             jobWork.assemblyOutputItem.status = matchedGrp.assemblyOutputItem.status;
           }
         } else if (jobWork.assemblyOutputItem) {
-          matchedItemName = jobWork.assemblyOutputItem.itemName || matchedItemName;
-          targetItemDoc = jobWork.assemblyOutputItem.item;
-          targetItemType = (jobWork.assemblyOutputItem.itemType || "fg").toLowerCase();
-          matchedItemRate = Number(jobWork.assemblyOutputItem.processRate) || 0;
+          const out = jobWork.assemblyOutputItem;
+          matchedItemName = out.itemName || matchedItemName;
+          targetItemDoc = out.item;
+          targetItemType = (out.itemType || "fg").toLowerCase();
+          matchedItemRate = Number(out.processRate) || 0;
+          const isOutSec = Boolean(out.hasSecondaryUnit && out.secondaryUnit && out.selectedUnit === out.secondaryUnit);
+          matchedItemUnit = isOutSec ? out.secondaryUnit : (out.receivingUnit || "PCS");
 
-          jobWork.assemblyOutputItem.quantityReceived = (jobWork.assemblyOutputItem.quantityReceived || 0) + qtyNum;
-          if (jobWork.assemblyOutputItem.quantityReceived >= jobWork.assemblyOutputItem.quantityToBeReceived) {
-            jobWork.assemblyOutputItem.status = "Completed";
+          if (isOutSec) {
+            out.secondaryQuantityReceived = (out.secondaryQuantityReceived || 0) + qtyNum;
+            const factor = Number(out.conversionFactor) || 1;
+            out.quantityReceived = (out.quantityReceived || 0) + (qtyNum / factor);
+            const targetSec = Number(out.secondaryQuantityToBeReceived) || (Number(out.quantityToBeReceived || 0) * factor);
+            if (out.secondaryQuantityReceived >= targetSec) {
+              out.status = "Completed";
+            } else {
+              out.status = "Partial";
+            }
           } else {
-            jobWork.assemblyOutputItem.status = "Partial";
+            out.quantityReceived = (out.quantityReceived || 0) + qtyNum;
+            if (out.hasSecondaryUnit && out.secondaryUnit) {
+              out.secondaryQuantityReceived = (out.secondaryQuantityReceived || 0) + (qtyNum * (Number(out.conversionFactor) || 1));
+            }
+            if (out.quantityReceived >= (out.quantityToBeReceived || 0)) {
+              out.status = "Completed";
+            } else {
+              out.status = "Partial";
+            }
           }
 
           // Also advance sent items status in proportion or mark completed if output is completed
@@ -165,18 +208,36 @@ export const receiveJobWorkItems = async (req, res) => {
               targetItemDoc = retDoc.receivedItem;
               targetItemType = (retDoc.receivedItemType || "fg").toLowerCase();
               matchedItemRate = Number(retDoc.processRate != null ? retDoc.processRate : (jwItem.processRate || 0)) || 0;
+              const isRetSec = Boolean(retDoc.hasSecondaryUnit && retDoc.secondaryUnit && retDoc.selectedUnit === retDoc.secondaryUnit);
+              matchedItemUnit = isRetSec ? retDoc.secondaryUnit : (retDoc.receivingUnit || jwItem.unit || "PCS");
 
-              retDoc.quantityReceived = (retDoc.quantityReceived || 0) + qtyNum;
-              if (retDoc.quantityReceived >= retDoc.quantityToBeReceived) {
-                retDoc.status = "Completed";
+              if (isRetSec) {
+                retDoc.secondaryQuantityReceived = (retDoc.secondaryQuantityReceived || 0) + qtyNum;
+                const factor = Number(retDoc.conversionFactor) || 1;
+                retDoc.quantityReceived = (retDoc.quantityReceived || 0) + (qtyNum / factor);
+                const targetSec = Number(retDoc.secondaryQuantityToBeReceived) || (Number(retDoc.quantityToBeReceived != null ? retDoc.quantityToBeReceived : jwItem.quantitySent) * factor);
+                if (retDoc.secondaryQuantityReceived >= targetSec) {
+                  retDoc.status = "Completed";
+                } else {
+                  retDoc.status = "Partial";
+                }
               } else {
-                retDoc.status = "Partial";
+                retDoc.quantityReceived = (retDoc.quantityReceived || 0) + qtyNum;
+                if (retDoc.hasSecondaryUnit && retDoc.secondaryUnit) {
+                  retDoc.secondaryQuantityReceived = (retDoc.secondaryQuantityReceived || 0) + (qtyNum * (Number(retDoc.conversionFactor) || 1));
+                }
+                const targetQty = Number(retDoc.quantityToBeReceived != null ? retDoc.quantityToBeReceived : jwItem.quantitySent) || 0;
+                if (retDoc.quantityReceived >= targetQty) {
+                  retDoc.status = "Completed";
+                } else {
+                  retDoc.status = "Partial";
+                }
               }
 
               const allRetCompleted = jwItem.returningItems.every(
                 r => r.status === "Completed" || (r.quantityReceived || 0) >= r.quantityToBeReceived
               );
-              jwItem.quantityReceived = (jwItem.quantityReceived || 0) + qtyNum;
+              jwItem.quantityReceived = (jwItem.quantityReceived || 0) + (isRetSec ? (qtyNum / (Number(retDoc.conversionFactor) || 1)) : qtyNum);
               jwItem.status = allRetCompleted ? "Completed" : "Partial";
               break;
             }
@@ -187,6 +248,7 @@ export const receiveJobWorkItems = async (req, res) => {
             targetItemDoc = jwItem.receivedItem || jwItem.item;
             targetItemType = (jwItem.receivedItemType || jwItem.itemType || "fg").toLowerCase();
             matchedItemRate = Number(jwItem.processRate) || 0;
+            matchedItemUnit = jwItem.receivingUnit || jwItem.unit || "PCS";
 
             jwItem.quantityReceived = (jwItem.quantityReceived || 0) + qtyNum;
             const targetQty = jwItem.quantityToBeReceived || jwItem.quantitySent;
@@ -290,7 +352,7 @@ export const receiveJobWorkItems = async (req, res) => {
             itemType: (targetItemType === "rm" || targetItemType === "rawmaterial") ? "RawMaterial" : (targetItemType === "bo" || targetItemType === "boughtout" ? "BoughtOut" : (targetItemType === "fg" ? "FGItem" : "Component")),
             item: targetItemDoc || jobWork._id,
             itemName: matchedItemName,
-            unit: "Nos",
+            unit: matchedItemUnit || "PCS",
             movementType: "INWARD",
             transactionCategory: "JOB_WORK_WIP_RETURN",
             quantity: directAcceptedQty,
@@ -364,12 +426,37 @@ export const receiveJobWorkItems = async (req, res) => {
 
       // 3. Record Inward Entry in receiveHistory
       if (!jobWork.receiveHistory) jobWork.receiveHistory = [];
+
+      const effectiveDcNumber = customerDcNumber || vendorDcNumber || "";
+      const effectiveDcDate = vendorInvoiceDate ? new Date(vendorInvoiceDate) : undefined;
+      const effectiveInvDate = invoiceDate ? new Date(invoiceDate) : undefined;
+
+      const formattedPdf = (pdfDocument && pdfDocument.url) ? {
+        url: pdfDocument.url,
+        filename: pdfDocument.filename || "return_document.pdf",
+        fileType: pdfDocument.fileType || "application/pdf",
+        sizeKb: Number(pdfDocument.sizeKb) || 0
+      } : undefined;
+
+      let mergedDocs = Array.isArray(documents) ? [...documents] : [];
+      if (formattedPdf && !mergedDocs.some(d => d.url === formattedPdf.url)) {
+        mergedDocs.unshift({
+          url: formattedPdf.url,
+          filename: formattedPdf.filename,
+          fileType: formattedPdf.fileType
+        });
+      }
       
       jobWork.receiveHistory.push({
         date: now,
         grnNumber: generatedGrnNumber,
-        vendorDcNumber: vendorDcNumber || "",
-        vendorInvoiceDate: vendorInvoiceDate ? new Date(vendorInvoiceDate) : undefined,
+        returnDocType: returnDocType || "dc",
+        customerDcNumber: effectiveDcNumber,
+        vendorDcNumber: effectiveDcNumber,
+        vendorInvoiceDate: effectiveDcDate,
+        invoiceNumber: invoiceNumber || "",
+        invoiceDate: effectiveInvDate,
+        pdfDocument: formattedPdf,
         vehicleNo: vehicleNo || "",
         itemId: itemId,
         returningItemId: returningItemId || undefined,
@@ -385,7 +472,7 @@ export const receiveJobWorkItems = async (req, res) => {
         qcRequired: qcRequired,
         qcStatus: qcRequired ? "Pending" : "Skipped",
         batchNumber: batchNumber || "",
-        documents: documents || [],
+        documents: mergedDocs,
         photos: (req.body.photos && Array.isArray(req.body.photos)) ? req.body.photos : [],
         remarks: remarks || "",
         receivedBy: req.user?.id || req.user?._id

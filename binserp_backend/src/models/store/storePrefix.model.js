@@ -38,6 +38,7 @@ export const storePrefixSchema = new mongoose.Schema(
             invoice: { type: Number, default: 24 },
             purchasePo: { type: Number, default: 24 },
             jobWorkChallan: { type: Number, default: 24 },
+            jobWorkReturn: { type: Number, default: 1 },
             rfqQuotation: { type: Number, default: 24 },
             mrbDisposition: { type: Number, default: 24 },
             mrpPlan: { type: Number, default: 24 },

@@ -80,12 +80,25 @@ export default function PurchaseBillDetailModal({
                 }`}>
                   {bill.paymentStatus}
                 </span>
-                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                  {bill.grnCategory?.toUpperCase() || 'RM'}
-                </span>
+                {bill.billType === 'job-work-service' ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                    ⚙️ JOB WORK DC {bill.jobWorkChallanNumber ? `(${bill.jobWorkChallanNumber})` : ''}
+                  </span>
+                ) : bill.billType === 'other-service' ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                    🛠️ {bill.serviceCategory || 'SERVICE BILL'}
+                  </span>
+                ) : (
+                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                    📦 {bill.grnCategory?.toUpperCase() || 'RM'}
+                  </span>
+                )}
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Date: {new Date(bill.date).toLocaleDateString()} • GRN: <strong className="font-mono text-slate-700 dark:text-slate-200">{bill.grnNumber || 'N/A'}</strong>
+                Date: {new Date(bill.date).toLocaleDateString()} 
+                {bill.grnNumber && <span> • GRN: <strong className="font-mono text-slate-700 dark:text-slate-200">{bill.grnNumber}</strong></span>}
+                {bill.jobWorkGrnNumber && <span> • Inward GRN: <strong className="font-mono text-slate-700 dark:text-slate-200">{bill.jobWorkGrnNumber}</strong></span>}
+                {bill.jobWorkChallanNumber && <span> • DC: <strong className="font-mono text-slate-700 dark:text-slate-200">{bill.jobWorkChallanNumber}</strong></span>}
                 {bill.poNumber && <span> • PO: <span className="font-mono text-slate-700 dark:text-slate-200">{bill.poNumber}</span></span>}
               </div>
             </div>
@@ -188,7 +201,7 @@ export default function PurchaseBillDetailModal({
                         <td className="py-2.5 px-3 text-center text-slate-400 font-bold">{idx + 1}</td>
                         <td className="py-2.5 px-3">
                           <div className="font-bold text-slate-800 dark:text-slate-100">
-                            {item.materialName || 'Item'}
+                            {item.serviceName || item.materialName || 'Service / Item'}
                           </div>
                           {item.description && (
                             <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
@@ -197,7 +210,7 @@ export default function PurchaseBillDetailModal({
                           )}
                         </td>
                         <td className="py-2.5 px-2.5 text-center font-mono text-slate-600 dark:text-slate-300">
-                          {item.hsnCode || '-'}
+                          {item.sacCode || item.hsnCode || '-'}
                         </td>
                         <td className="py-2.5 px-3 text-center font-semibold text-slate-800 dark:text-slate-200">
                           {activeQty} {activeUnit}
@@ -305,6 +318,24 @@ export default function PurchaseBillDetailModal({
                   ₹{Number(bill.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
+
+              {bill.tdsApplicable && Number(bill.tdsAmount || 0) > 0 && (
+                <div className="flex justify-between items-center text-rose-600 dark:text-rose-400 font-semibold pt-1">
+                  <span>Less TDS ({bill.tdsRate || 0}% under {bill.tdsSection || '194C'}):</span>
+                  <span>
+                    - ₹{Number(bill.tdsAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+
+              {bill.netPayableAmount !== undefined && Number(bill.netPayableAmount) > 0 && bill.netPayableAmount !== bill.grandTotal && (
+                <div className="flex justify-between items-center border-t border-slate-200 dark:border-slate-700 pt-1.5 text-indigo-700 dark:text-indigo-400 font-black">
+                  <span>Net Payable Amount:</span>
+                  <span className="text-sm font-mono">
+                    ₹{Number(bill.netPayableAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

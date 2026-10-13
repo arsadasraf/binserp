@@ -77,8 +77,10 @@ export interface PrintDocumentData {
     vendors?: any[];
 }
 
-export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
-    const { doc, vendors = [] } = data;
+export const generateFrontendReturnableDCPDF = (data: any) => {
+    const rawData = Array.isArray(data) ? (data[0] || {}) : (data || {});
+    const doc = rawData.doc || rawData;
+    const vendors = rawData.vendors || [];
 
     if (!doc) {
         alert("No document data provided for PDF generation");
@@ -130,17 +132,18 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
         let compRows = '';
         if (items.length > 0) {
             items.forEach((item: any, idx: number) => {
-                const sentQty = Number(item.quantitySent || 0);
+                const isSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit && item.selectedUnit === item.secondaryUnit);
+                const sentQty = isSec 
+                    ? (Number(item.secondaryQuantitySent) || (Number(item.quantitySent || 0) * Number(item.conversionFactor || 1))) 
+                    : Number(item.quantitySent || 0);
+                const sentUnit = isSec ? item.secondaryUnit : (item.unit || 'PCS');
                 totalSentQty += sentQty;
-                const matVal = Number(item.unitPrice != null ? item.unitPrice : item.processRate) || 0;
-                const lineVal = sentQty * matVal;
-                totalProcessValue += lineVal;
 
-                let sentSecStr = '';
-                if (item.hasSecondaryUnit && item.secondaryUnit && (item.secondaryQuantitySent || item.conversionFactor)) {
-                    const secSent = item.secondaryQuantitySent || (sentQty * Number(item.conversionFactor || 1));
-                    sentSecStr = `<div style="font-size: 8px; color: #64748b; margin-top: 1px;">↳ ${secSent} ${item.secondaryUnit}</div>`;
-                }
+                const matVal = Number(item.unitPrice != null ? item.unitPrice : item.processRate) || 0;
+                const lineVal = item.processAmount != null && Number(item.processAmount) > 0
+                    ? Number(item.processAmount)
+                    : (sentQty * matVal);
+                totalProcessValue += lineVal;
 
                 compRows += `
                     <tr>
@@ -150,8 +153,7 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                             ${item.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal; font-style: italic; margin-top: 2px;">${item.description}</div>` : ''}
                         </td>
                         <td style="text-align: center; font-weight: bold; padding: 5px 4px;">
-                            ${sentQty} ${item.unit || 'PCS'}
-                            ${sentSecStr}
+                            ${sentQty} ${sentUnit}
                         </td>
                         <td style="text-align: left; padding: 5px 6px;"><b>${item.processType || (doc.purpose === 'Others' && doc.otherPurpose ? doc.otherPurpose : doc.purpose) || 'Job Work'}</b></td>
                         <td style="text-align: center; font-family: monospace; font-weight: bold; padding: 5px 4px;">${matVal > 0 ? '₹' + matVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
@@ -167,7 +169,12 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
             compRows = `<tr><td colspan="6" style="text-align: center; padding: 30px;">No components listed</td></tr>`;
         }
 
-        totalExpectedQty = Number(assemblyOutput?.quantityToBeReceived || 0);
+        const isOutSec = Boolean(assemblyOutput?.hasSecondaryUnit && assemblyOutput?.secondaryUnit && assemblyOutput?.selectedUnit === assemblyOutput?.secondaryUnit);
+        totalExpectedQty = isOutSec 
+            ? Number(assemblyOutput?.secondaryQuantityToBeReceived || (Number(assemblyOutput?.quantityToBeReceived || 0) * Number(assemblyOutput?.conversionFactor || 1))) 
+            : Number(assemblyOutput?.quantityToBeReceived || 0);
+        const outUnit = isOutSec ? assemblyOutput?.secondaryUnit : (assemblyOutput?.receivingUnit || 'PCS');
+
         const asmbRate = Number(assemblyOutput?.processRate) || 0;
         const asmbAmt = (assemblyOutput?.processAmount != null && Number(assemblyOutput.processAmount) > 0)
             ? Number(assemblyOutput.processAmount)
@@ -219,11 +226,8 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                         <td style="width: 25%; vertical-align: top; text-align: center;">
                             <div style="font-size: 9px; color: #64748b; font-weight: bold; text-transform: uppercase;">Expected Return Qty:</div>
                             <div style="font-weight: 900; font-size: 15px; color: #1e3a8a; margin-top: 2px;">
-                                ${assemblyOutput?.quantityToBeReceived || 0} ${assemblyOutput?.receivingUnit || 'PCS'}
+                                ${totalExpectedQty} ${outUnit}
                             </div>
-                            ${assemblyOutput?.hasSecondaryUnit && assemblyOutput?.secondaryUnit ? `
-                                <div style="font-size: 8px; color: #64748b; margin-top: 2px;">↳ ${assemblyOutput.secondaryQuantityToBeReceived || (Number(assemblyOutput.quantityToBeReceived) * Number(assemblyOutput.conversionFactor || 1))} ${assemblyOutput.secondaryUnit}</div>
-                            ` : ''}
                             <div style="font-size: 9px; color: #475569; margin-top: 3px;">
                                 Stock Receipt: <b style="color: #0f172a;">Shopfloor WIP FG</b>
                             </div>
@@ -247,8 +251,13 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
 
         if (items.length > 0) {
             items.forEach((item: any, idx: number) => {
-                const sentQty = Number(item.quantitySent || 0);
+                const isItemSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit && item.selectedUnit === item.secondaryUnit);
+                const sentQty = isItemSec
+                    ? (Number(item.secondaryQuantitySent) || (Number(item.quantitySent || 0) * Number(item.conversionFactor || 1)))
+                    : Number(item.quantitySent || 0);
+                const sentUnit = isItemSec ? item.secondaryUnit : (item.unit || 'PCS');
                 totalSentQty += sentQty;
+
                 const matVal = Number(item.unitPrice || 0);
                 totalProcessValue += (sentQty * matVal);
 
@@ -262,6 +271,7 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                         secondaryUnit: item.secondaryUnit,
                         conversionFactor: item.conversionFactor,
                         secondaryQuantityToBeReceived: item.secondaryQuantityToBeReceived,
+                        selectedUnit: item.selectedUnit,
                         processRate: item.processRate,
                         processAmount: item.processAmount,
                         description: item.description
@@ -269,7 +279,11 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
 
                 retList.forEach((ret: any, rIdx: number) => {
                     rowIdx++;
-                    const expQty = Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : (retList.length === 1 ? (item.quantityToBeReceived || item.quantitySent) : 0)) || 0;
+                    const isRetSec = Boolean(ret.hasSecondaryUnit && ret.secondaryUnit && (ret.selectedUnit === ret.secondaryUnit || (!ret.selectedUnit && item.selectedUnit === item.secondaryUnit)));
+                    const expQty = isRetSec
+                        ? (Number(ret.secondaryQuantityToBeReceived) || (Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : (retList.length === 1 ? (item.quantityToBeReceived || item.quantitySent) : 0)) * Number(ret.conversionFactor || 1)))
+                        : Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : (retList.length === 1 ? (item.quantityToBeReceived || item.quantitySent) : 0)) || 0;
+                    const expUnit = isRetSec ? ret.secondaryUnit : (ret.receivingUnit || ret.unit || 'PCS');
                     totalExpectedQty += expQty;
 
                     const retRate = Number(
@@ -282,21 +296,9 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                         : (expQty * retRate);
                     totalJwCharges += retAmount;
 
-                    let sentSecStr = '';
-                    if (item.hasSecondaryUnit && item.secondaryUnit && (item.secondaryQuantitySent || item.conversionFactor)) {
-                        const secSent = item.secondaryQuantitySent || (sentQty * Number(item.conversionFactor || 1));
-                        sentSecStr = `<div style="font-size: 8px; color: #64748b; margin-top: 1px;">↳ ${secSent} ${item.secondaryUnit}</div>`;
-                    }
-
-                    let retSecStr = '';
-                    if (ret.hasSecondaryUnit && ret.secondaryUnit && (ret.secondaryQuantityToBeReceived || ret.conversionFactor)) {
-                        const secRecv = ret.secondaryQuantityToBeReceived || (expQty * Number(ret.conversionFactor || 1));
-                        retSecStr = `<div style="font-size: 8px; color: #64748b; margin-top: 1px;">↳ ${secRecv} ${ret.secondaryUnit}</div>`;
-                    }
-
                     let procStr = `<b>${item.processType || (doc.purpose === 'Others' && doc.otherPurpose ? doc.otherPurpose : doc.purpose) || 'Job Work'}</b>`;
                     if (item.unitPrice && Number(item.unitPrice) > 0) {
-                        procStr += `<div style="font-size: 8px; color: #475569; margin-top: 2px;">Mat Val: ₹${Number(item.unitPrice).toFixed(2)}</div>`;
+                        procStr += `<div style="font-size: 8px; color: #475569; margin-top: 2px;">Mat Val: ₹${Number(item.unitPrice).toFixed(2)}/${sentUnit || item.unit || 'unit'}</div>`;
                     }
 
                     itemsTableRowsHtml += `
@@ -307,16 +309,14 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                                 ${item.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal; font-style: italic; margin-top: 2px;">${item.description}</div>` : ''}
                             </td>` : ''}
                             ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; font-weight: bold; padding: 5px 4px;">
-                                ${sentQty} ${item.unit || 'PCS'}
-                                ${sentSecStr}
+                                ${sentQty} ${sentUnit}
                             </td>` : ''}
                             <td style="text-align: left; font-weight: bold; color: #1e3a8a; padding: 5px 6px;">
                                 ${ret.receivedItemName || ''}
                                 ${ret.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal; font-style: italic; margin-top: 2px;">${ret.description}</div>` : ''}
                             </td>
                             <td style="text-align: center; padding: 5px 4px;">
-                                <b>${expQty} ${ret.receivingUnit || 'PCS'}</b>
-                                ${retSecStr}
+                                <b>${expQty} ${expUnit}</b>
                             </td>
                             <td style="text-align: right; font-family: monospace; font-weight: bold; padding: 5px 6px; color: #0f172a;">
                                 ${retRate > 0 ? '₹' + retRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
@@ -375,6 +375,26 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
             </table>
         `;
     }
+
+    // Resolve Important Notes (Serial-wise)
+    const docNotes: string[] = (Array.isArray(doc.notes) && doc.notes.filter((n: any) => typeof n === 'string' && n.trim().length > 0).length > 0)
+        ? doc.notes.filter((n: any) => typeof n === 'string' && n.trim().length > 0)
+        : (doc.remarks
+            ? [doc.remarks]
+            : [
+                "Material sent on Returnable Delivery Challan for job-work processing only and not for sale.",
+                doc.expectedReturnDate 
+                    ? `Please arrange to return the material back to us on or before ${new Date(doc.expectedReturnDate).toLocaleDateString('en-GB')}.`
+                    : "Please process and return the finished items on or before the agreed expected delivery date.",
+                "Process scrap, turnings, and rejections (if any) must be accounted for and returned along with the processed goods.",
+                "Kindly quote our Delivery Challan number and date on all your return challans, delivery notes, and service invoices.",
+                "The subcontractor/consignee shall be held liable for any loss, damage, or shortage while the material is under custody."
+            ]
+        );
+
+    const notesListHtml = docNotes.map((note: string) => `
+        <li style="margin-bottom: 2px;">${note}</li>
+    `).join('');
 
     // Build 3-Copy HTML Pages (HTML only, no raw JSX comments)
     const pagesHtml = copyTypes.map(copyType => `
@@ -471,10 +491,13 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
             ${itemsSectionHtml}
 
             <!-- Footer Terms & Signatures -->
-            <div style="border: 1px solid #94a3b8; padding: 8px; background: #fafafa; margin-bottom: 10px; font-size: 9px; line-height: 1.4;">
-                <b>Important Note:</b> Please arrange to return the material back to us on or before 
-                <u style="font-weight: bold;">${doc.expectedReturnDate ? new Date(doc.expectedReturnDate).toLocaleDateString('en-GB') : '___________'}</u>. 
-                While returning the material, please quote this Delivery Challan reference invariably on your return challan / document.
+            <div style="border: 1px solid #94a3b8; padding: 6px 12px; background: #fafafa; margin-bottom: 10px; font-size: 8.5px; line-height: 1.4; border-radius: 4px;">
+                <div style="font-weight: 800; color: #1e3a8a; font-size: 9px; text-transform: uppercase; margin-bottom: 3px; letter-spacing: 0.5px;">
+                    Important Notes & Delivery Challan Conditions:
+                </div>
+                <ol style="margin: 0; padding-left: 18px; color: #334155;">
+                    ${notesListHtml}
+                </ol>
             </div>
 
             <table style="width: 100%; border: none; font-size: 10px; margin-top: 15px;">

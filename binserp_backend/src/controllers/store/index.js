@@ -48,6 +48,7 @@ export { receiveJobWorkItems } from './receiveJobWorkItems.controller.js';
 export { getAllJobWorkChallans } from './getAllJobWorkChallans.controller.js';
 export { updateJobWorkChallan } from './updateJobWorkChallan.controller.js';
 export { deleteJobWorkChallan } from './deleteJobWorkChallan.controller.js';
+export { updateJobWorkReturnReceipt, deleteJobWorkReturnReceipt } from './jobWorkReturnReceipt.controller.js';
 export { createJobWorkSupplier } from './createJobWorkSupplier.controller.js';
 export { getAllJobWorkSuppliers } from './getAllJobWorkSuppliers.controller.js';
 export { updateJobWorkSupplier } from './updateJobWorkSupplier.controller.js';

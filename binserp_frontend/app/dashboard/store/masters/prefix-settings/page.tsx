@@ -18,6 +18,7 @@ export const DEFAULT_TIME_LOCK_HOURS: Record<string, number> = {
   invoice: 24,
   purchasePo: 24,
   jobWorkChallan: 24,
+  jobWorkReturn: 1,
   rfqQuotation: 24,
   mrbDisposition: 24,
   mrpPlan: 24
@@ -65,6 +66,13 @@ export const TIME_LOCK_CONFIGS = [
     subtitle: 'Subcontracting & Outward Work',
     icon: Wrench,
     description: 'Window to adjust or delete job work outward/return challans and line items.'
+  },
+  {
+    key: 'jobWorkReturn',
+    title: 'Job Work Return / Inward',
+    subtitle: 'Mark Return & Receipts',
+    icon: Truck,
+    description: 'Time window (in hours, default 1h) within which marked Job Work return receipts can be edited or deleted/rolled back.'
   },
   {
     key: 'rfqQuotation',

@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, Check, ArrowRight, Truck, ShieldCheck, 
   ShieldAlert, Camera, Image as ImageIcon, Eye, 
-  Sparkles, Plus, Minus, Package
+  Sparkles, Plus, Minus, Package, FileText, Upload, 
+  Trash2, ExternalLink, Download
 } from 'lucide-react';
 import { JobWorkChallan, JobWorkAssemblyGroup } from "@/src/features/store/types/store.types";
 import { apiPut } from '@/src/lib/api';
 import { compressImage } from '@/src/utils/imageCompressor';
 import { showWarningToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
+import { getSafeBlobUrl, openSafeUrlInNewTab, downloadDataUrl } from '@/src/utils/dataUrlHelper';
 
 interface JobWorkReceiveModalProps {
     isOpen: boolean;
@@ -31,11 +33,23 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
 
     // Logistics State
     const [grnNumber, setGrnNumber] = useState('');
-    const [vendorDcNumber, setVendorDcNumber] = useState('');
-    const [vendorInvoiceDate, setVendorInvoiceDate] = useState('');
+    const [returnDocType, setReturnDocType] = useState<'dc' | 'invoice' | 'both'>('dc');
+    const [customerDcNumber, setCustomerDcNumber] = useState('');
+    const [customerDcDate, setCustomerDcDate] = useState('');
+    const [invoiceNumber, setInvoiceNumber] = useState('');
+    const [invoiceDate, setInvoiceDate] = useState('');
     const [vehicleNo, setVehicleNo] = useState('');
     const [qcRequired, setQcRequired] = useState(true);
     const [remarks, setRemarks] = useState('');
+
+    // Dedicated Return Document PDF State
+    const [pdfDocument, setPdfDocument] = useState<{
+        url: string;
+        filename: string;
+        sizeKb: number;
+    } | null>(null);
+    const [previewPdfModal, setPreviewPdfModal] = useState<{ url: string; filename: string } | null>(null);
+    const pdfInputRef = useRef<HTMLInputElement>(null);
 
     // Document & Delivery Photos (Up to 5)
     const [photos, setPhotos] = useState<AttachedPhoto[]>([]);
@@ -62,16 +76,58 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
     useEffect(() => {
         if (isOpen) {
             setGrnNumber(generateGrnNo());
-            setVendorDcNumber('');
-            setVendorInvoiceDate(new Date().toISOString().slice(0, 10));
+            setReturnDocType('dc');
+            setCustomerDcNumber('');
+            setCustomerDcDate(new Date().toISOString().slice(0, 10));
+            setInvoiceNumber('');
+            setInvoiceDate(new Date().toISOString().slice(0, 10));
             setVehicleNo('');
             setQcRequired(true);
             setRemarks('');
+            setPdfDocument(null);
             setPhotos([]);
             setPreviewPhoto(null);
             setReceiveData([]);
         }
     }, [isOpen]);
+
+    // Handle PDF Upload via Native File Reader (up to 10MB)
+    const handlePdfSelected = (files: FileList | null) => {
+        if (!files || files.length === 0) return;
+        const file = files[0];
+
+        if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+            showWarningToast('Please upload a valid PDF document.');
+            return;
+        }
+
+        const sizeKb = Math.round(file.size / 1024);
+        if (sizeKb > 10 * 1024) { // 10MB limit
+            showWarningToast('PDF size cannot exceed 10 MB.');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = reader.result as string;
+            setPdfDocument({
+                url: result,
+                filename: file.name || `Return_Doc_${Date.now()}.pdf`,
+                sizeKb
+            });
+        };
+        reader.onerror = () => {
+            showWarningToast('Failed to read the selected PDF file.');
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleRemovePdf = () => {
+        setPdfDocument(null);
+        if (pdfInputRef.current) {
+            pdfInputRef.current.value = '';
+        }
+    };
 
     // Handle Image Files with Client-Side Canvas Compression
     const handleFilesSelected = async (files: FileList | null) => {
@@ -224,21 +280,50 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
             return;
         }
 
+        if ((returnDocType === 'dc' || returnDocType === 'both') && !customerDcNumber.trim()) {
+            onError('Please enter Delivery Challan (DC) Number');
+            return;
+        }
+        if ((returnDocType === 'invoice' || returnDocType === 'both') && !invoiceNumber.trim()) {
+            onError('Please enter Invoice Number');
+            return;
+        }
+
         try {
             setLoading(true);
 
+            const documentList: any[] = photos.map(p => ({
+                filename: p.filename,
+                fileType: 'image/jpeg',
+                url: p.url
+            }));
+
+            if (pdfDocument) {
+                documentList.unshift({
+                    filename: pdfDocument.filename,
+                    fileType: 'application/pdf',
+                    url: pdfDocument.url
+                });
+            }
+
             const payload = {
                 grnNumber,
-                vendorDcNumber,
-                vendorInvoiceDate: vendorInvoiceDate ? new Date(vendorInvoiceDate) : undefined,
+                returnDocType,
+                customerDcNumber: customerDcNumber.trim(),
+                vendorDcNumber: customerDcNumber.trim(),
+                vendorInvoiceDate: customerDcDate ? new Date(customerDcDate) : undefined,
+                invoiceNumber: invoiceNumber.trim(),
+                invoiceDate: invoiceDate ? new Date(invoiceDate) : undefined,
+                pdfDocument: pdfDocument ? {
+                    url: pdfDocument.url,
+                    filename: pdfDocument.filename,
+                    fileType: 'application/pdf',
+                    sizeKb: pdfDocument.sizeKb
+                } : undefined,
                 vehicleNo,
                 qcRequired,
                 remarks,
-                documents: photos.map(p => ({
-                    filename: p.filename,
-                    fileType: 'image/jpeg',
-                    url: p.url
-                })),
+                documents: documentList,
                 photos: photos.map(p => p.url),
                 items: activeItems.map(d => ({
                     itemId: d.itemId,
@@ -283,6 +368,13 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
             <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh]">
                 
                 {/* Hidden Inputs */}
+                <input
+                    type="file"
+                    ref={pdfInputRef}
+                    onChange={(e) => handlePdfSelected(e.target.files)}
+                    accept="application/pdf,.pdf"
+                    className="hidden"
+                />
                 <input
                     type="file"
                     ref={galleryInputRef}
@@ -330,57 +422,209 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                 {/* Body Form */}
                 <form onSubmit={handleSubmit} className="p-3.5 sm:p-5 overflow-y-auto flex-1 space-y-4 text-xs sm:text-sm">
                     
-                    {/* Section 1: Logistics Compact Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-slate-800/40 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
-                        <div>
-                            <label className="block text-[11px] font-bold text-slate-500 mb-1">Vendor DC Ref</label>
-                            <input
-                                type="text"
-                                value={vendorDcNumber}
-                                onChange={(e) => setVendorDcNumber(e.target.value)}
-                                placeholder="e.g. DC-102"
-                                className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-[11px] font-bold text-slate-500 mb-1">DC Date</label>
-                            <input
-                                type="date"
-                                value={vendorInvoiceDate}
-                                onChange={(e) => setVendorInvoiceDate(e.target.value)}
-                                className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-[11px] font-bold text-slate-500 mb-1">Vehicle No</label>
-                            <input
-                                type="text"
-                                value={vehicleNo}
-                                onChange={(e) => setVehicleNo(e.target.value)}
-                                placeholder="e.g. MH-12-1234"
-                                className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-[11px] font-bold text-slate-500 mb-1">QC Routing</label>
-                            <div 
-                                onClick={() => setQcRequired(!qcRequired)}
-                                className={`cursor-pointer px-2.5 py-1.5 rounded-xl border flex items-center justify-between text-xs font-bold transition-all ${
-                                    qcRequired 
-                                        ? 'bg-amber-50 border-amber-300 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300' 
-                                        : 'bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                }`}
-                            >
-                                <span className="flex items-center gap-1 truncate text-[11px]">
-                                    {qcRequired ? <ShieldAlert size={14} className="text-amber-600 shrink-0" /> : <ShieldCheck size={14} className="text-emerald-600 shrink-0" />}
-                                    <span>{qcRequired ? 'QC Required' : 'Direct Stock'}</span>
-                                </span>
-                                <input type="checkbox" checked={qcRequired} onChange={() => {}} className="accent-teal-600 ml-1" />
+                    {/* Section 1: Logistics & Return Documents */}
+                    <div className="bg-slate-50 dark:bg-slate-800/40 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3.5">
+                        
+                        {/* Document Type Selector (3-way toggle) */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-slate-200/80 dark:border-slate-700/80 pb-3">
+                            <div>
+                                <label className="block text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                                    Return Document Selection
+                                </label>
+                                <p className="text-[10px] text-slate-400">
+                                    Record delivery challan, tax invoice, or both for this return inward
+                                </p>
+                            </div>
+                            
+                            <div className="inline-flex p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs self-start sm:self-auto">
+                                <button
+                                    type="button"
+                                    onClick={() => setReturnDocType('dc')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                        returnDocType === 'dc'
+                                            ? 'bg-teal-600 text-white shadow-xs'
+                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    <span>📄 Delivery Challan (DC)</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setReturnDocType('invoice')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                        returnDocType === 'invoice'
+                                            ? 'bg-teal-600 text-white shadow-xs'
+                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    <span>🧾 Tax Invoice</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setReturnDocType('both')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                        returnDocType === 'both'
+                                            ? 'bg-teal-600 text-white shadow-xs'
+                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    <span>📑 Both (DC & Invoice)</span>
+                                </button>
                             </div>
                         </div>
+
+                        {/* Dynamic Input Fields Grid */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+                            {/* DC Number & Date */}
+                            {(returnDocType === 'dc' || returnDocType === 'both') && (
+                                <>
+                                    <div className="col-span-1 sm:col-span-2">
+                                        <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                            Delivery Challan (DC) No *
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={customerDcNumber}
+                                            onChange={(e) => setCustomerDcNumber(e.target.value)}
+                                            placeholder="e.g. DC-102"
+                                            required={returnDocType === 'dc'}
+                                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                                        />
+                                    </div>
+                                    <div className="col-span-1">
+                                        <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                            DC Date
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={customerDcDate}
+                                            onChange={(e) => setCustomerDcDate(e.target.value)}
+                                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                                        />
+                                    </div>
+                                </>
+                            )}
+
+                            {/* Invoice Number & Date */}
+                            {(returnDocType === 'invoice' || returnDocType === 'both') && (
+                                <>
+                                    <div className="col-span-1 sm:col-span-2">
+                                        <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                            Invoice Number *
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={invoiceNumber}
+                                            onChange={(e) => setInvoiceNumber(e.target.value)}
+                                            placeholder="e.g. INV-2024-451"
+                                            required={returnDocType === 'invoice'}
+                                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                                        />
+                                    </div>
+                                    <div className="col-span-1">
+                                        <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                            Invoice Date
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={invoiceDate}
+                                            onChange={(e) => setInvoiceDate(e.target.value)}
+                                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                                        />
+                                    </div>
+                                </>
+                            )}
+
+                            <div>
+                                <label className="block text-[11px] font-bold text-slate-500 mb-1">Vehicle No</label>
+                                <input
+                                    type="text"
+                                    value={vehicleNo}
+                                    onChange={(e) => setVehicleNo(e.target.value)}
+                                    placeholder="e.g. MH-12-1234"
+                                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-bold text-slate-500 mb-1">QC Routing</label>
+                                <div 
+                                    onClick={() => setQcRequired(!qcRequired)}
+                                    className={`cursor-pointer px-2.5 py-1.5 rounded-xl border flex items-center justify-between text-xs font-bold transition-all ${
+                                        qcRequired 
+                                            ? 'bg-amber-50 border-amber-300 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300' 
+                                            : 'bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                    }`}
+                                >
+                                    <span className="flex items-center gap-1 truncate text-[11px]">
+                                        {qcRequired ? <ShieldAlert size={14} className="text-amber-600 shrink-0" /> : <ShieldCheck size={14} className="text-emerald-600 shrink-0" />}
+                                        <span>{qcRequired ? 'QC Required' : 'Direct Stock'}</span>
+                                    </span>
+                                    <input type="checkbox" checked={qcRequired} onChange={() => {}} className="accent-teal-600 ml-1" />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* PDF Document Upload Area */}
+                        <div className="pt-2.5 border-t border-slate-200/80 dark:border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                                <div className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400">
+                                    <FileText size={16} />
+                                </div>
+                                <div>
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                        Return Document PDF
+                                    </span>
+                                    <p className="text-[10px] text-slate-400">
+                                        Upload scanned copy of Delivery Challan or Invoice (PDF up to 10 MB)
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div>
+                                {!pdfDocument ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => pdfInputRef.current?.click()}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-colors shadow-2xs"
+                                    >
+                                        <Upload size={13} className="text-rose-600" />
+                                        <span>Upload Document PDF</span>
+                                    </button>
+                                ) : (
+                                    <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-xl">
+                                        <FileText size={14} className="text-rose-600 shrink-0" />
+                                        <div className="max-w-[180px] sm:max-w-[240px] truncate">
+                                            <span className="text-xs font-bold text-rose-900 dark:text-rose-200 truncate block">
+                                                {pdfDocument.filename}
+                                            </span>
+                                            <span className="text-[10px] text-rose-600/80 dark:text-rose-400">
+                                                {pdfDocument.sizeKb} KB
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-1 ml-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setPreviewPdfModal(pdfDocument)}
+                                                className="p-1 text-rose-700 hover:bg-rose-100 dark:hover:bg-rose-900 rounded-lg transition-colors"
+                                                title="Preview PDF"
+                                            >
+                                                <Eye size={13} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleRemovePdf}
+                                                className="p-1 text-red-600 hover:bg-red-100 dark:hover:bg-red-950 rounded-lg transition-colors"
+                                                title="Remove PDF"
+                                            >
+                                                <Trash2 size={13} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
                     </div>
 
                     {/* Section 2: Items To Receive */}
@@ -412,8 +656,14 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                         const out = grp.assemblyOutputItem;
                                         if (!out) return null;
                                         const targetKey = (grp._id || out._id || out.item || `assembly_output_${gIdx}`) as string;
-                                        const expectedQty = Number(out.quantityToBeReceived) || 0;
-                                        const alreadyReceived = Number(out.quantityReceived) || 0;
+                                        const isOutSec = Boolean(out.hasSecondaryUnit && out.secondaryUnit && out.selectedUnit === out.secondaryUnit);
+                                        const expectedQty = isOutSec
+                                            ? (Number(out.secondaryQuantityToBeReceived) || (Number(out.quantityToBeReceived || 0) * Number(out.conversionFactor || 1)))
+                                            : Number(out.quantityToBeReceived || 0);
+                                        const outUnit = isOutSec ? out.secondaryUnit : (out.receivingUnit || 'PCS');
+                                        const alreadyReceived = isOutSec
+                                            ? Number(out.secondaryQuantityReceived || 0)
+                                            : Number(out.quantityReceived || 0);
                                         const pendingQty = Math.max(0, expectedQty - alreadyReceived);
                                         const isDone = out.status === 'Completed' || pendingQty <= 0;
                                         const enteredQty = getItemQuantity(targetKey);
@@ -448,7 +698,7 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                         </span>
                                                         <span className="text-slate-300">•</span>
                                                         <span className="text-xs font-black text-teal-600 dark:text-teal-400">
-                                                            Pending: {pendingQty} {out.receivingUnit || 'PCS'}
+                                                            Pending: {pendingQty} {outUnit}
                                                         </span>
                                                         {out.processRate ? (
                                                             <>
@@ -511,7 +761,7 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                                 </button>
                                                             </div>
                                                             <span className="text-xs font-bold text-slate-400">
-                                                                {out.receivingUnit || 'PCS'}
+                                                                {outUnit}
                                                             </span>
                                                             <button
                                                                 type="button"
@@ -534,6 +784,12 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                         <div className="md:hidden space-y-2.5">
                             {challan.items.map((sentItem, sentIdx) => {
                                 const parentId = sentItem._id || sentItem.item || `${sentIdx}`;
+                                const isItemSec = Boolean(sentItem.hasSecondaryUnit && sentItem.secondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit);
+                                const sentQty = isItemSec
+                                    ? (Number(sentItem.secondaryQuantitySent) || (Number(sentItem.quantitySent || 0) * Number(sentItem.conversionFactor || 1)))
+                                    : Number(sentItem.quantitySent || 0);
+                                const sentUnit = isItemSec ? sentItem.secondaryUnit : (sentItem.unit || 'PCS');
+
                                 const retList = Array.isArray(sentItem.returningItems) && sentItem.returningItems.length > 0
                                     ? sentItem.returningItems
                                     : [{
@@ -542,12 +798,25 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                         receivedItemType: sentItem.receivedItemType || 'fg',
                                         quantityToBeReceived: Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0,
                                         quantityReceived: Number(sentItem.quantityReceived) || 0,
-                                        receivingUnit: sentItem.receivingUnit || sentItem.unit || 'PCS'
+                                        receivingUnit: sentItem.receivingUnit || sentItem.unit || 'PCS',
+                                        hasSecondaryUnit: sentItem.hasSecondaryUnit,
+                                        secondaryUnit: sentItem.secondaryUnit,
+                                        conversionFactor: sentItem.conversionFactor,
+                                        secondaryQuantityToBeReceived: sentItem.secondaryQuantityToBeReceived,
+                                        secondaryQuantityReceived: sentItem.secondaryQuantityReceived,
+                                        selectedUnit: sentItem.selectedUnit,
+                                        processRate: sentItem.processRate
                                     }];
 
                                 return retList.map((ret, retIdx) => {
-                                    const expectedQty = Number(ret.quantityToBeReceived) || 0;
-                                    const alreadyReceived = Number(ret.quantityReceived) || 0;
+                                    const isRetSec = Boolean(ret.hasSecondaryUnit && ret.secondaryUnit && ret.selectedUnit === ret.secondaryUnit);
+                                    const expectedQty = isRetSec
+                                        ? (Number(ret.secondaryQuantityToBeReceived) || (Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : sentItem.quantitySent) * Number(ret.conversionFactor || 1)))
+                                        : Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : sentItem.quantitySent) || 0;
+                                    const retUnit = isRetSec ? ret.secondaryUnit : (ret.receivingUnit || ret.unit || 'PCS');
+                                    const alreadyReceived = isRetSec
+                                        ? Number(ret.secondaryQuantityReceived || 0)
+                                        : Number(ret.quantityReceived) || 0;
                                     const pendingQty = Math.max(0, expectedQty - alreadyReceived);
                                     const isDone = ret.status === 'Completed' || pendingQty <= 0;
                                     const enteredQty = getItemQuantity(parentId, ret._id);
@@ -565,7 +834,7 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                             <div className="flex items-start justify-between gap-2">
                                                 <div>
                                                     <div className="text-[11px] font-semibold text-slate-400">
-                                                        Sent: <b className="text-slate-700 dark:text-slate-200">{sentItem.itemName}</b> ({sentItem.quantitySent} {sentItem.unit})
+                                                        Sent: <b className="text-slate-700 dark:text-slate-200">{sentItem.itemName}</b> ({sentQty} {sentUnit})
                                                     </div>
                                                     <div className="font-bold text-sm text-slate-900 dark:text-white mt-0.5 flex items-center gap-1">
                                                         <ArrowRight size={13} className="text-teal-500 shrink-0" />
@@ -580,9 +849,9 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                             {/* Quantities Badges & Stepper */}
                                             <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                                                 <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-                                                    <span>Expected: <b>{expectedQty}</b></span>
+                                                    <span>Expected: <b>{expectedQty} {retUnit}</b></span>
                                                     <span>•</span>
-                                                    <span>Pending: <b className="text-teal-600">{pendingQty}</b></span>
+                                                    <span>Pending: <b className="text-teal-600">{pendingQty} {retUnit}</b></span>
                                                 </div>
 
                                                 {isDone ? (
@@ -655,6 +924,12 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                                     {challan.items.map((sentItem, sentIdx) => {
                                         const parentId = sentItem._id || sentItem.item || `${sentIdx}`;
+                                        const isItemSec = Boolean(sentItem.hasSecondaryUnit && sentItem.secondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit);
+                                        const sentQty = isItemSec
+                                            ? (Number(sentItem.secondaryQuantitySent) || (Number(sentItem.quantitySent || 0) * Number(sentItem.conversionFactor || 1)))
+                                            : Number(sentItem.quantitySent || 0);
+                                        const sentUnit = isItemSec ? sentItem.secondaryUnit : (sentItem.unit || 'PCS');
+
                                         const retList = Array.isArray(sentItem.returningItems) && sentItem.returningItems.length > 0
                                             ? sentItem.returningItems
                                             : [{
@@ -664,12 +939,24 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                 quantityToBeReceived: Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0,
                                                 quantityReceived: Number(sentItem.quantityReceived) || 0,
                                                 receivingUnit: sentItem.receivingUnit || sentItem.unit || 'PCS',
+                                                hasSecondaryUnit: sentItem.hasSecondaryUnit,
+                                                secondaryUnit: sentItem.secondaryUnit,
+                                                conversionFactor: sentItem.conversionFactor,
+                                                secondaryQuantityToBeReceived: sentItem.secondaryQuantityToBeReceived,
+                                                secondaryQuantityReceived: sentItem.secondaryQuantityReceived,
+                                                selectedUnit: sentItem.selectedUnit,
                                                 processRate: sentItem.processRate || 0
                                             }];
 
                                         return retList.map((ret, retIdx) => {
-                                            const expectedQty = Number(ret.quantityToBeReceived) || 0;
-                                            const alreadyReceived = Number(ret.quantityReceived) || 0;
+                                            const isRetSec = Boolean(ret.hasSecondaryUnit && ret.secondaryUnit && ret.selectedUnit === ret.secondaryUnit);
+                                            const expectedQty = isRetSec
+                                                ? (Number(ret.secondaryQuantityToBeReceived) || (Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : sentItem.quantitySent) * Number(ret.conversionFactor || 1)))
+                                                : Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : sentItem.quantitySent) || 0;
+                                            const retUnit = isRetSec ? ret.secondaryUnit : (ret.receivingUnit || ret.unit || 'PCS');
+                                            const alreadyReceived = isRetSec
+                                                ? Number(ret.secondaryQuantityReceived || 0)
+                                                : Number(ret.quantityReceived) || 0;
                                             const pendingQty = Math.max(0, expectedQty - alreadyReceived);
                                             const isDone = ret.status === 'Completed' || pendingQty <= 0;
                                             const enteredQty = getItemQuantity(parentId, ret._id);
@@ -683,7 +970,7 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                                 <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">{(sentItem as any).description}</div>
                                                             )}
                                                             <span className="inline-block px-2 py-0.5 rounded bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 text-[10px] font-mono font-bold mt-1 border border-teal-200 dark:border-teal-800">
-                                                                Sent: {sentItem.quantitySent} {sentItem.unit}
+                                                                Sent: {sentQty} {sentUnit}
                                                             </span>
                                                         </td>
                                                     ) : null}
@@ -727,7 +1014,7 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                                     className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-teal-300 dark:border-teal-700 rounded-lg font-bold text-slate-900 dark:text-white text-center focus:ring-2 focus:ring-teal-500/20"
                                                                 />
                                                                 <span className="text-[10px] text-slate-400 font-bold shrink-0">
-                                                                    {ret.receivingUnit || 'PCS'}
+                                                                    {retUnit}
                                                                 </span>
                                                             </div>
                                                         )}
@@ -871,10 +1158,62 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                         <img src={previewPhoto} alt="Preview" className="max-w-full max-h-[80vh] rounded-2xl object-contain" />
                         <button
                             onClick={() => setPreviewPhoto(null)}
-                            className="absolute top-3 right-3 p-1.5 bg-black/80 text-white rounded-full"
+                            className="absolute top-3 right-3 p-1.5 bg-black/80 text-white rounded-full hover:bg-black"
                         >
                             <X size={16} />
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* In-Modal PDF Viewer Dialog */}
+            {previewPdfModal && (
+                <div 
+                    className="fixed inset-0 z-[260] flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-sm"
+                    onClick={() => setPreviewPdfModal(null)}
+                >
+                    <div 
+                        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-slate-200 dark:border-slate-800"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="p-3.5 bg-slate-950 text-white flex justify-between items-center flex-shrink-0">
+                            <div className="flex items-center gap-2">
+                                <FileText size={18} className="text-rose-400" />
+                                <span className="font-bold text-sm truncate">{previewPdfModal.filename}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => downloadDataUrl(previewPdfModal.url, previewPdfModal.filename)}
+                                    className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors"
+                                    title="Download PDF"
+                                >
+                                    <Download size={15} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => openSafeUrlInNewTab(previewPdfModal.url)}
+                                    className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors"
+                                    title="Open in new tab"
+                                >
+                                    <ExternalLink size={15} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPreviewPdfModal(null)}
+                                    className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors"
+                                >
+                                    <X size={15} />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="p-2 flex-1 h-[75vh]">
+                            <iframe 
+                                src={getSafeBlobUrl(previewPdfModal.url)} 
+                                className="w-full h-full rounded-xl border-0 bg-slate-100 dark:bg-slate-800" 
+                                title="PDF Preview" 
+                            />
+                        </div>
                     </div>
                 </div>
             )}

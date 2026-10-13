@@ -1,9 +1,11 @@
 import mongoose from "mongoose";
 import { 
   jobWorkSchema, vendorSchema, rmBoItemSchema, 
-  rmInventoryMonthlySchema, fgItemSchema, inventorySchema 
+  rmInventoryMonthlySchema, fgItemSchema, inventorySchema,
+  stockTransactionSchema
 } from "../../models/store/index.js";
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
+import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { componentSchema, jobSchema } from "../../models/ppc/index.js";
 import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 
@@ -28,16 +30,27 @@ export const updateJobWorkChallan = async (req, res) => {
       return res.status(404).json({ message: "Job Work Challan not found" });
     }
 
-    // 1. Block edit if already partially or fully received
-    if (existingChallan.status === "Partial" || existingChallan.status === "Closed" || (Array.isArray(existingChallan.receiveHistory) && existingChallan.receiveHistory.length > 0)) {
-      return res.status(400).json({ message: "Cannot edit a challan that has received items" });
-    }
-
-    // 2. Dynamic time lock governance
+    // 1. Dynamic time lock governance
     const lockCheck = await checkTimeLockGovernance(req, 'jobWorkChallan', existingChallan.createdAt, 'edit');
     if (!lockCheck.allowed) {
       return res.status(403).json({ message: lockCheck.message });
     }
+
+    // 2. Block edit if fully closed
+    if (existingChallan.status === "Closed") {
+      return res.status(400).json({ message: "Cannot edit a fully closed Job Work Challan." });
+    }
+
+    // Preserve inward receipt history if already partially received
+    if (Array.isArray(existingChallan.receiveHistory) && existingChallan.receiveHistory.length > 0) {
+      req.body.receiveHistory = existingChallan.receiveHistory;
+      if (existingChallan.status === "Partial") {
+        req.body.status = "Partial";
+      }
+    }
+
+    // Lock jobWorkType to prevent cross-store ledger discrepancies
+    req.body.jobWorkType = existingChallan.jobWorkType;
 
     // 3. Sanitize empty string fields to prevent BSON cast errors
     if (req.body.mrpPlan === "" || !req.body.mrpPlan) {
@@ -52,6 +65,11 @@ export const updateJobWorkChallan = async (req, res) => {
     if (req.body.routeCardRef && (!req.body.routeCardRef.job || req.body.routeCardRef.job === "")) {
       req.body.routeCardRef = undefined;
     }
+    if (req.body.notes !== undefined) {
+      req.body.notes = Array.isArray(req.body.notes)
+        ? req.body.notes.filter(n => n && typeof n === 'string' && n.trim())
+        : (req.body.notes ? [req.body.notes] : []);
+    }
 
     const cleanId = (val) => {
       if (!val) return null;
@@ -62,6 +80,38 @@ export const updateJobWorkChallan = async (req, res) => {
       const c = cleanId(val);
       return c && mongoose.Types.ObjectId.isValid(c) ? c : null;
     };
+
+    if (req.body.mrpPlan && !isValidObjectId(req.body.mrpPlan)) {
+      req.body.mrpPlan = undefined;
+    }
+
+    // Sanitize assemblyOutputItem and assemblyGroups to prevent BSON cast errors on empty item IDs
+    const opMode = req.body.operationMode || existingChallan.operationMode || "discrete";
+    if (opMode !== "assembly") {
+      req.body.assemblyOutputItem = undefined;
+      req.body.assemblyGroups = undefined;
+    } else {
+      if (req.body.assemblyOutputItem) {
+        req.body.assemblyOutputItem.item = isValidObjectId(req.body.assemblyOutputItem.item) || undefined;
+      }
+      if (Array.isArray(req.body.assemblyGroups)) {
+        req.body.assemblyGroups = req.body.assemblyGroups.map(grp => {
+          const out = grp.assemblyOutputItem ? {
+            ...grp.assemblyOutputItem,
+            item: isValidObjectId(grp.assemblyOutputItem.item) || undefined
+          } : undefined;
+          const items = Array.isArray(grp.items) ? grp.items.map(it => ({
+            ...it,
+            item: isValidObjectId(it.item) || undefined
+          })) : [];
+          return {
+            ...grp,
+            items,
+            assemblyOutputItem: out
+          };
+        });
+      }
+    }
 
     // 4. Reconcile Stock Adjustments if items were edited
     const newItems = req.body.items;
@@ -148,9 +198,15 @@ export const updateJobWorkChallan = async (req, res) => {
           for (const ret of item.returningItems) {
             const retRate = Number(ret.processRate != null ? ret.processRate : (ret.rate != null ? ret.rate : 0)) || 0;
             const retQty = Number(ret.quantityToBeReceived) || 1;
+            const hasRetSec = Boolean(ret.hasSecondaryUnit);
+            const secRetUnit = ret.secondaryUnit || "";
+            const isRetSecActive = Boolean(hasRetSec && secRetUnit && (ret.selectedUnit === secRetUnit || (!ret.selectedUnit && item.selectedUnit === secRetUnit)));
+            const secRetQty = Number(ret.secondaryQuantityToBeReceived) || (hasRetSec ? (retQty * (Number(ret.conversionFactor) || 1)) : 0);
+            const activeRetQty = isRetSecActive ? secRetQty : retQty;
+
             const retAmount = Number(ret.processAmount) != null && !isNaN(Number(ret.processAmount)) && Number(ret.processAmount) > 0 
               ? Number(ret.processAmount) 
-              : (retQty * retRate);
+              : (activeRetQty * retRate);
 
             const retDoc = {
               receivedItemName: ret.receivedItemName || ret.itemName || itemName || "Returning Material",
@@ -158,12 +214,12 @@ export const updateJobWorkChallan = async (req, res) => {
               quantityToBeReceived: retQty,
               quantityReceived: Number(ret.quantityReceived) || 0,
               receivingUnit: ret.receivingUnit || "PCS",
-              hasSecondaryUnit: Boolean(ret.hasSecondaryUnit),
-              secondaryUnit: ret.secondaryUnit || "",
+              hasSecondaryUnit: hasRetSec,
+              secondaryUnit: secRetUnit,
               conversionFactor: Number(ret.conversionFactor) || 1,
-              secondaryQuantityToBeReceived: Number(ret.secondaryQuantityToBeReceived) || (ret.hasSecondaryUnit ? (retQty * (Number(ret.conversionFactor) || 1)) : 0),
+              secondaryQuantityToBeReceived: secRetQty,
               secondaryQuantityReceived: Number(ret.secondaryQuantityReceived) || 0,
-              selectedUnit: ret.selectedUnit || ret.receivingUnit || "PCS",
+              selectedUnit: ret.selectedUnit || (isRetSecActive ? secRetUnit : (ret.receivingUnit || "PCS")),
               processRate: retRate,
               processAmount: retAmount,
               description: ret.description || "",
@@ -185,8 +241,11 @@ export const updateJobWorkChallan = async (req, res) => {
         const convFactor = Number(item.conversionFactor) || 1;
         const secQtySent = Number(item.secondaryQuantitySent) || (hasSec ? (sentQtyNum * convFactor) : 0);
 
+        const isSentSec = Boolean(hasSec && secUnit && item.selectedUnit === secUnit);
+        const activeSentQty = isSentSec ? secQtySent : sentQtyNum;
+
         const totalReturningCharges = processedReturningItems.reduce((acc, r) => acc + (Number(r.processAmount) || 0), 0);
-        const effectiveProcAmount = totalReturningCharges > 0 ? totalReturningCharges : (sentQtyNum * rateValue);
+        const effectiveProcAmount = totalReturningCharges > 0 ? totalReturningCharges : (activeSentQty * rateValue);
 
         const processedItem = {
           itemName: itemName || item.itemName || "Sent Item",
@@ -199,7 +258,7 @@ export const updateJobWorkChallan = async (req, res) => {
           conversionFactor: convFactor,
           secondaryQuantitySent: secQtySent,
           secondaryQuantityReceived: Number(item.secondaryQuantityReceived) || 0,
-          selectedUnit: item.selectedUnit || item.unit || "PCS",
+          selectedUnit: item.selectedUnit || (isSentSec ? secUnit : (item.unit || "PCS")),
           unitPrice: rateValue,
           processRate: rateValue,
           processAmount: effectiveProcAmount,
@@ -239,11 +298,57 @@ export const updateJobWorkChallan = async (req, res) => {
               conversionFactor: item.conversionFactor || 1,
             }
           );
+        } else if (jobWorkType === "wip-to-wip") {
+          // Handled in bulk below
+        }
+      }
+
+      // If WIP-to-WIP: Re-synchronize WIP outward stock transactions
+      if (jobWorkType === "wip-to-wip") {
+        try {
+          const StockTransaction = req.getModel("StockTransaction", stockTransactionSchema);
+          await StockTransaction.deleteMany({
+            company: companyId,
+            referenceDocType: "JobWorkChallan",
+            referenceDocId: existingChallan._id,
+            transactionCategory: "WIP_JOB_WORK_OUTWARD"
+          });
+
+          for (const item of processedItems) {
+            const sentQtyNum = Number(item.quantitySent) || 0;
+            await recordStockTransaction(req, {
+              itemType: (item.itemType === "fg" || item.itemType === "inhouse" || item.itemType === "Component" || item.itemType === "component" || item.itemType === "SubAssembly" || item.itemType === "Assembly") ? "FGItem" : "RawMaterial",
+              item: item.item && mongoose.Types.ObjectId.isValid(item.item) ? item.item : existingChallan._id,
+              itemName: item.itemName,
+              unit: item.unit || "PCS",
+              movementType: "OUTWARD",
+              transactionCategory: "WIP_JOB_WORK_OUTWARD",
+              quantity: sentQtyNum,
+              previousStock: 0,
+              newStock: 0,
+              referenceDocType: "JobWorkChallan",
+              referenceDocId: existingChallan._id,
+              referenceDocNumber: existingChallan.challanNumber,
+              recipientOrSource: vendorName,
+              purpose: item.processType || `WIP-to-WIP Subcontractor Dispatch to ${vendorName} (Challan #${existingChallan.challanNumber})`,
+              performedBy: req.user?.id || req.user?._id,
+              hasSecondaryUnit: item.hasSecondaryUnit || false,
+              secondaryUnit: item.secondaryUnit || "",
+              secondaryQuantity: item.hasSecondaryUnit ? -Number(item.secondaryQuantitySent || (sentQtyNum * (item.conversionFactor || 1))) : 0,
+              conversionFactor: item.conversionFactor || 1,
+            });
+          }
+        } catch (wipErr) {
+          console.error("Error updating WIP_JOB_WORK_OUTWARD StockTransaction on edit:", wipErr);
         }
       }
 
       req.body.items = processedItems;
-      req.body.totalJobWorkCharges = processedItems.reduce((acc, it) => acc + (Number(it.processAmount) || 0), 0);
+      if (req.body.operationMode === "assembly" && Array.isArray(req.body.assemblyGroups) && req.body.assemblyGroups.length > 0) {
+        req.body.totalJobWorkCharges = req.body.assemblyGroups.reduce((acc, g) => acc + (Number(g.assemblyOutputItem?.processAmount) || 0), 0);
+      } else {
+        req.body.totalJobWorkCharges = processedItems.reduce((acc, it) => acc + (Number(it.processAmount) || 0), 0);
+      }
     }
 
     const challan = await JobWorkChallan.findOneAndUpdate(

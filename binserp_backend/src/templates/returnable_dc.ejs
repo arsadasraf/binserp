@@ -120,20 +120,30 @@
                                let rowCount = 0;
                                const isAssembly = doc.operationMode === 'assembly';
 
-                               if (doc.items && doc.items.length > 0) { 
-                                   if (isAssembly && doc.assemblyOutputItem) {
-                                       const out = doc.assemblyOutputItem;
-                                       const outExpQty = Number(out.quantityToBeReceived) || 0;
-                                       totalRecvQty += outExpQty;
-                                       const outRate = Number(out.processRate) || 0;
-                                       const outAmt = (out.processAmount !== undefined && out.processAmount !== null && Number(out.processAmount) > 0) 
-                                           ? Number(out.processAmount) 
-                                           : (outRate * outExpQty);
-                                       totalJwAmount += outAmt;
+                                if (doc.items && doc.items.length > 0) { 
+                                    if (isAssembly && doc.assemblyOutputItem) {
+                                        const out = doc.assemblyOutputItem;
+                                        const isOutSec = Boolean(out.hasSecondaryUnit && out.secondaryUnit && out.selectedUnit === out.secondaryUnit);
+                                        const outExpQty = isOutSec
+                                            ? (Number(out.secondaryQuantityToBeReceived) || (Number(out.quantityToBeReceived || 0) * Number(out.conversionFactor || 1)))
+                                            : Number(out.quantityToBeReceived || 0);
+                                        const outUnit = isOutSec ? out.secondaryUnit : (out.receivingUnit || 'PCS');
+                                        totalRecvQty += outExpQty;
 
-                                       doc.items.forEach((item, idx) => {
-                                           rowCount++;
-                                           totalSentQty += Number(item.quantitySent || 0);
+                                        const outRate = Number(out.processRate) || 0;
+                                        const outAmt = (out.processAmount !== undefined && out.processAmount !== null && Number(out.processAmount) > 0) 
+                                            ? Number(out.processAmount) 
+                                            : (outRate * outExpQty);
+                                        totalJwAmount += outAmt;
+
+                                        doc.items.forEach((item, idx) => {
+                                            rowCount++;
+                                            const isItemSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit && item.selectedUnit === item.secondaryUnit);
+                                            const sentQty = isItemSec
+                                                ? (Number(item.secondaryQuantitySent) || (Number(item.quantitySent || 0) * Number(item.conversionFactor || 1)))
+                                                : Number(item.quantitySent || 0);
+                                            const sentUnit = isItemSec ? item.secondaryUnit : (item.unit || 'PCS');
+                                            totalSentQty += sentQty;
                             %>
                             <tr>
                                 <td><%= idx + 1 %></td>
@@ -144,12 +154,7 @@
                                     <% } %>
                                 </td>
                                 <td>
-                                    <b><%= item.quantitySent %> <%= item.unit || 'PCS' %></b>
-                                    <% if (item.hasSecondaryUnit && item.secondaryUnit && (item.secondaryQuantitySent || item.conversionFactor)) { 
-                                       const secSent = item.secondaryQuantitySent || (Number(item.quantitySent) * Number(item.conversionFactor || 1));
-                                    %>
-                                        <div style="font-size: 9px; color: #555; margin-top: 2px;">↳ <%= secSent %> <%= item.secondaryUnit %></div>
-                                    <% } %>
+                                    <b><%= sentQty %> <%= sentUnit %></b>
                                 </td>
                                 <% if (idx === 0) { %>
                                     <td rowspan="<%= doc.items.length %>" style="text-align: left;">
@@ -159,12 +164,7 @@
                                         <% } %>
                                     </td>
                                     <td rowspan="<%= doc.items.length %>">
-                                        <b><%= out.quantityToBeReceived %> <%= out.receivingUnit || 'PCS' %></b>
-                                        <% if (out.hasSecondaryUnit && out.secondaryUnit && (out.secondaryQuantityToBeReceived || out.conversionFactor)) { 
-                                           const secRecv = out.secondaryQuantityToBeReceived || (Number(out.quantityToBeReceived) * Number(out.conversionFactor || 1));
-                                        %>
-                                            <div style="font-size: 9px; color: #555; margin-top: 2px;">↳ <%= secRecv %> <%= out.secondaryUnit %></div>
-                                        <% } %>
+                                        <b><%= outExpQty %> <%= outUnit %></b>
                                     </td>
                                     <td rowspan="<%= doc.items.length %>" style="text-align: right; padding-right: 5px;">
                                         <%= outRate > 0 ? '₹' + outRate.toFixed(2) : '-' %>
@@ -178,36 +178,48 @@
                                 <% } %>
                             </tr>
                             <% 
-                                       });
-                                   } else {
-                                       doc.items.forEach((item, idx) => { 
-                                           totalSentQty += Number(item.quantitySent || 0);
-                                           const retList = (item.returningItems && item.returningItems.length > 0) ? item.returningItems : [{
-                                               receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
-                                               quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
-                                               receivingUnit: item.receivingUnit || item.unit || 'PCS',
-                                               hasSecondaryUnit: item.hasSecondaryUnit,
-                                               secondaryUnit: item.secondaryUnit,
-                                               conversionFactor: item.conversionFactor,
-                                               secondaryQuantityToBeReceived: item.secondaryQuantityToBeReceived,
-                                               processRate: item.processRate,
-                                               processAmount: item.processAmount,
-                                               description: item.description
-                                           }];
+                                        });
+                                    } else {
+                                        doc.items.forEach((item, idx) => { 
+                                            const isItemSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit && item.selectedUnit === item.secondaryUnit);
+                                            const sentQty = isItemSec
+                                                ? (Number(item.secondaryQuantitySent) || (Number(item.quantitySent || 0) * Number(item.conversionFactor || 1)))
+                                                : Number(item.quantitySent || 0);
+                                            const sentUnit = isItemSec ? item.secondaryUnit : (item.unit || 'PCS');
+                                            totalSentQty += sentQty;
 
-                                           retList.forEach((ret, rIdx) => {
-                                               rowCount++;
-                                               const retExpQty = Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : (retList.length === 1 ? (item.quantityToBeReceived || item.quantitySent) : 0)) || 0;
-                                               totalRecvQty += retExpQty;
-                                               const retRate = Number(
-                                                   ret.processRate != null 
-                                                       ? ret.processRate 
-                                                       : (rIdx === 0 && retList.length === 1 ? (item.processRate != null ? item.processRate : item.unitPrice) : 0)
-                                               ) || 0;
-                                               const retAmt = (ret.processAmount !== undefined && ret.processAmount !== null && Number(ret.processAmount) > 0)
-                                                   ? Number(ret.processAmount)
-                                                   : (retRate * retExpQty);
-                                               totalJwAmount += retAmt;
+                                            const retList = (item.returningItems && item.returningItems.length > 0) ? item.returningItems : [{
+                                                receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
+                                                quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
+                                                receivingUnit: item.receivingUnit || item.unit || 'PCS',
+                                                hasSecondaryUnit: item.hasSecondaryUnit,
+                                                secondaryUnit: item.secondaryUnit,
+                                                conversionFactor: item.conversionFactor,
+                                                secondaryQuantityToBeReceived: item.secondaryQuantityToBeReceived,
+                                                selectedUnit: item.selectedUnit,
+                                                processRate: item.processRate,
+                                                processAmount: item.processAmount,
+                                                description: item.description
+                                            }];
+
+                                            retList.forEach((ret, rIdx) => {
+                                                rowCount++;
+                                                const isRetSec = Boolean(ret.hasSecondaryUnit && ret.secondaryUnit && (ret.selectedUnit === ret.secondaryUnit || (!ret.selectedUnit && item.selectedUnit === item.secondaryUnit)));
+                                                const retExpQty = isRetSec
+                                                    ? (Number(ret.secondaryQuantityToBeReceived) || (Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : item.quantitySent) * Number(ret.conversionFactor || 1)))
+                                                    : Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : (retList.length === 1 ? (item.quantityToBeReceived || item.quantitySent) : 0)) || 0;
+                                                const retUnit = isRetSec ? ret.secondaryUnit : (ret.receivingUnit || ret.unit || 'PCS');
+                                                totalRecvQty += retExpQty;
+
+                                                const retRate = Number(
+                                                    ret.processRate != null 
+                                                        ? ret.processRate 
+                                                        : (rIdx === 0 && retList.length === 1 ? (item.processRate != null ? item.processRate : item.unitPrice) : 0)
+                                                ) || 0;
+                                                const retAmt = (ret.processAmount !== undefined && ret.processAmount !== null && Number(ret.processAmount) > 0)
+                                                    ? Number(ret.processAmount)
+                                                    : (retRate * retExpQty);
+                                                totalJwAmount += retAmt;
                             %>
                             <tr>
                                 <% if (rIdx === 0) { %>
@@ -219,12 +231,7 @@
                                         <% } %>
                                     </td>
                                     <td rowspan="<%= retList.length %>">
-                                        <b><%= item.quantitySent %> <%= item.unit || 'PCS' %></b>
-                                        <% if (item.hasSecondaryUnit && item.secondaryUnit && (item.secondaryQuantitySent || item.conversionFactor)) { 
-                                           const secSent = item.secondaryQuantitySent || (Number(item.quantitySent) * Number(item.conversionFactor || 1));
-                                        %>
-                                            <div style="font-size: 9px; color: #555; margin-top: 2px;">↳ <%= secSent %> <%= item.secondaryUnit %></div>
-                                        <% } %>
+                                        <b><%= sentQty %> <%= sentUnit %></b>
                                     </td>
                                 <% } %>
                                 <td style="text-align: left;">
@@ -234,12 +241,7 @@
                                     <% } %>
                                 </td>
                                 <td>
-                                    <b><%= ret.quantityToBeReceived %> <%= ret.receivingUnit || 'PCS' %></b>
-                                    <% if (ret.hasSecondaryUnit && ret.secondaryUnit && (ret.secondaryQuantityToBeReceived || ret.conversionFactor)) { 
-                                       const secRecv = ret.secondaryQuantityToBeReceived || (Number(ret.quantityToBeReceived) * Number(ret.conversionFactor || 1));
-                                    %>
-                                        <div style="font-size: 9px; color: #555; margin-top: 2px;">↳ <%= secRecv %> <%= ret.secondaryUnit %></div>
-                                    <% } %>
+                                    <b><%= retExpQty %> <%= retUnit %></b>
                                 </td>
                                 <td style="text-align: right; padding-right: 5px;">
                                     <%= retRate > 0 ? '₹' + retRate.toFixed(2) : '-' %>
@@ -249,23 +251,23 @@
                                 </td>
                                 <% if (rIdx === 0) { %>
                                     <td rowspan="<%= retList.length %>" style="text-align: left;">
-                                        <div><%= item.processType || doc.purpose || 'Job Work' %></div>
+                                        <div><%= item.processType || (doc.purpose === 'Others' && doc.otherPurpose ? doc.otherPurpose : doc.purpose) || 'Job Work' %></div>
                                         <% if (item.purpose && item.purpose !== item.processType) { %>
                                             <div style="font-size: 9px; color: #555;"><%= item.purpose %></div>
                                         <% } %>
                                         <% if (item.unitPrice && Number(item.unitPrice) > 0) { %>
                                             <div style="font-size: 9px; color: #444; margin-top: 3px;">
-                                                Mat Val: ₹<%= Number(item.unitPrice).toFixed(2) %>/<%= item.unit || 'unit' %>
+                                                Mat Val: ₹<%= Number(item.unitPrice).toFixed(2) %>/<%= sentUnit || item.unit || 'unit' %>
                                             </div>
                                         <% } %>
                                     </td>
                                 <% } %>
                             </tr>
                             <% 
-                                           });
-                                       });
-                                   }
-                                   
+                                            });
+                                        });
+                                    }
+                                    
                                    // Fill empty rows to make it look like a full page table
                                    for(let i = rowCount; i < 5; i++) {
                             %>
@@ -300,11 +302,26 @@
                             <div style="width: 25%; text-align: center;">Freight<br><%= doc.freightType || 'To pay' %></div>
                             <div style="width: 25%; text-align: center;">E-Way Bill No.<br><%= doc.ewayBillNo || '-' %></div>
                         </div>
-                        <div class="footer-row" style="padding: 5px; font-size: 10px;">
-                            <b>Note:</b><br>
-                            Please arrange to return the material back to us before <%= doc.expectedReturnDate ? new Date(doc.expectedReturnDate).toLocaleDateString('en-GB') : '___________' %> and while returning the<br>
-                            material please quote this challan reference on your delivery challan invariably, failing which payment<br>
-                            will be delayed.
+                        <%
+                        const noteItems = (doc.notes && Array.isArray(doc.notes) && doc.notes.filter(n => n && n.trim()).length > 0)
+                            ? doc.notes.filter(n => n && n.trim())
+                            : (doc.remarks 
+                                ? [doc.remarks] 
+                                : [
+                                    "Material sent on Returnable Delivery Challan for job-work processing only and not for sale.",
+                                    doc.expectedReturnDate ? ("Please arrange to return the material back to us on or before " + new Date(doc.expectedReturnDate).toLocaleDateString('en-GB') + ".") : "Please process and return the finished items on or before the agreed expected delivery date.",
+                                    "Process scrap, turnings, and rejections (if any) must be accounted for and returned along with the processed goods.",
+                                    "Kindly quote our Delivery Challan number and date on all your return challans, delivery notes, and service invoices.",
+                                    "The subcontractor/consignee shall be held liable for any loss, damage, or shortage while the material is under custody."
+                                ]);
+                        %>
+                        <div class="footer-row" style="padding: 6px 10px; font-size: 9.5px; line-height: 1.4;">
+                            <b style="color: #1e3a8a;">Important Notes & Delivery Challan Conditions:</b>
+                            <ol style="margin: 3px 0 0 0; padding-left: 18px;">
+                                <% noteItems.forEach(function(note) { %>
+                                    <li style="margin-bottom: 2px;"><%= note %></li>
+                                <% }); %>
+                            </ol>
                         </div>
                         <div class="footer-details">
                             <div class="footer-left">

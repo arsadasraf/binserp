@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { 
   jobWorkSchema, vendorSchema, rmBoItemSchema, 
-  rmInventoryMonthlySchema, fgItemSchema 
+  rmInventoryMonthlySchema, fgItemSchema, stockTransactionSchema 
 } from "../../models/store/index.js";
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import { componentSchema, jobSchema } from "../../models/ppc/index.js";
@@ -23,8 +23,11 @@ export const deleteJobWorkChallan = async (req, res) => {
     }
 
     // 1. Block delete if already partially or fully received
-    if (existingChallan.status === "Partial" || existingChallan.status === "Closed" || (Array.isArray(existingChallan.receiveHistory) && existingChallan.receiveHistory.length > 0)) {
-      return res.status(400).json({ message: "Cannot delete a challan that has received items" });
+    if (existingChallan.status === "Closed") {
+      return res.status(400).json({ message: "Cannot delete a closed Job Work Challan." });
+    }
+    if (Array.isArray(existingChallan.receiveHistory) && existingChallan.receiveHistory.length > 0) {
+      return res.status(400).json({ message: "This Challan has recorded return receipts. Please delete/rollback the inward return receipts first before deleting the challan." });
     }
 
     // 2. Dynamic time lock governance
@@ -69,6 +72,20 @@ export const deleteJobWorkChallan = async (req, res) => {
         } catch (stockErr) {
           console.error("[deleteJobWorkChallan] Error reverting stock:", stockErr);
         }
+      }
+    }
+
+    // 3b. If WIP-to-WIP: Clean up outward stock transactions
+    if (existingChallan.jobWorkType === "wip-to-wip") {
+      try {
+        const StockTransaction = req.getModel("StockTransaction", stockTransactionSchema);
+        await StockTransaction.deleteMany({
+          company: companyId,
+          referenceDocType: "JobWorkChallan",
+          referenceDocId: existingChallan._id,
+        });
+      } catch (stErr) {
+        console.error("[deleteJobWorkChallan] Error cleaning up WIP StockTransaction:", stErr);
       }
     }
 

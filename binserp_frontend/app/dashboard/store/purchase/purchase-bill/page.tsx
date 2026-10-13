@@ -14,6 +14,7 @@ export default function PurchaseBillPage() {
   const [vendors, setVendors] = useState<any[]>([]);
 
   // Filter States
+  const [selectedBillType, setSelectedBillType] = useState<string>("material");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [selectedVendorId, setSelectedVendorId] = useState<string>("all");
@@ -41,6 +42,7 @@ export default function PurchaseBillPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
+      if (selectedBillType && selectedBillType !== "all") params.set("billType", selectedBillType);
       if (startDate) params.set("startDate", startDate);
       if (endDate) params.set("endDate", endDate);
       if (selectedVendorId && selectedVendorId !== "all") params.set("vendorId", selectedVendorId);
@@ -74,7 +76,7 @@ export default function PurchaseBillPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, startDate, endDate, selectedVendorId, selectedStatus, selectedCategory, searchTerm]);
+  }, [token, selectedBillType, startDate, endDate, selectedVendorId, selectedStatus, selectedCategory, searchTerm]);
 
   // Fetch when filters change (with debounce on search)
   useEffect(() => {
@@ -92,6 +94,8 @@ export default function PurchaseBillPage() {
         loading={loading}
         onRefresh={fetchBills}
         vendors={vendors}
+        selectedBillType={selectedBillType}
+        onBillTypeChange={setSelectedBillType}
         startDate={startDate}
         endDate={endDate}
         onDateChange={(start, end) => {

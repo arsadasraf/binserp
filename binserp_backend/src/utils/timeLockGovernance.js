@@ -7,6 +7,7 @@ export const DEFAULT_TIME_LOCK_HOURS = {
     invoice: 24,
     purchasePo: 24,
     jobWorkChallan: 24,
+    jobWorkReturn: 1,
     rfqQuotation: 24,
     mrbDisposition: 24,
     mrpPlan: 24
@@ -19,6 +20,7 @@ const DOC_DISPLAY_NAMES = {
     invoice: "Tax Invoice",
     purchasePo: "Purchase Order",
     jobWorkChallan: "Job Work Challan",
+    jobWorkReturn: "Job Work Inward Return Receipt",
     rfqQuotation: "RFQ / Quotation",
     mrbDisposition: "MRB Disposition",
     mrpPlan: "MRP Demand Plan"

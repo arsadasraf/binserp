@@ -1,7 +1,17 @@
-import React from 'react';
-import { X, Calendar, User, Truck, Package, Layers, FileText, FileSpreadsheet, Check, CheckCircle2, Factory, Clock, ArrowRight, ShieldCheck, Edit3, Trash2, Zap, Sparkles } from 'lucide-react';
+import React, { useState } from 'react';
+import { 
+  X, Calendar, User, Truck, Package, Layers, FileText, 
+  FileSpreadsheet, Check, CheckCircle2, Factory, Clock, 
+  ArrowRight, ShieldCheck, Edit3, Trash2, Zap, Sparkles, 
+  Eye, Download, ExternalLink, Camera, Lock
+} from 'lucide-react';
 import { JobWorkChallan, JobWorkReturningItem, Vendor } from "@/src/features/store/types/store.types";
 import { generateDocument } from '@/src/utils/documentHelper';
+import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
+import { apiDelete } from '@/src/lib/api';
+import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
+import { getSafeBlobUrl, openSafeUrlInNewTab, downloadDataUrl } from '@/src/utils/dataUrlHelper';
+import EditJobWorkReturnModal from './EditJobWorkReturnModal';
 
 interface JobWorkPreviewModalProps {
     isOpen: boolean;
@@ -10,6 +20,8 @@ interface JobWorkPreviewModalProps {
     vendors?: Vendor[];
     jobWorkSuppliers?: any[];
     companyInfo?: any;
+    token?: string | null;
+    onRefresh?: () => void;
     onEdit?: (challan: JobWorkChallan) => void;
     onReceive?: (challan: JobWorkChallan) => void;
     onDelete?: (id: string) => void;
@@ -22,10 +34,17 @@ export default function JobWorkPreviewModal({
     vendors = [],
     jobWorkSuppliers = [],
     companyInfo,
+    token,
+    onRefresh,
     onEdit,
     onReceive,
     onDelete
 }: JobWorkPreviewModalProps) {
+    const { getPolicyHours, getRemainingSeconds, isTimeLockExpired, formatRemainingTime } = useTimeLockPolicy(token);
+
+    const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+    const [previewPdfModal, setPreviewPdfModal] = useState<{ url: string; filename: string } | null>(null);
+    const [editingReceipt, setEditingReceipt] = useState<any | null>(null);
     if (!isOpen || !challan) return null;
 
     // Resolve full vendor object
@@ -251,40 +270,52 @@ export default function JobWorkPreviewModal({
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                                            {challan.items.map((item, idx) => (
-                                                <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                                                    <td className="px-4 py-3.5 text-xs text-slate-400 font-mono font-bold">{idx + 1}</td>
-                                                    <td className="px-4 py-3.5">
-                                                        <div className="font-bold text-slate-900 dark:text-white">{item.itemName}</div>
-                                                        {item.description && (
-                                                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">{item.description}</div>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-4 py-3.5 text-center font-bold text-slate-800 dark:text-slate-200">
-                                                        {item.quantitySent} <span className="text-xs text-slate-400">{item.unit}</span>
-                                                    </td>
-                                                    <td className="px-4 py-3.5 text-xs text-slate-600 dark:text-slate-300">
-                                                        <span className="font-semibold text-slate-800 dark:text-slate-200">🎯 {item.purpose || item.processType || challan.purpose || 'Job Work'}</span>
-                                                        {item.itemType && (
-                                                            <span className="ml-2 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-500 uppercase">{item.itemType}</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-4 py-3.5 text-right text-xs">
-                                                        {(item.processRate || item.unitPrice) ? (
-                                                            <>
-                                                                <div className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
-                                                                    ₹{Number(item.processRate != null ? item.processRate : item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {item.unit || 'PCS'}
-                                                                </div>
-                                                                <div className="text-[11px] text-slate-400 font-mono">
-                                                                    ₹{(Number(item.quantitySent || 0) * Number(item.processRate != null ? item.processRate : item.unitPrice || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                                </div>
-                                                            </>
-                                                        ) : (
-                                                            <span className="text-slate-400">-</span>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
+                                            {challan.items.map((item, idx) => {
+                                                const isSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit && item.selectedUnit === item.secondaryUnit);
+                                                const activeQty = isSec
+                                                    ? (Number(item.secondaryQuantitySent) || (Number(item.quantitySent || 0) * Number(item.conversionFactor || 1)))
+                                                    : Number(item.quantitySent || 0);
+                                                const activeUnit = isSec ? item.secondaryUnit : (item.unit || 'PCS');
+                                                const rate = Number(item.processRate != null ? item.processRate : item.unitPrice || 0);
+                                                const lineVal = item.processAmount != null && Number(item.processAmount) > 0
+                                                    ? Number(item.processAmount)
+                                                    : (activeQty * rate);
+
+                                                return (
+                                                    <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+                                                        <td className="px-4 py-3.5 text-xs text-slate-400 font-mono font-bold">{idx + 1}</td>
+                                                        <td className="px-4 py-3.5">
+                                                            <div className="font-bold text-slate-900 dark:text-white">{item.itemName}</div>
+                                                            {item.description && (
+                                                                <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">{item.description}</div>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-4 py-3.5 text-center font-bold text-slate-800 dark:text-slate-200">
+                                                            {activeQty} <span className="text-xs text-slate-400">{activeUnit}</span>
+                                                        </td>
+                                                        <td className="px-4 py-3.5 text-xs text-slate-600 dark:text-slate-300">
+                                                            <span className="font-semibold text-slate-800 dark:text-slate-200">🎯 {item.processType || (challan.purpose === 'Others' && challan.otherPurpose ? challan.otherPurpose : (item.purpose || challan.purpose || 'Job Work'))}</span>
+                                                            {item.itemType && (
+                                                                <span className="ml-2 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-500 uppercase">{item.itemType}</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-4 py-3.5 text-right text-xs">
+                                                            {rate > 0 ? (
+                                                                <>
+                                                                    <div className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
+                                                                        ₹{rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {activeUnit}
+                                                                    </div>
+                                                                    <div className="text-[11px] text-slate-400 font-mono">
+                                                                        ₹{lineVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </div>
+                                                                </>
+                                                            ) : (
+                                                                <span className="text-slate-400">-</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>
@@ -303,8 +334,14 @@ export default function JobWorkPreviewModal({
                                         {groups.map((grp, gIdx) => {
                                             const out = grp.assemblyOutputItem;
                                             if (!out) return null;
-                                            const expectedQty = Number(out.quantityToBeReceived) || 0;
-                                            const receivedQty = Number(out.quantityReceived) || 0;
+                                            const isOutSec = Boolean(out.hasSecondaryUnit && out.secondaryUnit && out.selectedUnit === out.secondaryUnit);
+                                            const expectedQty = isOutSec
+                                                ? (Number(out.secondaryQuantityToBeReceived) || (Number(out.quantityToBeReceived || 0) * Number(out.conversionFactor || 1)))
+                                                : Number(out.quantityToBeReceived || 0);
+                                            const outUnit = isOutSec ? out.secondaryUnit : (out.receivingUnit || 'PCS');
+                                            const receivedQty = isOutSec
+                                                ? Number(out.secondaryQuantityReceived || 0)
+                                                : Number(out.quantityReceived || 0);
                                             const pendingQty = Math.max(0, expectedQty - receivedQty);
 
                                             return (
@@ -358,7 +395,7 @@ export default function JobWorkPreviewModal({
                                                         <div className="bg-white/80 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-700">
                                                             <span className="text-[10px] uppercase font-bold text-slate-400 block">Expected Return Qty</span>
                                                             <div className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
-                                                                {expectedQty} <span className="text-xs font-semibold text-slate-400">{out.receivingUnit || 'PCS'}</span>
+                                                                {expectedQty} <span className="text-xs font-semibold text-slate-400">{outUnit}</span>
                                                             </div>
                                                         </div>
 
@@ -370,7 +407,7 @@ export default function JobWorkPreviewModal({
                                                                 </span>
                                                                 <span className="text-xs text-slate-400">/</span>
                                                                 <span className="text-sm font-black text-amber-600">
-                                                                    {pendingQty} rem
+                                                                    {pendingQty} {outUnit}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -428,11 +465,23 @@ export default function JobWorkPreviewModal({
                                                 }];
 
                                             return retList.map((ret, rIdx) => {
-                                                const expQty = Number(ret.quantityToBeReceived) || 0;
-                                                const recvQty = Number(ret.quantityReceived) || 0;
-                                                const pending = expQty - recvQty;
+                                                const isRetSec = Boolean(ret.hasSecondaryUnit && ret.secondaryUnit && ret.selectedUnit === ret.secondaryUnit);
+                                                const expQty = isRetSec
+                                                    ? (Number(ret.secondaryQuantityToBeReceived) || (Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : item.quantitySent) * Number(ret.conversionFactor || 1)))
+                                                    : Number(ret.quantityToBeReceived != null ? ret.quantityToBeReceived : item.quantitySent) || 0;
+                                                const activeRetUnit = isRetSec ? ret.secondaryUnit : (ret.receivingUnit || ret.unit || 'PCS');
+                                                const recvQty = isRetSec
+                                                    ? Number(ret.secondaryQuantityReceived || 0)
+                                                    : Number(ret.quantityReceived || 0);
+                                                const pending = Math.max(0, expQty - recvQty);
                                                 const retRate = Number(ret.processRate) || 0;
                                                 const retAmount = ret.processAmount ? Number(ret.processAmount) : (retRate * expQty);
+
+                                                const isItemSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit && item.selectedUnit === item.secondaryUnit);
+                                                const activeSentQty = isItemSec
+                                                    ? (Number(item.secondaryQuantitySent) || (Number(item.quantitySent || 0) * Number(item.conversionFactor || 1)))
+                                                    : Number(item.quantitySent || 0);
+                                                const activeSentUnit = isItemSec ? item.secondaryUnit : (item.unit || 'PCS');
 
                                                 return (
                                                     <tr key={`${idx}_${rIdx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
@@ -447,12 +496,7 @@ export default function JobWorkPreviewModal({
 
                                                         {rIdx === 0 && (
                                                             <td rowSpan={retList.length} className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-800 align-top">
-                                                                {item.quantitySent} <span className="text-xs text-slate-400">{item.unit}</span>
-                                                                {item.hasSecondaryUnit && item.secondaryUnit && (
-                                                                    <div className="text-[10px] text-slate-500 font-normal">
-                                                                        ↳ {item.secondaryQuantitySent} {item.secondaryUnit}
-                                                                    </div>
-                                                                )}
+                                                                {activeSentQty} <span className="text-xs text-slate-400">{activeSentUnit}</span>
                                                             </td>
                                                         )}
 
@@ -467,12 +511,7 @@ export default function JobWorkPreviewModal({
                                                         </td>
 
                                                         <td className="px-4 py-3.5 text-center font-bold text-slate-800 dark:text-slate-200">
-                                                            {expQty} <span className="text-xs text-slate-400">{ret.receivingUnit || 'PCS'}</span>
-                                                            {ret.hasSecondaryUnit && ret.secondaryUnit && (
-                                                                <div className="text-[10px] text-slate-500 font-normal">
-                                                                    ↳ {ret.secondaryQuantityToBeReceived} {ret.secondaryUnit}
-                                                                </div>
-                                                            )}
+                                                            {expQty} <span className="text-xs text-slate-400">{activeRetUnit}</span>
                                                         </td>
 
                                                         <td className="px-4 py-3.5 text-center font-bold text-emerald-600 dark:text-emerald-400">
@@ -526,6 +565,36 @@ export default function JobWorkPreviewModal({
                         </div>
                     )}
 
+                    {/* Section: Important Notes & Delivery Challan Conditions (Serial-Wise) */}
+                    {(() => {
+                        const noteItems = (challan.notes && Array.isArray(challan.notes) && challan.notes.filter(n => n && n.trim()).length > 0)
+                            ? challan.notes.filter(n => n && n.trim())
+                            : (challan.remarks ? [challan.remarks] : [
+                                "Material sent on Returnable Delivery Challan for job-work processing only and not for sale.",
+                                challan.expectedReturnDate 
+                                    ? `Please arrange to return the material back to us on or before ${new Date(challan.expectedReturnDate).toLocaleDateString('en-GB')}.`
+                                    : "Please process and return the finished items on or before the agreed expected delivery date.",
+                                "Process scrap, turnings, and rejections (if any) must be accounted for and returned along with the processed goods.",
+                                "Kindly quote our Delivery Challan number and date on all your return challans, delivery notes, and service invoices.",
+                                "The subcontractor/consignee shall be held liable for any loss, damage, or shortage while the material is under custody."
+                            ]);
+
+                        return (
+                            <div className="bg-slate-50 dark:bg-slate-800/60 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                                    <FileText size={15} className="text-indigo-500" /> Important Notes & Delivery Challan Conditions
+                                </span>
+                                <ol className="list-decimal list-inside space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
+                                    {noteItems.map((note, nIdx) => (
+                                        <li key={nIdx} className="leading-relaxed">
+                                            <span className="font-medium text-slate-800 dark:text-slate-200">{note}</span>
+                                        </li>
+                                    ))}
+                                </ol>
+                            </div>
+                        );
+                    })()}
+
                     {/* Receive History Timeline */}
                     {(challan as any).receiveHistory && (challan as any).receiveHistory.length > 0 && (
                         <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
@@ -538,11 +607,26 @@ export default function JobWorkPreviewModal({
                                     const grnNo = hist.grnNumber || `GRN-${i + 1}`;
                                     const isQcPending = hist.qcStatus === 'Pending';
                                     const isQcPassed = hist.qcStatus === 'Passed';
-                                    const isQcRejected = hist.qcStatus === 'Rejected';
+
+                                    const remainingReturnSecs = getRemainingSeconds(hist.date || (hist as any).createdAt, 'jobWorkReturn');
+                                    const isReturnActionable = isTimeLockExpired(hist.date || (hist as any).createdAt, 'jobWorkReturn') === false;
+
+                                    // Extract photos from both hist.photos and image documents
+                                    const receiptPhotos: string[] = [];
+                                    if (Array.isArray(hist.photos)) {
+                                        hist.photos.forEach((p: string) => { if (p && !receiptPhotos.includes(p)) receiptPhotos.push(p); });
+                                    }
+                                    if (Array.isArray(hist.documents)) {
+                                        hist.documents.forEach((d: any) => {
+                                            if ((d.fileType?.startsWith('image/') || d.url?.startsWith('data:image')) && !receiptPhotos.includes(d.url)) {
+                                                receiptPhotos.push(d.url);
+                                            }
+                                        });
+                                    }
 
                                     return (
-                                        <div key={i} className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
-                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div key={i} className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5">
+                                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
                                                 <div className="flex items-center gap-2">
                                                     <span className="font-mono text-xs font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
                                                         {grnNo}
@@ -552,9 +636,9 @@ export default function JobWorkPreviewModal({
                                                     </span>
                                                 </div>
 
-                                                <div className="flex items-center gap-2">
+                                                <div className="flex items-center gap-2 flex-wrap">
                                                     {hist.qcRequired && (
-                                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${
                                                             isQcPassed ? 'bg-emerald-100 text-emerald-800 border-emerald-200' :
                                                             isQcPending ? 'bg-amber-100 text-amber-800 border-amber-200' :
                                                             'bg-red-100 text-red-800 border-red-200'
@@ -563,12 +647,70 @@ export default function JobWorkPreviewModal({
                                                         </span>
                                                     )}
                                                     <span className="text-xs text-slate-400 font-mono">{new Date(hist.date).toLocaleString('en-GB')}</span>
+
+                                                    {/* Inward Return Edit / Delete Time-Lock Governance */}
+                                                    {isReturnActionable ? (
+                                                        <div className="flex items-center gap-1.5 ml-1 bg-amber-50/80 dark:bg-amber-950/40 px-2 py-0.5 rounded-lg border border-amber-200 dark:border-amber-800">
+                                                            <span className="text-[10px] font-mono font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1" title="Time window remaining to amend or delete this return record">
+                                                                <Clock size={11} className="text-amber-600 animate-pulse" />
+                                                                <span>{formatRemainingTime(remainingReturnSecs)}</span>
+                                                            </span>
+                                                            <span className="text-amber-300">|</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditingReceipt(hist)}
+                                                                className="p-1 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900 rounded transition-colors"
+                                                                title="Edit return document details & attachments"
+                                                            >
+                                                                <Edit3 size={12} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={async () => {
+                                                                    const confirmed = await showDestructiveConfirm({
+                                                                        title: "Delete Return Receipt",
+                                                                        text: `Are you sure you want to delete return receipt ${grnNo}? Inward quantities and stock counters will be safely rolled back.`,
+                                                                        confirmButtonText: "Yes, Delete & Rollback"
+                                                                    });
+                                                                    if (!confirmed) return;
+                                                                    try {
+                                                                        await apiDelete(`/api/store/jobwork/receive/${challan._id}/${hist._id}`, token!);
+                                                                        showSuccessToast("Return receipt deleted and stock rolled back successfully");
+                                                                        if (onRefresh) onRefresh();
+                                                                        onClose();
+                                                                    } catch (err: any) {
+                                                                        console.error(err);
+                                                                        showErrorDialog("Delete Failed", err.message || "Failed to delete return receipt");
+                                                                    }
+                                                                }}
+                                                                className="p-1 text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-900 rounded transition-colors"
+                                                                title="Delete and rollback inward receipt"
+                                                            >
+                                                                <Trash2 size={12} />
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 border border-slate-200 dark:border-slate-700 flex items-center gap-1" title={`Edit/Delete window expired (${getPolicyHours('jobWorkReturn')}h limit)`}>
+                                                            <Lock size={10} /> Locked ({getPolicyHours('jobWorkReturn')}h)
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
 
                                             {/* Extra GRN Metadata */}
-                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-slate-500 pt-1 border-t border-slate-100 dark:border-slate-800">
-                                                {hist.vendorDcNumber && <div>Vendor DC: <strong className="text-slate-700 dark:text-slate-300">{hist.vendorDcNumber}</strong></div>}
+                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-slate-500 pt-1">
+                                                {(hist.customerDcNumber || hist.vendorDcNumber) && (
+                                                    <div>
+                                                        DC: <strong className="text-slate-700 dark:text-slate-300 font-mono">#{hist.customerDcNumber || hist.vendorDcNumber}</strong>
+                                                        {hist.vendorInvoiceDate && <span className="text-[10px] text-slate-400 ml-1">({new Date(hist.vendorInvoiceDate).toLocaleDateString('en-GB')})</span>}
+                                                    </div>
+                                                )}
+                                                {hist.invoiceNumber && (
+                                                    <div>
+                                                        Invoice: <strong className="text-slate-700 dark:text-slate-300 font-mono">#{hist.invoiceNumber}</strong>
+                                                        {hist.invoiceDate && <span className="text-[10px] text-slate-400 ml-1">({new Date(hist.invoiceDate).toLocaleDateString('en-GB')})</span>}
+                                                    </div>
+                                                )}
                                                 {hist.vehicleNo && <div>Vehicle: <strong className="text-slate-700 dark:text-slate-300">{hist.vehicleNo}</strong></div>}
                                                 <div>Accepted: <strong className="text-emerald-600">{hist.acceptedQuantity !== undefined ? hist.acceptedQuantity : hist.quantity}</strong></div>
                                                 {hist.rejectedQuantity > 0 && <div>Rejected: <strong className="text-red-600">{hist.rejectedQuantity}</strong> ({hist.rejectionReason || 'Defect'})</div>}
@@ -579,20 +721,63 @@ export default function JobWorkPreviewModal({
                                                 ) : null}
                                             </div>
 
-                                            {/* Attached Documents */}
-                                            {Array.isArray(hist.documents) && hist.documents.length > 0 && (
-                                                <div className="flex flex-wrap gap-2 pt-1">
-                                                    {hist.documents.map((doc: any, dIdx: number) => (
-                                                        <a
-                                                            key={dIdx}
-                                                            href={doc.url}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-[11px] font-bold text-indigo-600 hover:underline bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded border border-indigo-100 dark:border-indigo-800 inline-flex items-center gap-1"
+                                            {/* Attached Documents & PDF */}
+                                            {((hist.pdfDocument && hist.pdfDocument.url) || (Array.isArray(hist.documents) && hist.documents.length > 0)) && (
+                                                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                                                    {hist.pdfDocument?.url && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setPreviewPdfModal({ url: hist.pdfDocument.url, filename: hist.pdfDocument.filename || 'Return_Document.pdf' })}
+                                                            className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-800/80 inline-flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
                                                         >
-                                                            📎 {doc.filename || 'Attachment'}
-                                                        </a>
-                                                    ))}
+                                                            <FileText size={13} className="text-rose-600" />
+                                                            <span>📄 View PDF: {hist.pdfDocument.filename || 'Document'}</span>
+                                                        </button>
+                                                    )}
+                                                    {Array.isArray(hist.documents) && hist.documents
+                                                        .filter((doc: any) => !hist.pdfDocument || doc.url !== hist.pdfDocument.url)
+                                                        .filter((doc: any) => !doc.fileType?.startsWith('image/') && !doc.url?.startsWith('data:image'))
+                                                        .map((doc: any, dIdx: number) => (
+                                                            <button
+                                                                key={dIdx}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (doc.url.toLowerCase().includes('.pdf') || doc.fileType === 'application/pdf' || doc.url.startsWith('data:application/pdf')) {
+                                                                        setPreviewPdfModal({ url: doc.url, filename: doc.filename || 'Document.pdf' });
+                                                                    } else {
+                                                                        openSafeUrlInNewTab(doc.url);
+                                                                    }
+                                                                }}
+                                                                className="text-[11px] font-bold text-indigo-600 hover:underline bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded border border-indigo-100 dark:border-indigo-800 inline-flex items-center gap-1 cursor-pointer"
+                                                            >
+                                                                📎 {doc.filename || 'Attachment'}
+                                                            </button>
+                                                        ))}
+                                                </div>
+                                            )}
+
+                                            {/* Received Goods Photos Gallery */}
+                                            {receiptPhotos.length > 0 && (
+                                                <div className="pt-1">
+                                                    <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1">
+                                                        <Camera size={12} className="text-teal-600" />
+                                                        <span>Received Goods Photos ({receiptPhotos.length})</span>
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {receiptPhotos.map((photoUrl: string, pIdx: number) => (
+                                                            <div 
+                                                                key={pIdx}
+                                                                onClick={() => setPreviewPhoto(photoUrl)}
+                                                                className="w-16 h-16 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden cursor-pointer hover:ring-2 hover:ring-teal-500 transition-all bg-slate-100 dark:bg-slate-800 shrink-0 group relative shadow-2xs"
+                                                                title="Click to view full image"
+                                                            >
+                                                                <img src={photoUrl} alt="Received Item" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                                                <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                                                                    <Eye size={13} />
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>
@@ -606,7 +791,7 @@ export default function JobWorkPreviewModal({
                 {/* Footer Buttons */}
                 <div className="p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-3 flex-shrink-0">
                     <div className="flex items-center gap-2">
-                        {onEdit && challan.status !== 'Partial' && challan.status !== 'Closed' && (
+                        {onEdit && challan.status !== 'Closed' && (
                             <button
                                 onClick={() => { onClose(); onEdit(challan); }}
                                 className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-semibold text-xs hover:bg-slate-100 transition-colors flex items-center gap-1.5"
@@ -614,7 +799,7 @@ export default function JobWorkPreviewModal({
                                 <Edit3 size={15} /> Edit Challan
                             </button>
                         )}
-                        {onDelete && challan.status !== 'Partial' && challan.status !== 'Closed' && (
+                        {onDelete && challan.status !== 'Closed' && (
                             <button
                                 onClick={() => { onClose(); onDelete(challan._id); }}
                                 className="px-4 py-2.5 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 border border-red-200 dark:border-red-800 rounded-xl font-semibold text-xs hover:bg-red-100 transition-colors flex items-center gap-1.5"
@@ -651,6 +836,95 @@ export default function JobWorkPreviewModal({
                 </div>
 
             </div>
+
+            {/* Photo Lightbox */}
+            {previewPhoto && (
+                <div 
+                    className="fixed inset-0 z-[270] flex items-center justify-center p-3 bg-black/90 backdrop-blur-sm"
+                    onClick={() => setPreviewPhoto(null)}
+                >
+                    <div className="relative max-w-3xl max-h-[85vh] p-2" onClick={(e) => e.stopPropagation()}>
+                        <img src={previewPhoto} alt="Received Item Preview" className="max-w-full max-h-[80vh] rounded-2xl object-contain" />
+                        <button
+                            onClick={() => setPreviewPhoto(null)}
+                            className="absolute top-3 right-3 p-1.5 bg-black/80 text-white rounded-full hover:bg-black"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* In-Modal PDF Viewer Dialog */}
+            {previewPdfModal && (
+                <div 
+                    className="fixed inset-0 z-[270] flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-sm"
+                    onClick={() => setPreviewPdfModal(null)}
+                >
+                    <div 
+                        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-slate-200 dark:border-slate-800"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="p-3.5 bg-slate-950 text-white flex justify-between items-center flex-shrink-0">
+                            <div className="flex items-center gap-2">
+                                <FileText size={18} className="text-rose-400" />
+                                <span className="font-bold text-sm truncate">{previewPdfModal.filename}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => downloadDataUrl(previewPdfModal.url, previewPdfModal.filename)}
+                                    className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors"
+                                    title="Download PDF"
+                                >
+                                    <Download size={15} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => openSafeUrlInNewTab(previewPdfModal.url)}
+                                    className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors"
+                                    title="Open in new tab"
+                                >
+                                    <ExternalLink size={15} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPreviewPdfModal(null)}
+                                    className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors"
+                                >
+                                    <X size={15} />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="p-2 flex-1 h-[75vh]">
+                            <iframe 
+                                src={getSafeBlobUrl(previewPdfModal.url)} 
+                                className="w-full h-full rounded-xl border-0 bg-slate-100 dark:bg-slate-800" 
+                                title="PDF Preview" 
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Return Receipt Modal */}
+            {editingReceipt && (
+                <EditJobWorkReturnModal
+                    isOpen={Boolean(editingReceipt)}
+                    onClose={() => setEditingReceipt(null)}
+                    onSuccess={() => {
+                        setEditingReceipt(null);
+                        showSuccessToast("Return receipt updated successfully");
+                        if (onRefresh) onRefresh();
+                        onClose();
+                    }}
+                    onError={(msg) => showErrorDialog("Update Failed", msg)}
+                    challanId={challan._id}
+                    receipt={editingReceipt}
+                    token={token || null}
+                />
+            )}
+
         </div>
     );
 }

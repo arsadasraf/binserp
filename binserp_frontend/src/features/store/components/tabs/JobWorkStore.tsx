@@ -793,7 +793,7 @@ export default function JobWorkStore({
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                     {filteredChallans.map((challan, idx) => {
                                         const remainingSecs = getRemainingEditSeconds(challan.createdAt || challan.date);
-                                        const isActionable = isEditAllowed(challan.createdAt || challan.date) && challan.status !== 'Closed' && challan.status !== 'Partial';
+                                        const isActionable = isEditAllowed(challan.createdAt || challan.date) && challan.status !== 'Closed';
                                         const isOverdue = challan.expectedReturnDate && new Date(challan.expectedReturnDate) < new Date() && challan.status !== 'Closed';
 
                                         // Material Sent Summary
@@ -1114,7 +1114,7 @@ export default function JobWorkStore({
                                                             </div>
                                                         ) : (
                                                             <span 
-                                                                title={challan.status === 'Closed' ? 'Challan is fully closed and locked' : challan.status === 'Partial' ? 'Challan has received items and cannot be edited' : `Action window expired (${getPolicyHours('jobWorkChallan')}h limit)`}
+                                                                title={challan.status === 'Closed' ? 'Challan is fully closed and locked' : `Action window expired (${getPolicyHours('jobWorkChallan')}h limit)`}
                                                                 className="px-2 py-1 bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 rounded-xl text-[10px] font-semibold inline-flex items-center gap-1 border border-slate-200 dark:border-slate-700"
                                                             >
                                                                 <Lock size={11} /> Locked
@@ -1134,7 +1134,7 @@ export default function JobWorkStore({
                     <div className="md:hidden flex flex-col gap-3 pb-28 sm:pb-20">
                         {filteredChallans.map((challan) => {
                             const remainingSecs = getRemainingEditSeconds(challan.createdAt || challan.date);
-                            const isActionable = isEditAllowed(challan.createdAt || challan.date) && challan.status !== 'Closed' && challan.status !== 'Partial';
+                            const isActionable = isEditAllowed(challan.createdAt || challan.date) && challan.status !== 'Closed';
                             const isOverdue = challan.expectedReturnDate && new Date(challan.expectedReturnDate) < new Date() && challan.status !== 'Closed';
 
                             const isAssembly = challan.operationMode === 'assembly';
@@ -1534,6 +1534,8 @@ export default function JobWorkStore({
                     vendors={vendors}
                     jobWorkSuppliers={jobWorkSuppliers}
                     companyInfo={companyInfo}
+                    token={token}
+                    onRefresh={fetchChallans}
                     onEdit={(c) => { setPrefillData(c); setIsPreviewOpen(false); setIsFormOpen(true); }}
                     onReceive={(c) => { setIsPreviewOpen(false); openReceiveModal(c); }}
                     onDelete={(id) => { setIsPreviewOpen(false); handleDelete(id, previewChallan.challanNumber); }}

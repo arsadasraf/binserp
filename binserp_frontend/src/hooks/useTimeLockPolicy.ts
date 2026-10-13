@@ -8,6 +8,7 @@ export const DEFAULT_TIME_LOCK_HOURS: Record<string, number> = {
   invoice: 24,
   purchasePo: 24,
   jobWorkChallan: 24,
+  jobWorkReturn: 1,
   rfqQuotation: 24,
   mrbDisposition: 24,
   mrpPlan: 24

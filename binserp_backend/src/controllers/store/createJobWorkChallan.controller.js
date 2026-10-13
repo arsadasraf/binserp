@@ -73,7 +73,10 @@ export const createJobWorkChallan = async (req, res) => {
       operationMode = "discrete",
       assemblyOutputItem,
       assemblyGroups,
-      items
+      items,
+      notes,
+      terms,
+      remarks
     } = req.body;
 
     // Validate Input
@@ -367,9 +370,14 @@ export const createJobWorkChallan = async (req, res) => {
 
           const retRate = Number(ret.processRate != null ? ret.processRate : (ret.rate != null ? ret.rate : 0)) || 0;
           const retQty = Number(ret.quantityToBeReceived) || 1;
+          const isRetSec = Boolean(ret.hasSecondaryUnit && ret.selectedUnit && ret.selectedUnit === ret.secondaryUnit);
+          const activeRetQty = isRetSec 
+            ? (Number(ret.secondaryQuantityToBeReceived) || (retQty * (Number(ret.conversionFactor) || 1))) 
+            : retQty;
+
           const retAmount = Number(ret.processAmount) != null && !isNaN(Number(ret.processAmount)) && Number(ret.processAmount) > 0 
             ? Number(ret.processAmount) 
-            : (retQty * retRate);
+            : (activeRetQty * retRate);
 
           const retDoc = {
             receivedItemName: finalRetName,
@@ -454,8 +462,11 @@ export const createJobWorkChallan = async (req, res) => {
       const convFactor = Number(item.conversionFactor) || 1;
       const secQtySent = Number(item.secondaryQuantitySent) || (hasSec ? (sentQtyNum * convFactor) : 0);
 
+      const isSentSec = Boolean(hasSec && item.selectedUnit && item.selectedUnit === secUnit);
+      const activeSentQty = isSentSec ? secQtySent : sentQtyNum;
+
       const totalReturningCharges = processedReturningItems.reduce((acc, r) => acc + (Number(r.processAmount) || 0), 0);
-      const effectiveProcAmount = totalReturningCharges > 0 ? totalReturningCharges : (sentQtyNum * rateValue);
+      const effectiveProcAmount = totalReturningCharges > 0 ? totalReturningCharges : (activeSentQty * rateValue);
 
       const processedItem = {
         itemName,
@@ -668,6 +679,9 @@ export const createJobWorkChallan = async (req, res) => {
       routeCardRef,
       status: "Open",
       items: processedItems,
+      notes: Array.isArray(notes) ? notes.filter(n => n && typeof n === 'string' && n.trim()) : (notes ? [notes] : []),
+      terms: Array.isArray(terms) ? terms : [],
+      remarks: remarks || "",
       createdBy: req.user?.id || req.user?._id
     });
 

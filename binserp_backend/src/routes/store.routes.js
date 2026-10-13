@@ -57,6 +57,8 @@ import {
   updateCompanyInfo,
   createJobWorkChallan,
   receiveJobWorkItems,
+  updateJobWorkReturnReceipt,
+  deleteJobWorkReturnReceipt,
   getAllJobWorkChallans,
   updateJobWorkChallan,
   deleteJobWorkChallan,
@@ -216,6 +218,8 @@ router.put("/company-info", upload.single("logo"), updateCompanyInfo);
 // Job Work Store routes
 router.post("/jobwork/create", createJobWorkChallan);
 router.put("/jobwork/receive/:id", receiveJobWorkItems);
+router.put("/jobwork/receive/:id/:receiptId", updateJobWorkReturnReceipt);
+router.delete("/jobwork/receive/:id/:receiptId", deleteJobWorkReturnReceipt);
 router.get("/jobwork/all", getAllJobWorkChallans);
 router.put("/jobwork/update/:id", updateJobWorkChallan);
 router.delete("/jobwork/delete/:id", deleteJobWorkChallan);

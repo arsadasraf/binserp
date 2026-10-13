@@ -3,8 +3,10 @@ export interface PurchaseBillItem {
   material?: any;
   consumable?: any;
   materialName: string;
+  serviceName?: string;
   description?: string;
   hsnCode?: string;
+  sacCode?: string;
   quantity: number;
   unit: string;
   secondaryQuantity?: number;
@@ -12,6 +14,8 @@ export interface PurchaseBillItem {
   selectedUnit?: string;
   rate: number;
   amount: number;
+  taxRate?: number;
+  taxAmount?: number;
 }
 
 export interface PaymentHistoryRecord {
@@ -49,7 +53,12 @@ export interface PurchaseBill {
   grnNumber?: string;
   grn?: any;
   grnCategory?: 'rm' | 'bo' | 'consumable' | 'other' | string;
-  billType?: 'material' | 'job-work-service';
+  billType?: 'material' | 'job-work-service' | 'other-service' | string;
+  serviceCategory?: string;
+  sacCode?: string;
+  jobWorkChallan?: any;
+  jobWorkChallanNumber?: string;
+  jobWorkGrnNumber?: string;
   items: PurchaseBillItem[];
   subtotal: number;
   taxRate: number;
@@ -58,6 +67,11 @@ export interface PurchaseBill {
   transportationCharges?: number;
   packingCharges?: number;
   grandTotal: number;
+  tdsApplicable?: boolean;
+  tdsSection?: string;
+  tdsRate?: number;
+  tdsAmount?: number;
+  netPayableAmount?: number;
   paymentTerms?: string;
   creditDays?: number;
   dueDate?: string;
