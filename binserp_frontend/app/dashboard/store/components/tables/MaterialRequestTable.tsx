@@ -1,5 +1,6 @@
 import React from 'react';
-import { BadgeCheck, XCircle, Clock, Eye, Calendar, ArrowRight, FileText } from 'lucide-react';
+import { BadgeCheck, XCircle, Clock, Eye, Calendar, ArrowRight, FileText, Lock } from 'lucide-react';
+import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 
 interface MaterialRequestTableProps {
     requests: any[];
@@ -9,6 +10,9 @@ interface MaterialRequestTableProps {
 }
 
 export default function MaterialRequestTable({ requests, onIssue, onReject, onView }: MaterialRequestTableProps) {
+    const { isApprovalRequired, getApproverDisplay } = useStoreApprovalSettings();
+    const approvalRequired = isApprovalRequired('materialRequest');
+    const approverDisplay = getApproverDisplay('materialRequest');
     if (!requests || requests.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl shadow-sm border border-gray-100 h-64">
@@ -38,23 +42,34 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                        {requests.map((request) => (
-                            <tr
-                                key={request._id}
-                                className="hover:bg-gray-50/80 transition-colors group cursor-pointer"
-                                onClick={() => onView(request)}
-                            >
-                                <td className="p-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 font-medium text-xs">
-                                            {request.items.length}
+                        {requests.map((request) => {
+                            const isApproved = request.status === 'Approved';
+                            const isIssueLocked = approvalRequired && !isApproved;
+
+                            return (
+                                <tr
+                                    key={request._id}
+                                    className="hover:bg-gray-50/80 transition-colors group cursor-pointer"
+                                    onClick={() => onView(request)}
+                                >
+                                    <td className="p-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 font-medium text-xs">
+                                                {request.items.length}
+                                            </div>
+                                            <div>
+                                                <div className="font-semibold text-gray-900">{request.requestNumber}</div>
+                                                <div className="flex items-center gap-1.5 mt-0.5">
+                                                    <span className="text-xs text-gray-500">{request.status}</span>
+                                                    {isIssueLocked && (
+                                                        <span className="text-[10px] text-amber-600 font-bold inline-flex items-center gap-0.5" title={`Ask ${approverDisplay} to approve`}>
+                                                            <Lock size={10} /> Needs {approverDisplay}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <div className="font-semibold text-gray-900">{request.requestNumber}</div>
-                                            <div className="text-xs text-gray-500">{request.status}</div>
-                                        </div>
-                                    </div>
-                                </td>
+                                    </td>
                                 <td className="p-4">
                                     {request.soNumber || request.salesOrder?.orderNumber ? (
                                         <span className="bg-indigo-50 text-indigo-700 border border-indigo-100 font-mono text-xs px-2.5 py-1 rounded-lg font-bold">
@@ -112,89 +127,127 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                         >
                                             <XCircle size={18} />
                                         </button>
-                                        <button
-                                            onClick={() => onIssue(request)}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm shadow-blue-200 text-xs font-medium transition-all"
-                                        >
-                                            Issue Items <ArrowRight size={14} />
-                                        </button>
+                                        {isIssueLocked ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => onIssue(request)}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 text-amber-800 border border-amber-300 rounded-lg hover:bg-amber-200 text-xs font-bold transition-all"
+                                                title={`Approval Required: Ask ${approverDisplay} to approve before issuing`}
+                                            >
+                                                <Lock size={13} className="text-amber-600" />
+                                                Ask to Approve
+                                            </button>
+                                        ) : (
+                                            <button
+                                                onClick={() => onIssue(request)}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm shadow-blue-200 text-xs font-medium transition-all"
+                                            >
+                                                Issue Items <ArrowRight size={14} />
+                                            </button>
+                                        )}
                                     </div>
                                 </td>
                             </tr>
-                        ))}
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
 
             {/* Mobile Card View */}
             <div className="md:hidden flex flex-col divide-y divide-gray-100">
-                {requests.map((request) => (
-                    <div
-                        key={request._id}
-                        className="p-4 flex flex-col gap-3 active:bg-gray-50"
-                        onClick={() => onView(request)}
-                    >
-                        {/* Card Header */}
-                        <div className="flex justify-between items-start">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 font-medium text-xs">
-                                    {request.items.length}
-                                </div>
-                                <div>
-                                    <div className="font-semibold text-gray-900">{request.requestNumber}</div>
-                                    <div className="flex items-center gap-2 mt-1">
-                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${request.type === 'inhouse'
-                                            ? 'bg-purple-50 text-purple-700 border-purple-100'
-                                            : 'bg-blue-50 text-blue-700 border-blue-100'
-                                            }`}>
-                                            {request.type === 'inhouse' ? 'Inhouse' : 'BO'}
-                                        </span>
-                                        <div className="text-xs text-gray-500 flex items-center gap-1">
-                                            <Calendar size={12} /> {new Date(request.createdAt).toLocaleDateString()}
+                {requests.map((request) => {
+                    const isApproved = request.status === 'Approved';
+                    const isIssueLocked = approvalRequired && !isApproved;
+
+                    return (
+                        <div
+                            key={request._id}
+                            className="p-4 flex flex-col gap-3 active:bg-gray-50"
+                            onClick={() => onView(request)}
+                        >
+                            {/* Card Header */}
+                            <div className="flex justify-between items-start">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 font-medium text-xs">
+                                        {request.items.length}
+                                    </div>
+                                    <div>
+                                        <div className="font-semibold text-gray-900">{request.requestNumber}</div>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${request.type === 'inhouse'
+                                                ? 'bg-purple-50 text-purple-700 border-purple-100'
+                                                : 'bg-blue-50 text-blue-700 border-blue-100'
+                                                }`}>
+                                                {request.type === 'inhouse' ? 'Inhouse' : 'BO'}
+                                            </span>
+                                            <div className="text-xs text-gray-500 flex items-center gap-1">
+                                                <Calendar size={12} /> {new Date(request.createdAt).toLocaleDateString()}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
+                                <div className="flex flex-col items-end gap-1">
+                                    <span className="px-2 py-1 rounded text-xs bg-gray-100 text-gray-600">{request.status}</span>
+                                    {isIssueLocked && (
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                                            <Lock size={10} className="text-amber-600" />
+                                            Needs {approverDisplay}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
-                            <span className="px-2 py-1 rounded text-xs bg-gray-100 text-gray-600">{request.status}</span>
-                        </div>
 
-                        {/* Requester & Items Hint */}
-                        <div className="text-sm border-l-2 border-blue-100 pl-3 py-1">
-                            <div className="text-gray-900 font-medium">{request.requestedBy?.name || 'Unknown'}</div>
-                            <div className="text-gray-500 text-xs">{request.requestedBy?.email}</div>
-                            <div className="mt-2 flex flex-wrap gap-1">
-                                {request.items.slice(0, 3).map((item: any, i: number) => (
-                                    <span key={i} className="text-xs bg-gray-50 text-gray-600 px-1.5 py-0.5 rounded border border-gray-100">
-                                        {item.materialName}
-                                    </span>
-                                ))}
-                                {request.items.length > 3 && <span className="text-xs text-gray-400">+{request.items.length - 3}</span>}
+                            {/* Requester & Items Hint */}
+                            <div className="text-sm border-l-2 border-blue-100 pl-3 py-1">
+                                <div className="text-gray-900 font-medium">{request.requestedBy?.name || 'Unknown'}</div>
+                                <div className="text-gray-500 text-xs">{request.requestedBy?.email}</div>
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                    {request.items.slice(0, 3).map((item: any, i: number) => (
+                                        <span key={i} className="text-xs bg-gray-50 text-gray-600 px-1.5 py-0.5 rounded border border-gray-100">
+                                            {item.materialName}
+                                        </span>
+                                    ))}
+                                    {request.items.length > 3 && <span className="text-xs text-gray-400">+{request.items.length - 3}</span>}
+                                </div>
+                            </div>
+
+                            {/* Card Actions */}
+                            <div className="flex items-center gap-2 pt-2" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                    onClick={() => onView(request)}
+                                    className="flex-1 py-2 text-gray-600 bg-gray-50 rounded-lg text-xs font-medium flex justify-center items-center gap-1"
+                                >
+                                    <Eye size={14} /> View
+                                </button>
+                                <button
+                                    onClick={() => onReject(request)}
+                                    className="flex-1 py-2 text-red-600 bg-red-50 rounded-lg text-xs font-medium flex justify-center items-center gap-1"
+                                >
+                                    <XCircle size={14} /> Reject
+                                </button>
+                                {isIssueLocked ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => onIssue(request)}
+                                        className="flex-[2] py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold flex justify-center items-center gap-1 shadow-sm"
+                                        title={`Requires approval by ${approverDisplay}`}
+                                    >
+                                        <Lock size={13} className="text-amber-600" />
+                                        Ask to Approve
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={() => onIssue(request)}
+                                        className="flex-[2] py-2 text-white bg-blue-600 rounded-lg text-xs font-medium flex justify-center items-center gap-1 shadow-sm shadow-blue-200"
+                                    >
+                                        Issue <ArrowRight size={14} />
+                                    </button>
+                                )}
                             </div>
                         </div>
-
-                        {/* Card Actions */}
-                        <div className="flex items-center gap-2 pt-2" onClick={(e) => e.stopPropagation()}>
-                            <button
-                                onClick={() => onView(request)}
-                                className="flex-1 py-2 text-gray-600 bg-gray-50 rounded-lg text-xs font-medium flex justify-center items-center gap-1"
-                            >
-                                <Eye size={14} /> View
-                            </button>
-                            <button
-                                onClick={() => onReject(request)}
-                                className="flex-1 py-2 text-red-600 bg-red-50 rounded-lg text-xs font-medium flex justify-center items-center gap-1"
-                            >
-                                <XCircle size={14} /> Reject
-                            </button>
-                            <button
-                                onClick={() => onIssue(request)}
-                                className="flex-[2] py-2 text-white bg-blue-600 rounded-lg text-xs font-medium flex justify-center items-center gap-1 shadow-sm shadow-blue-200"
-                            >
-                                Issue <ArrowRight size={14} />
-                            </button>
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );

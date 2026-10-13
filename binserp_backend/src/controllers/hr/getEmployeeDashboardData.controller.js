@@ -1,10 +1,9 @@
-import { employeeSchema, attendanceSchema, departmentSchema, designationSchema, skillSchema, employeeTypeSchema, salarySchema, employeeJobSchema } from "../../models/hr/index.js";
+import { employeeSchema, attendanceSchema, departmentSchema, designationSchema, skillSchema, employeeTypeSchema, salarySchema, employeeJobSchema, holidaySchema } from "../../models/hr/index.js";
 import { hrPrefixSettingsSchema } from "../../models/hrPrefix/index.js";
 import { jobSchema, manpowerSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import mongoose from "mongoose";
 
-// Helper to get company ID from request
 // Helper to get company ID from request
 const getCompanyId = (req) => {
   if (req.company) return req.company._id;
@@ -26,9 +25,6 @@ const getCompanyLoginId = (req) => {
 
 // ========== EMPLOYEE MANAGEMENT ==========
 
-// Create Employee
-// Create Employee
-
 export const getEmployeeDashboardData = async (req, res) => {
   try {
     const companyId = getCompanyId(req);
@@ -41,16 +37,43 @@ export const getEmployeeDashboardData = async (req, res) => {
 
     // Models
     const Attendance = req.getModel('Attendance', attendanceSchema);
-    const EmployeeJob = req.getModel('EmployeeJob', employeeJobSchema); // NEW
+    const EmployeeJob = req.getModel('EmployeeJob', employeeJobSchema);
     const Job = req.getModel('Job', jobSchema);
     const Salary = req.getModel('Salary', salarySchema);
+    const Holiday = req.getModel('Holiday', holidaySchema);
+    const Employee = req.getModel('Employee', employeeSchema);
 
-    // 1. Fetch Recent Attendance (Last 30 days)
-    const recentAttendance = await Attendance.find({
+    const employeeDoc = await Employee.findById(employeeId);
+
+    // 1. Fetch Full Monthly Attendance for at least the Last 3 Calendar Months + Current Month
+    const now = new Date();
+    // Default window: from the 1st of 3 months ago until end of the current month
+    let queryStartDate = new Date(now.getFullYear(), now.getMonth() - 3, 1, 0, 0, 0, 0);
+    let queryEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    if (req.query.startDate && req.query.endDate) {
+      queryStartDate = new Date(req.query.startDate);
+      queryEndDate = new Date(req.query.endDate);
+      queryEndDate.setHours(23, 59, 59, 999);
+    } else if (req.query.month) {
+      const [mYear, mMonth] = req.query.month.split('-').map(Number);
+      const reqStart = new Date(mYear, mMonth - 1, 1, 0, 0, 0, 0);
+      const reqEnd = new Date(mYear, mMonth, 0, 23, 59, 59, 999);
+      if (reqStart < queryStartDate) queryStartDate = reqStart;
+      if (reqEnd > queryEndDate) queryEndDate = reqEnd;
+    }
+
+    const attendanceRecords = await Attendance.find({
       company: companyId,
       employee: employeeId,
-      date: { $gte: new Date(new Date().setDate(new Date().getDate() - 30)) }
+      date: { $gte: queryStartDate, $lte: queryEndDate }
     }).sort({ date: -1 });
+
+    const holidays = await Holiday.find({
+      company: companyId,
+      isActive: true,
+      date: { $gte: queryStartDate, $lte: queryEndDate }
+    });
 
     // 2. Fetch Assigned Work (Jobs where assignedEmployee match OR assignedManpower contains employee)
     // Note: PPC Job schema usually has `assignedManpower` array linking to `Manpower` schema which links to `Employee`.
@@ -107,13 +130,17 @@ export const getEmployeeDashboardData = async (req, res) => {
     res.status(200).json({
       employee: {
         _id: req.user._id,
-        name: req.user.name,
-        designation: req.user.designation,
-        department: req.user.department,
-        joiningDate: req.user.joiningDate,
-        photo: req.user.photo
+        employeeId: employeeDoc?.employeeId || req.user.employeeId,
+        name: employeeDoc?.name || req.user.name,
+        designation: employeeDoc?.designation || req.user.designation,
+        department: employeeDoc?.department || req.user.department,
+        joiningDate: employeeDoc?.joiningDate || req.user.joiningDate,
+        weeklyOff: employeeDoc?.weeklyOff || 'Sunday',
+        photo: employeeDoc?.photo || req.user.photo
       },
-      attendance: recentAttendance,
+      weeklyOff: employeeDoc?.weeklyOff || 'Sunday',
+      holidays: holidays || [],
+      attendance: attendanceRecords,
       assignedJobs: [...assignedJobsDirect, ...myJobs],
       employeeJobs: assignedJobsDirect,
       ppcJobs: myJobs,

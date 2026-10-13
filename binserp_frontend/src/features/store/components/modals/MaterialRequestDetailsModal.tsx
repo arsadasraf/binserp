@@ -12,10 +12,11 @@ interface MaterialRequestDetailsModalProps {
     onClose: () => void;
     request: any;
     onApprove?: (requestId: string) => Promise<void>;
+    onIssue?: (request: any) => void;
     storeData?: any;
 }
 
-export default function MaterialRequestDetailsModal({ isOpen, onClose, request, onApprove, storeData }: MaterialRequestDetailsModalProps) {
+export default function MaterialRequestDetailsModal({ isOpen, onClose, request, onApprove, onIssue, storeData }: MaterialRequestDetailsModalProps) {
     const [currentRequest, setCurrentRequest] = useState<any>(request);
     const [isApproving, setIsApproving] = useState(false);
 
@@ -23,7 +24,7 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
         setCurrentRequest(request);
     }, [request]);
 
-    const { isApprovalRequired, canUserApprove, getApproverNames } = useStoreApprovalSettings();
+    const { isApprovalRequired, canUserApprove, getApproverNames, getApproverDisplay } = useStoreApprovalSettings();
     const currentUser = useMemo(() => {
         try {
             const raw = typeof window !== 'undefined' ? localStorage.getItem('userInfo') : null;
@@ -42,12 +43,14 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
     const isApproved = currentRequest.status === 'Approved' || currentRequest.status === 'Issued';
     const isPdfLocked = approvalRequired && !isApproved;
     const userCanApprove = canUserApprove('materialRequest', currentUser, userType);
+    const approverDisplay = getApproverDisplay('materialRequest');
 
     const handleApproveAction = async () => {
         if (!userCanApprove) {
-            const approvers = getApproverNames('materialRequest');
-            const approversMsg = approvers.length > 0 ? `Authorized approvers: ${approvers.join(', ')}` : "Contact company management.";
-            await showWarningDialog("Approval Permission Denied", `You do not have permission to approve this Material Request. ${approversMsg}`);
+            await showWarningDialog(
+                "Approval Restricted",
+                `Only ${approverDisplay} can approve this Material Request. Please ask ${approverDisplay} to approve it.`
+            );
             return;
         }
 
@@ -144,6 +147,42 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                 </div>
 
                 <div className="p-6 space-y-6">
+                    {/* Approval Status Banner if approval workflow is active */}
+                    {approvalRequired && (
+                        <div className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+                            isApproved
+                                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                                : userCanApprove
+                                    ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 text-indigo-800 dark:text-indigo-300'
+                                    : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+                        }`}>
+                            <div className="flex items-center gap-2.5 text-xs">
+                                <ShieldCheck size={18} className={isApproved ? 'text-emerald-600' : userCanApprove ? 'text-indigo-600' : 'text-amber-600'} />
+                                <div>
+                                    <div className="font-bold text-sm">
+                                        {isApproved ? 'Material Request Approved' : 'Approval Workflow Active'}
+                                    </div>
+                                    <div className="text-[11px] opacity-90 mt-0.5">
+                                        {isApproved ? (
+                                            <span>Approved by <strong>{currentRequest.approvedByName || currentRequest.approvedBy?.name || 'Authorized Approver'}</strong></span>
+                                        ) : (
+                                            <span>Designated Approver: <strong className="underline">{approverDisplay}</strong>. Only this user is authorized to approve this request.</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            {!isApproved && (
+                                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 ${
+                                    userCanApprove
+                                        ? 'bg-indigo-200/70 dark:bg-indigo-900/60 text-indigo-900 dark:text-indigo-200'
+                                        : 'bg-amber-200/70 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200'
+                                }`}>
+                                    {userCanApprove ? 'You can approve this request' : `Pending: ${approverDisplay}`}
+                                </span>
+                            )}
+                        </div>
+                    )}
+
                     {/* Metadata Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="p-3.5 bg-gray-50 dark:bg-gray-800/60 rounded-2xl border border-gray-100 dark:border-gray-800">
@@ -334,20 +373,28 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                     <div className="flex items-center gap-2">
                         {/* Approve Requisition Button */}
                         {currentRequest.status === 'Pending' && (
-                            <button
-                                type="button"
-                                onClick={handleApproveAction}
-                                disabled={isApproving}
-                                className={`px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer ${
-                                    userCanApprove 
-                                        ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-emerald-600/20' 
-                                        : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
-                                }`}
-                                title={userCanApprove ? "Approve Material Requisition" : "Only designated approvers or administrators can approve"}
-                            >
-                                <CheckCircle2 size={15} />
-                                <span>{isApproving ? 'Approving...' : 'Approve Requisition'}</span>
-                            </button>
+                            userCanApprove ? (
+                                <button
+                                    type="button"
+                                    onClick={handleApproveAction}
+                                    disabled={isApproving}
+                                    className="px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-emerald-600/20"
+                                    title="Approve Material Requisition"
+                                >
+                                    <CheckCircle2 size={15} />
+                                    <span>{isApproving ? 'Approving...' : 'Approve Requisition'}</span>
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={handleApproveAction}
+                                    className="px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
+                                    title={`Only ${approverDisplay} can approve. Click to view instructions.`}
+                                >
+                                    <Lock size={14} className="text-amber-600 dark:text-amber-400" />
+                                    <span>Ask {approverDisplay} to Approve</span>
+                                </button>
+                            )
                         )}
 
                         {/* PDF Generator Button */}
@@ -371,6 +418,34 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                                 <span>Print / Save PDF Slip</span>
                             </button>
                         )}
+
+                        {onIssue && (currentRequest.status === 'Approved' || currentRequest.status === 'Pending') && (() => {
+                            const isIssueLocked = approvalRequired && currentRequest.status !== 'Approved';
+                            return (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (isIssueLocked) {
+                                            showWarningDialog(
+                                                "Approval Required",
+                                                `Material Request #${currentRequest.requestNumber} must be approved by ${approverDisplay} before materials can be issued. Please ask ${approverDisplay} to approve it first.`
+                                            );
+                                            return;
+                                        }
+                                        onIssue(currentRequest);
+                                    }}
+                                    className={`px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                                        isIssueLocked
+                                            ? 'bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                                            : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-blue-600/20'
+                                    }`}
+                                    title={isIssueLocked ? `Ask ${approverDisplay} to approve before issuing materials` : "Issue materials for this request"}
+                                >
+                                    {isIssueLocked ? <Lock size={14} className="text-amber-600 dark:text-amber-400" /> : <Package size={15} />}
+                                    <span>{isIssueLocked ? 'Ask to Approve' : 'Issue Material'}</span>
+                                </button>
+                            );
+                        })()}
                     </div>
                 </div>
             </div>

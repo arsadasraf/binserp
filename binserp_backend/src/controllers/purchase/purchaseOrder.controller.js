@@ -1,5 +1,5 @@
 import { purchaseOrderSchema, mrpPlanSchema } from "../../models/purchase/index.js";
-import { vendorSchema, grnSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema } from "../../models/store/index.js";
+import { vendorSchema, grnSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema, storePrefixSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
@@ -654,10 +654,47 @@ export const updatePO = asyncHandler(async (req, res) => {
     }
   }
 
+  // Check Approval Governance from Store Settings
+  if (req.body.status === "Approved" && existingPO.status !== "Approved") {
+    try {
+      const StorePrefix = req.getModel('StorePrefix', storePrefixSchema);
+      const prefixDoc = await StorePrefix.findOne({ company: companyId }).lean();
+      const poApproval = prefixDoc?.approvalSettings?.outwardPo;
+
+      if (poApproval?.enabled && !poApproval.allowAllUsers) {
+        const approvers = Array.isArray(poApproval.approvers) ? poApproval.approvers.map(String) : [];
+        const approverNames = Array.isArray(poApproval.approverNames) ? poApproval.approverNames : [];
+        const currentUserId = String(req.user?.id || req.user?._id || '');
+        const currentUserName = (req.user?.name || req.user?.username || '').trim().toLowerCase();
+        const currentUserEmail = (req.user?.email || '').trim().toLowerCase();
+
+        const isIdMatch = approvers.includes(currentUserId);
+        const isNameMatch = approverNames.some(n => {
+          const low = n.trim().toLowerCase();
+          return low === currentUserName || low === currentUserEmail;
+        });
+
+        if (!isIdMatch && !isNameMatch) {
+          const approverLabel = approverNames.length > 0 ? approverNames.join(', ') : "the designated approver";
+          throw new ApiError(403, `Only ${approverLabel} can approve this Outward Purchase Order. Please ask ${approverLabel} to approve it.`);
+        }
+      }
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      console.warn("Approval governance check error in PO update:", err);
+    }
+  }
+
   const updateData = { ...req.body };
   delete updateData.newFollowUp; // Handled separately via $push
   updateData.updatedBy = req.user?.id || req.user?._id;
   updateData.updatedByName = userName;
+
+  if (req.body.status === "Approved") {
+    updateData.approvedBy = req.user?.id || req.user?._id;
+    updateData.approvedByName = userName;
+    updateData.approvedAt = new Date();
+  }
 
   if (req.body.vendor) {
     updateData.vendor = isValidObjectId(req.body.vendor) ? req.body.vendor : existingPO.vendor;

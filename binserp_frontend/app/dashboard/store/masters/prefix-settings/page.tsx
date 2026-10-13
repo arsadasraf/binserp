@@ -1011,10 +1011,17 @@ export default function PrefixSettingsPage() {
                                       </button>
                                     </span>
                                   ))}
-                                  {(!mrPolicy.approverNames || mrPolicy.approverNames.length === 0) && (
+                                  {(!mrPolicy.approverNames || mrPolicy.approverNames.length === 0) ? (
                                     <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium italic">
-                                      No approvers selected. Company Admins & GMs will retain approval rights.
+                                      No approver selected. Please select a designated user.
                                     </span>
+                                  ) : (
+                                    <div className="w-full p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5 mt-1">
+                                      <ShieldCheck size={13} className="text-emerald-600 shrink-0" />
+                                      <span>
+                                        <strong>Strict Approval Active:</strong> Only <strong>{mrPolicy.approverNames.join(', ')}</strong> can approve. Other users will be prompted to request approval from this user.
+                                      </span>
+                                    </div>
                                   )}
                                 </div>
                               </div>
@@ -1168,10 +1175,17 @@ export default function PrefixSettingsPage() {
                                       </button>
                                     </span>
                                   ))}
-                                  {(!poPolicy.approverNames || poPolicy.approverNames.length === 0) && (
+                                  {(!poPolicy.approverNames || poPolicy.approverNames.length === 0) ? (
                                     <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium italic">
-                                      No approvers selected. Company Admins & GMs will retain approval rights.
+                                      No approver selected. Please select a designated user.
                                     </span>
+                                  ) : (
+                                    <div className="w-full p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5 mt-1">
+                                      <ShieldCheck size={13} className="text-emerald-600 shrink-0" />
+                                      <span>
+                                        <strong>Strict Approval Active:</strong> Only <strong>{poPolicy.approverNames.join(', ')}</strong> can approve. Other users will be prompted to request approval from this user.
+                                      </span>
+                                    </div>
                                   )}
                                 </div>
                               </div>

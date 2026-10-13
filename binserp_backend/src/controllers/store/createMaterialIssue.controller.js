@@ -212,8 +212,8 @@ export const createMaterialIssue = async (req, res) => {
     // Auto-resolve recipient if missing
     const finalIssuedTo = (issuedTo && isValidObjectId(issuedTo.toString())) ? issuedTo.toString() : req.user.id;
 
-    // Inherit MRP Plan & Number from Material Request if linked and missing
-    if (materialRequest && (!mrpPlan || !mrpNumber)) {
+    // Approval governance & MRP resolution if linked to Material Request
+    if (materialRequest) {
       try {
         const MaterialRequest = req.getModel('MaterialRequest', materialRequestSchema);
         const reqDoc = await MaterialRequest.findById(materialRequest);
@@ -221,9 +221,22 @@ export const createMaterialIssue = async (req, res) => {
           if (!mrpPlan && reqDoc.mrpPlan) mrpPlan = reqDoc.mrpPlan;
           if (!mrpNumber && reqDoc.mrpNumber) mrpNumber = reqDoc.mrpNumber;
           if (!requestNumber && reqDoc.requestNumber) requestNumber = reqDoc.requestNumber;
+
+          // Check approval governance from Store Settings
+          const StorePrefix = req.getModel('StorePrefix', storePrefixSchema);
+          const prefixDoc = await StorePrefix.findOne({ company: companyId }).lean();
+          const mrApproval = prefixDoc?.approvalSettings?.materialRequest;
+
+          if (mrApproval?.enabled && reqDoc.status !== 'Approved') {
+            const approverNames = Array.isArray(mrApproval.approverNames) ? mrApproval.approverNames : [];
+            const approverLabel = approverNames.length > 0 ? approverNames.join(', ') : "the designated approver";
+            return res.status(403).json({
+              message: `Cannot issue material: Material Request #${reqDoc.requestNumber || ''} is not approved. Please ask ${approverLabel} to approve it before issuing material.`
+            });
+          }
         }
       } catch (err) {
-        console.warn("Could not populate MRP from materialRequest in createMaterialIssue:", err);
+        console.warn("Could not check approval / populate MRP from materialRequest in createMaterialIssue:", err);
       }
     }
 

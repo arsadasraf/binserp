@@ -7,7 +7,8 @@ import MaterialIssueHistoryTable, { resolveIssueType } from '../tables/MaterialI
 import MaterialRequestModal from '../modals/MaterialRequestModal';
 import MaterialRequestDetailsModal from '../modals/MaterialRequestDetailsModal';
 import MaterialIssueDetailsModal from '../modals/MaterialIssueDetailsModal';
-import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
+import { showDestructiveConfirm, showSuccessToast, showErrorDialog, showWarningDialog } from '@/src/features/store/utils/storeDialogHelper';
+import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 
 export type RequestTypeOption = 'rm' | 'bo' | 'consumable' | 'fg';
 
@@ -43,6 +44,10 @@ interface MaterialIssueTabProps {
 }
 
 export default function MaterialIssueTab({ storeData, token, activeSubTab, requestTypeFilter = 'all', title, description }: MaterialIssueTabProps) {
+    const { isApprovalRequired, getApproverDisplay } = useStoreApprovalSettings();
+    const approvalRequired = isApprovalRequired('materialRequest');
+    const approverDisplay = getApproverDisplay('materialRequest');
+
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
     const [viewRequest, setViewRequest] = useState<any>(null);
     const [viewIssue, setViewIssue] = useState<any>(null);
@@ -277,6 +282,15 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
     };
 
     const handleIssueRequest = async (request: any) => {
+        // Pre-Flight Approval Check: If approval workflow is active, request MUST be approved
+        if (approvalRequired && request.status !== 'Approved') {
+            await showWarningDialog(
+                "Approval Required",
+                `Material Request #${request.requestNumber} must be approved by ${approverDisplay} before materials can be issued. Please ask ${approverDisplay} to approve it first.`
+            );
+            return;
+        }
+
         // Pre-Flight Live Stock Check: Inspect warehouse inventory for every requested item
         const stockEval = evaluateRequestStock(request, storeData);
         if (stockEval.hasShortage) {
@@ -774,6 +788,13 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                 onClose={() => setViewRequest(null)}
                 request={viewRequest}
                 storeData={storeData}
+                onApprove={async (id) => {
+                    await updateMaterialRequest(id, { status: 'Approved' });
+                }}
+                onIssue={(req) => {
+                    setViewRequest(null);
+                    handleIssueRequest(req);
+                }}
             />
 
             <MaterialIssueDetailsModal

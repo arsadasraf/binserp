@@ -97,18 +97,13 @@ export function useStoreApprovalSettings(token?: string | null) {
     const policy = settings[docType];
     if (!policy || !policy.enabled) return true; // No approval required
     
-    // Admin, company, or saasadmin always has approval rights
-    if (userType === 'company' || userType === 'saasadmin') return true;
-    const roleName = user?.role?.name || '';
-    if (roleName === 'GM' || roleName === 'Admin Default Role' || roleName === 'Company Management') return true;
-
     // If configured to allow all users
     if (policy.allowAllUsers) return true;
 
-    // If specific approvers configured
+    // Strict Mode: ONLY the designated user(s) given in Store Settings can approve.
+    // All other users (including admins and managers) must request approval from this user.
     const userId = user?._id || user?.id;
-    if (!userId) return false;
-    const userIdStr = String(userId);
+    const userIdStr = userId ? String(userId) : '';
 
     const isMatch = (policy.approvers || []).some(id => String(id) === userIdStr);
     if (isMatch) return true;
@@ -118,12 +113,18 @@ export function useStoreApprovalSettings(token?: string | null) {
     const userEmail = (user?.email || '').trim().toLowerCase();
     return (policy.approverNames || []).some(name => {
       const n = name.trim().toLowerCase();
-      return n === userName || n === userEmail;
+      return (Boolean(userName) && n === userName) || (Boolean(userEmail) && n === userEmail);
     });
   }, [settings]);
 
   const getApproverNames = useCallback((docType: 'materialRequest' | 'outwardPo'): string[] => {
     return settings[docType]?.approverNames || [];
+  }, [settings]);
+
+  const getApproverDisplay = useCallback((docType: 'materialRequest' | 'outwardPo'): string => {
+    const names = settings[docType]?.approverNames || [];
+    if (names.length > 0) return names.join(', ');
+    return 'Authorized Approver';
   }, [settings]);
 
   return {
@@ -132,7 +133,8 @@ export function useStoreApprovalSettings(token?: string | null) {
     refreshApprovalSettings: fetchSettings,
     isApprovalRequired,
     canUserApprove,
-    getApproverNames
+    getApproverNames,
+    getApproverDisplay
   };
 }
 

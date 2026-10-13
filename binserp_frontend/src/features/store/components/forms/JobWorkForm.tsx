@@ -611,11 +611,11 @@ export default function JobWorkForm({
         }
     }, [isOpen, initialData]);
 
-    // Helper to auto-sync 1:1 same returning item for WIP-to-WIP
+    // Helper to auto-sync 1:1 same returning item across all workflow types (Store Conversion, Store-to-WIP, WIP-to-WIP)
     const syncSameReturningItem = (item: any): JobWorkReturningItem[] => {
         const existingRet = (item.returningItems && item.returningItems[0]) || {};
         const rate = Number(existingRet.processRate != null ? existingRet.processRate : (item.processRate || 0));
-        const qty = Number(item.quantitySent) || 1;
+        const qty = Number(item.quantitySent) || 0;
         return [{
             receivedItem: item.item || '',
             receivedItemName: item.itemName || '',
@@ -645,7 +645,7 @@ export default function JobWorkForm({
                     receivedItem: '',
                     receivedItemName: '',
                     receivedItemType: current.itemType || 'rm',
-                    quantityToBeReceived: Number(current.quantitySent) || 1,
+                    quantityToBeReceived: Number(current.quantitySent) || 0,
                     receivingUnit: current.unit || 'PCS',
                     processRate: 0,
                     processAmount: 0,
@@ -703,7 +703,7 @@ export default function JobWorkForm({
                 returningItems: updatedRetItems
             };
 
-            if (isWipToWip && isSame && updatedItem.item) {
+            if (isSame && updatedItem.item) {
                 updatedItem.returningItems = syncSameReturningItem(updatedItem);
             }
 
@@ -777,8 +777,12 @@ export default function JobWorkForm({
                 current.secondaryUnit = foundMat.secondaryUnit || '';
                 current.conversionFactor = Number(foundMat.conversionFactor) || 1;
                 current.selectedUnit = current.unit;
-                const priQty = Number(current.quantitySent) || 1;
-                current.secondaryQuantitySent = hasSec ? parseFloat((priQty * current.conversionFactor).toFixed(4)) : 0;
+
+                // Auto-populate Quantity Sent with Available Stock in store/WIP
+                const availStock = getItemStock(selectedId, type);
+                const initQty = availStock > 0 ? availStock : (Number(current.quantitySent) || 0);
+                current.quantitySent = initQty;
+                current.secondaryQuantitySent = hasSec ? parseFloat((initQty * current.conversionFactor).toFixed(4)) : 0;
                 
                 const rateVal = Number(foundMat.pricePerUnit || (foundMat as any).rate || (foundMat as any).standardCost || 0);
                 if (!current.processRate || current.processRate === 0) {
@@ -788,11 +792,14 @@ export default function JobWorkForm({
                 current.processAmount = (Number(current.quantitySent) || 0) * (Number(current.processRate) || 0);
             }
 
-            // Auto-sync first returning item if toggle is active, or if blank
-            if (current.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+            // Auto-sync first returning item if toggle is active across all DC types
+            if (current.isSameItemReturning !== false) {
                 current.returningItems = syncSameReturningItem(current);
             } else if (current.returningItems && current.returningItems.length > 0 && !current.returningItems[0].receivedItemName) {
                 current.returningItems[0].receivedItemName = current.itemName || '';
+                if (!current.returningItems[0].quantityToBeReceived) {
+                    current.returningItems[0].quantityToBeReceived = Number(current.quantitySent) || 0;
+                }
             }
         }
 
@@ -804,14 +811,14 @@ export default function JobWorkForm({
             current.conversionFactor = 1;
             current.secondaryQuantitySent = 0;
             current.description = '';
-            if (current.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+            if (current.isSameItemReturning !== false) {
                 current.returningItems = syncSameReturningItem(current);
             }
         }
 
         if (field === 'selectedUnit') {
             current.selectedUnit = value;
-            if (current.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+            if (current.isSameItemReturning !== false) {
                 current.returningItems = syncSameReturningItem(current);
             }
         }
@@ -825,7 +832,7 @@ export default function JobWorkForm({
             current.processRate = value;
             current.unitPrice = value;
             current.processAmount = (Number(current.quantitySent) || 0) * (Number(value) || 0);
-            if (current.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+            if (current.isSameItemReturning !== false) {
                 current.returningItems = syncSameReturningItem(current);
             }
         }
@@ -838,7 +845,7 @@ export default function JobWorkForm({
             }
             const currentRate = Number(current.processRate != null ? current.processRate : current.unitPrice) || 0;
             current.processAmount = num * currentRate;
-            if (current.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+            if (current.isSameItemReturning !== false) {
                 current.returningItems = syncSameReturningItem(current);
             }
         }
@@ -851,7 +858,7 @@ export default function JobWorkForm({
             current.quantitySent = priVal;
             const currentRate = Number(current.processRate != null ? current.processRate : current.unitPrice) || 0;
             current.processAmount = priVal * currentRate;
-            if (current.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
+            if (current.isSameItemReturning !== false) {
                 current.returningItems = syncSameReturningItem(current);
             }
         }
@@ -1137,8 +1144,12 @@ export default function JobWorkForm({
                 currentItem.secondaryUnit = foundMat.secondaryUnit || '';
                 currentItem.conversionFactor = Number(foundMat.conversionFactor) || 1;
                 currentItem.selectedUnit = currentItem.unit;
-                const priQty = Number(currentItem.quantitySent) || 1;
-                currentItem.secondaryQuantitySent = hasSec ? parseFloat((priQty * currentItem.conversionFactor).toFixed(4)) : 0;
+
+                // Auto-populate Quantity Sent with Available Stock in store/WIP
+                const availStock = getItemStock(selectedId, currentItem.itemType);
+                const initQty = availStock > 0 ? availStock : (Number(currentItem.quantitySent) || 0);
+                currentItem.quantitySent = initQty;
+                currentItem.secondaryQuantitySent = hasSec ? parseFloat((initQty * currentItem.conversionFactor).toFixed(4)) : 0;
 
                 currentItem.unitPrice = Number(foundMat.pricePerUnit || (foundMat as any).rate || (foundMat as any).standardCost || 0);
                 if (!currentItem.processRate || currentItem.processRate === 0) {
@@ -1580,11 +1591,9 @@ export default function JobWorkForm({
                     }
                 }
 
-                // In discrete mode, ensure same item returning is synced for WIP-to-WIP
-                if (item.isSameItemReturning !== false && formData.jobWorkType === 'wip-to-wip') {
-                    if (item.item && (!item.returningItems || item.returningItems.length === 0 || !item.returningItems[0].receivedItem)) {
-                        item.returningItems = syncSameReturningItem(item);
-                    }
+                // In discrete mode, ensure same item returning is strictly synced across all workflow types
+                if (item.isSameItemReturning !== false && item.item) {
+                    item.returningItems = syncSameReturningItem(item);
                 }
 
                 // Validate returning items for each line
@@ -2904,7 +2913,7 @@ export default function JobWorkForm({
                                                                         Returning Quantity (1:1 with Sent Qty)
                                                                     </label>
                                                                     <div className="h-9 px-3 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center justify-between shadow-2xs">
-                                                                        <span>{sentItem.quantitySent || 1} {sentItem.unit || 'PCS'}</span>
+                                                                        <span>{sentItem.quantitySent ?? 0} {sentItem.unit || 'PCS'}</span>
                                                                         {sentItem.hasSecondaryUnit && sentItem.secondaryUnit && (
                                                                             <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
                                                                                 ({sentItem.secondaryQuantitySent || 0} {sentItem.secondaryUnit})

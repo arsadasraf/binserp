@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   X, 
   FileText, 
@@ -8,7 +8,8 @@ import {
   Calendar, 
   Copy, 
   Check, 
-  Search
+  Search,
+  Users
 } from 'lucide-react';
 import { getCurrencySymbol } from '@/src/utils/currencyHelper';
 
@@ -59,40 +60,81 @@ export default function LinkedCustomerPOsModal({
   fgItemName,
   sourceBreakdown = []
 }: LinkedCustomerPOsModalProps) {
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
-
-  if (!isOpen) return null;
 
   const isFGBreakdownMode = Boolean(fgItemName && sourceBreakdown.length > 0);
 
-  const handleCopyPo = (poNumber: string, idx: number, e: React.MouseEvent) => {
+  const handleCopyPo = (poNumber: string, key: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!poNumber) return;
+    if (!poNumber || poNumber === 'N/A') return;
     navigator.clipboard.writeText(poNumber);
-    setCopiedIndex(idx);
-    setTimeout(() => setCopiedIndex(null), 1500);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 1500);
   };
 
-  const filteredPOs = (customerPOs || []).filter((po) => {
-    if (!filterText.trim()) return true;
-    const q = filterText.toLowerCase();
-    return (
-      (po.customerPoNumber || '').toLowerCase().includes(q) ||
-      (po.customerName || '').toLowerCase().includes(q)
-    );
-  });
+  // Group customer POs by customer name
+  const groupedCustomers = useMemo(() => {
+    const groups: Record<string, LinkedCustomerPOItem[]> = {};
 
-  const filteredBreakdown = (sourceBreakdown || []).filter((b) => {
-    if (!filterText.trim()) return true;
-    const q = filterText.toLowerCase();
-    return (
-      (b.customerPoNumber || '').toLowerCase().includes(q) ||
-      (b.customerName || '').toLowerCase().includes(q)
-    );
-  });
+    if (customerPOs && customerPOs.length > 0) {
+      customerPOs.forEach((po) => {
+        const cName = po.customerName?.trim() || customerName?.trim() || 'Internal Demand';
+        if (!groups[cName]) groups[cName] = [];
+        groups[cName].push(po);
+      });
+    } else if (customerName) {
+      const names = customerName.split(',').map((s) => s.trim()).filter(Boolean);
+      names.forEach((cName) => {
+        if (!groups[cName]) groups[cName] = [];
+        groups[cName].push({
+          customerName: cName,
+          customerPoNumber: 'N/A'
+        });
+      });
+    }
 
-  const totalCount = isFGBreakdownMode ? sourceBreakdown.length : customerPOs.length;
+    return groups;
+  }, [customerPOs, customerName]);
+
+  const uniqueCustomerCount = Object.keys(groupedCustomers).length;
+  const totalPOCount = customerPOs.length;
+
+  // Filter grouped customers by search text
+  const filteredCustomerGroups = useMemo(() => {
+    if (!filterText.trim()) return groupedCustomers;
+    const q = filterText.toLowerCase();
+    const result: Record<string, LinkedCustomerPOItem[]> = {};
+
+    Object.entries(groupedCustomers).forEach(([cName, poList]) => {
+      const matchesCust = cName.toLowerCase().includes(q);
+      const matchingPOs = poList.filter((po) =>
+        (po.customerPoNumber || '').toLowerCase().includes(q) ||
+        (po.customerName || '').toLowerCase().includes(q)
+      );
+
+      if (matchesCust) {
+        result[cName] = poList;
+      } else if (matchingPOs.length > 0) {
+        result[cName] = matchingPOs;
+      }
+    });
+
+    return result;
+  }, [groupedCustomers, filterText]);
+
+  const filteredBreakdown = useMemo(() => {
+    return (sourceBreakdown || []).filter((b) => {
+      if (!filterText.trim()) return true;
+      const q = filterText.toLowerCase();
+      return (
+        (b.customerPoNumber || '').toLowerCase().includes(q) ||
+        (b.customerName || '').toLowerCase().includes(q)
+      );
+    });
+  }, [sourceBreakdown, filterText]);
+
+  if (!isOpen) return null;
 
   return (
     <div 
@@ -107,21 +149,35 @@ export default function LinkedCustomerPOsModal({
         <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50/60 dark:bg-slate-800/40 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800 flex items-center justify-center shrink-0">
-              <FileText size={18} />
+              {uniqueCustomerCount > 1 ? <Users size={18} /> : <FileText size={18} />}
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-mono text-xs font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
                   {mrpNumber || 'MRP Plan'}
                 </span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                  {totalCount} Linked {totalCount === 1 ? 'Customer PO' : 'Customer POs'}
-                </span>
+                {isFGBreakdownMode ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                    {sourceBreakdown.length} Allocations
+                  </span>
+                ) : (
+                  <>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+                      <Users size={10} />
+                      {uniqueCustomerCount} {uniqueCustomerCount === 1 ? 'Customer' : 'Customers'}
+                    </span>
+                    {totalPOCount > 0 && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                        {totalPOCount} {totalPOCount === 1 ? 'Order Ref' : 'Order Refs'}
+                      </span>
+                    )}
+                  </>
+                )}
               </div>
               <h3 className="text-sm font-bold text-slate-900 dark:text-white mt-1 truncate">
                 {isFGBreakdownMode 
                   ? `Customer PO Allocation: ${fgItemName}` 
-                  : (planTitle || customerName || 'Linked Customer Purchase Orders')}
+                  : (planTitle || (uniqueCustomerCount > 1 ? `Multi-Customer Demand (${uniqueCustomerCount} Customers)` : customerName) || 'Customer & Order Reference Allocation')}
               </h3>
             </div>
           </div>
@@ -136,14 +192,14 @@ export default function LinkedCustomerPOsModal({
           </button>
         </div>
 
-        {/* Search Bar if > 3 items */}
-        {totalCount > 3 && (
+        {/* Search Bar if multiple items */}
+        {((isFGBreakdownMode && sourceBreakdown.length > 2) || (!isFGBreakdownMode && (totalPOCount > 2 || uniqueCustomerCount > 1))) && (
           <div className="px-4 sm:px-5 pt-3 pb-1 shrink-0">
             <div className="relative">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search by PO Number or Customer Name..."
+                placeholder="Search by Customer Name or PO Number..."
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
                 className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20"
@@ -153,7 +209,7 @@ export default function LinkedCustomerPOsModal({
         )}
 
         {/* Content List */}
-        <div className="p-4 sm:p-5 overflow-y-auto space-y-2.5 flex-1 min-h-0 text-xs">
+        <div className="p-4 sm:p-5 overflow-y-auto space-y-3 flex-1 min-h-0 text-xs">
           {isFGBreakdownMode ? (
             /* FG-Level Breakdown Mode */
             filteredBreakdown.length === 0 ? (
@@ -167,6 +223,7 @@ export default function LinkedCustomerPOsModal({
                 const exRate = Number(item.exchangeRate || 1);
                 const inrRate = Number(item.rateInINR || (origRate * exRate) || 0);
                 const isForeign = curr !== 'INR';
+                const key = `fg-${idx}`;
 
                 return (
                   <div 
@@ -178,14 +235,16 @@ export default function LinkedCustomerPOsModal({
                         <span className="font-mono font-bold text-slate-900 dark:text-slate-100 text-xs">
                           {item.customerPoNumber || 'N/A'}
                         </span>
-                        <button
-                          type="button"
-                          onClick={(e) => handleCopyPo(item.customerPoNumber || '', idx, e)}
-                          className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded transition-colors cursor-pointer"
-                          title="Copy PO Number"
-                        >
-                          {copiedIndex === idx ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
-                        </button>
+                        {item.customerPoNumber && item.customerPoNumber !== 'N/A' && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleCopyPo(item.customerPoNumber || '', key, e)}
+                            className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded transition-colors cursor-pointer"
+                            title="Copy PO Number"
+                          >
+                            {copiedKey === key ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                          </button>
+                        )}
                       </div>
                       {item.customerName && (
                         <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
@@ -212,81 +271,107 @@ export default function LinkedCustomerPOsModal({
               })
             )
           ) : (
-            /* Plan-Level Customer POs Mode */
-            filteredPOs.length === 0 ? (
+            /* Grouped by Customer Mode */
+            Object.keys(filteredCustomerGroups).length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-xs">
-                No matching linked customer purchase orders found.
+                No matching customers or purchase orders found.
               </div>
             ) : (
-              filteredPOs.map((po, idx) => {
-                const hasForeignCurrency = po.currency && po.currency !== 'INR';
-                const symbol = getCurrencySymbol(po.currency || 'INR');
-
+              Object.entries(filteredCustomerGroups).map(([cName, poList], groupIdx) => {
                 return (
                   <div 
-                    key={idx}
-                    className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-300 dark:hover:border-indigo-800 transition-all shadow-2xs space-y-2"
+                    key={groupIdx}
+                    className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 overflow-hidden shadow-2xs"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-0.5 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
-                            {po.customerPoNumber || 'N/A'}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(e) => handleCopyPo(po.customerPoNumber || '', idx, e)}
-                            className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded transition-colors cursor-pointer"
-                            title="Copy PO Number"
-                          >
-                            {copiedIndex === idx ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
-                          </button>
-                          {hasForeignCurrency && (
-                            <span className="text-[9px] font-black text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-200 dark:border-amber-800">
-                              {po.currency} @ ₹{po.exchangeRate || 1}
-                            </span>
-                          )}
+                    {/* Customer Header Card */}
+                    <div className="px-3.5 py-2.5 bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-6 h-6 rounded-lg bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                          <Building2 size={13} />
                         </div>
-
-                        {po.customerName && (
-                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 pt-1">
-                            <Building2 size={13} className="text-slate-400 shrink-0" />
-                            <span className="truncate">{po.customerName}</span>
-                          </div>
-                        )}
+                        <strong className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                          {cName}
+                        </strong>
                       </div>
-
-                      {po.totalAmount !== undefined && po.totalAmount !== null && (
-                        <div className="text-right shrink-0">
-                          <div className="text-[10px] uppercase font-bold text-slate-400">Total Value</div>
-                          <div className="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400">
-                            {hasForeignCurrency ? (
-                              <span>{symbol}{Number(po.totalAmount).toLocaleString()} <span className="text-[10px] text-slate-400 block">(₹{(po.totalAmountInINR || 0).toLocaleString('en-IN')})</span></span>
-                            ) : (
-                              <span>₹{Number(po.totalAmount).toLocaleString('en-IN')}</span>
-                            )}
-                          </div>
-                        </div>
-                      )}
+                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700 shrink-0">
+                        {poList.length} {poList.length === 1 ? 'Order Ref' : 'Order Refs'}
+                      </span>
                     </div>
 
-                    {/* Metadata Footer: Dates */}
-                    {(po.poDate || po.targetDate || po.deliveryDate) && (
-                      <div className="flex items-center gap-3 text-[11px] text-slate-500 pt-1.5 border-t border-slate-100 dark:border-slate-800/80 flex-wrap">
-                        {po.poDate && (
-                          <span className="flex items-center gap-1">
-                            <Calendar size={11} className="text-slate-400" />
-                            <span>PO Date: <strong className="text-slate-700 dark:text-slate-300">{new Date(po.poDate).toLocaleDateString()}</strong></span>
-                          </span>
-                        )}
-                        {(po.targetDate || po.deliveryDate) && (
-                          <span className="flex items-center gap-1">
-                            <Calendar size={11} className="text-emerald-500" />
-                            <span>Due Date: <strong className="text-emerald-700 dark:text-emerald-400">{new Date(po.targetDate || po.deliveryDate || '').toLocaleDateString()}</strong></span>
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    {/* PO List under this Customer */}
+                    <div className="p-2.5 space-y-2">
+                      {poList.map((po, idx) => {
+                        const hasForeignCurrency = po.currency && po.currency !== 'INR';
+                        const symbol = getCurrencySymbol(po.currency || 'INR');
+                        const key = `${groupIdx}-${idx}`;
+
+                        return (
+                          <div 
+                            key={idx}
+                            className="p-3 rounded-lg border border-slate-200/80 dark:border-slate-700/60 bg-white dark:bg-slate-900 hover:border-indigo-300 dark:hover:border-indigo-700 transition-all shadow-2xs space-y-2"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="space-y-0.5 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                                    {po.customerPoNumber || 'N/A'}
+                                  </span>
+                                  {po.customerPoNumber && po.customerPoNumber !== 'N/A' && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleCopyPo(po.customerPoNumber || '', key, e)}
+                                      className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded transition-colors cursor-pointer"
+                                      title="Copy PO Number"
+                                    >
+                                      {copiedKey === key ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                                    </button>
+                                  )}
+                                  {hasForeignCurrency && (
+                                    <span className="text-[9px] font-black text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-200 dark:border-amber-800">
+                                      {po.currency} @ ₹{po.exchangeRate || 1}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {po.totalAmount !== undefined && po.totalAmount !== null && Number(po.totalAmount) > 0 && (
+                                <div className="text-right shrink-0">
+                                  <div className="text-[10px] uppercase font-bold text-slate-400">Total Value</div>
+                                  <div className="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400">
+                                    {hasForeignCurrency ? (
+                                      <span>
+                                        {symbol}{Number(po.totalAmount).toLocaleString()}
+                                        <span className="text-[10px] text-slate-400 block">(₹{(po.totalAmountInINR || 0).toLocaleString('en-IN')})</span>
+                                      </span>
+                                    ) : (
+                                      <span>₹{Number(po.totalAmount).toLocaleString('en-IN')}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Metadata Dates */}
+                            {(po.poDate || po.targetDate || po.deliveryDate) && (
+                              <div className="flex items-center gap-3 text-[11px] text-slate-500 pt-1.5 border-t border-slate-100 dark:border-slate-800/80 flex-wrap">
+                                {po.poDate && (
+                                  <span className="flex items-center gap-1">
+                                    <Calendar size={11} className="text-slate-400" />
+                                    <span>PO Date: <strong className="text-slate-700 dark:text-slate-300">{new Date(po.poDate).toLocaleDateString()}</strong></span>
+                                  </span>
+                                )}
+                                {(po.targetDate || po.deliveryDate) && (
+                                  <span className="flex items-center gap-1">
+                                    <Calendar size={11} className="text-emerald-500" />
+                                    <span>Due Date: <strong className="text-emerald-700 dark:text-emerald-400">{new Date(po.targetDate || po.deliveryDate || '').toLocaleDateString()}</strong></span>
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })
@@ -295,7 +380,12 @@ export default function LinkedCustomerPOsModal({
         </div>
 
         {/* Footer */}
-        <div className="p-3 sm:p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end shrink-0">
+        <div className="p-3 sm:p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between gap-3 shrink-0">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2">
+            <span>Total: <strong className="text-slate-800 dark:text-slate-200 font-bold">{uniqueCustomerCount} {uniqueCustomerCount === 1 ? 'Customer' : 'Customers'}</strong></span>
+            <span>•</span>
+            <span><strong className="text-slate-800 dark:text-slate-200 font-bold">{totalPOCount} {totalPOCount === 1 ? 'Order Ref' : 'Order Refs'}</strong></span>
+          </div>
           <button
             type="button"
             onClick={onClose}

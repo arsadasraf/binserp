@@ -68,9 +68,61 @@ export const updateMaterialRequest = async (req, res) => {
       return res.status(404).json({ message: "Material request not found" });
     }
 
-    // If approving, set approvedBy
+    // Approval governance validation from Store Settings
+    if (status === "Approved" && materialRequest.status !== "Approved") {
+      try {
+        const StorePrefix = req.getModel('StorePrefix', storePrefixSchema);
+        const prefixDoc = await StorePrefix.findOne({ company: companyId }).lean();
+        const mrApproval = prefixDoc?.approvalSettings?.materialRequest;
+        
+        if (mrApproval?.enabled && !mrApproval.allowAllUsers) {
+          const approvers = Array.isArray(mrApproval.approvers) ? mrApproval.approvers.map(String) : [];
+          const approverNames = Array.isArray(mrApproval.approverNames) ? mrApproval.approverNames : [];
+          const currentUserId = String(req.user?.id || req.user?._id || '');
+          const currentUserName = (req.user?.name || req.user?.username || '').trim().toLowerCase();
+          const currentUserEmail = (req.user?.email || '').trim().toLowerCase();
+
+          const isIdMatch = approvers.includes(currentUserId);
+          const isNameMatch = approverNames.some(n => {
+            const low = n.trim().toLowerCase();
+            return low === currentUserName || low === currentUserEmail;
+          });
+
+          if (!isIdMatch && !isNameMatch) {
+            const approverLabel = approverNames.length > 0 ? approverNames.join(', ') : "the designated approver";
+            return res.status(403).json({
+              message: `Only ${approverLabel} can approve this Material Request. Please ask ${approverLabel} to approve it.`
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("Approval governance check error in Material Request:", err);
+      }
+    }
+
+    // If approving, set approvedBy, approvedByName, and approvedAt
     if (status === "Approved" && !materialRequest.approvedBy) {
-      materialRequest.approvedBy = req.user.id;
+      materialRequest.approvedBy = req.user?.id || req.user?._id;
+      materialRequest.approvedByName = req.user?.name || req.user?.username || 'Authorized Approver';
+      materialRequest.approvedAt = new Date();
+    }
+
+    // Approval governance validation: Cannot issue if not approved when approval workflow is active
+    if (status === "Issued" && materialRequest.status !== "Approved") {
+      try {
+        const StorePrefix = req.getModel('StorePrefix', storePrefixSchema);
+        const prefixDoc = await StorePrefix.findOne({ company: companyId }).lean();
+        const mrApproval = prefixDoc?.approvalSettings?.materialRequest;
+        if (mrApproval?.enabled) {
+          const approverNames = Array.isArray(mrApproval.approverNames) ? mrApproval.approverNames : [];
+          const approverLabel = approverNames.length > 0 ? approverNames.join(', ') : "the designated approver";
+          return res.status(403).json({
+            message: `Cannot issue material: Material Request #${materialRequest.requestNumber || ''} is not approved. Please ask ${approverLabel} to approve it before issuing material.`
+          });
+        }
+      } catch (err) {
+        console.warn("Approval governance check error on Issue in Material Request:", err);
+      }
     }
 
     // Handle inventory update and voucher creation if status changes to "Issued"

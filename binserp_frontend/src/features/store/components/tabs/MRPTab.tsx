@@ -5,7 +5,7 @@ import {
   LayoutGrid, List, Edit2, ShieldCheck, Download, ShoppingCart, 
   Sparkles, RefreshCw, FileText, AlertCircle, Send, CheckSquare, Square,
   Check, Boxes, ChevronRight, Factory, Play, ChevronDown, ChevronUp, Target, RotateCcw, Lock,
-  IndianRupee, AlertTriangle, TrendingUp, TrendingDown, ExternalLink
+  IndianRupee, AlertTriangle, TrendingUp, TrendingDown, ExternalLink, Users
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import Swal from 'sweetalert2';
@@ -75,6 +75,73 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   }) => {
     setLinkedPoModalData(data);
     setIsLinkedPoModalOpen(true);
+  };
+
+  // Multi-Customer & Order Reference Parser for MRP Demand Plans
+  const getPlanCustomerInfo = (plan: any) => {
+    const custMap = new Map<string, any[]>();
+
+    if (Array.isArray(plan?.customerPOs) && plan.customerPOs.length > 0) {
+      plan.customerPOs.forEach((cpo: any) => {
+        const name = cpo.customerName?.trim() || plan.customerName?.trim() || 'Internal Demand';
+        if (!custMap.has(name)) custMap.set(name, []);
+        custMap.get(name)!.push(cpo);
+      });
+    }
+
+    if (plan?.customerName) {
+      const rawNames = plan.customerName.split(',').map((s: string) => s.trim()).filter(Boolean);
+      rawNames.forEach((n: string) => {
+        if (!custMap.has(n)) {
+          custMap.set(n, plan.customerPoNumber ? [{ customerPoNumber: plan.customerPoNumber, customerName: n }] : []);
+        }
+      });
+    }
+
+    if (custMap.size === 0) {
+      const defaultName = plan?.customerName?.trim() || 'Internal Demand';
+      custMap.set(defaultName, plan?.customerPoNumber ? [{ customerPoNumber: plan.customerPoNumber, customerName: defaultName }] : []);
+    }
+
+    const customerList = Array.from(custMap.keys());
+    const totalCustomers = customerList.length;
+    const firstCustomer = customerList[0] || 'Internal Demand';
+    const remainingCount = totalCustomers - 1;
+    const totalPOs = Array.isArray(plan?.customerPOs) && plan.customerPOs.length > 0
+      ? plan.customerPOs.length
+      : plan?.customerPoNumber ? 1 : 0;
+
+    return {
+      customerList,
+      totalCustomers,
+      firstCustomer,
+      remainingCount,
+      totalPOs,
+      isMultiCustomer: totalCustomers > 1,
+    };
+  };
+
+  const handleOpenMultiCustomerModal = (plan: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const info = getPlanCustomerInfo(plan);
+    let effectivePOs = plan.customerPOs || [];
+    if (effectivePOs.length === 0 && info.customerList.length > 0) {
+      effectivePOs = info.customerList.map((cName) => ({
+        customerName: cName,
+        customerPoNumber: plan.customerPoNumber || 'N/A',
+        poDate: plan.poDate,
+        targetDate: plan.targetDate
+      }));
+    }
+
+    openLinkedPoModal({
+      mrpNumber: plan.mrpNumber,
+      planTitle: info.isMultiCustomer 
+        ? `Multi-Customer Demand (${info.totalCustomers} Customers)` 
+        : `${info.firstCustomer} Demand`,
+      customerName: plan.customerName,
+      customerPOs: effectivePOs
+    });
   };
   
   // 3-Tab Filter System: Status (Multi-select), Plan Date, Committed Date
@@ -1489,41 +1556,57 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                 </div>
                               </td>
 
-                              {/* Customer & PO */}
+                              {/* Customer & Order Ref */}
                               <td className="p-3.5">
-                                {plan.isConsolidated && plan.customerPOs && plan.customerPOs.length > 0 ? (
-                                  <div>
-                                    <div className="flex items-center gap-1 font-bold text-slate-900 dark:text-white text-xs truncate">
-                                      <Layers size={12} className="text-amber-500 shrink-0" />
-                                      <span className="truncate">{plan.customerName || "Multi-Customer Demand"}</span>
+                                {(() => {
+                                  const custInfo = getPlanCustomerInfo(plan);
+
+                                  if (custInfo.isMultiCustomer) {
+                                    return (
+                                      <div>
+                                        <div className="flex items-center gap-1 font-bold text-slate-900 dark:text-white text-xs truncate">
+                                          <Building2 size={12} className="text-amber-500 shrink-0" />
+                                          <span className="truncate" title={custInfo.firstCustomer}>{custInfo.firstCustomer}</span>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleOpenMultiCustomerModal(plan, e)}
+                                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10.5px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer shadow-2xs mt-1"
+                                          title={`Click to view all ${custInfo.totalCustomers} customers and order references`}
+                                        >
+                                          <Users size={11} className="text-amber-600 shrink-0" />
+                                          <span>+{custInfo.remainingCount} More Customer{custInfo.remainingCount > 1 ? 's' : ''} ({custInfo.totalPOs} PO{custInfo.totalPOs > 1 ? 's' : ''})</span>
+                                          <ExternalLink size={10} className="text-amber-500 opacity-80 shrink-0" />
+                                        </button>
+                                      </div>
+                                    );
+                                  }
+
+                                  return (
+                                    <div>
+                                      <div className="flex items-center gap-1 font-bold text-slate-900 dark:text-white text-xs truncate">
+                                        <Building2 size={12} className="text-slate-400 shrink-0" />
+                                        <span className="truncate" title={custInfo.firstCustomer}>{custInfo.firstCustomer}</span>
+                                      </div>
+                                      {plan.isConsolidated && plan.customerPOs && plan.customerPOs.length > 1 ? (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleOpenMultiCustomerModal(plan, e)}
+                                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10.5px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer shadow-2xs mt-1"
+                                          title="Click to view all linked Customer POs"
+                                        >
+                                          <FileText size={11} className="text-amber-600 shrink-0" />
+                                          <span>{plan.customerPOs.length} Linked POs</span>
+                                          <ExternalLink size={10} className="text-amber-500 opacity-80 shrink-0" />
+                                        </button>
+                                      ) : plan.customerPoNumber ? (
+                                        <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500 block truncate mt-0.5">
+                                          PO: {plan.customerPoNumber}
+                                        </span>
+                                      ) : null}
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openLinkedPoModal({
-                                          mrpNumber: plan.mrpNumber,
-                                          planTitle: plan.customerName ? `${plan.customerName} Demand` : 'Multi-Customer Demand',
-                                          customerName: plan.customerName,
-                                          customerPOs: plan.customerPOs
-                                        });
-                                      }}
-                                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10.5px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer shadow-2xs mt-1"
-                                      title="Click to view all linked Customer POs"
-                                    >
-                                      <FileText size={11} className="text-amber-600 shrink-0" />
-                                      <span>{plan.customerPOs.length} Linked POs</span>
-                                      <ExternalLink size={10} className="text-amber-500 opacity-80 shrink-0" />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <>
-                                    <strong className="text-slate-900 dark:text-white block truncate">{plan.customerName || "Internal Demand"}</strong>
-                                    {plan.customerPoNumber && (
-                                      <span className="font-mono text-[10px] text-slate-400 block truncate">PO: {plan.customerPoNumber}</span>
-                                    )}
-                                  </>
-                                )}
+                                  );
+                                })()}
                               </td>
 
                               {/* Plan Date & Audit (Created by / Edited by) */}
@@ -1822,32 +1905,43 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
                           {/* Customer and Order Ref */}
                           <div className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-bold truncate">
-                              <Building2 size={13} className="text-slate-400 shrink-0" />
-                              <span className="truncate">{plan.customerName || "Internal Demand"}</span>
-                            </div>
-                            {plan.isConsolidated && plan.customerPOs && plan.customerPOs.length > 0 ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openLinkedPoModal({
-                                    mrpNumber: plan.mrpNumber,
-                                    planTitle: plan.customerName ? `${plan.customerName} Demand` : 'Multi-Customer Demand',
-                                    customerName: plan.customerName,
-                                    customerPOs: plan.customerPOs
-                                  });
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10.5px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0 cursor-pointer"
-                              >
-                                <FileText size={11} className="text-amber-600 shrink-0" />
-                                <span>{plan.customerPOs.length} POs</span>
-                              </button>
-                            ) : plan.customerPoNumber ? (
-                              <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 shrink-0 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">
-                                PO: {plan.customerPoNumber}
-                              </span>
-                            ) : null}
+                            {(() => {
+                              const custInfo = getPlanCustomerInfo(plan);
+
+                              return (
+                                <>
+                                  <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-bold truncate">
+                                    <Building2 size={13} className={custInfo.isMultiCustomer ? "text-amber-500 shrink-0" : "text-slate-400 shrink-0"} />
+                                    <span className="truncate">{custInfo.firstCustomer}</span>
+                                  </div>
+
+                                  {custInfo.isMultiCustomer ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleOpenMultiCustomerModal(plan, e)}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10.5px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0 cursor-pointer shadow-2xs"
+                                      title={`View all ${custInfo.totalCustomers} customers and ${custInfo.totalPOs} POs`}
+                                    >
+                                      <Users size={11} className="text-amber-600 shrink-0" />
+                                      <span>+{custInfo.remainingCount} More ({custInfo.totalPOs} POs)</span>
+                                    </button>
+                                  ) : plan.isConsolidated && plan.customerPOs && plan.customerPOs.length > 1 ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleOpenMultiCustomerModal(plan, e)}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10.5px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0 cursor-pointer"
+                                    >
+                                      <FileText size={11} className="text-amber-600 shrink-0" />
+                                      <span>{plan.customerPOs.length} POs</span>
+                                    </button>
+                                  ) : plan.customerPoNumber ? (
+                                    <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 shrink-0 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">
+                                      PO: {plan.customerPoNumber}
+                                    </span>
+                                  ) : null}
+                                </>
+                              );
+                            })()}
                           </div>
 
                           {/* Primary FG Item and Technical Description (Strict rule compliance: AGENTS.md) */}

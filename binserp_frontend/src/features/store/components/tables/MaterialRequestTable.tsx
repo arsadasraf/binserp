@@ -1,7 +1,8 @@
 import React from 'react';
-import { BadgeCheck, XCircle, Clock, Eye, Calendar, ArrowRight, FileText, Layers, ShoppingCart, Package, Boxes, User, AlertTriangle } from 'lucide-react';
+import { BadgeCheck, XCircle, Clock, Eye, Calendar, ArrowRight, FileText, Layers, ShoppingCart, Package, Boxes, User, AlertTriangle, Lock } from 'lucide-react';
 import { formatDateTime } from './MaterialIssueHistoryTable';
 import { evaluateItemStock, evaluateRequestStock } from '@/src/utils/stockValidationHelper';
+import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 
 interface MaterialRequestTableProps {
     requests: any[];
@@ -12,6 +13,9 @@ interface MaterialRequestTableProps {
 }
 
 export default function MaterialRequestTable({ requests, onIssue, onReject, onView, storeData }: MaterialRequestTableProps) {
+    const { isApprovalRequired, getApproverDisplay } = useStoreApprovalSettings();
+    const approvalRequired = isApprovalRequired('materialRequest');
+    const approverDisplay = getApproverDisplay('materialRequest');
     if (!requests || requests.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 h-64">
@@ -71,23 +75,42 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                        {requests.map((request) => (
-                            <tr
-                                key={request._id}
-                                className="hover:bg-gray-50/80 dark:hover:bg-gray-800/50 transition-colors group cursor-pointer"
-                                onClick={() => onView(request)}
-                            >
-                                <td className="p-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs border border-blue-100 dark:border-blue-900/50">
-                                            {request.items?.length || 0}
+                        {requests.map((request) => {
+                            const isApproved = request.status === 'Approved';
+                            const isIssueLocked = approvalRequired && !isApproved;
+
+                            return (
+                                <tr
+                                    key={request._id}
+                                    className="hover:bg-gray-50/80 dark:hover:bg-gray-800/50 transition-colors group cursor-pointer"
+                                    onClick={() => onView(request)}
+                                >
+                                    <td className="p-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs border border-blue-100 dark:border-blue-900/50">
+                                                {request.items?.length || 0}
+                                            </div>
+                                            <div>
+                                                <div className="font-bold text-gray-900 dark:text-white">{request.requestNumber}</div>
+                                                <div className="flex items-center gap-1.5 mt-0.5">
+                                                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                                                        isApproved
+                                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                                            : request.status === 'Rejected'
+                                                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                                    }`}>
+                                                        {request.status}
+                                                    </span>
+                                                    {isIssueLocked && (
+                                                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold inline-flex items-center gap-0.5" title={`Ask ${approverDisplay} to approve`}>
+                                                            <Lock size={10} /> Needs {approverDisplay}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <div className="font-bold text-gray-900 dark:text-white">{request.requestNumber}</div>
-                                            <div className="text-xs font-semibold text-gray-500">{request.status}</div>
-                                        </div>
-                                    </div>
-                                </td>
+                                    </td>
                                 <td className="p-4">
                                     {request.mrpNumber ? (
                                         <span className="bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono text-xs px-2.5 py-1 rounded-lg font-bold">
@@ -178,6 +201,19 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                             <XCircle size={17} />
                                         </button>
                                         {(() => {
+                                            if (isIssueLocked) {
+                                                return (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => onIssue(request)}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 rounded-xl shadow-2xs text-xs font-bold transition-all transform active:scale-95 cursor-pointer"
+                                                        title={`Pending approval: Ask ${approverDisplay} to approve before issuing`}
+                                                    >
+                                                        <Lock size={13} className="text-amber-600 dark:text-amber-400" />
+                                                        <span>Ask to Approve</span>
+                                                    </button>
+                                                );
+                                            }
                                             const reqStockEval = storeData ? evaluateRequestStock(request, storeData) : null;
                                             const hasShortage = reqStockEval?.hasShortage || false;
                                             return (
@@ -198,37 +234,49 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                     </div>
                                 </td>
                             </tr>
-                        ))}
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
 
             {/* Mobile Card View (Optimized for Mobile App Feel) */}
             <div className="md:hidden flex flex-col divide-y divide-gray-100 dark:divide-gray-800/80 max-h-[calc(100vh-240px)] overflow-y-auto overscroll-contain pb-24 sm:pb-8">
-                {requests.map((request) => (
-                    <div
-                        key={request._id}
-                        className="p-3.5 sm:p-4 flex flex-col gap-3 active:bg-gray-50 dark:active:bg-gray-800/40 transition-colors"
-                        onClick={() => onView(request)}
-                    >
-                        {/* Top Meta Bar */}
-                        <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs font-extrabold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs">
-                                    {request.requestNumber}
-                                </span>
-                                {renderTypeBadge(request.type)}
+                {requests.map((request) => {
+                    const isApproved = request.status === 'Approved';
+                    const isIssueLocked = approvalRequired && !isApproved;
+
+                    return (
+                        <div
+                            key={request._id}
+                            className="p-3.5 sm:p-4 flex flex-col gap-3 active:bg-gray-50 dark:active:bg-gray-800/40 transition-colors"
+                            onClick={() => onView(request)}
+                        >
+                            {/* Top Meta Bar */}
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="font-mono text-xs font-extrabold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs">
+                                        {request.requestNumber}
+                                    </span>
+                                    {renderTypeBadge(request.type)}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold tracking-wide uppercase ${
+                                        isApproved
+                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                            : request.status === 'Rejected'
+                                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                    }`}>
+                                        {request.status}
+                                    </span>
+                                    {isIssueLocked && (
+                                        <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/80 rounded border border-amber-200 dark:border-amber-800 flex items-center gap-0.5">
+                                            <Lock size={10} /> Needs {approverDisplay}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
-                            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold tracking-wide uppercase ${
-                                request.status === 'Approved'
-                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                    : request.status === 'Rejected'
-                                        ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                            }`}>
-                                {request.status}
-                            </span>
-                        </div>
 
                         {/* Linked SO / MRP & Date Line */}
                         <div className="flex flex-wrap items-center justify-between text-xs text-gray-500 gap-1.5 pt-0.5">
@@ -344,6 +392,19 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                 <span>Reject</span>
                             </button>
                             {(() => {
+                                if (isIssueLocked) {
+                                    return (
+                                        <button
+                                            type="button"
+                                            onClick={() => onIssue(request)}
+                                            className="h-10 px-2 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                                            title={`Pending approval: Ask ${approverDisplay} to approve before issuing`}
+                                        >
+                                            <Lock size={13} className="text-amber-600 dark:text-amber-400" />
+                                            <span>Ask to Approve</span>
+                                        </button>
+                                    );
+                                }
                                 const reqStockEval = storeData ? evaluateRequestStock(request, storeData) : null;
                                 const hasShortage = reqStockEval?.hasShortage || false;
                                 return (
@@ -364,7 +425,8 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                             })()}
                         </div>
                     </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );

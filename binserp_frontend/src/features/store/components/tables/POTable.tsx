@@ -115,7 +115,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
     const [fetchedCompanyInfo, setFetchedCompanyInfo] = useState<any>(null);
 
     // Approval workflow policies
-    const { isApprovalRequired, canUserApprove, getApproverNames } = useStoreApprovalSettings();
+    const { isApprovalRequired, canUserApprove, getApproverNames, getApproverDisplay } = useStoreApprovalSettings();
     const currentUser = useMemo(() => {
         try {
             const raw = typeof window !== 'undefined' ? localStorage.getItem('userInfo') : null;
@@ -424,9 +424,14 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
     const handleUpdateStatus = async (poId: string, newStatus: string) => {
         if (newStatus === 'Approved' && poRequiresApproval) {
             if (!canUserApprove('outwardPo', currentUser, userType)) {
-                const approvers = getApproverNames('outwardPo');
-                const approverListStr = approvers.length > 0 ? `Authorized approvers: ${approvers.join(', ')}` : "Contact company management.";
-                await showWarningDialog("Approval Permission Denied", `You do not have permission to approve this Outward PO. ${approverListStr}`);
+                const approverListStr = getApproverDisplay('outwardPo');
+                if (selectedPoPreview) {
+                    setSelectedPoPreview((prev: any) => prev ? ({ ...prev }) : null);
+                }
+                await showWarningDialog(
+                    "Approval Restricted",
+                    `Only ${approverListStr} can approve this Outward Purchase Order. Please ask ${approverListStr} to approve it.`
+                );
                 return;
             }
         }
@@ -1844,6 +1849,42 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                         {/* Modal Content */}
                         <div className="p-6 overflow-y-auto space-y-6">
                             
+                            {/* Approval Status Banner if approval workflow is active */}
+                            {poRequiresApproval && (
+                                <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+                                    isPoApproved(selectedPoPreview)
+                                        ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                                        : canUserApprove('outwardPo', currentUser, userType)
+                                            ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 text-indigo-800 dark:text-indigo-300'
+                                            : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+                                }`}>
+                                    <div className="flex items-center gap-2.5 text-xs">
+                                        <ShieldCheck size={18} className={isPoApproved(selectedPoPreview) ? 'text-emerald-600' : 'text-amber-600'} />
+                                        <div>
+                                            <div className="font-bold text-sm">
+                                                {isPoApproved(selectedPoPreview) ? 'Outward PO Approved' : 'Approval Workflow Active'}
+                                            </div>
+                                            <div className="text-[11px] opacity-90 mt-0.5">
+                                                {isPoApproved(selectedPoPreview) ? (
+                                                    <span>Approved by <strong>{selectedPoPreview.approvedByName || 'Authorized Approver'}</strong></span>
+                                                ) : (
+                                                    <span>Designated Approver: <strong className="underline">{getApproverDisplay('outwardPo')}</strong>. Only this user is authorized to approve this PO.</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {!isPoApproved(selectedPoPreview) && (
+                                        <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 ${
+                                            canUserApprove('outwardPo', currentUser, userType)
+                                                ? 'bg-indigo-200/70 dark:bg-indigo-900/60 text-indigo-900 dark:text-indigo-200'
+                                                : 'bg-amber-200/70 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200'
+                                        }`}>
+                                            {canUserApprove('outwardPo', currentUser, userType) ? 'You can approve this PO' : `Pending: ${getApproverDisplay('outwardPo')}`}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+
                             {/* Company (Buyer) & Vendor Cards */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div className="bg-gradient-to-br from-purple-50/70 to-slate-50 dark:from-slate-800/80 dark:to-slate-900 p-4 rounded-2xl border border-purple-200/70 dark:border-slate-700 text-xs space-y-1.5 shadow-sm">
@@ -1955,7 +1996,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     </span>
                                 </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                                     <div className="flex items-start gap-2.5">
                                         <div className="w-7 h-7 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 flex items-center justify-center font-bold text-xs flex-shrink-0 mt-0.5">
                                             <User size={14} />
@@ -1982,6 +2023,21 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                             </strong>
                                             <span className="text-[10px] text-slate-400 block mt-0.5 font-mono">
                                                 {new Date(selectedPoPreview.updatedAt || Date.now()).toLocaleString('en-GB')}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-start gap-2.5">
+                                        <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 flex items-center justify-center font-bold text-xs flex-shrink-0 mt-0.5">
+                                            <ShieldCheck size={14} />
+                                        </div>
+                                        <div>
+                                            <span className="text-slate-400 block text-[10px]">Approved By:</span>
+                                            <strong className="text-slate-800 dark:text-slate-200 text-xs">
+                                                {selectedPoPreview.approvedByName || (isPoApproved(selectedPoPreview) ? 'Authorized User' : 'Pending Approval')}
+                                            </strong>
+                                            <span className="text-[10px] text-slate-400 block mt-0.5 font-mono">
+                                                {selectedPoPreview.approvedAt ? new Date(selectedPoPreview.approvedAt).toLocaleString('en-GB') : (isPoApproved(selectedPoPreview) ? 'Approved' : 'Pending')}
                                             </span>
                                         </div>
                                     </div>
@@ -2457,13 +2513,29 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
                             {isPoPdfLocked(selectedPoPreview) ? (
                                 <div className="flex items-center gap-2">
-                                    {canUserApprove('outwardPo', currentUser, userType) && (
+                                    {canUserApprove('outwardPo', currentUser, userType) ? (
                                         <button 
                                             onClick={() => handleUpdateStatus(selectedPoPreview._id || selectedPoPreview.id, 'Approved')}
                                             disabled={updatingStatusId === (selectedPoPreview._id || selectedPoPreview.id)}
                                             className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
                                         >
                                             <ShieldCheck size={15} /> Approve PO
+                                        </button>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const approverListStr = getApproverDisplay('outwardPo');
+                                                showWarningDialog(
+                                                    "Approval Restricted",
+                                                    `Only ${approverListStr} can approve this Outward Purchase Order. Please ask ${approverListStr} to approve it.`
+                                                );
+                                            }}
+                                            className="px-4 py-2.5 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-bold text-xs rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                                            title={`Only ${getApproverDisplay('outwardPo')} can approve. Click to view instructions.`}
+                                        >
+                                            <Lock size={14} className="text-amber-600 dark:text-amber-400" />
+                                            <span>Ask {getApproverDisplay('outwardPo')} to Approve</span>
                                         </button>
                                     )}
                                     <button 

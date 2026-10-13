@@ -5,7 +5,7 @@ import {
   Plus, CheckSquare, Square, ChevronDown, ChevronRight, ChevronLeft,
   TrendingDown, FileText, Sparkles, Send, Boxes, GitBranch,
   Factory, Package, Check, Eye, Clock, Calendar, Download, Printer, Tag, X, RotateCcw, Target,
-  BarChart3, FileSpreadsheet
+  BarChart3, FileSpreadsheet, Users, ExternalLink
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiPatch } from '@/src/lib/api';
 import { generateNestedBOMPDF } from '@/src/utils/generateNestedBOMPDF';
@@ -62,6 +62,57 @@ export default function MRPProcurementWorkbench({
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const customerDropdownRef = useRef<HTMLDivElement>(null);
   const [isCustomerPoModalOpen, setIsCustomerPoModalOpen] = useState(false);
+  const [customerModalPlan, setCustomerModalPlan] = useState<any | null>(null);
+
+  // Multi-Customer & Order Reference Parser for MRP Plans
+  const getPlanCustomerInfo = (plan: any) => {
+    const custMap = new Map<string, any[]>();
+
+    if (Array.isArray(plan?.customerPOs) && plan.customerPOs.length > 0) {
+      plan.customerPOs.forEach((cpo: any) => {
+        const name = cpo.customerName?.trim() || plan.customerName?.trim() || 'Internal Demand';
+        if (!custMap.has(name)) custMap.set(name, []);
+        custMap.get(name)!.push(cpo);
+      });
+    }
+
+    if (plan?.customerName) {
+      const rawNames = plan.customerName.split(',').map((s: string) => s.trim()).filter(Boolean);
+      rawNames.forEach((n: string) => {
+        if (!custMap.has(n)) {
+          custMap.set(n, plan.customerPoNumber ? [{ customerPoNumber: plan.customerPoNumber, customerName: n }] : []);
+        }
+      });
+    }
+
+    if (custMap.size === 0) {
+      const defaultName = plan?.customerName?.trim() || 'Internal Demand';
+      custMap.set(defaultName, plan?.customerPoNumber ? [{ customerPoNumber: plan.customerPoNumber, customerName: defaultName }] : []);
+    }
+
+    const customerList = Array.from(custMap.keys());
+    const totalCustomers = customerList.length;
+    const firstCustomer = customerList[0] || 'Internal Demand';
+    const remainingCount = totalCustomers - 1;
+    const totalPOs = Array.isArray(plan?.customerPOs) && plan.customerPOs.length > 0
+      ? plan.customerPOs.length
+      : plan?.customerPoNumber ? 1 : 0;
+
+    return {
+      customerList,
+      totalCustomers,
+      firstCustomer,
+      remainingCount,
+      totalPOs,
+      isMultiCustomer: totalCustomers > 1,
+    };
+  };
+
+  const handleOpenCustomerModalForPlan = (plan: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCustomerModalPlan(plan);
+    setIsCustomerPoModalOpen(true);
+  };
 
   // Filter Tab 1: Planning Status Multi-Select State
   const [selectedPlanningStatuses, setSelectedPlanningStatuses] = useState<string[]>([]);
@@ -3861,10 +3912,55 @@ export default function MRPProcurementWorkbench({
 
                               {/* Customer & PO */}
                               <td className="p-3.5">
-                                <strong className="text-slate-900 dark:text-white block">{plan.customerName || "Internal Demand"}</strong>
-                                {plan.customerPoNumber && (
-                                  <span className="font-mono text-[10px] text-slate-400">PO: {plan.customerPoNumber}</span>
-                                )}
+                                {(() => {
+                                  const custInfo = getPlanCustomerInfo(plan);
+
+                                  if (custInfo.isMultiCustomer) {
+                                    return (
+                                      <div>
+                                        <div className="flex items-center gap-1 font-bold text-slate-900 dark:text-white text-xs truncate">
+                                          <Building2 size={12} className="text-amber-500 shrink-0" />
+                                          <span className="truncate" title={custInfo.firstCustomer}>{custInfo.firstCustomer}</span>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleOpenCustomerModalForPlan(plan, e)}
+                                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10.5px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer shadow-2xs mt-1"
+                                          title={`Click to view all ${custInfo.totalCustomers} customers and order references`}
+                                        >
+                                          <Users size={11} className="text-amber-600 shrink-0" />
+                                          <span>+{custInfo.remainingCount} More Customer{custInfo.remainingCount > 1 ? 's' : ''} ({custInfo.totalPOs} PO{custInfo.totalPOs > 1 ? 's' : ''})</span>
+                                          <ExternalLink size={10} className="text-amber-500 opacity-80 shrink-0" />
+                                        </button>
+                                      </div>
+                                    );
+                                  }
+
+                                  return (
+                                    <div>
+                                      <div className="flex items-center gap-1 font-bold text-slate-900 dark:text-white text-xs truncate">
+                                        <Building2 size={12} className="text-slate-400 shrink-0" />
+                                        <span className="truncate" title={custInfo.firstCustomer}>{custInfo.firstCustomer}</span>
+                                      </div>
+                                      {plan.isConsolidated && plan.customerPOs && plan.customerPOs.length > 1 ? (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleOpenCustomerModalForPlan(plan, e)}
+                                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10.5px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer shadow-2xs mt-1"
+                                          title="Click to view all linked Customer POs"
+                                        >
+                                          <FileText size={11} className="text-amber-600 shrink-0" />
+                                          <span>{plan.customerPOs.length} Linked POs</span>
+                                          <ExternalLink size={10} className="text-amber-500 opacity-80 shrink-0" />
+                                        </button>
+                                      ) : plan.customerPoNumber ? (
+                                        <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500 block truncate mt-0.5">
+                                          PO: {plan.customerPoNumber}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })()}
                               </td>
 
                               {/* Dates: Plan Date & Due Date */}
@@ -4021,15 +4117,43 @@ export default function MRPProcurementWorkbench({
 
                           {/* Customer & PO */}
                           <div className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-bold truncate">
-                              <Building2 size={13} className="text-slate-400 shrink-0" />
-                              <span className="truncate">{plan.customerName || "Internal Demand"}</span>
-                            </div>
-                            {plan.customerPoNumber && (
-                              <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 shrink-0 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">
-                                PO: {plan.customerPoNumber}
-                              </span>
-                            )}
+                            {(() => {
+                              const custInfo = getPlanCustomerInfo(plan);
+
+                              return (
+                                <>
+                                  <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-bold truncate">
+                                    <Building2 size={13} className={custInfo.isMultiCustomer ? "text-amber-500 shrink-0" : "text-slate-400 shrink-0"} />
+                                    <span className="truncate">{custInfo.firstCustomer}</span>
+                                  </div>
+
+                                  {custInfo.isMultiCustomer ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleOpenCustomerModalForPlan(plan, e)}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10.5px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0 cursor-pointer shadow-2xs"
+                                      title={`View all ${custInfo.totalCustomers} customers and ${custInfo.totalPOs} POs`}
+                                    >
+                                      <Users size={11} className="text-amber-600 shrink-0" />
+                                      <span>+{custInfo.remainingCount} More ({custInfo.totalPOs} POs)</span>
+                                    </button>
+                                  ) : plan.isConsolidated && plan.customerPOs && plan.customerPOs.length > 1 ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleOpenCustomerModalForPlan(plan, e)}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10.5px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0 cursor-pointer"
+                                    >
+                                      <FileText size={11} className="text-amber-600 shrink-0" />
+                                      <span>{plan.customerPOs.length} POs</span>
+                                    </button>
+                                  ) : plan.customerPoNumber ? (
+                                    <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 shrink-0 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">
+                                      PO: {plan.customerPoNumber}
+                                    </span>
+                                  ) : null}
+                                </>
+                              );
+                            })()}
                           </div>
 
                           {/* FG Demand Summary (Strict rule compliance: AGENTS.md) */}
@@ -4122,7 +4246,10 @@ export default function MRPProcurementWorkbench({
               {/* Customer & PO Details Button (Opens Popup Modal) */}
               <button
                 type="button"
-                onClick={() => setIsCustomerPoModalOpen(true)}
+                onClick={() => {
+                  setCustomerModalPlan(selectedPlan);
+                  setIsCustomerPoModalOpen(true);
+                }}
                 className="px-2.5 py-1 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 font-bold text-xs inline-flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs shrink-0"
                 title={`Click to view Customer & PO details\nCustomer: ${selectedPlan.customerName || 'Internal Demand'}\nPO: ${selectedPlan.customerPoNumber || 'N/A'}`}
               >
@@ -4940,15 +5067,44 @@ export default function MRPProcurementWorkbench({
       )}
 
       {/* Modal: Customer & PO Details Popup */}
-      {isCustomerPoModalOpen && selectedPlan && (
-        <LinkedCustomerPOsModal
-          isOpen={isCustomerPoModalOpen}
-          onClose={() => setIsCustomerPoModalOpen(false)}
-          mrpNumber={selectedPlan.mrpNumber}
-          planTitle={selectedPlan.title || `${selectedPlan.customerName || 'Customer'} Demand`}
-          customerName={selectedPlan.customerName}
-          customerPOs={linkedCustomerPOs}
-        />
+      {(isCustomerPoModalOpen || Boolean(customerModalPlan)) && (
+        (() => {
+          const activePlan = customerModalPlan || selectedPlan;
+          if (!activePlan) return null;
+
+          const effectivePOs = Array.isArray(activePlan.customerPOs) && activePlan.customerPOs.length > 0
+            ? activePlan.customerPOs
+            : (() => {
+                const info = getPlanCustomerInfo(activePlan);
+                if (info.customerList.length > 0) {
+                  return info.customerList.map((cName) => ({
+                    customerName: cName,
+                    customerPoNumber: activePlan.customerPoNumber || 'N/A',
+                    poDate: activePlan.poDate || activePlan.planDate || activePlan.createdAt,
+                    targetDate: activePlan.targetDate || activePlan.deliveryDate,
+                    totalAmount: activePlan.totalIncome || 0,
+                    totalAmountInINR: activePlan.totalIncome || 0,
+                    currency: activePlan.currency || 'INR',
+                    exchangeRate: activePlan.exchangeRate || 1
+                  }));
+                }
+                return [];
+              })();
+
+          return (
+            <LinkedCustomerPOsModal
+              isOpen={Boolean(customerModalPlan || isCustomerPoModalOpen)}
+              onClose={() => {
+                setIsCustomerPoModalOpen(false);
+                setCustomerModalPlan(null);
+              }}
+              mrpNumber={activePlan.mrpNumber}
+              planTitle={activePlan.title || `${activePlan.customerName || 'Customer'} Demand`}
+              customerName={activePlan.customerName}
+              customerPOs={effectivePOs}
+            />
+          );
+        })()
       )}
     </div>
   );
