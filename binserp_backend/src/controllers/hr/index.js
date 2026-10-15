@@ -44,4 +44,11 @@ export { updateHoliday } from './updateHoliday.controller.js';
 export { deleteHoliday } from './deleteHoliday.controller.js';
 export { bulkImportHrMasters } from './hrMasterBulkImport.controller.js';
 export { bulkCreateSalaries } from './bulkCreateSalaries.controller.js';
+export {
+  getDailyAttendanceForValidation,
+  saveDailyAttendanceValidation,
+  getMonthlyAttendanceForValidation,
+  saveMonthlyAttendanceValidation,
+  getMonthlyValidationSummary,
+} from './attendanceValidation.controller.js';
 

@@ -31,6 +31,8 @@ interface ConsumedRow {
   secondaryUnit?: string;
   conversionFactor?: number;
   secondaryQuantity?: number;
+  selectedUnit?: string;
+  isSecondaryActive?: boolean;
 }
 
 interface WipMultiItemConvertModalProps {
@@ -67,6 +69,7 @@ export default function WipMultiItemConvertModal({
   const [targetHasSecondaryUnit, setTargetHasSecondaryUnit] = useState<boolean>(false);
   const [targetSecondaryUnit, setTargetSecondaryUnit] = useState<string>("");
   const [targetConversionFactor, setTargetConversionFactor] = useState<number>(1);
+  const [targetIsSecondaryActive, setTargetIsSecondaryActive] = useState<boolean>(false);
   const [isCustomTarget, setIsCustomTarget] = useState(false);
 
   // Consumed ingredients list
@@ -90,6 +93,7 @@ export default function WipMultiItemConvertModal({
       setTargetHasSecondaryUnit(false);
       setTargetSecondaryUnit("");
       setTargetConversionFactor(1);
+      setTargetIsSecondaryActive(false);
       setIsCustomTarget(false);
       setConsumedRows([]);
       setSelectedIngredientToAdd("");
@@ -212,12 +216,15 @@ export default function WipMultiItemConvertModal({
   const wipIngredientOptions: SearchableOption[] = useMemo(() => {
     return availableWipStockList.map((item) => {
       const isAlreadyAdded = consumedRows.some(r => String(r.materialId) === String(item.materialId));
+      const secBalNote = item.hasSecondaryUnit && item.secondaryUnit && Number(item.conversionFactor) > 0
+        ? ` (~${parseFloat((item.shopfloorWipQty * Number(item.conversionFactor)).toFixed(2))} ${item.secondaryUnit})`
+        : "";
       return {
         value: String(item.materialId),
         label: formatItemSelectLabel(item),
         description: item.materialDescription,
         badge: item.itemType === "bo" ? "Bought Out" : "Raw Material",
-        subBadge: `Floor: ${item.shopfloorWipQty} ${item.unit}`,
+        subBadge: `Floor: ${item.shopfloorWipQty} ${item.unit}${secBalNote}`,
         disabled: isAlreadyAdded,
         hint: isAlreadyAdded ? "Already added" : undefined,
       };
@@ -226,6 +233,7 @@ export default function WipMultiItemConvertModal({
 
   // Handle Target Selection Change
   const handleSelectTarget = (targetId: string) => {
+    setTargetIsSecondaryActive(false);
     if (targetId === "__custom__") {
       setIsCustomTarget(true);
       setSelectedTargetId("__custom__");
@@ -234,6 +242,9 @@ export default function WipMultiItemConvertModal({
       setTargetDescription("");
       setTargetUnit("PCS");
       setTargetType("Component");
+      setTargetHasSecondaryUnit(false);
+      setTargetSecondaryUnit("");
+      setTargetConversionFactor(1);
       return;
     }
 
@@ -252,6 +263,26 @@ export default function WipMultiItemConvertModal({
     }
   };
 
+  // Toggle Target Produced Unit (Primary vs Secondary)
+  const handleToggleTargetUnit = (unitToSelect: string) => {
+    const isSec = unitToSelect === targetSecondaryUnit;
+    if (targetIsSecondaryActive === isSec) return;
+    const cf = Number(targetConversionFactor) || 1;
+    const currentNum = parseFloat(targetQuantity) || 0;
+
+    let newQty = targetQuantity;
+    if (currentNum > 0 && cf > 0) {
+      if (isSec && !targetIsSecondaryActive) {
+        newQty = parseFloat((currentNum * cf).toFixed(4)).toString();
+      } else if (!isSec && targetIsSecondaryActive) {
+        newQty = parseFloat((currentNum / cf).toFixed(4)).toString();
+      }
+    }
+
+    setTargetIsSecondaryActive(isSec);
+    setTargetQuantity(newQty);
+  };
+
   // Auto-populate ingredients from BOM
   const handlePopulateFromBom = () => {
     if (!linkedBom || !Array.isArray(linkedBom.items) || linkedBom.items.length === 0) {
@@ -259,14 +290,20 @@ export default function WipMultiItemConvertModal({
       return;
     }
 
-    const targetQtyNum = parseFloat(targetQuantity) || 1;
+    // Always compute needed ingredients against primary target produced quantity
+    const rawTargetQtyNum = parseFloat(targetQuantity) || 1;
+    const targetCf = Number(targetConversionFactor) || 1;
+    const targetPrimaryQtyNum = targetIsSecondaryActive && targetCf > 0
+      ? parseFloat((rawTargetQtyNum / targetCf).toFixed(4))
+      : rawTargetQtyNum;
+
     const newRows: ConsumedRow[] = [];
 
     linkedBom.items.forEach((bi: any) => {
       const bomMatName = bi.materialName || bi.name || "";
       const bomMatId = bi.material || bi.materialId || bi._id;
       const ratio = Number(bi.quantity) || 1;
-      const totalNeeded = parseFloat((ratio * targetQtyNum).toFixed(4));
+      const totalNeeded = parseFloat((ratio * targetPrimaryQtyNum).toFixed(4));
 
       // Match with available Shopfloor WIP
       const match = availableWipStockList.find(av => 
@@ -286,6 +323,8 @@ export default function WipMultiItemConvertModal({
         hasSecondaryUnit: match?.hasSecondaryUnit,
         secondaryUnit: match?.secondaryUnit,
         conversionFactor: match?.conversionFactor,
+        selectedUnit: match ? match.unit : (bi.unit || "PCS"),
+        isSecondaryActive: false,
       });
     });
 
@@ -319,9 +358,44 @@ export default function WipMultiItemConvertModal({
         hasSecondaryUnit: item.hasSecondaryUnit,
         secondaryUnit: item.secondaryUnit,
         conversionFactor: item.conversionFactor,
+        selectedUnit: item.unit,
+        isSecondaryActive: false,
       }
     ]);
     setSelectedIngredientToAdd("");
+  };
+
+  // Toggle row unit between Primary and Secondary
+  const handleToggleRowUnit = (idx: number, unitToSelect: string) => {
+    setConsumedRows(prev => {
+      const copy = [...prev];
+      const r = copy[idx];
+      const isSec = unitToSelect === r.secondaryUnit;
+      if (r.isSecondaryActive === isSec && r.selectedUnit === unitToSelect) {
+        return prev;
+      }
+      const cf = Number(r.conversionFactor) || 1;
+      const currentNum = parseFloat(r.quantity) || 0;
+
+      let newQty = r.quantity;
+      if (currentNum > 0 && cf > 0) {
+        if (isSec && !r.isSecondaryActive) {
+          // Changed from Primary to Secondary -> multiply by CF
+          newQty = parseFloat((currentNum * cf).toFixed(4)).toString();
+        } else if (!isSec && r.isSecondaryActive) {
+          // Changed from Secondary to Primary -> divide by CF
+          newQty = parseFloat((currentNum / cf).toFixed(4)).toString();
+        }
+      }
+
+      copy[idx] = {
+        ...r,
+        selectedUnit: unitToSelect,
+        isSecondaryActive: isSec,
+        quantity: newQty
+      };
+      return copy;
+    });
   };
 
   const handleUpdateConsumedQty = (idx: number, qtyVal: string) => {
@@ -344,7 +418,10 @@ export default function WipMultiItemConvertModal({
   const hasAnyShortage = useMemo(() => {
     return consumedRows.some(r => {
       const q = parseFloat(r.quantity) || 0;
-      return q <= 0 || q > r.availableWipQty;
+      const cf = Number(r.conversionFactor) || 1;
+      const isSec = Boolean(r.isSecondaryActive);
+      const effectiveMax = isSec ? (r.availableWipQty * cf) : r.availableWipQty;
+      return q <= 0 || q > effectiveMax;
     });
   }, [consumedRows]);
 
@@ -374,37 +451,45 @@ export default function WipMultiItemConvertModal({
     try {
       setLoading(true);
 
+      const targetCf = Number(targetConversionFactor) || 1;
+      const finalTargetPrimaryQty = targetIsSecondaryActive && targetCf > 0
+        ? parseFloat((numTargetQty / targetCf).toFixed(4))
+        : numTargetQty;
+      const finalTargetSecondaryQty = targetIsSecondaryActive
+        ? numTargetQty
+        : (targetHasSecondaryUnit && targetCf > 0 ? parseFloat((numTargetQty * targetCf).toFixed(4)) : 0);
+
       const payload = {
         targetItemId: selectedTargetId || undefined,
         targetItemName: targetItemName.trim(),
         targetItemCode: targetItemCode.trim(),
         targetDescription: targetDescription.trim(),
         targetType: targetType || "Component",
-        targetQuantity: numTargetQty,
+        targetQuantity: finalTargetPrimaryQty,
         targetUnit: targetUnit.trim() || "PCS",
         targetHasSecondaryUnit: Boolean(targetHasSecondaryUnit),
         targetSecondaryUnit: targetSecondaryUnit || "",
-        targetConversionFactor: Number(targetConversionFactor) || 1,
-        targetSecondaryQuantity: targetHasSecondaryUnit && Number(targetConversionFactor) > 0
-          ? parseFloat((numTargetQty * Number(targetConversionFactor)).toFixed(4))
-          : 0,
+        targetConversionFactor: targetCf,
+        targetSecondaryQuantity: finalTargetSecondaryQty,
         mrpNumber: mrpNumber.trim(),
         remarks: remarks.trim() || `In-house WIP Assembly (${consumedRows.length} items)`,
         consumedItems: consumedRows.map(r => {
-          const q = parseFloat(r.quantity);
+          const rawQ = parseFloat(r.quantity) || 0;
           const cf = Number(r.conversionFactor) || 1;
-          const secQ = r.hasSecondaryUnit && cf > 0 ? parseFloat((q * cf).toFixed(4)) : 0;
+          const isSec = Boolean(r.isSecondaryActive);
+          const primaryQty = isSec && cf > 0 ? parseFloat((rawQ / cf).toFixed(4)) : rawQ;
+          const secQty = isSec ? rawQ : (r.hasSecondaryUnit && cf > 0 ? parseFloat((rawQ * cf).toFixed(4)) : 0);
           return {
             materialId: r.materialId,
             materialName: r.materialName,
             materialCode: r.materialCode,
             itemType: r.itemType,
-            quantity: q,
+            quantity: primaryQty,
             unit: r.unit,
             hasSecondaryUnit: Boolean(r.hasSecondaryUnit),
             secondaryUnit: r.secondaryUnit || "",
             conversionFactor: cf,
-            secondaryQuantity: secQ
+            secondaryQuantity: secQty
           };
         })
       };
@@ -419,7 +504,11 @@ export default function WipMultiItemConvertModal({
         throw new Error(data.message || "Failed to convert WIP stock into FG Component");
       }
 
-      onSuccess(data.message || `Successfully produced ${numTargetQty} ${targetUnit} of ${targetItemName} in Shopfloor WIP`);
+      const producedLabel = targetHasSecondaryUnit && targetSecondaryUnit
+        ? `${finalTargetPrimaryQty} ${targetUnit} (~${finalTargetSecondaryQty} ${targetSecondaryUnit})`
+        : `${finalTargetPrimaryQty} ${targetUnit}`;
+
+      onSuccess(data.message || `Successfully produced ${producedLabel} of ${targetItemName} in Shopfloor WIP`);
       onClose();
     } catch (err: any) {
       console.error("Multi-WIP conversion error:", err);
@@ -535,22 +624,36 @@ export default function WipMultiItemConvertModal({
 
               {/* Target Produced Quantity */}
               <div className="md:col-span-3 lg:col-span-3 xl:col-span-2 space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Produced Qty (WIP) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  min="0.0001"
-                  step="any"
-                  value={targetQuantity}
-                  onChange={(e) => setTargetQuantity(e.target.value)}
-                  placeholder="e.g. 10"
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-mono font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500"
-                  required
-                />
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Produced Qty (WIP) <span className="text-rose-500">*</span>
+                  </label>
+                  {targetHasSecondaryUnit && targetSecondaryUnit && Number(targetConversionFactor) > 0 && (
+                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
+                      Dual Unit
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0.0001"
+                    step="any"
+                    value={targetQuantity}
+                    onChange={(e) => setTargetQuantity(e.target.value)}
+                    placeholder="e.g. 10"
+                    className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-mono font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500 pr-14"
+                    required
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                    {targetIsSecondaryActive ? targetSecondaryUnit : targetUnit}
+                  </span>
+                </div>
                 {targetHasSecondaryUnit && targetSecondaryUnit && numTargetQty > 0 && (
                   <p className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mt-1">
-                    (~{parseFloat((numTargetQty * targetConversionFactor).toFixed(3))} {targetSecondaryUnit})
+                    {targetIsSecondaryActive
+                      ? `(~${parseFloat((numTargetQty / (targetConversionFactor || 1)).toFixed(3))} ${targetUnit})`
+                      : `(~${parseFloat((numTargetQty * (targetConversionFactor || 1)).toFixed(3))} ${targetSecondaryUnit})`}
                   </p>
                 )}
               </div>
@@ -560,24 +663,60 @@ export default function WipMultiItemConvertModal({
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                   Unit
                 </label>
-                <input
-                  list="wip-target-uoms"
-                  type="text"
-                  value={targetUnit}
-                  onChange={(e) => setTargetUnit(e.target.value)}
-                  placeholder="NOS / PCS"
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 uppercase"
-                />
-                <datalist id="wip-target-uoms">
-                  <option value="NOS" />
-                  <option value="PCS" />
-                  <option value="KG" />
-                  <option value="Sheet" />
-                  <option value="Set" />
-                  <option value="Meter" />
-                  <option value="Box" />
-                  <option value="Pair" />
-                </datalist>
+                {targetHasSecondaryUnit && targetSecondaryUnit && Number(targetConversionFactor) > 0 ? (
+                  <div className="flex flex-col gap-1">
+                    <div className="inline-flex p-1 rounded-xl bg-slate-200 dark:bg-slate-700 border border-slate-300 dark:border-slate-600">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleTargetUnit(targetUnit)}
+                        className={`flex-1 px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                          !targetIsSecondaryActive
+                            ? "bg-indigo-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                        title={`Primary Unit: ${targetUnit}`}
+                      >
+                        {targetUnit}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleTargetUnit(targetSecondaryUnit)}
+                        className={`flex-1 px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                          targetIsSecondaryActive
+                            ? "bg-indigo-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                        title={`Secondary Unit: ${targetSecondaryUnit}`}
+                      >
+                        {targetSecondaryUnit}
+                      </button>
+                    </div>
+                    <span className="text-[10px] text-slate-500 text-center font-medium">
+                      1 {targetUnit} = {targetConversionFactor} {targetSecondaryUnit}
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      list="wip-target-uoms"
+                      type="text"
+                      value={targetUnit}
+                      onChange={(e) => setTargetUnit(e.target.value)}
+                      placeholder="NOS / PCS"
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 uppercase"
+                    />
+                    <datalist id="wip-target-uoms">
+                      <option value="NOS" />
+                      <option value="PCS" />
+                      <option value="KG" />
+                      <option value="Sheet" />
+                      <option value="Set" />
+                      <option value="Meter" />
+                      <option value="Box" />
+                      <option value="Pair" />
+                    </datalist>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -630,23 +769,27 @@ export default function WipMultiItemConvertModal({
                   <thead>
                     <tr className="bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                       <th className="px-4 py-3.5">Material &amp; Technical Description</th>
-                      <th className="px-4 py-3.5 text-center w-32">Category</th>
+                      <th className="px-4 py-3.5 text-center w-28">Category</th>
                       <th className="px-4 py-3.5 text-center w-36">Shopfloor Balance</th>
-                      <th className="px-4 py-3.5 text-center w-44">Consumed Quantity</th>
-                      <th className="px-4 py-3.5 text-center w-24">Unit</th>
-                      <th className="px-4 py-3.5 text-center w-36">Status</th>
-                      <th className="px-4 py-3.5 text-right w-20">Remove</th>
+                      <th className="px-4 py-3.5 text-center w-48">Consumed Quantity</th>
+                      <th className="px-4 py-3.5 text-center w-36">Unit</th>
+                      <th className="px-4 py-3.5 text-center w-32">Status</th>
+                      <th className="px-4 py-3.5 text-right w-16">Remove</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {consumedRows.map((row, idx) => {
                       const numQty = parseFloat(row.quantity) || 0;
-                      const isShortage = numQty > row.availableWipQty;
+                      const cf = Number(row.conversionFactor) || 1;
+                      const isSec = Boolean(row.isSecondaryActive);
+                      const effectiveMax = isSec ? (row.availableWipQty * cf) : row.availableWipQty;
+                      const isShortage = numQty > effectiveMax;
                       const isZeroOrNegative = numQty <= 0;
+                      const activeUnit = isSec ? (row.secondaryUnit || row.unit) : row.unit;
 
                       return (
                         <tr key={`${row.materialId}_${idx}`} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                          <td className="px-4 py-3.5 min-w-[280px] lg:min-w-[360px] xl:min-w-[440px]">
+                          <td className="px-4 py-3.5 min-w-[260px] lg:min-w-[340px] xl:min-w-[420px]">
                             <ItemNameAndDescription
                               name={row.materialName}
                               description={row.materialDescription}
@@ -665,39 +808,74 @@ export default function WipMultiItemConvertModal({
                             <div>{row.availableWipQty} {row.unit}</div>
                             {row.hasSecondaryUnit && row.secondaryUnit && (
                               <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5">
-                                (~{parseFloat((row.availableWipQty * (row.conversionFactor || 1)).toFixed(2))} {row.secondaryUnit})
+                                (~{parseFloat((row.availableWipQty * cf).toFixed(2))} {row.secondaryUnit})
                               </div>
                             )}
                           </td>
                           <td className="px-4 py-3.5 text-center">
                             <div className="flex flex-col items-center">
-                              <input
-                                type="number"
-                                min="0.0001"
-                                step="any"
-                                value={row.quantity}
-                                onChange={(e) => handleUpdateConsumedQty(idx, e.target.value)}
-                                className={`w-32 px-2.5 py-1.5 rounded-lg border text-center font-mono font-bold text-xs focus:ring-2 ${
-                                  isShortage 
-                                    ? "border-rose-400 bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:border-rose-700 dark:text-rose-300 focus:ring-rose-500" 
-                                    : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-indigo-500"
-                                }`}
-                                placeholder="Consumed Qty"
-                                required
-                              />
+                              <div className="relative w-36">
+                                <input
+                                  type="number"
+                                  min="0.0001"
+                                  step="any"
+                                  value={row.quantity}
+                                  onChange={(e) => handleUpdateConsumedQty(idx, e.target.value)}
+                                  className={`w-full px-2.5 py-1.5 rounded-lg border text-center font-mono font-bold text-xs focus:ring-2 ${
+                                    isShortage 
+                                      ? "border-rose-400 bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:border-rose-700 dark:text-rose-300 focus:ring-rose-500" 
+                                      : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-indigo-500"
+                                  }`}
+                                  placeholder={`Qty in ${activeUnit}`}
+                                  required
+                                />
+                              </div>
                               {row.hasSecondaryUnit && row.secondaryUnit && numQty > 0 && (
                                 <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
-                                  ~{parseFloat((numQty * (row.conversionFactor || 1)).toFixed(3))} {row.secondaryUnit}
+                                  {isSec
+                                    ? `(~${parseFloat((numQty / cf).toFixed(3))} ${row.unit})`
+                                    : `(~${parseFloat((numQty * cf).toFixed(3))} ${row.secondaryUnit})`}
                                 </span>
                               )}
                             </div>
                           </td>
-                          <td className="px-4 py-3.5 text-center font-semibold text-slate-500">
-                            {row.unit}
+                          <td className="px-4 py-3.5 text-center">
+                            {row.hasSecondaryUnit && row.secondaryUnit && cf > 0 ? (
+                              <div className="inline-flex p-0.5 rounded-lg bg-slate-200 dark:bg-slate-700/80 border border-slate-300 dark:border-slate-600 shadow-2xs">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleRowUnit(idx, row.unit)}
+                                  className={`px-2 py-0.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                                    !isSec
+                                      ? "bg-indigo-600 text-white shadow-xs"
+                                      : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                                  }`}
+                                  title={`Primary Unit: ${row.unit}`}
+                                >
+                                  {row.unit}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleRowUnit(idx, row.secondaryUnit!)}
+                                  className={`px-2 py-0.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                                    isSec
+                                      ? "bg-indigo-600 text-white shadow-xs"
+                                      : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                                  }`}
+                                  title={`Secondary Unit: ${row.secondaryUnit} (1 ${row.unit} = ${cf} ${row.secondaryUnit})`}
+                                >
+                                  {row.secondaryUnit}
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="px-2 py-0.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700">
+                                {row.unit}
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-3.5 text-center">
                             {isShortage ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400">
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400" title={`Max available: ${effectiveMax} ${activeUnit}`}>
                                 <AlertCircle size={12} /> Exceeds Stock
                               </span>
                             ) : isZeroOrNegative ? (
@@ -762,7 +940,7 @@ export default function WipMultiItemConvertModal({
           <div className="text-xs text-slate-500">
             {consumedRows.length > 0 && (
               <span>
-                Ready to assemble <strong className="text-slate-800 dark:text-slate-200">{targetQuantity} {targetUnit}</strong> from{" "}
+                Ready to assemble <strong className="text-slate-800 dark:text-slate-200">{targetQuantity} {targetIsSecondaryActive ? targetSecondaryUnit : targetUnit}</strong> from{" "}
                 <strong className="text-indigo-600">{consumedRows.length} items</strong>.
               </span>
             )}

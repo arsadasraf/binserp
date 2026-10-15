@@ -38,6 +38,13 @@ import { trainFace, markAttendance, checkPythonHealth } from "../controllers/hr/
 import { createSalarySlip, bulkCreateSalaries, getSalaries, updateSalary, deleteSalary, getSalaryGenerationStats } from "../controllers/hr/index.js";
 import { createHoliday, getAllHolidays, updateHoliday, deleteHoliday } from "../controllers/hr/index.js";
 import { bulkImportHrMasters } from "../controllers/hr/index.js";
+import {
+  getDailyAttendanceForValidation,
+  saveDailyAttendanceValidation,
+  getMonthlyAttendanceForValidation,
+  saveMonthlyAttendanceValidation,
+  getMonthlyValidationSummary,
+} from "../controllers/hr/index.js";
 
 
 const router = express.Router();
@@ -101,6 +108,13 @@ router.delete("/employee-type/:id", deleteEmployeeType);
 router.post("/face-data", upload.array("files", 5), trainFace);
 router.post("/mark-attendance", upload.single("file"), markAttendance);
 router.get("/python-health", checkPythonHealth);
+
+// Attendance Validation Routes (Dedicated Schema & Validation layer)
+router.get("/attendance-validation/daily", requirePermission("HR", "salaries", "read"), getDailyAttendanceForValidation);
+router.post("/attendance-validation/daily", requirePermission("HR", "salaries", "create"), saveDailyAttendanceValidation);
+router.get("/attendance-validation/monthly", requirePermission("HR", "salaries", "read"), getMonthlyAttendanceForValidation);
+router.post("/attendance-validation/monthly", requirePermission("HR", "salaries", "create"), saveMonthlyAttendanceValidation);
+router.get("/attendance-validation/month-summary", requirePermission("HR", "salaries", "read"), getMonthlyValidationSummary);
 
 // Salary Routes (Strictly protected)
 router.post("/salary/bulk", requirePermission("HR", "salaries", "create"), bulkCreateSalaries);

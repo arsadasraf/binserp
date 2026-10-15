@@ -1,19 +1,24 @@
 import React from 'react';
-import { BadgeCheck, XCircle, Clock, Eye, Calendar, ArrowRight, FileText, Layers, ShoppingCart, Package, Boxes, User, AlertTriangle, Lock } from 'lucide-react';
+import { BadgeCheck, XCircle, Clock, Eye, Calendar, ArrowRight, FileText, Layers, ShoppingCart, Package, Boxes, User, AlertTriangle, Lock, Edit2, Trash2 } from 'lucide-react';
 import { formatDateTime } from './MaterialIssueHistoryTable';
 import { evaluateItemStock, evaluateRequestStock } from '@/src/utils/stockValidationHelper';
 import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
+import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 
 interface MaterialRequestTableProps {
     requests: any[];
     onIssue: (request: any) => void;
     onReject: (request: any) => void;
     onView: (request: any) => void;
+    onEdit?: (request: any) => void;
+    onDelete?: (request: any) => void;
+    token?: string | null;
     storeData?: any;
 }
 
-export default function MaterialRequestTable({ requests, onIssue, onReject, onView, storeData }: MaterialRequestTableProps) {
+export default function MaterialRequestTable({ requests, onIssue, onReject, onView, onEdit, onDelete, token, storeData }: MaterialRequestTableProps) {
     const { isApprovalRequired, getApproverDisplay } = useStoreApprovalSettings();
+    const { isTimeLockExpired, formatRemainingTime, getPolicyHours } = useTimeLockPolicy(token);
     const approvalRequired = isApprovalRequired('materialRequest');
     const approverDisplay = getApproverDisplay('materialRequest');
     if (!requests || requests.length === 0) {
@@ -185,20 +190,58 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                     </div>
                                 </td>
                                 <td className="p-4 text-right">
-                                    <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                                    <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                                         <button
                                             onClick={() => onView(request)}
-                                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/60 rounded-xl transition-colors cursor-pointer"
+                                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/60 rounded-xl transition-colors cursor-pointer"
                                             title="View Details"
                                         >
-                                            <Eye size={17} />
+                                            <Eye size={16} />
                                         </button>
+                                        {(() => {
+                                            const isLocked = isTimeLockExpired(request.createdAt, 'materialRequest');
+                                            const remaining = formatRemainingTime(request.createdAt, 'materialRequest');
+
+                                            if (isLocked) {
+                                                return (
+                                                    <div
+                                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-gray-100 dark:bg-gray-800 text-gray-400 border border-gray-200 dark:border-gray-700 cursor-not-allowed"
+                                                        title={`Locked by company policy (${getPolicyHours('materialRequest')}h elapsed)`}
+                                                    >
+                                                        <Lock size={10} /> Locked
+                                                    </div>
+                                                );
+                                            }
+
+                                            return (
+                                                <>
+                                                    {onEdit && (
+                                                        <button
+                                                            onClick={() => onEdit(request)}
+                                                            className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-xl transition-colors cursor-pointer"
+                                                            title={`Edit Request (${remaining} left)`}
+                                                        >
+                                                            <Edit2 size={16} />
+                                                        </button>
+                                                    )}
+                                                    {onDelete && (
+                                                        <button
+                                                            onClick={() => onDelete(request)}
+                                                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-xl transition-colors cursor-pointer"
+                                                            title={`Delete Request (${remaining} left)`}
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
                                         <button
                                             onClick={() => onReject(request)}
-                                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/60 rounded-xl transition-colors cursor-pointer"
+                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/60 rounded-xl transition-colors cursor-pointer"
                                             title="Reject"
                                         >
-                                            <XCircle size={17} />
+                                            <XCircle size={16} />
                                         </button>
                                         {(() => {
                                             if (isIssueLocked) {
@@ -375,32 +418,70 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                             )}
                         </div>
 
-                        {/* Thumb-Accessible Action Buttons (Native App Feel) */}
-                        <div className="grid grid-cols-3 gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
+                        {/* Mobile Action Buttons */}
+                        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-gray-100 dark:border-gray-800" onClick={(e) => e.stopPropagation()}>
                             <button
                                 onClick={() => onView(request)}
-                                className="h-10 px-2 text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                                className="h-9 px-2.5 text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all active:scale-95 cursor-pointer"
                             >
-                                <Eye size={14} />
+                                <Eye size={13} />
                                 <span>Details</span>
                             </button>
+                            {(() => {
+                                const isLocked = isTimeLockExpired(request.createdAt, 'materialRequest');
+                                const remaining = formatRemainingTime(request.createdAt, 'materialRequest');
+
+                                if (isLocked) {
+                                    return (
+                                        <span className="h-9 px-2 text-gray-400 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1">
+                                            <Lock size={11} /> Locked
+                                        </span>
+                                    );
+                                }
+
+                                return (
+                                    <>
+                                        {onEdit && (
+                                            <button
+                                                onClick={() => onEdit(request)}
+                                                className="h-9 px-2.5 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all active:scale-95 cursor-pointer"
+                                                title={`Edit (${remaining} left)`}
+                                            >
+                                                <Edit2 size={13} />
+                                                <span>Edit</span>
+                                            </button>
+                                        )}
+                                        {onDelete && (
+                                            <button
+                                                onClick={() => onDelete(request)}
+                                                className="h-9 px-2.5 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all active:scale-95 cursor-pointer"
+                                                title={`Delete (${remaining} left)`}
+                                            >
+                                                <Trash2 size={13} />
+                                                <span>Delete</span>
+                                            </button>
+                                        )}
+                                    </>
+                                );
+                            })()}
                             <button
                                 onClick={() => onReject(request)}
-                                className="h-10 px-2 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                                className="h-9 px-2 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all active:scale-95 cursor-pointer"
                             >
-                                <XCircle size={14} />
+                                <XCircle size={13} />
                                 <span>Reject</span>
                             </button>
+                            <div className="ml-auto">
                             {(() => {
                                 if (isIssueLocked) {
                                     return (
                                         <button
                                             type="button"
                                             onClick={() => onIssue(request)}
-                                            className="h-10 px-2 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                                            className="h-9 px-3 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 shadow-2xs transition-all active:scale-95 cursor-pointer"
                                             title={`Pending approval: Ask ${approverDisplay} to approve before issuing`}
                                         >
-                                            <Lock size={13} className="text-amber-600 dark:text-amber-400" />
+                                            <Lock size={12} className="text-amber-600 dark:text-amber-400" />
                                             <span>Ask to Approve</span>
                                         </button>
                                     );
@@ -410,19 +491,20 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                 return (
                                     <button
                                         onClick={() => onIssue(request)}
-                                        className={`h-10 px-2 text-white rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 shadow-sm transition-all active:scale-95 cursor-pointer ${
+                                        className={`h-9 px-3 text-white rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 shadow-sm transition-all active:scale-95 cursor-pointer ${
                                             hasShortage
                                                 ? 'bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-400/40'
                                                 : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700'
                                         }`}
                                         title={hasShortage ? "Warning: Insufficient warehouse stock to fulfill this request" : "Issue Items"}
                                     >
-                                        {hasShortage && <AlertTriangle size={13} className="text-amber-200" />}
+                                        {hasShortage && <AlertTriangle size={12} className="text-amber-200" />}
                                         <span>Issue</span>
-                                        <ArrowRight size={14} />
+                                        <ArrowRight size={13} />
                                     </button>
                                 );
                             })()}
+                            </div>
                         </div>
                     </div>
                     );

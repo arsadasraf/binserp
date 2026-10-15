@@ -11,7 +11,9 @@ export const DEFAULT_TIME_LOCK_HOURS: Record<string, number> = {
   jobWorkReturn: 1,
   rfqQuotation: 24,
   mrbDisposition: 24,
-  mrpPlan: 24
+  mrpPlan: 24,
+  materialRequest: 24,
+  materialIssue: 24
 };
 
 let globalTimeLockPolicies: Record<string, number> = { ...DEFAULT_TIME_LOCK_HOURS };
@@ -125,7 +127,14 @@ export function useTimeLockPolicy(token?: string | null) {
     return remainingSecs <= 0;
   }, [getPolicyHours, getRemainingSeconds]);
 
-  const formatRemainingTime = useCallback((remainingSeconds: number): string => {
+  const formatRemainingTime = useCallback((remainingSecondsOrDate: number | string | Date | undefined, entityKey?: string): string => {
+    let remainingSeconds = 0;
+    if (typeof remainingSecondsOrDate === 'number') {
+      remainingSeconds = remainingSecondsOrDate;
+    } else if (remainingSecondsOrDate && entityKey) {
+      remainingSeconds = getRemainingSeconds(remainingSecondsOrDate, entityKey);
+    }
+
     if (remainingSeconds === Infinity) return 'Unlimited';
     if (remainingSeconds <= 0) return 'Expired';
 
@@ -141,7 +150,7 @@ export function useTimeLockPolicy(token?: string | null) {
       return `${hours}h ${mins}m`;
     }
     return `${mins}m`;
-  }, []);
+  }, [getRemainingSeconds]);
 
   return {
     policies,

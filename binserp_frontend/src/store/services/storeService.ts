@@ -107,6 +107,11 @@ export const storeService = binsApi.injectEndpoints({
           if (!tags.includes("StoreDc")) tags.push("StoreDc");
           if (!tags.includes("StorePo")) tags.push("StorePo");
         }
+        if (tab === "material-issue" || tab === "material-request") {
+          if (!tags.includes("StoreMaterialRequest")) tags.push("StoreMaterialRequest");
+          if (!tags.includes("StoreMaterialIssue")) tags.push("StoreMaterialIssue");
+          if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
+        }
         if (tab === "raw-material" || tab === "raw-materials" || tab === "bought-out" || tab === "rm-bo-item" || tab === "consumable-item" || tab === "fg-item") {
           if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
           if (!tags.includes("StoreMasters")) tags.push("StoreMasters");
@@ -129,6 +134,11 @@ export const storeService = binsApi.injectEndpoints({
           if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
           if (!tags.includes("StoreGrn")) tags.push("StoreGrn");
           if (!tags.includes("StorePo")) tags.push("StorePo");
+        }
+        if (tab === "material-issue" || tab === "material-request") {
+          if (!tags.includes("StoreMaterialRequest")) tags.push("StoreMaterialRequest");
+          if (!tags.includes("StoreMaterialIssue")) tags.push("StoreMaterialIssue");
+          if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
         }
         if (tab === "raw-material" || tab === "raw-materials" || tab === "bought-out" || tab === "rm-bo-item" || tab === "consumable-item" || tab === "fg-item") {
           if (!tags.includes("StoreInventory")) tags.push("StoreInventory");

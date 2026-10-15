@@ -10,7 +10,9 @@ export const DEFAULT_TIME_LOCK_HOURS = {
     jobWorkReturn: 1,
     rfqQuotation: 24,
     mrbDisposition: 24,
-    mrpPlan: 24
+    mrpPlan: 24,
+    materialRequest: 24,
+    materialIssue: 24
 };
 
 const DOC_DISPLAY_NAMES = {
@@ -23,7 +25,9 @@ const DOC_DISPLAY_NAMES = {
     jobWorkReturn: "Job Work Inward Return Receipt",
     rfqQuotation: "RFQ / Quotation",
     mrbDisposition: "MRB Disposition",
-    mrpPlan: "MRP Demand Plan"
+    mrpPlan: "MRP Demand Plan",
+    materialRequest: "Material Request",
+    materialIssue: "Material Issue"
 };
 
 /**

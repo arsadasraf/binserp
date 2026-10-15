@@ -13,8 +13,10 @@ import {
   fgItemSchema,
   inventorySchema,
   fgInventoryMonthlySchema,
-  locationSchema
+  locationSchema,
+  fgGRNSchema
 } from "../../models/store/index.js";
+import { mrpPlanSchema } from "../../models/purchase/index.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -598,6 +600,7 @@ export const moveWipToFgInventory = asyncHandler(async (req, res) => {
     conversionFactor,
     locationId,
     location,
+    mrpPlanId,
     mrpNumber,
     remarks
   } = req.body;
@@ -621,6 +624,8 @@ export const moveWipToFgInventory = asyncHandler(async (req, res) => {
   const Inventory = req.getModel("Inventory", inventorySchema);
   const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
   const Location = req.getModel("Location", locationSchema);
+  const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
+  const FGGRN = req.getModel("FGGRN", fgGRNSchema);
 
   // 1. Resolve item in FGItem or Component catalog
   let fgDoc = null;
@@ -654,7 +659,58 @@ export const moveWipToFgInventory = asyncHandler(async (req, res) => {
   const resolvedConvFactor = Number(conversionFactor || fgDoc?.conversionFactor) || 1;
   const resolvedSecQty = Number(secondaryQuantity) || (isDual && resolvedConvFactor > 0 ? parseFloat((transferQty * resolvedConvFactor).toFixed(4)) : 0);
 
-  // 2. Increment stock in Master Catalog (FGItem or Component)
+  // 2. If MRP Plan is linked, strictly validate item existence and quantity cap
+  let linkedPlan = null;
+  let matchingFgItemInPlan = null;
+
+  if (mrpPlanId || mrpNumber) {
+    const planQuery = { company: companyId };
+    if (mrpPlanId && isValidObjectId(mrpPlanId.toString())) {
+      planQuery._id = mrpPlanId;
+    } else if (mrpNumber) {
+      planQuery.mrpNumber = mrpNumber.trim();
+    }
+
+    linkedPlan = await MRPPlan.findOne(planQuery);
+    if (!linkedPlan) {
+      throw new ApiError(404, `Linked MRP Plan not found (${mrpPlanId || mrpNumber})`);
+    }
+
+    const targetFgIdStr = fgDoc?._id ? fgDoc._id.toString() : (cleanId && isValidObjectId(cleanId.toString()) ? cleanId.toString() : "");
+    const targetNameLow = targetName.trim().toLowerCase();
+    const targetCodeLow = targetCode.trim().toLowerCase();
+
+    matchingFgItemInPlan = (linkedPlan.fgItems || []).find(fg => {
+      const fgRefId = fg.fgItem ? String(fg.fgItem?._id || fg.fgItem) : "";
+      const fgNameLow = (fg.fgItemName || fg.name || "").trim().toLowerCase();
+      const fgCodeLow = (fg.fgItemCode || fg.code || "").trim().toLowerCase();
+
+      if (targetFgIdStr && fgRefId && targetFgIdStr === fgRefId) return true;
+      if (targetCodeLow && fgCodeLow && targetCodeLow === fgCodeLow) return true;
+      if (targetNameLow && fgNameLow && targetNameLow === fgNameLow) return true;
+      return false;
+    });
+
+    if (!matchingFgItemInPlan) {
+      throw new ApiError(
+        400,
+        `Item "${targetName}" does not exist in MRP Plan #${linkedPlan.mrpNumber}. Please select an MRP Plan that contains this Finished Good.`
+      );
+    }
+
+    const plannedQty = Number(matchingFgItemInPlan.quantity) || 0;
+    const alreadyReceivedQty = Number(matchingFgItemInPlan.receivedQuantity) || 0;
+    const remainingPendingMRP = Math.max(0, plannedQty - alreadyReceivedQty);
+
+    if (transferQty > remainingPendingMRP) {
+      throw new ApiError(
+        400,
+        `Transfer quantity (${transferQty} ${targetUnit}) exceeds the remaining pending quantity (${remainingPendingMRP} ${targetUnit}) in MRP Plan #${linkedPlan.mrpNumber}. Over-fulfillment is not allowed.`
+      );
+    }
+  }
+
+  // 3. Increment stock in Master Catalog (FGItem or Component)
   let previousStock = 0;
   let newStock = transferQty;
 
@@ -668,7 +724,7 @@ export const moveWipToFgInventory = asyncHandler(async (req, res) => {
     }
   }
 
-  // 3. Resolve Destination Location if provided
+  // 4. Resolve Destination Location if provided
   let resolvedLocationName = location || "";
   let resolvedLocationId = locationId && isValidObjectId(locationId.toString()) ? locationId : undefined;
   if (resolvedLocationId && !resolvedLocationName) {
@@ -676,7 +732,7 @@ export const moveWipToFgInventory = asyncHandler(async (req, res) => {
     if (locDoc) resolvedLocationName = locDoc.name;
   }
 
-  // 4. Update or Upsert in Inventory Collection
+  // 5. Update or Upsert in Inventory Collection
   let invQuery = {
     company: companyId,
     $or: []
@@ -719,7 +775,7 @@ export const moveWipToFgInventory = asyncHandler(async (req, res) => {
     });
   }
 
-  // 5. Update Monthly FG Inventory Tracking
+  // 6. Update Monthly FG Inventory Tracking
   if (fgDoc && itemModelType === "FGItem") {
     try {
       const currentDate = new Date();
@@ -734,7 +790,73 @@ export const moveWipToFgInventory = asyncHandler(async (req, res) => {
     }
   }
 
-  // 6. Record StockTransaction for Audit Trail & Movement Tracking
+  // 7. If MRP Plan is linked, synchronize FG receipt and update status
+  if (linkedPlan && matchingFgItemInPlan) {
+    const currentReceived = Number(matchingFgItemInPlan.receivedQuantity) || 0;
+    matchingFgItemInPlan.receivedQuantity = currentReceived + transferQty;
+
+    const totalPlannedQty = (linkedPlan.fgItems || []).reduce((acc, f) => acc + (Number(f.quantity) || 0), 0);
+    const totalReceivedQty = (linkedPlan.fgItems || []).reduce((acc, f) => acc + (Number(f.receivedQuantity) || 0), 0);
+
+    const previousStatus = linkedPlan.status;
+    let newStatus = previousStatus;
+
+    if (totalPlannedQty > 0 && totalReceivedQty >= totalPlannedQty) {
+      newStatus = "Completed";
+      if (!linkedPlan.completedAt) linkedPlan.completedAt = new Date();
+    } else if (totalReceivedQty > 0) {
+      newStatus = "Partially Received";
+      linkedPlan.completedAt = null;
+    } else if (previousStatus === "Planned") {
+      newStatus = "In Production";
+    }
+
+    linkedPlan.status = newStatus;
+
+    if (!linkedPlan.editHistory) linkedPlan.editHistory = [];
+    linkedPlan.editHistory.push({
+      updatedBy: userId,
+      updatedByName: userName,
+      updatedAt: new Date(),
+      action: "WIP to FG Store Transfer",
+      remarks: `Transferred ${transferQty} ${targetUnit} of "${targetName}" from Shopfloor WIP to Main Store FG. Progress: ${matchingFgItemInPlan.receivedQuantity}/${matchingFgItemInPlan.quantity}. Status: '${previousStatus}' → '${newStatus}'.`
+    });
+
+    await linkedPlan.save();
+
+    // Create formal FGGRN document for audit trail
+    try {
+      const grnNumber = `FG-GRN-${Date.now().toString().slice(-6)}`;
+      await FGGRN.create({
+        company: companyId,
+        grnNumber,
+        date: new Date(),
+        mrpPlan: linkedPlan._id,
+        mrpNumber: linkedPlan.mrpNumber,
+        qcRequired: false,
+        status: "Received",
+        remarks: remarks || `Moved from Shopfloor WIP to Main Store FG (MRP #${linkedPlan.mrpNumber})`,
+        items: [
+          {
+            fgItem: fgDoc?._id,
+            itemName: targetName,
+            quantity: transferQty,
+            receivedQuantity: transferQty,
+            acceptedQuantity: transferQty,
+            unit: targetUnit,
+            hasSecondaryUnit: isDual,
+            secondaryUnit: resolvedSecUnit,
+            conversionFactor: resolvedConvFactor,
+            secondaryQuantity: resolvedSecQty,
+          }
+        ]
+      });
+    } catch (gErr) {
+      console.warn("Could not create FGGRN record on WIP to FG transfer:", gErr.message);
+    }
+  }
+
+  // 8. Record StockTransaction for Audit Trail & Movement Tracking
   const docNumber = `WIP-FG-TRF-${Date.now()}`;
   await recordStockTransaction(req, {
     itemType: itemModelType,
@@ -753,7 +875,7 @@ export const moveWipToFgInventory = asyncHandler(async (req, res) => {
     referenceDocType: "WIPTransfer",
     referenceDocNumber: docNumber,
     recipientOrSource: "Main Store FG Inventory",
-    purpose: remarks || `FG transferred from Shopfloor WIP to Main Store Inventory${mrpNumber ? ` (MRP #${mrpNumber})` : ""}`,
+    purpose: remarks || `FG transferred from Shopfloor WIP to Main Store Inventory${linkedPlan ? ` (MRP #${linkedPlan.mrpNumber})` : ""}`,
     performedBy: userId,
     performedByName: userName
   });
@@ -765,9 +887,13 @@ export const moveWipToFgInventory = asyncHandler(async (req, res) => {
         docNumber,
         transferQty,
         itemName: targetName,
-        newStock
+        newStock,
+        mrpNumber: linkedPlan?.mrpNumber,
+        mrpStatus: linkedPlan?.status
       },
-      `Successfully transferred ${transferQty} ${targetUnit} of ${targetName} from Shopfloor WIP to Main Store FG Inventory`
+      linkedPlan
+        ? `Successfully transferred ${transferQty} ${targetUnit} of ${targetName} to FG Store & updated MRP #${linkedPlan.mrpNumber} status to '${linkedPlan.status}'`
+        : `Successfully transferred ${transferQty} ${targetUnit} of ${targetName} from Shopfloor WIP to Main Store FG Inventory`
     )
   );
 });

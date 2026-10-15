@@ -8,6 +8,7 @@ import {
   createMaterialIssue,
   getAllMaterialIssues,
   updateMaterialIssue,
+  deleteMaterialIssue,
   createBOM,
   getAllBOMs,
   updateBOM,
@@ -18,6 +19,7 @@ import {
   createMaterialRequest,
   getAllMaterialRequests,
   updateMaterialRequest,
+  deleteMaterialRequest,
   createVendor,
   getAllVendors,
   updateVendor,
@@ -128,6 +130,7 @@ router.delete("/grn/:id", deleteGRN);
 router.post("/material-issue", createMaterialIssue);
 router.get("/material-issue", getAllMaterialIssues);
 router.put("/material-issue/:id", updateMaterialIssue);
+router.delete("/material-issue/:id", deleteMaterialIssue);
 
 // BOM routes
 router.post("/bom", createBOM);
@@ -150,6 +153,7 @@ router.get("/transactions/item/:id", getItemTransactionHistory);
 router.post("/material-request", createMaterialRequest);
 router.get("/material-request", getAllMaterialRequests);
 router.put("/material-request/:id", updateMaterialRequest);
+router.delete("/material-request/:id", deleteMaterialRequest);
 
 // Master routes
 router.post("/vendor", createVendor);

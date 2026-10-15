@@ -685,7 +685,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         if (!token) return;
         try {
             await updateRecord({ tab: "material-request" as any, id, body: data }).unwrap();
-            setSuccess(`Request ${data.status.toLowerCase()} successfully`);
+            setSuccess(data?.status ? `Request ${data.status.toLowerCase()} successfully` : "Material request updated successfully");
             fetchData();
         } catch (err: any) {
             setError(err.data?.message || err.message || "Failed to update request");
@@ -714,16 +714,54 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     };
 
     /**
-     * Update Material Issue (e.g. Return)
+     * Update Material Issue (e.g. Return or Edit)
      */
     const updateMaterialIssue = async (id: string, data: any) => {
         if (!token) return;
         try {
             await updateRecord({ tab: "material-issue" as any, id, body: data }).unwrap();
+            showSuccessToast("Material issue updated successfully and stock synchronized");
             setSuccess("Material issue updated successfully");
             fetchData();
         } catch (err: any) {
-            setError(err.data?.message || err.message || "Failed to update material issue");
+            const errorMsg = err.data?.message || err.message || "Failed to update material issue";
+            setError(errorMsg);
+            throw err;
+        }
+    };
+
+    /**
+     * Delete Material Issue (with automated stock reversal)
+     */
+    const deleteMaterialIssue = async (id: string) => {
+        if (!token) return;
+        try {
+            await deleteRecord({ tab: "material-issue" as any, id }).unwrap();
+            showSuccessToast("Material issue deleted successfully and stock reversed");
+            setSuccess("Material issue deleted successfully and stock reversed");
+            fetchData();
+        } catch (err: any) {
+            const errorMsg = err.data?.message || err.message || "Failed to delete material issue";
+            setError(errorMsg);
+            await showErrorDialog("Delete Failed", errorMsg);
+            throw err;
+        }
+    };
+
+    /**
+     * Delete Material Request
+     */
+    const deleteMaterialRequest = async (id: string) => {
+        if (!token) return;
+        try {
+            await deleteRecord({ tab: "material-request" as any, id }).unwrap();
+            showSuccessToast("Material request deleted successfully");
+            setSuccess("Material request deleted successfully");
+            fetchData();
+        } catch (err: any) {
+            const errorMsg = err.data?.message || err.message || "Failed to delete material request";
+            setError(errorMsg);
+            await showErrorDialog("Delete Failed", errorMsg);
             throw err;
         }
     };
@@ -786,8 +824,10 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         // Material Issue & Request Handlers
         createMaterialRequest,
         updateMaterialRequest,
+        deleteMaterialRequest,
         createMaterialIssue,
         updateMaterialIssue,
+        deleteMaterialIssue,
         materialRequests,
         inventoryList,
         jobWorkSuppliers,

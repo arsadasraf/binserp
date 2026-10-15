@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { FileText, ClipboardList, Filter, X, Search, Check, RotateCcw } from 'lucide-react';
+import { FileText, ClipboardList, Filter, X, Search, Check, RotateCcw, Edit2, Trash2, Eye, Lock, Clock } from 'lucide-react';
+import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 
 export function resolveIssueType(issue: any): {
     typeKey: 'rm' | 'bo' | 'consumable' | 'fg';
@@ -74,9 +75,14 @@ export function formatDateTime(dateStr: any): string {
 interface MaterialIssueHistoryTableProps {
     issues: any[];
     onView?: (issue: any) => void;
+    onEdit?: (issue: any) => void;
+    onDelete?: (issue: any) => void;
+    token?: string | null;
 }
 
-export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIssueHistoryTableProps) {
+export default function MaterialIssueHistoryTable({ issues, onView, onEdit, onDelete, token }: MaterialIssueHistoryTableProps) {
+    const { isTimeLockExpired, formatRemainingTime, getPolicyHours } = useTimeLockPolicy(token);
+
     // Excel-style column filter states
     const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
     const [dropdownSearch, setDropdownSearch] = useState<string>('');
@@ -382,12 +388,13 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
                             {renderColumnHeader('items', 'Items Summary')}
                             {renderColumnHeader('issuedBy', 'Issued By')}
                             {renderColumnHeader('status', 'Status')}
+                            <th className="px-4 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-gray-900">
                         {filteredIssues.length === 0 ? (
                             <tr>
-                                <td colSpan={8} className="p-12 text-center text-gray-400 text-xs">
+                                <td colSpan={9} className="p-12 text-center text-gray-400 text-xs">
                                     No records match the active column filter criteria.{' '}
                                     <button
                                         onClick={handleClearAllFilters}
@@ -400,6 +407,8 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
                         ) : (
                             filteredIssues.map((issue) => {
                                 const typeInfo = resolveIssueType(issue);
+                                const isLocked = isTimeLockExpired(issue.createdAt || issue.date, 'materialIssue');
+                                const remainingTime = formatRemainingTime(issue.createdAt || issue.date, 'materialIssue');
 
                                 return (
                                     <tr
@@ -456,6 +465,51 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
                                                 {issue.status || 'Issued'}
                                             </span>
                                         </td>
+                                        <td className="px-4 py-3.5 whitespace-nowrap text-right" onClick={(e) => e.stopPropagation()}>
+                                            <div className="flex items-center justify-end gap-1">
+                                                {onView && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => onView(issue)}
+                                                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/60 rounded-lg transition-colors cursor-pointer"
+                                                        title="View Details"
+                                                    >
+                                                        <Eye size={15} />
+                                                    </button>
+                                                )}
+                                                {isLocked ? (
+                                                    <div
+                                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-gray-100 dark:bg-gray-800 text-gray-400 border border-gray-200 dark:border-gray-700 cursor-not-allowed"
+                                                        title={`Locked by company policy (${getPolicyHours('materialIssue')}h window elapsed)`}
+                                                    >
+                                                        <Lock size={10} /> Locked
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        {onEdit && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => onEdit(issue)}
+                                                                className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-lg transition-colors cursor-pointer"
+                                                                title={`Edit Issue (${remainingTime} remaining)`}
+                                                            >
+                                                                <Edit2 size={15} />
+                                                            </button>
+                                                        )}
+                                                        {onDelete && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => onDelete(issue)}
+                                                                className="p-1.5 text-gray-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-lg transition-colors cursor-pointer"
+                                                                title={`Delete Issue & Reverse Stock (${remainingTime} remaining)`}
+                                                            >
+                                                                <Trash2 size={15} />
+                                                            </button>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
+                                        </td>
                                     </tr>
                                 );
                             })
@@ -468,6 +522,8 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
             <div className="md:hidden flex flex-col divide-y divide-gray-100 dark:divide-gray-800 max-h-[calc(100vh-240px)] overflow-y-auto overscroll-contain pb-24 sm:pb-8">
                 {filteredIssues.map((issue) => {
                     const typeInfo = resolveIssueType(issue);
+                    const isLocked = isTimeLockExpired(issue.createdAt || issue.date, 'materialIssue');
+                    const remainingTime = formatRemainingTime(issue.createdAt || issue.date, 'materialIssue');
 
                     return (
                         <div
@@ -524,6 +580,42 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
                                             </>
                                         ) : '-'}
                                     </div>
+                                </div>
+                            </div>
+
+                            {/* Card Actions Bar */}
+                            <div className="pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+                                <div className="text-[11px] text-gray-400 flex items-center gap-1">
+                                    <Clock size={12} />
+                                    <span>{isLocked ? 'Policy locked' : `${remainingTime} left`}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {isLocked ? (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-gray-400 border border-gray-200 dark:border-gray-700">
+                                            <Lock size={12} /> Locked
+                                        </span>
+                                    ) : (
+                                        <>
+                                            {onEdit && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onEdit(issue)}
+                                                    className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition-colors"
+                                                >
+                                                    <Edit2 size={12} /> Edit
+                                                </button>
+                                            )}
+                                            {onDelete && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onDelete(issue)}
+                                                    className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 transition-colors"
+                                                >
+                                                    <Trash2 size={12} /> Delete
+                                                </button>
+                                            )}
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         </div>

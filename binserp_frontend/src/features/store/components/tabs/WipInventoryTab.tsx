@@ -2318,6 +2318,7 @@ export default function WipInventoryTab({
                     fetchWipInventory();
                 }}
                 onError={onError}
+                token={token}
             />
         </div>
     );

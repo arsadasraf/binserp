@@ -3,7 +3,8 @@ import {
     Plus, Search, Eye, Factory, Calendar, Truck, CheckCircle2, 
     FileText, FileSpreadsheet, Clock, Edit2, Trash2, Lock, 
     AlertTriangle, ArrowRight, Layers, RefreshCw, X, ShieldAlert, ShieldCheck,
-    Check, ChevronDown, SlidersHorizontal
+    Check, ChevronDown, SlidersHorizontal, Boxes, Building2, Download, Filter,
+    RotateCcw
 } from 'lucide-react';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import { JobWorkChallan, Vendor, JobWorkSupplier, JOB_WORK_PURPOSES } from "@/src/features/store/types/store.types";
@@ -16,6 +17,7 @@ import { apiGet, apiDelete } from '@/src/lib/api';
 import { generateDocument } from '@/src/utils/documentHelper';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 import { showDestructiveConfirm, showWarningDialog, showErrorDialog, showSuccessToast } from '@/src/features/store/utils/storeDialogHelper';
+import { exportVendorItemStockToExcel, VendorItemStockRow } from '../../utils/jobWorkItemStockExcelHelper';
 
 export type ChallanStatusType = 'active' | 'overdue' | 'received';
 
@@ -81,6 +83,20 @@ export default function JobWorkStore({
     // Two Main Tabs: 'challans' and 'rejections'
     const [mainTab, setMainTab] = useState<'challans' | 'rejections'>('challans');
 
+    // View Mode inside Challans: 'challans' (Challans Register) or 'item-stock' (Item-Wise Vendor Stock)
+    const [challanViewMode, setChallanViewMode] = useState<'challans' | 'item-stock'>('challans');
+
+    // Item-Wise View Filter: Only items with pending balance (> 0)
+    const [onlyPendingBalance, setOnlyPendingBalance] = useState(true);
+
+    // Excel-Style Table Column Filters (Vendor & Purpose)
+    const [selectedVendors, setSelectedVendors] = useState<string[]>([]);
+    const [selectedPurposes, setSelectedPurposes] = useState<string[]>([]);
+    const [tableDropdownCol, setTableDropdownCol] = useState<'vendor' | 'purpose' | null>(null);
+    const [tableDropdownSearch, setTableDropdownSearch] = useState('');
+    const tableDropdownRef = useRef<HTMLDivElement>(null);
+    const [vendorSearchQuery, setVendorSearchQuery] = useState('');
+
     // Multi-Select Status Filter (Default: ['active'])
     const [selectedStatuses, setSelectedStatuses] = useState<ChallanStatusType[]>(['active']);
     const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
@@ -89,11 +105,15 @@ export default function JobWorkStore({
     // Mobile Filter Bottom-Sheet Drawer
     const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
 
-    // Click outside handler for Status Dropdown
+    // Click outside handler for Status & Table Column Dropdowns
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
                 setIsStatusDropdownOpen(false);
+            }
+            if (tableDropdownRef.current && !tableDropdownRef.current.contains(e.target as Node)) {
+                setTableDropdownCol(null);
+                setTableDropdownSearch('');
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
@@ -114,8 +134,6 @@ export default function JobWorkStore({
     // Filter States
     const [filterMode, setFilterMode] = useState<'daily' | 'monthly' | 'yearly'>('daily');
     const [filterDate, setFilterDate] = useState('');
-    const [filterSupplier, setFilterSupplier] = useState('');
-    const [filterPurpose, setFilterPurpose] = useState('all');
     const [workflowFilter, setWorkflowFilter] = useState<'all' | 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card'>('all');
 
     // Prefill data for editing
@@ -331,11 +349,16 @@ export default function JobWorkStore({
                 if (type !== workflowFilter) return false;
             }
 
-            if (filterSupplier && c.vendor?._id !== filterSupplier) return false;
+            // Excel Column Filter: Vendor
+            if (selectedVendors.length > 0) {
+                const vName = c.vendor?.name || '';
+                if (!selectedVendors.includes(vName)) return false;
+            }
 
-            if (filterPurpose !== 'all') {
-                const chalPurpose = (c.purpose || c.items?.[0]?.processType || 'Machining').toLowerCase();
-                if (chalPurpose !== filterPurpose.toLowerCase()) return false;
+            // Excel Column Filter: Purpose
+            if (selectedPurposes.length > 0) {
+                const chalPurpose = c.purpose || c.items?.[0]?.processType || 'Machining';
+                if (!selectedPurposes.includes(chalPurpose)) return false;
             }
 
             // Date Filter Logic (Day / Month / Year)
@@ -374,17 +397,17 @@ export default function JobWorkStore({
 
             return true;
         });
-    }, [challans, searchTerm, workflowFilter, filterSupplier, filterPurpose, filterDate, filterMode, selectedStatuses]);
+    }, [challans, searchTerm, workflowFilter, selectedVendors, selectedPurposes, filterDate, filterMode, selectedStatuses]);
 
     const activeFilterCount = useMemo(() => {
         let count = 0;
         if (workflowFilter !== 'all') count++;
-        if (filterSupplier) count++;
-        if (filterPurpose !== 'all') count++;
+        if (selectedVendors.length > 0) count++;
+        if (selectedPurposes.length > 0) count++;
         if (filterDate) count++;
         if (selectedStatuses.length !== 1 || selectedStatuses[0] !== 'active') count++;
         return count;
-    }, [workflowFilter, filterSupplier, filterPurpose, filterDate, selectedStatuses]);
+    }, [workflowFilter, selectedVendors, selectedPurposes, filterDate, selectedStatuses]);
 
     const getStatusDropdownLabel = () => {
         if (selectedStatuses.length === 3) return `All Statuses (${tabCounts.all})`;
@@ -394,6 +417,409 @@ export default function JobWorkStore({
         }
         const names = selectedStatuses.map(s => s === 'active' ? 'Active' : s === 'overdue' ? 'Overdue' : 'Received');
         return `${names.join(', ')}`;
+    };
+
+    // Unique Vendors for Excel Column Filter & Mobile Drawer
+    const uniqueVendorNames = useMemo(() => {
+        const names = new Set<string>();
+        challans.forEach(c => {
+            if (c.vendor?.name) names.add(c.vendor.name);
+        });
+        const combinedProps = [...(jobWorkSuppliers || []), ...(vendors || [])];
+        combinedProps.forEach(v => {
+            if (v?.name) names.add(v.name);
+        });
+        return Array.from(names).sort((a, b) => a.localeCompare(b));
+    }, [challans, jobWorkSuppliers, vendors]);
+
+    // Unique Purposes for Excel Column Filter & Mobile Drawer
+    const uniquePurposeNames = useMemo(() => {
+        const names = new Set<string>();
+        challans.forEach(c => {
+            const p = c.purpose || c.items?.[0]?.processType || 'Machining';
+            if (p) names.add(p);
+        });
+        JOB_WORK_PURPOSES.forEach(p => names.add(p));
+        return Array.from(names).sort((a, b) => a.localeCompare(b));
+    }, [challans]);
+
+    // Excel Column Header Helpers
+    const getValueCount = (colKey: 'vendor' | 'purpose', val: string) => {
+        if (colKey === 'vendor') {
+            if (challanViewMode === 'item-stock') {
+                return itemWiseVendorStock.filter(r => r.vendorName === val).length;
+            }
+            return challans.filter(c => c.vendor?.name === val).length;
+        } else {
+            return challans.filter(c => (c.purpose || c.items?.[0]?.processType || 'Machining') === val).length;
+        }
+    };
+
+    const handleSelectAllExcel = (colKey: 'vendor' | 'purpose', allValues: string[]) => {
+        if (colKey === 'vendor') {
+            if (selectedVendors.length === allValues.length) {
+                setSelectedVendors([]);
+            } else {
+                setSelectedVendors([...allValues]);
+            }
+        } else {
+            if (selectedPurposes.length === allValues.length) {
+                setSelectedPurposes([]);
+            } else {
+                setSelectedPurposes([...allValues]);
+            }
+        }
+    };
+
+    const handleToggleExcelValue = (colKey: 'vendor' | 'purpose', val: string) => {
+        if (colKey === 'vendor') {
+            setSelectedVendors(prev => 
+                prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]
+            );
+        } else {
+            setSelectedPurposes(prev => 
+                prev.includes(val) ? prev.filter(p => p !== val) : [...prev, val]
+            );
+        }
+    };
+
+    const handleClearExcelFilter = (colKey: 'vendor' | 'purpose') => {
+        if (colKey === 'vendor') {
+            setSelectedVendors([]);
+        } else {
+            setSelectedPurposes([]);
+        }
+    };
+
+    // Excel-Type Column Header Renderer
+    const renderExcelHeader = (
+        colKey: 'vendor' | 'purpose',
+        title: string,
+        align: 'left' | 'center' | 'right' = 'left'
+    ) => {
+        const isFiltered = colKey === 'vendor' ? selectedVendors.length > 0 : selectedPurposes.length > 0;
+        const isOpen = tableDropdownCol === colKey;
+        const allValues = colKey === 'vendor' ? uniqueVendorNames : uniquePurposeNames;
+        const filteredDropdownValues = allValues.filter((v) =>
+            v.toLowerCase().includes(tableDropdownSearch.toLowerCase().trim())
+        );
+        const selectedValues = colKey === 'vendor' ? selectedVendors : selectedPurposes;
+        const isAllSelected = selectedValues.length === allValues.length && allValues.length > 0;
+
+        return (
+            <th className={`px-4 py-3 text-${align} text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider relative select-none`}>
+                <div className="flex items-center gap-1.5 justify-between group">
+                    <span className="font-bold">{title}</span>
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (isOpen) {
+                                setTableDropdownCol(null);
+                                setTableDropdownSearch('');
+                            } else {
+                                setTableDropdownCol(colKey);
+                                setTableDropdownSearch('');
+                            }
+                        }}
+                        className={`p-1 rounded-md transition-all cursor-pointer ${
+                            isFiltered
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
+                        }`}
+                        title={`Filter by ${title} (Excel Filter)`}
+                    >
+                        <Filter size={11} className={isFiltered ? 'fill-current' : ''} />
+                    </button>
+                </div>
+
+                {/* Excel Filter Dropdown Popover */}
+                {isOpen && (
+                    <div
+                        ref={tableDropdownRef}
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute left-0 top-full mt-1.5 w-64 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-2.5 z-50 normal-case font-normal text-left animate-in fade-in zoom-in-95 duration-100"
+                    >
+                        {/* Search inside Dropdown */}
+                        <div className="relative mb-2">
+                            <Search size={12} className="absolute left-2.5 top-2.5 text-slate-400" />
+                            <input
+                                type="text"
+                                placeholder={`Search ${title}...`}
+                                value={tableDropdownSearch}
+                                onChange={(e) => setTableDropdownSearch(e.target.value)}
+                                className="w-full pl-7 pr-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200 font-medium"
+                                autoFocus
+                            />
+                        </div>
+
+                        {/* Select All Toggle */}
+                        <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-100 dark:border-slate-800 text-xs font-semibold">
+                            <label className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
+                                <input
+                                    type="checkbox"
+                                    checked={isAllSelected}
+                                    onChange={() => handleSelectAllExcel(colKey, allValues)}
+                                    className="rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                                />
+                                <span>(Select All)</span>
+                            </label>
+                            {isFiltered && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleClearExcelFilter(colKey)}
+                                    className="text-[10px] text-rose-600 dark:text-rose-400 font-bold hover:underline cursor-pointer"
+                                >
+                                    Clear
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Value List */}
+                        <div className="max-h-48 overflow-y-auto space-y-0.5 pr-1 text-xs">
+                            {filteredDropdownValues.length === 0 ? (
+                                <div className="p-3 text-center text-slate-400 text-xs font-medium">No matching values</div>
+                            ) : (
+                                filteredDropdownValues.map((val) => {
+                                    const isChecked = selectedValues.includes(val);
+                                    const count = getValueCount(colKey, val);
+                                    return (
+                                        <label
+                                            key={val}
+                                            className="flex items-center justify-between gap-2 px-1.5 py-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-slate-800 dark:text-slate-200 text-xs"
+                                            title={val}
+                                        >
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isChecked}
+                                                    onChange={() => handleToggleExcelValue(colKey, val)}
+                                                    className="rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                                                />
+                                                <span className="truncate">{val}</span>
+                                            </div>
+                                            <span className="text-[10px] font-bold text-slate-400 shrink-0">
+                                                {count}
+                                            </span>
+                                        </label>
+                                    );
+                                })
+                            )}
+                        </div>
+                    </div>
+                )}
+            </th>
+        );
+    };
+
+    // Item-Wise Vendor Stock Aggregation
+    const itemWiseVendorStock = useMemo<VendorItemStockRow[]>(() => {
+        const map = new Map<string, VendorItemStockRow>();
+
+        challans.forEach(challan => {
+            const vId = challan.vendor?._id || 'unknown';
+            const vName = challan.vendor?.name || 'Unknown Vendor';
+            const vCity = challan.vendor?.city || '';
+            const chalNum = challan.challanNumber;
+            const chalDate = challan.date;
+            const isAssembly = challan.operationMode === 'assembly';
+
+            const processRow = (
+                itemId: string,
+                itemName: string,
+                itemDesc: string,
+                itemType: string,
+                unit: string,
+                sentQty: number,
+                recvQty: number,
+                retName?: string,
+                retDesc?: string,
+                retPendQty?: number
+            ) => {
+                const cleanName = (itemName || '').trim();
+                if (!cleanName) return;
+                const key = `${vId}_${cleanName.toLowerCase()}_${(unit || 'PCS').toLowerCase()}`;
+
+                const existing = map.get(key);
+                if (existing) {
+                    existing.totalSentQty += sentQty;
+                    existing.totalReceivedQty += recvQty;
+                    existing.balanceQty = Math.max(0, existing.totalSentQty - existing.totalReceivedQty);
+                    if (retPendQty) existing.pendingReturnQty = (existing.pendingReturnQty || 0) + retPendQty;
+                    if (chalNum && !existing.challanNumbers.includes(chalNum)) {
+                        existing.challanNumbers.push(chalNum);
+                    }
+                    if (chalDate && (!existing.latestDate || new Date(chalDate) > new Date(existing.latestDate))) {
+                        existing.latestDate = chalDate;
+                    }
+                    existing.status = existing.balanceQty > 0 ? 'Pending' : 'Cleared';
+                } else {
+                    const balance = Math.max(0, sentQty - recvQty);
+                    map.set(key, {
+                        vendorId: vId,
+                        vendorName: vName,
+                        vendorCity: vCity,
+                        itemId,
+                        itemName: cleanName,
+                        itemDescription: itemDesc,
+                        itemType,
+                        unit: unit || 'PCS',
+                        totalSentQty: sentQty,
+                        totalReceivedQty: recvQty,
+                        balanceQty: balance,
+                        expectedReturnItemName: retName,
+                        expectedReturnItemDesc: retDesc,
+                        pendingReturnQty: retPendQty || 0,
+                        challanNumbers: chalNum ? [chalNum] : [],
+                        latestDate: chalDate,
+                        status: balance > 0 ? 'Pending' : 'Cleared'
+                    });
+                }
+            };
+
+            if (isAssembly) {
+                if (challan.assemblyGroups && challan.assemblyGroups.length > 0) {
+                    challan.assemblyGroups.forEach(grp => {
+                        const out = grp.assemblyOutputItem;
+                        const retName = out?.itemName || 'Assembled Product';
+                        const retDesc = getItemDescription(out);
+                        const expRet = Number(out?.quantityToBeReceived) || 0;
+                        const recvRet = Number(out?.quantityReceived) || 0;
+                        const pendRet = Math.max(0, expRet - recvRet);
+
+                        (grp.items || []).forEach((it: any) => {
+                            processRow(
+                                it.item || it._id || '',
+                                it.itemName || 'Assembly Component',
+                                getItemDescription(it),
+                                it.itemType || 'rm',
+                                it.unit || 'PCS',
+                                Number(it.quantitySent) || 0,
+                                Number(it.quantityReceived) || 0,
+                                retName,
+                                retDesc,
+                                pendRet
+                            );
+                        });
+                    });
+                } else {
+                    const out = challan.assemblyOutputItem;
+                    const retName = out?.itemName || 'Assembled Product';
+                    const retDesc = getItemDescription(out);
+                    const expRet = Number(out?.quantityToBeReceived) || 0;
+                    const recvRet = Number(out?.quantityReceived) || 0;
+                    const pendRet = Math.max(0, expRet - recvRet);
+
+                    (challan.items || []).forEach((it: any) => {
+                        processRow(
+                            it.item || it._id || '',
+                            it.itemName || 'Assembly Component',
+                            getItemDescription(it),
+                            it.itemType || 'rm',
+                            it.unit || 'PCS',
+                            Number(it.quantitySent) || 0,
+                            Number(it.quantityReceived) || 0,
+                            retName,
+                            retDesc,
+                            pendRet
+                        );
+                    });
+                }
+            } else {
+                (challan.items || []).forEach((it: any) => {
+                    const firstRet = it.returningItems?.[0];
+                    const retName = firstRet?.receivedItemName || it.itemToBeReceived || it.receivedItemName || '';
+                    const retDesc = getItemDescription(firstRet);
+                    const expRet = Number(firstRet?.quantityToBeReceived || it.quantityToBeReceived || it.quantitySent) || 0;
+                    const recvRet = Number(firstRet?.quantityReceived || it.quantityReceived) || 0;
+                    const pendRet = Math.max(0, expRet - recvRet);
+
+                    processRow(
+                        it.item || it._id || '',
+                        it.itemName || 'Material Item',
+                        getItemDescription(it),
+                        it.itemType || 'rm',
+                        it.unit || 'PCS',
+                        Number(it.quantitySent) || 0,
+                        Number(it.quantityReceived) || 0,
+                        retName,
+                        retDesc,
+                        pendRet
+                    );
+                });
+            }
+        });
+
+        return Array.from(map.values()).sort((a, b) => b.balanceQty - a.balanceQty);
+    }, [challans]);
+
+    // Filtered Item-Wise Stock based on current filters
+    const filteredItemStock = useMemo(() => {
+        return itemWiseVendorStock.filter(row => {
+            if (selectedVendors.length > 0 && !selectedVendors.includes(row.vendorName)) return false;
+            if (onlyPendingBalance && row.balanceQty <= 0) return false;
+            if (searchTerm.trim()) {
+                const term = searchTerm.trim();
+                const matches = 
+                    isSpaceFreeMatch(row.itemName, term) ||
+                    isSpaceFreeMatch(row.itemDescription, term) ||
+                    isSpaceFreeMatch(row.vendorName, term) ||
+                    (row.expectedReturnItemName && isSpaceFreeMatch(row.expectedReturnItemName, term)) ||
+                    row.challanNumbers.some(c => isSpaceFreeMatch(c, term));
+                if (!matches) return false;
+            }
+            return true;
+        });
+    }, [itemWiseVendorStock, selectedVendors, onlyPendingBalance, searchTerm]);
+
+    // Summary Totals for Item-Wise View
+    const itemStockTotals = useMemo(() => {
+        let totalSent = 0;
+        let totalRecv = 0;
+        let totalBalance = 0;
+        const vendorIds = new Set<string>();
+
+        filteredItemStock.forEach(r => {
+            totalSent += Number(r.totalSentQty) || 0;
+            totalRecv += Number(r.totalReceivedQty) || 0;
+            totalBalance += Number(r.balanceQty) || 0;
+            vendorIds.add(r.vendorId);
+        });
+
+        return {
+            uniqueItemCount: filteredItemStock.length,
+            totalSent,
+            totalRecv,
+            totalBalance,
+            vendorCount: vendorIds.size
+        };
+    }, [filteredItemStock]);
+
+    // Open Challan by Number
+    const handleOpenChallanByNumber = (num: string) => {
+        const c = challans.find(ch => ch.challanNumber === num);
+        if (c) {
+            openPreview(c);
+        }
+    };
+
+    // Excel Export for Item-Wise Vendor Stock
+    const handleExportItemStockExcel = () => {
+        if (filteredItemStock.length === 0) {
+            onError('No items available to export with current filters');
+            return;
+        }
+        try {
+            exportVendorItemStockToExcel({
+                items: filteredItemStock,
+                vendorName: selectedVendors.length === 1 ? selectedVendors[0] : selectedVendors.length > 1 ? `${selectedVendors.length} Selected Vendors` : undefined,
+                companyInfo,
+                onlyPending: onlyPendingBalance
+            });
+            onSuccess('Item-wise vendor stock exported to Excel successfully');
+        } catch (err: any) {
+            onError(err?.message || 'Failed to export item stock to Excel');
+        }
     };
 
     // Render dynamic date input based on selected mode
@@ -438,53 +864,96 @@ export default function JobWorkStore({
         <div className="animate-in fade-in duration-300 space-y-3.5">
             
             {/* Mobile App Header (Top bar for mobile view) */}
-            <div className="sm:hidden flex items-center justify-between gap-2 bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
-                {/* Left: Create DC Button */}
-                <button
-                    onClick={() => handleCreateChallan()}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all shrink-0 cursor-pointer"
-                >
-                    <Plus size={15} />
-                    <span>Create DC</span>
-                </button>
+            <div className="sm:hidden space-y-2">
+                <div className="flex items-center justify-between gap-2 bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                    {/* Left: Create DC Button */}
+                    <button
+                        onClick={() => handleCreateChallan()}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all shrink-0 cursor-pointer"
+                    >
+                        <Plus size={15} />
+                        <span>Create DC</span>
+                    </button>
 
-                {/* Center: Search input */}
-                <div className="relative flex-1 min-w-0">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
-                    <input
-                        type="text"
-                        placeholder="Search DC..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full h-8.5 pl-7 pr-6 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none"
-                    />
-                    {searchTerm && (
+                    {/* Center: Search input */}
+                    <div className="relative flex-1 min-w-0">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
+                        <input
+                            type="text"
+                            placeholder={challanViewMode === 'item-stock' ? "Search items, vendor..." : "Search DC..."}
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full h-8.5 pl-7 pr-6 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none"
+                        />
+                        {searchTerm && (
+                            <button
+                                onClick={() => setSearchTerm('')}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 p-0.5 text-xs font-bold"
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Right: Filter Bottom Sheet Trigger */}
+                    <button
+                        onClick={() => setIsMobileFilterOpen(true)}
+                        className={`relative p-2 rounded-xl border transition-all cursor-pointer ${
+                            activeFilterCount > 0
+                                ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300'
+                                : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'
+                        }`}
+                        title="Open Filters"
+                    >
+                        <SlidersHorizontal size={15} />
+                        {activeFilterCount > 0 && (
+                            <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-600 text-white rounded-full text-[9px] font-black flex items-center justify-center">
+                                {activeFilterCount}
+                            </span>
+                        )}
+                    </button>
+                </div>
+
+                {/* Mobile View Toggle Switch */}
+                <div className="flex items-center justify-between gap-2 px-0.5">
+                    <div className="flex items-center p-0.5 bg-gray-100 dark:bg-gray-800 rounded-xl border border-gray-200/80 dark:border-gray-700 shrink-0">
                         <button
-                            onClick={() => setSearchTerm('')}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 p-0.5 text-xs font-bold"
+                            type="button"
+                            onClick={() => setChallanViewMode('challans')}
+                            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                challanViewMode === 'challans'
+                                    ? 'bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
+                                    : 'text-gray-500'
+                            }`}
                         >
-                            ✕
+                            <Truck size={12} />
+                            <span>Challans ({filteredChallans.length})</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setChallanViewMode('item-stock')}
+                            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                challanViewMode === 'item-stock'
+                                    ? 'bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
+                                    : 'text-gray-500'
+                            }`}
+                        >
+                            <Boxes size={12} />
+                            <span>Item Stock ({filteredItemStock.length})</span>
+                        </button>
+                    </div>
+
+                    {challanViewMode === 'item-stock' && (
+                        <button
+                            type="button"
+                            onClick={handleExportItemStockExcel}
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-xs shrink-0 cursor-pointer"
+                        >
+                            <Download size={12} />
+                            <span>Excel</span>
                         </button>
                     )}
                 </div>
-
-                {/* Right: Filter Bottom Sheet Trigger */}
-                <button
-                    onClick={() => setIsMobileFilterOpen(true)}
-                    className={`relative p-2 rounded-xl border transition-all cursor-pointer ${
-                        activeFilterCount > 0
-                            ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300'
-                            : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'
-                    }`}
-                    title="Open Filters"
-                >
-                    <SlidersHorizontal size={15} />
-                    {activeFilterCount > 0 && (
-                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-600 text-white rounded-full text-[9px] font-black flex items-center justify-center">
-                            {activeFilterCount}
-                        </span>
-                    )}
-                </button>
             </div>
 
             {/* Top Row: Two Main Tabs & Desktop Action Button */}
@@ -539,45 +1008,47 @@ export default function JobWorkStore({
                 </div>
             ) : (
                 <>
-                    {/* Mobile Quick-Toggle Status Pills */}
-                    <div className="sm:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-                        {STATUS_OPTIONS.map(st => {
-                            const isChecked = selectedStatuses.includes(st.id);
-                            return (
-                                <button
-                                    key={st.id}
-                                    type="button"
-                                    onClick={() => toggleStatus(st.id)}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 border cursor-pointer ${
-                                        isChecked
-                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
-                                    }`}
-                                >
-                                    <div className={`w-2 h-2 rounded-full ${isChecked ? 'bg-white' : st.dotColor}`} />
-                                    <span>{st.label}</span>
-                                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                                        isChecked ? 'bg-white/20 text-white' : `${st.badgeBg} ${st.badgeText}`
-                                    }`}>
-                                        {tabCounts[st.id]}
-                                    </span>
-                                </button>
-                            );
-                        })}
-                    </div>
+                    {/* Mobile Quick-Toggle Status Pills (shown when in challans mode) */}
+                    {challanViewMode === 'challans' && (
+                        <div className="sm:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                            {STATUS_OPTIONS.map(st => {
+                                const isChecked = selectedStatuses.includes(st.id);
+                                return (
+                                    <button
+                                        key={st.id}
+                                        type="button"
+                                        onClick={() => toggleStatus(st.id)}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 border cursor-pointer ${
+                                            isChecked
+                                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                                : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                                        }`}
+                                    >
+                                        <div className={`w-2 h-2 rounded-full ${isChecked ? 'bg-white' : st.dotColor}`} />
+                                        <span>{st.label}</span>
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                                            isChecked ? 'bg-white/20 text-white' : `${st.badgeBg} ${st.badgeText}`
+                                        }`}>
+                                            {tabCounts[st.id]}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
 
-                    {/* Desktop Toolbar: Search + Multi-Select Status Dropdown + Workflow + Supplier + Purpose + Date Switcher & Picker + Count */}
+                    {/* Desktop Toolbar: Search + View Toggle (Challans / Item Stock) + Status + Workflow + Date Switcher & Picker + Count */}
                     <div className="hidden sm:block bg-white dark:bg-gray-900 p-2.5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs">
                         <div className="flex flex-wrap items-center justify-between gap-2.5">
                             
-                            {/* Left: Search & Selectors */}
+                            {/* Left: Search & View Toggle Switch & Filters */}
                             <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
                                 {/* Search Input */}
                                 <div className="relative flex-1 min-w-[180px] max-w-xs">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
                                     <input
                                         type="text"
-                                        placeholder="Search Challan #, Vendor, Item, MRP #..."
+                                        placeholder={challanViewMode === 'item-stock' ? "Search Item, Description, Vendor..." : "Search Challan #, Vendor, Item, MRP #..."}
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                         className="w-full h-9 pl-9 pr-7 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
@@ -592,172 +1063,486 @@ export default function JobWorkStore({
                                     )}
                                 </div>
 
-                                {/* Status Multi-Select Dropdown */}
-                                <div className="relative" ref={statusDropdownRef}>
+                                {/* View Toggle Switch: Placed right next to the Searchbar */}
+                                <div className="flex items-center p-0.5 bg-gray-100 dark:bg-gray-800 rounded-xl border border-gray-200/80 dark:border-gray-700 shrink-0">
                                     <button
                                         type="button"
-                                        onClick={() => setIsStatusDropdownOpen(!isStatusDropdownOpen)}
-                                        className={`h-9 px-3 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-                                            isStatusDropdownOpen || selectedStatuses.length > 0
-                                                ? 'bg-indigo-50/80 border-indigo-200 text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-300'
-                                                : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'
+                                        onClick={() => setChallanViewMode('challans')}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                            challanViewMode === 'challans'
+                                                ? 'bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
+                                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                                         }`}
-                                        title="Filter by Challan Status (Multiple selection allowed)"
+                                        title="Challans View"
                                     >
-                                        <span className="flex items-center gap-1.5">
-                                            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-                                            <span>Status: {getStatusDropdownLabel()}</span>
-                                        </span>
-                                        <ChevronDown size={14} className={`text-gray-400 transition-transform ${isStatusDropdownOpen ? 'rotate-180' : ''}`} />
+                                        <Truck size={13} className={challanViewMode === 'challans' ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400'} />
+                                        <span>Challans</span>
                                     </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setChallanViewMode('item-stock')}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                            challanViewMode === 'item-stock'
+                                                ? 'bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
+                                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+                                        }`}
+                                        title="Item-Wise Vendor Stock"
+                                    >
+                                        <Boxes size={13} className={challanViewMode === 'item-stock' ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400'} />
+                                        <span>Item Stock</span>
+                                    </button>
+                                </div>
 
-                                    {/* Dropdown Menu */}
-                                    {isStatusDropdownOpen && (
-                                        <div className="absolute left-0 top-full mt-1.5 z-50 min-w-[250px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-2.5 space-y-1.5 animate-in fade-in zoom-in-95 duration-100">
-                                            <div className="text-[10px] font-bold text-slate-400 uppercase px-1 pb-1 border-b border-slate-100 dark:border-slate-800">
-                                                Select Status (Multiple Allowed)
-                                            </div>
+                                {/* Item-Stock Quick Action Controls */}
+                                {challanViewMode === 'item-stock' && (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => setOnlyPendingBalance(!onlyPendingBalance)}
+                                            className={`h-9 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
+                                                onlyPendingBalance 
+                                                    ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+                                                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'
+                                            }`}
+                                            title="Toggle showing only items with pending balance (> 0) or all history"
+                                        >
+                                            <Filter size={12} />
+                                            <span>{onlyPendingBalance ? 'Pending Balance' : 'All History'}</span>
+                                        </button>
 
-                                            {STATUS_OPTIONS.map(st => {
-                                                const isChecked = selectedStatuses.includes(st.id);
-                                                return (
+                                        <button
+                                            type="button"
+                                            onClick={handleExportItemStockExcel}
+                                            className="h-9 flex items-center gap-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                                            title="Export Item-Wise Vendor Stock to Excel"
+                                        >
+                                            <Download size={13} />
+                                            <span>Export Excel</span>
+                                        </button>
+                                    </>
+                                )}
+
+                                {/* Status Multi-Select Dropdown (when in Challans mode) */}
+                                {challanViewMode === 'challans' && (
+                                    <div className="relative" ref={statusDropdownRef}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsStatusDropdownOpen(!isStatusDropdownOpen)}
+                                            className={`h-9 px-3 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                                                isStatusDropdownOpen || selectedStatuses.length > 0
+                                                    ? 'bg-indigo-50/80 border-indigo-200 text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-300'
+                                                    : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'
+                                            }`}
+                                            title="Filter by Challan Status (Multiple selection allowed)"
+                                        >
+                                            <span className="flex items-center gap-1.5">
+                                                <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+                                                <span>Status: {getStatusDropdownLabel()}</span>
+                                            </span>
+                                            <ChevronDown size={14} className={`text-gray-400 transition-transform ${isStatusDropdownOpen ? 'rotate-180' : ''}`} />
+                                        </button>
+
+                                        {/* Dropdown Menu */}
+                                        {isStatusDropdownOpen && (
+                                            <div className="absolute left-0 top-full mt-1.5 z-50 min-w-[250px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-2.5 space-y-1.5 animate-in fade-in zoom-in-95 duration-100">
+                                                <div className="text-[10px] font-bold text-slate-400 uppercase px-1 pb-1 border-b border-slate-100 dark:border-slate-800">
+                                                    Select Status (Multiple Allowed)
+                                                </div>
+
+                                                {STATUS_OPTIONS.map(st => {
+                                                    const isChecked = selectedStatuses.includes(st.id);
+                                                    return (
+                                                        <button
+                                                            key={st.id}
+                                                            type="button"
+                                                            onClick={() => toggleStatus(st.id)}
+                                                            className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                                isChecked
+                                                                    ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-900 dark:text-indigo-200'
+                                                                    : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                                                }`}
+                                                        >
+                                                            <div className="flex items-center gap-2">
+                                                                <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${
+                                                                    isChecked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                                                                }`}>
+                                                                    {isChecked && <Check size={12} strokeWidth={3} />}
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <div className={`w-2 h-2 rounded-full ${st.dotColor}`} />
+                                                                    <span>{st.label}</span>
+                                                                </div>
+                                                            </div>
+                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${st.badgeBg} ${st.badgeText}`}>
+                                                                {tabCounts[st.id]}
+                                                            </span>
+                                                        </button>
+                                                    );
+                                                })}
+
+                                                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] px-1 font-bold">
                                                     <button
-                                                        key={st.id}
                                                         type="button"
-                                                        onClick={() => toggleStatus(st.id)}
-                                                        className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                                            isChecked
-                                                                ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-900 dark:text-indigo-200'
-                                                                : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
-                                                        }`}
+                                                        onClick={() => setSelectedStatuses(['active', 'overdue', 'received'])}
+                                                        className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
                                                     >
-                                                        <div className="flex items-center gap-2">
-                                                            <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${
-                                                                isChecked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
-                                                            }`}>
-                                                                {isChecked && <Check size={12} strokeWidth={3} />}
-                                                            </div>
-                                                            <div className="flex items-center gap-1.5">
-                                                                <div className={`w-2 h-2 rounded-full ${st.dotColor}`} />
-                                                                <span>{st.label}</span>
-                                                            </div>
-                                                        </div>
-                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${st.badgeBg} ${st.badgeText}`}>
-                                                            {tabCounts[st.id]}
-                                                        </span>
+                                                        Select All
                                                     </button>
-                                                );
-                                            })}
-
-                                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] px-1 font-bold">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setSelectedStatuses(['active', 'overdue', 'received'])}
-                                                    className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-                                                >
-                                                    Select All
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setSelectedStatuses(['active'])}
-                                                    className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
-                                                >
-                                                    Reset to Active
-                                                </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSelectedStatuses(['active'])}
+                                                        className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                                                    >
+                                                        Reset to Active
+                                                    </button>
+                                                </div>
                                             </div>
-                                        </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Workflow Type Selector (when in Challans mode) */}
+                                {challanViewMode === 'challans' && (
+                                    <select
+                                        value={workflowFilter}
+                                        onChange={(e) => setWorkflowFilter(e.target.value as any)}
+                                        className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[190px] truncate"
+                                    >
+                                        <option value="all">📦 All DC Types</option>
+                                        <option value="store-conversion">🏭 Store Conversion</option>
+                                        <option value="store-to-wip">🔄 Store to WIP</option>
+                                        <option value="wip-to-wip">📦 WIP to WIP (Coating)</option>
+                                        <option value="route-card">⚙️ Route-Card Op</option>
+                                    </select>
+                                )}
+                            </div>
+
+                            {/* Right: Date Mode Switcher + Dynamic Date Picker + Live Count */}
+                            <div className="flex flex-wrap items-center gap-2">
+                                {/* Day / Month / Year Mode Switcher */}
+                                <div className="flex items-center gap-0.5 bg-gray-100 dark:bg-gray-800 p-0.5 rounded-xl border border-gray-200/60 dark:border-gray-700">
+                                    {[
+                                        { id: 'daily', label: 'Day' },
+                                        { id: 'monthly', label: 'Month' },
+                                        { id: 'yearly', label: 'Year' }
+                                    ].map((type) => (
+                                        <button
+                                            key={type.id}
+                                            onClick={() => { setFilterMode(type.id as any); setFilterDate(''); }}
+                                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                filterMode === type.id
+                                                    ? 'bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
+                                                    : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+                                            }`}
+                                        >
+                                            {type.label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Date Picker Input */}
+                                <div className="flex items-center gap-1">
+                                    {renderDateFilterInput()}
+                                    {filterDate && (
+                                        <button
+                                            onClick={() => setFilterDate('')}
+                                            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors cursor-pointer text-xs font-bold"
+                                            title="Clear date filter"
+                                        >
+                                            ✕
+                                        </button>
                                     )}
                                 </div>
 
-                                {/* Workflow Type Selector */}
-                                <select
-                                    value={workflowFilter}
-                                    onChange={(e) => setWorkflowFilter(e.target.value as any)}
-                                    className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[190px] truncate"
-                                >
-                                    <option value="all">📦 All DC Types</option>
-                                    <option value="store-conversion">🏭 Store Conversion</option>
-                                    <option value="store-to-wip">🔄 Store to WIP</option>
-                                    <option value="wip-to-wip">📦 WIP to WIP (Coating)</option>
-                                    <option value="route-card">⚙️ Route-Card Op</option>
-                                </select>
-
-                                {/* Supplier Filter */}
-                                <select
-                                    value={filterSupplier}
-                                    onChange={(e) => setFilterSupplier(e.target.value)}
-                                    className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[180px] truncate"
-                                >
-                                    <option value="">🏢 All Vendors</option>
-                                    {Array.from(new Set(challans.filter(c => c.vendor).map(c => c.vendor!._id))).map(id => {
-                                        const vendor = challans.find(c => c.vendor?._id === id)?.vendor;
-                                        if (!vendor) return null;
-                                        return <option key={vendor._id} value={vendor._id}>{vendor.name}</option>;
-                                    })}
-                                </select>
-
-                                {/* Purpose Filter */}
-                                <select
-                                    value={filterPurpose}
-                                    onChange={(e) => setFilterPurpose(e.target.value)}
-                                    className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[170px] truncate"
-                                >
-                                    <option value="all">🎯 All Purposes</option>
-                                    {JOB_WORK_PURPOSES.map(p => (
-                                        <option key={p} value={p}>{p}</option>
-                                    ))}
-                                </select>
+                                {/* Total Count Badge */}
+                                <div className="h-9 px-3 flex items-center text-xs font-bold text-gray-600 dark:text-gray-300 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/60 whitespace-nowrap">
+                                    Total: <span className="text-indigo-700 dark:text-indigo-300 font-black ml-1.5">
+                                        {challanViewMode === 'item-stock' ? filteredItemStock.length : filteredChallans.length}
+                                    </span>
+                                </div>
                             </div>
 
-                    {/* Right: Date Mode Switcher + Dynamic Date Picker + Live Count */}
-                    <div className="flex flex-wrap items-center gap-2">
-                        {/* Day / Month / Year Mode Switcher */}
-                        <div className="flex items-center gap-0.5 bg-gray-100 dark:bg-gray-800 p-0.5 rounded-xl border border-gray-200/60 dark:border-gray-700">
-                            {[
-                                { id: 'daily', label: 'Day' },
-                                { id: 'monthly', label: 'Month' },
-                                { id: 'yearly', label: 'Year' }
-                            ].map((type) => (
-                                <button
-                                    key={type.id}
-                                    onClick={() => { setFilterMode(type.id as any); setFilterDate(''); }}
-                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                        filterMode === type.id
-                                            ? 'bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
-                                            : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-                                    }`}
-                                >
-                                    {type.label}
-                                </button>
-                            ))}
-                        </div>
-
-                        {/* Date Picker Input */}
-                        <div className="flex items-center gap-1">
-                            {renderDateFilterInput()}
-                            {filterDate && (
-                                <button
-                                    onClick={() => setFilterDate('')}
-                                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors cursor-pointer text-xs font-bold"
-                                    title="Clear date filter"
-                                >
-                                    ✕
-                                </button>
-                            )}
-                        </div>
-
-                        {/* Total Count Badge */}
-                        <div className="h-9 px-3 flex items-center text-xs font-bold text-gray-600 dark:text-gray-300 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/60 whitespace-nowrap">
-                            Total: <span className="text-indigo-700 dark:text-indigo-300 font-black ml-1.5">{filteredChallans.length}</span>
                         </div>
                     </div>
 
-                </div>
-            </div>
+                    {/* Active Excel Column Filters Banner */}
+                    {(selectedVendors.length > 0 || selectedPurposes.length > 0) && (
+                        <div className="px-3.5 py-2 bg-indigo-50/80 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between text-xs animate-in fade-in">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                                    <Filter size={12} className="text-indigo-600 dark:text-indigo-400" />
+                                    Active Table Filters:
+                                </span>
+                                {selectedVendors.length > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 font-semibold text-[11px]">
+                                        <span>Vendor: {selectedVendors.length === 1 ? selectedVendors[0] : `${selectedVendors.length} selected`}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedVendors([])}
+                                            className="hover:text-red-500 cursor-pointer ml-0.5 font-bold"
+                                        >
+                                            ✕
+                                        </button>
+                                    </span>
+                                )}
+                                {selectedPurposes.length > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 font-semibold text-[11px]">
+                                        <span>Purpose: {selectedPurposes.length === 1 ? selectedPurposes[0] : `${selectedPurposes.length} selected`}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedPurposes([])}
+                                            className="hover:text-red-500 cursor-pointer ml-0.5 font-bold"
+                                        >
+                                            ✕
+                                        </button>
+                                    </span>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => { setSelectedVendors([]); setSelectedPurposes([]); }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                            >
+                                <RotateCcw size={11} /> Clear Filters
+                            </button>
+                        </div>
+                    )}
 
             {/* Content Logic: High-Density ERP Data Table */}
             {loading ? (
                 <div className="flex justify-center p-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
+            ) : challanViewMode === 'item-stock' ? (
+                filteredItemStock.length === 0 ? (
+                    <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/40 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 pb-28 sm:pb-20">
+                        <Boxes className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600 mb-3" />
+                        <p className="text-gray-500 dark:text-gray-400 font-medium text-sm">No items found matching current filters</p>
+                        {onlyPendingBalance ? (
+                            <button
+                                onClick={() => setOnlyPendingBalance(false)}
+                                className="mt-3 text-indigo-600 dark:text-indigo-400 font-bold text-xs hover:underline cursor-pointer"
+                            >
+                                Show full dispatch history (including cleared items)
+                            </button>
+                        ) : selectedVendors.length > 0 ? (
+                            <button
+                                onClick={() => setSelectedVendors([])}
+                                className="mt-3 text-indigo-600 dark:text-indigo-400 font-bold text-xs hover:underline cursor-pointer"
+                            >
+                                Clear vendor filter
+                            </button>
+                        ) : null}
+                    </div>
+                ) : (
+                    <>
+                        {/* Desktop ERP Data Table */}
+                        <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left border-collapse">
+                                    <thead className="bg-slate-50 dark:bg-slate-800/80 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                                        <tr>
+                                            <th className="px-3.5 py-3 text-center w-12">#</th>
+                                            {renderExcelHeader('vendor', 'Subcontractor / Vendor')}
+                                            <th className="px-4 py-3">Item Name & Technical Description</th>
+                                            <th className="px-3.5 py-3 text-center">Type</th>
+                                            <th className="px-3 py-3 text-center">Unit</th>
+                                            <th className="px-3.5 py-3 text-right">Sent Qty</th>
+                                            <th className="px-3.5 py-3 text-right">Received Qty</th>
+                                            <th className="px-4 py-3 text-right bg-amber-50/40 dark:bg-amber-950/20">Balance at Vendor</th>
+                                            <th className="px-4 py-3">Expected Return Item</th>
+                                            <th className="px-4 py-3">Active Challans</th>
+                                            <th className="px-3.5 py-3 text-center">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {filteredItemStock.map((row, idx) => (
+                                            <tr key={`${row.vendorId}_${row.itemName}_${idx}`} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                                                <td className="px-3.5 py-3 text-center text-xs font-mono font-bold text-slate-400">
+                                                    {idx + 1}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                                                        {row.vendorName}
+                                                    </div>
+                                                    {row.vendorCity && (
+                                                        <div className="text-[11px] text-slate-400">
+                                                            {row.vendorCity}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                {/* Item Name & Description (Strict AGENTS.md Compliance) */}
+                                                <td className="px-4 py-3 max-w-sm">
+                                                    <div>
+                                                        <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white line-clamp-1">
+                                                            {row.itemName}
+                                                        </div>
+                                                        {row.itemDescription && (
+                                                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                                                                {row.itemDescription}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-3.5 py-3 text-center">
+                                                    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 uppercase">
+                                                        {row.itemType || 'RM'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-3 py-3 text-center text-xs font-bold text-slate-600 dark:text-slate-300">
+                                                    {row.unit}
+                                                </td>
+                                                <td className="px-3.5 py-3 text-right font-extrabold text-xs text-slate-800 dark:text-slate-200">
+                                                    {row.totalSentQty.toLocaleString()}
+                                                </td>
+                                                <td className="px-3.5 py-3 text-right font-bold text-xs text-emerald-600 dark:text-emerald-400">
+                                                    {row.totalReceivedQty.toLocaleString()}
+                                                </td>
+                                                <td className="px-4 py-3 text-right bg-amber-50/40 dark:bg-amber-950/20">
+                                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-black inline-block ${
+                                                        row.balanceQty > 0
+                                                            ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border border-amber-300 dark:border-amber-800'
+                                                            : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                                    }`}>
+                                                        {row.balanceQty.toLocaleString()} {row.unit}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 max-w-xs">
+                                                    {row.expectedReturnItemName ? (
+                                                        <div>
+                                                            <div className="font-bold text-xs text-indigo-700 dark:text-indigo-400 line-clamp-1">
+                                                                {row.expectedReturnItemName}
+                                                            </div>
+                                                            {row.expectedReturnItemDesc && (
+                                                                <div className="text-[10px] text-slate-500 italic mt-0.5 line-clamp-1">
+                                                                    {row.expectedReturnItemDesc}
+                                                                </div>
+                                                            )}
+                                                            {row.pendingReturnQty != null && row.pendingReturnQty > 0 && (
+                                                                <div className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 mt-0.5">
+                                                                    Exp Return Pend: {row.pendingReturnQty.toLocaleString()}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-slate-400 text-xs">-</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="flex flex-wrap gap-1 max-w-[200px]">
+                                                        {row.challanNumbers.map((cNum) => (
+                                                            <button
+                                                                key={cNum}
+                                                                type="button"
+                                                                onClick={() => handleOpenChallanByNumber(cNum)}
+                                                                className="px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-mono text-[10px] font-bold border border-indigo-100 dark:border-indigo-900 cursor-pointer transition-colors"
+                                                                title={`View DC #${cNum}`}
+                                                            >
+                                                                {cNum}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </td>
+                                                <td className="px-3.5 py-3 text-center whitespace-nowrap">
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                                        row.balanceQty > 0
+                                                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                                            : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                                    }`}>
+                                                        {row.balanceQty > 0 ? 'Pending' : 'Cleared'}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                    <tfoot className="bg-slate-50 dark:bg-slate-800/80 font-bold text-xs text-slate-700 dark:text-slate-200 border-t border-slate-200 dark:border-slate-800">
+                                        <tr>
+                                            <td colSpan={5} className="px-4 py-3 text-right uppercase tracking-wider text-[11px] font-extrabold text-slate-500">
+                                                Grand Total ({filteredItemStock.length} items):
+                                            </td>
+                                            <td className="px-3.5 py-3 text-right font-black">
+                                                {itemStockTotals.totalSent.toLocaleString()}
+                                            </td>
+                                            <td className="px-3.5 py-3 text-right font-black text-emerald-600">
+                                                {itemStockTotals.totalRecv.toLocaleString()}
+                                            </td>
+                                            <td className="px-4 py-3 text-right font-black text-amber-700 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/30">
+                                                {itemStockTotals.totalBalance.toLocaleString()}
+                                            </td>
+                                            <td colSpan={3}></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Mobile Card View for Item-Wise Stock */}
+                        <div className="md:hidden flex flex-col gap-3 pb-28 sm:pb-20">
+                            {filteredItemStock.map((row, idx) => (
+                                <div key={`${row.vendorId}_${row.itemName}_${idx}`} className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col gap-2.5">
+                                    <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-2">
+                                        <div>
+                                            <div className="font-bold text-slate-900 dark:text-white text-xs">
+                                                {row.itemName}
+                                            </div>
+                                            {row.itemDescription && (
+                                                <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                                                    {row.itemDescription}
+                                                </div>
+                                            )}
+                                            <div className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 mt-1 flex items-center gap-1">
+                                                <Building2 size={12} />
+                                                <span>{row.vendorName}</span>
+                                                {row.vendorCity && <span className="text-slate-400">({row.vendorCity})</span>}
+                                            </div>
+                                        </div>
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black shrink-0 ${
+                                            row.balanceQty > 0
+                                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                                : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                        }`}>
+                                            {row.balanceQty > 0 ? 'Pending' : 'Cleared'}
+                                        </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-2 py-1 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-xl text-center">
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase block">Sent</span>
+                                            <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200">{row.totalSentQty} {row.unit}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase block">Received</span>
+                                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{row.totalReceivedQty} {row.unit}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase block">Balance</span>
+                                            <span className="text-xs font-black text-amber-800 dark:text-amber-300">{row.balanceQty} {row.unit}</span>
+                                        </div>
+                                    </div>
+
+                                    {row.expectedReturnItemName && (
+                                        <div className="text-xs flex justify-between items-center text-slate-600 dark:text-slate-300 border-t border-slate-100 dark:border-slate-800 pt-2">
+                                            <span className="text-slate-400 text-[11px]">Exp Return:</span>
+                                            <span className="font-semibold text-indigo-700 dark:text-indigo-400 text-right">{row.expectedReturnItemName}</span>
+                                        </div>
+                                    )}
+
+                                    <div className="flex flex-wrap items-center gap-1 pt-1 border-t border-slate-100 dark:border-slate-800">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Challans:</span>
+                                        {row.challanNumbers.map((cNum) => (
+                                            <button
+                                                key={cNum}
+                                                type="button"
+                                                onClick={() => handleOpenChallanByNumber(cNum)}
+                                                className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-mono text-[10px] font-bold cursor-pointer"
+                                            >
+                                                {cNum}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </>
+                )
             ) : filteredChallans.length === 0 ? (
                 <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/40 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 pb-28 sm:pb-20">
                     <Truck className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600 mb-3" />
@@ -781,9 +1566,9 @@ export default function JobWorkStore({
                                     <tr>
                                         <th className="px-3.5 py-3 text-center w-12">#</th>
                                         <th className="px-4 py-3">Challan Details</th>
-                                        <th className="px-4 py-3">Subcontractor / Vendor</th>
+                                        {renderExcelHeader('vendor', 'Subcontractor / Vendor')}
                                         <th className="px-3.5 py-3">MRP Plan Ref</th>
-                                        <th className="px-4 py-3">Purpose of Outward</th>
+                                        {renderExcelHeader('purpose', 'Purpose of Outward')}
                                         <th className="px-4 py-3">Outward Material Sent</th>
                                         <th className="px-4 py-3">Expected Return Item(s)</th>
                                         <th className="px-3.5 py-3">Dates & Status</th>
@@ -1409,36 +2194,135 @@ export default function JobWorkStore({
                             </select>
                         </div>
 
-                        {/* Vendor Filter */}
+                        {/* Vendor Multi-Select Filter */}
                         <div>
-                            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Subcontractor / Vendor</label>
-                            <select
-                                value={filterSupplier}
-                                onChange={(e) => setFilterSupplier(e.target.value)}
-                                className="w-full h-9 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300"
-                            >
-                                <option value="">🏢 All Vendors</option>
-                                {Array.from(new Set(challans.filter(c => c.vendor).map(c => c.vendor!._id))).map(id => {
-                                    const vendor = challans.find(c => c.vendor?._id === id)?.vendor;
-                                    if (!vendor) return null;
-                                    return <option key={vendor._id} value={vendor._id}>{vendor.name}</option>;
-                                })}
-                            </select>
+                            <div className="flex items-center justify-between mb-1">
+                                <label className="text-[11px] font-bold text-slate-500 uppercase">Subcontractor / Vendor</label>
+                                {selectedVendors.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedVendors([])}
+                                        className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer"
+                                    >
+                                        Clear ({selectedVendors.length})
+                                    </button>
+                                )}
+                            </div>
+                            <div className="relative mb-2">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
+                                <input
+                                    type="text"
+                                    placeholder="Type vendor name..."
+                                    value={vendorSearchQuery}
+                                    onChange={(e) => setVendorSearchQuery(e.target.value)}
+                                    className="w-full h-8.5 pl-8 pr-6 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none"
+                                />
+                                {vendorSearchQuery && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setVendorSearchQuery('')}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 p-0.5 text-xs font-bold cursor-pointer"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
+                            <div className="max-h-40 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-700 rounded-xl p-1 bg-slate-50/50 dark:bg-slate-800/40">
+                                <label className="flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700">
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedVendors.length === uniqueVendorNames.length && uniqueVendorNames.length > 0}
+                                            onChange={() => handleSelectAllExcel('vendor', uniqueVendorNames)}
+                                            className="rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                                        />
+                                        <span>(Select All Vendors)</span>
+                                    </div>
+                                    <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                                        {uniqueVendorNames.length}
+                                    </span>
+                                </label>
+                                {uniqueVendorNames
+                                    .filter(vName => vName.toLowerCase().includes(vendorSearchQuery.toLowerCase().trim()))
+                                    .map(vName => {
+                                        const isChecked = selectedVendors.includes(vName);
+                                        const count = getValueCount('vendor', vName);
+                                        return (
+                                            <label
+                                                key={vName}
+                                                className="flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
+                                            >
+                                                <div className="flex items-center gap-2 min-w-0 pr-2">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={() => handleToggleExcelValue('vendor', vName)}
+                                                        className="rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                                                    />
+                                                    <span className="truncate">{vName}</span>
+                                                </div>
+                                                <span className="shrink-0 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400">
+                                                    {count}
+                                                </span>
+                                            </label>
+                                        );
+                                    })}
+                            </div>
                         </div>
 
-                        {/* Purpose Filter */}
+                        {/* Purpose Multi-Select Filter */}
                         <div>
-                            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Purpose</label>
-                            <select
-                                value={filterPurpose}
-                                onChange={(e) => setFilterPurpose(e.target.value)}
-                                className="w-full h-9 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300"
-                            >
-                                <option value="all">🎯 All Purposes</option>
-                                {JOB_WORK_PURPOSES.map(p => (
-                                    <option key={p} value={p}>{p}</option>
-                                ))}
-                            </select>
+                            <div className="flex items-center justify-between mb-1">
+                                <label className="text-[11px] font-bold text-slate-500 uppercase">Purpose of Outward</label>
+                                {selectedPurposes.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedPurposes([])}
+                                        className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer"
+                                    >
+                                        Clear ({selectedPurposes.length})
+                                    </button>
+                                )}
+                            </div>
+                            <div className="max-h-36 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-700 rounded-xl p-1 bg-slate-50/50 dark:bg-slate-800/40">
+                                <label className="flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700">
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedPurposes.length === uniquePurposeNames.length && uniquePurposeNames.length > 0}
+                                            onChange={() => handleSelectAllExcel('purpose', uniquePurposeNames)}
+                                            className="rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                                        />
+                                        <span>(Select All Purposes)</span>
+                                    </div>
+                                    <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                                        {uniquePurposeNames.length}
+                                    </span>
+                                </label>
+                                {uniquePurposeNames.map(p => {
+                                    const isChecked = selectedPurposes.includes(p);
+                                    const count = getValueCount('purpose', p);
+                                    return (
+                                        <label
+                                            key={p}
+                                            className="flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
+                                        >
+                                            <div className="flex items-center gap-2 min-w-0 pr-2">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isChecked}
+                                                    onChange={() => handleToggleExcelValue('purpose', p)}
+                                                    className="rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                                                />
+                                                <span className="truncate">{p}</span>
+                                            </div>
+                                            <span className="shrink-0 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400">
+                                                {count}
+                                            </span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
                         </div>
 
                         {/* Date Mode & Picker */}
@@ -1474,20 +2358,21 @@ export default function JobWorkStore({
                                 onClick={() => {
                                     setSelectedStatuses(['active']);
                                     setWorkflowFilter('all');
-                                    setFilterSupplier('');
-                                    setFilterPurpose('all');
+                                    setSelectedVendors([]);
+                                    setSelectedPurposes([]);
+                                    setVendorSearchQuery('');
                                     setFilterDate('');
                                 }}
-                                className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 text-center"
+                                className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 text-center cursor-pointer"
                             >
                                 Reset Filters
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setIsMobileFilterOpen(false)}
-                                className="py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold text-center shadow-sm"
+                                className="py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold text-center shadow-sm cursor-pointer"
                             >
-                                Apply ({filteredChallans.length})
+                                Apply ({challanViewMode === 'item-stock' ? filteredItemStock.length : filteredChallans.length})
                             </button>
                         </div>
                     </div>

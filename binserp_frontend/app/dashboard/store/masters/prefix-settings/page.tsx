@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import { API_BASE_URL } from '@/src/utils/config';
-import { Hash, Tag, ShoppingCart, FileText, CheckCircle2, Save, IndianRupee, Globe, RefreshCw, Clock, Lock, ShieldCheck, AlertCircle, Package, Truck, Layers, Wrench, ShieldAlert, PackageCheck, UserCheck, Users, ExternalLink, X, Plus, Boxes, CalendarClock } from 'lucide-react';
+import { Hash, Tag, ShoppingCart, FileText, CheckCircle2, Save, IndianRupee, Globe, RefreshCw, Clock, Lock, ShieldCheck, AlertCircle, Package, Truck, Layers, Wrench, ShieldAlert, PackageCheck, UserCheck, Users, ExternalLink, X, Plus, Boxes, CalendarClock, Send, ClipboardList } from 'lucide-react';
 import Link from 'next/link';
 import { useGetUsersQuery } from '@/src/store/services/userService';
 import { DEFAULT_EXCHANGE_RATES_TO_INR, setGlobalExchangeRates, CURRENCY_OPTIONS, getCurrencySymbol } from '@/src/utils/currencyHelper';
@@ -21,7 +21,9 @@ export const DEFAULT_TIME_LOCK_HOURS: Record<string, number> = {
   jobWorkReturn: 1,
   rfqQuotation: 24,
   mrbDisposition: 24,
-  mrpPlan: 24
+  mrpPlan: 24,
+  materialRequest: 24,
+  materialIssue: 24
 };
 
 export const TIME_LOCK_CONFIGS = [
@@ -94,6 +96,20 @@ export const TIME_LOCK_CONFIGS = [
     subtitle: 'Demand Planning & Material Explosion',
     icon: Boxes,
     description: 'Window within which created MRP Demand Plans can be edited or deleted before permanent planning lock.'
+  },
+  {
+    key: 'materialRequest',
+    title: 'Material Request (Indents)',
+    subtitle: 'Store & Shop Floor Requisitions',
+    icon: ClipboardList,
+    description: 'Window allowed for revising quantities, line items, or deleting material requests before permanent lock.'
+  },
+  {
+    key: 'materialIssue',
+    title: 'Material Issue & Outward',
+    subtitle: 'Store Outward & Consumption',
+    icon: Send,
+    description: 'Window within which material issue records can be edited or deleted with automated warehouse stock updates and reversals.'
   }
 ];
 

@@ -4,9 +4,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Search, FileSpreadsheet, FileText, Calendar, IndianRupee, 
     Calculator, RefreshCw, CheckSquare, Square, Download, 
-    AlertCircle, CheckCircle, ChevronDown, Clock, Users, 
+    AlertCircle, CheckCircle, ChevronDown, ChevronLeft, Clock, Users, 
     Layers, Briefcase, Zap, ShieldAlert, Edit, Trash2, 
-    Filter, X, Check, ArrowUpRight, Eye, EyeOff, LayoutDashboard
+    Filter, X, Check, ArrowUpRight, Eye, EyeOff, LayoutDashboard, Sparkles
 } from 'lucide-react';
 import axios from 'axios';
 import jsPDF from "jspdf";
@@ -21,6 +21,9 @@ import { API_BASE_URL } from '@/src/utils/config';
 import { formatWorkDuration } from '@/src/utils/attendanceUtils';
 import { exportAllSalariesCompanyExcel, exportSingleSalaryCompanyExcel } from '@/src/utils/companySalaryExcelHelper';
 import { exportAllSalariesCompanyPDF, exportSingleSalaryCompanyPDF } from '@/src/utils/companySalaryPdfHelper';
+import AttendanceValidationTab from './AttendanceValidationTab';
+import MonthlyAttendanceValidationModal from './modals/MonthlyAttendanceValidationModal';
+import EditSalaryPageView from './EditSalaryPageView';
 
 const months = [
     "January", "February", "March", "April", "May", "June", 
@@ -41,6 +44,13 @@ interface EnrichedEmployeeRow {
     otPay: number;
     grossPay: number;
     baseGrossSalary: number;
+    baseSalary?: number;
+    perDaySalary?: number;
+    otHourlyRate?: number;
+    otMultiplier?: number;
+    dailyDivisorBasis?: string;
+    divisor?: number;
+    standardHours?: number;
     pfDeduction: number;
     esiDeduction: number;
     employerPF: number;
@@ -55,14 +65,22 @@ interface EnrichedEmployeeRow {
     sickLeaveConsumed: number;
     compOffConsumed: number;
     compOffAccrued: number;
+    validationStatus?: {
+        isFullyValidated: boolean;
+        validatedDays: number;
+        pendingDays: number;
+    };
 }
 
 export default function SalariesTab() {
     // 1. Navigation & Period Selection
-    const [activeMainTab, setActiveMainTab] = useState<'generator' | 'saved'>('generator');
+    const [activeMainTab, setActiveMainTab] = useState<'validation' | 'calculation' | 'saved'>('validation');
     const [month, setMonth] = useState(months[new Date().getMonth()]);
     const [year, setYear] = useState(new Date().getFullYear());
     const [showDashboard, setShowDashboard] = useState(false);
+    const [validationSummaries, setValidationSummaries] = useState<any[]>([]);
+    const [validationModalEmployeeId, setValidationModalEmployeeId] = useState<string | null>(null);
+    const [isValidationModalOpen, setIsValidationModalOpen] = useState(false);
 
     // 2. Raw Data State
     const [employees, setEmployees] = useState<Employee[]>([]);
@@ -82,9 +100,10 @@ export default function SalariesTab() {
     const [overwriteExisting, setOverwriteExisting] = useState(false);
     const [bulkGenerationResult, setBulkGenerationResult] = useState<any>(null);
 
-    // 4. Modals State
+    // 4. Modals & Review State
     const [editingSalaryData, setEditingSalaryData] = useState<any>(null);
     const [dailyLogsModalEmployee, setDailyLogsModalEmployee] = useState<Employee | null>(null);
+    const [selectedEmployeeForSalaryEdit, setSelectedEmployeeForSalaryEdit] = useState<EnrichedEmployeeRow | null>(null);
 
     // 5. Company Branding State
     const [companyLogo, setCompanyLogo] = useState<string | null>(null);
@@ -93,6 +112,7 @@ export default function SalariesTab() {
     const [currency, setCurrency] = useState('₹');
 
     // 6. Excel Column Filters State for GENERATOR Tab
+    const [genSearchTerm, setGenSearchTerm] = useState('');
     const [genSortConfig, setGenSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
     const [colFilterGenEmployee, setColFilterGenEmployee] = useState<string[]>([]);
     const [colFilterGenType, setColFilterGenType] = useState<string[]>([]);
@@ -105,6 +125,9 @@ export default function SalariesTab() {
     const [colFilterGenGross, setColFilterGenGross] = useState<string[]>([]);
     const [colFilterGenNet, setColFilterGenNet] = useState<string[]>([]);
     const [colFilterGenGenStatus, setColFilterGenGenStatus] = useState<string[]>([]);
+    const [colFilterGenMasterSalary, setColFilterGenMasterSalary] = useState<string[]>([]);
+    const [colFilterGenPerDaySalary, setColFilterGenPerDaySalary] = useState<string[]>([]);
+    const [colFilterGenOtRate, setColFilterGenOtRate] = useState<string[]>([]);
 
     // 7. Excel Column Filters State for SAVED Tab
     const [savedSortConfig, setSavedSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
@@ -194,7 +217,7 @@ export default function SalariesTab() {
             const start = new Date(year, monthIndex, 1).toISOString();
             const end = new Date(year, monthIndex, daysInMonth, 23, 59, 59).toISOString();
 
-            const [attRes, holRes, salRes] = await Promise.all([
+            const [attRes, holRes, salRes, valSummaryRes] = await Promise.all([
                 axios.get(`${API_BASE_URL}/api/hr/attendance`, {
                     headers: { Authorization: `Bearer ${token}` },
                     params: { startDate: start, endDate: end }
@@ -205,12 +228,17 @@ export default function SalariesTab() {
                 axios.get(`${API_BASE_URL}/api/hr/salary`, {
                     headers: { Authorization: `Bearer ${token}` },
                     params: { month, year }
-                }).catch(() => ({ data: [] }))
+                }).catch(() => ({ data: [] })),
+                axios.get(`${API_BASE_URL}/api/hr/attendance-validation/month-summary`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    params: { month, year }
+                }).catch(() => ({ data: { summaries: [] } }))
             ]);
 
             setAttendanceRecords(attRes.data.attendance || []);
             setHolidays(holRes.data || []);
             setSavedSalaries(salRes.data || []);
+            setValidationSummaries(valSummaryRes.data?.summaries || []);
         } catch (error) {
             console.error("Error loading monthly attendance & salary data:", error);
         } finally {
@@ -242,6 +270,12 @@ export default function SalariesTab() {
         savedSalaries.forEach(sal => {
             const empId = sal.employee?._id || (typeof sal.employee === 'string' ? sal.employee : null);
             if (empId) savedByEmp.set(empId, sal);
+        });
+
+        // Index validation summaries by employee ID
+        const valByEmp = new Map<string, any>();
+        validationSummaries.forEach(val => {
+            if (val.employeeId) valByEmp.set(val.employeeId.toString(), val);
         });
 
         return employees.map(emp => {
@@ -299,6 +333,28 @@ export default function SalariesTab() {
                         useManual: false
                     });
                 }
+            }
+
+            const valSummary = valByEmp.get(empId.toString());
+
+            // If validated logs exist in DB, integrate them directly into calendar
+            if (valSummary?.validatedLogs && valSummary.validatedLogs.length > 0) {
+                const valMap = new Map();
+                valSummary.validatedLogs.forEach((vl: any) => valMap.set(vl.day, vl));
+                calendar = calendar.map(d => {
+                    const vl = valMap.get(d.day);
+                    if (vl) {
+                        return {
+                            ...d,
+                            originalStatus: vl.status,
+                            manualStatus: vl.status,
+                            manualHours: vl.dutyHours || 0,
+                            manualOtHours: vl.otHours || 0,
+                            useManual: true
+                        };
+                    }
+                    return d;
+                });
             }
 
             // Calculate Employee Month Stats
@@ -447,6 +503,13 @@ export default function SalariesTab() {
                 otPay: Math.round(otPay),
                 grossPay: Math.round(grossPay),
                 baseGrossSalary: emp?.salary?.grossSalary || baseSalary,
+                baseSalary,
+                perDaySalary: divisor > 0 ? Math.round(baseSalary / divisor) : 0,
+                otHourlyRate: Math.round(otHourlyRate * 10) / 10,
+                otMultiplier: mainOTRateMultiplier,
+                dailyDivisorBasis,
+                divisor,
+                standardHours,
                 pfDeduction: Math.round(pfDeduction),
                 esiDeduction: Math.round(esiDeduction),
                 employerPF: Math.round(employerPF),
@@ -460,33 +523,45 @@ export default function SalariesTab() {
                 casualLeaveConsumed,
                 sickLeaveConsumed,
                 compOffConsumed,
-                compOffAccrued
+                compOffAccrued,
+                validationStatus: {
+                    isFullyValidated: Boolean(valSummary?.isFullyValidated),
+                    validatedDays: valSummary?.validatedDays || 0,
+                    pendingDays: valSummary?.pendingDays ?? daysInMonth,
+                }
             };
         });
-    }, [employees, attendanceRecords, holidays, savedSalaries, employeeOverrides, month, year]);
+    }, [employees, attendanceRecords, holidays, savedSalaries, validationSummaries, employeeOverrides, month, year]);
 
     // Check if any filter is active in generator
     const isAnyGenFilterActive = useMemo(() => {
         return (
+            genSearchTerm.trim().length > 0 ||
             colFilterGenEmployee.length > 0 ||
             colFilterGenType.length > 0 ||
             colFilterGenDept.length > 0 ||
             colFilterGenDesig.length > 0 ||
-            colFilterGenStatus.length > 0 ||
+            (colFilterGenStatus.length > 0 && !(colFilterGenStatus.length === 1 && colFilterGenStatus[0] === 'Active')) ||
             colFilterGenDays.length > 0 ||
             colFilterGenOT.length > 0 ||
             colFilterGenGross.length > 0 ||
             colFilterGenNet.length > 0 ||
             colFilterGenGenStatus.length > 0 ||
+            colFilterGenMasterSalary.length > 0 ||
+            colFilterGenPerDaySalary.length > 0 ||
+            colFilterGenOtRate.length > 0 ||
             Boolean(genSortConfig)
         );
     }, [
-        colFilterGenEmployee, colFilterGenType, colFilterGenDept, colFilterGenDesig,
-        colFilterGenStatus, colFilterGenDays, colFilterGenOT, colFilterGenGross,
-        colFilterGenNet, colFilterGenGenStatus, genSortConfig
+        genSearchTerm, colFilterGenEmployee, colFilterGenType, colFilterGenDept,
+        colFilterGenDesig, colFilterGenStatus, colFilterGenDays, colFilterGenOT,
+        colFilterGenGross, colFilterGenNet, colFilterGenGenStatus,
+        colFilterGenMasterSalary, colFilterGenPerDaySalary, colFilterGenOtRate,
+        genSortConfig
     ]);
 
     const handleResetGenFilters = () => {
+        setGenSearchTerm('');
         setColFilterGenEmployee([]);
         setColFilterGenType([]);
         setColFilterGenDept([]);
@@ -497,6 +572,9 @@ export default function SalariesTab() {
         setColFilterGenGross([]);
         setColFilterGenNet([]);
         setColFilterGenGenStatus([]);
+        setColFilterGenMasterSalary([]);
+        setColFilterGenPerDaySalary([]);
+        setColFilterGenOtRate([]);
         setGenSortConfig(null);
     };
 
@@ -512,6 +590,20 @@ export default function SalariesTab() {
             const daysStr = `${row.payableDays} Days`;
             const otStr = row.isOTApplicable ? 'Yes' : 'No';
             const genStr = row.hasGenerated ? 'Generated' : 'Pending';
+            const masterSalStr = `₹ ${(row.baseGrossSalary || 0).toLocaleString('en-IN')}`;
+            const perDayStr = `₹ ${row.perDaySalary || 0}`;
+            const otRateStr = row.isOTApplicable ? `₹ ${row.otHourlyRate || 0}/hr` : 'N/A';
+
+            if (genSearchTerm.trim()) {
+                const term = genSearchTerm.toLowerCase();
+                const name = (emp.name || '').toLowerCase();
+                const empId = (emp.employeeId || '').toLowerCase();
+                const d = (emp.department || '').toLowerCase();
+                const ds = (emp.designation || '').toLowerCase();
+                if (!name.includes(term) && !empId.includes(term) && !d.includes(term) && !ds.includes(term)) {
+                    return false;
+                }
+            }
 
             if (colFilterGenEmployee.length > 0 && !colFilterGenEmployee.includes(empDisplay) && !colFilterGenEmployee.includes(emp.name)) return false;
             if (colFilterGenType.length > 0 && !colFilterGenType.includes(empType)) return false;
@@ -520,7 +612,12 @@ export default function SalariesTab() {
             if (colFilterGenStatus.length > 0 && !colFilterGenStatus.includes(st)) return false;
             if (colFilterGenDays.length > 0 && !colFilterGenDays.includes(daysStr)) return false;
             if (colFilterGenOT.length > 0 && !colFilterGenOT.includes(otStr)) return false;
+            if (colFilterGenGross.length > 0 && !colFilterGenGross.includes(`₹ ${row.grossPay.toLocaleString('en-IN')}`)) return false;
+            if (colFilterGenNet.length > 0 && !colFilterGenNet.includes(`₹ ${row.netPay.toLocaleString('en-IN')}`)) return false;
             if (colFilterGenGenStatus.length > 0 && !colFilterGenGenStatus.includes(genStr)) return false;
+            if (colFilterGenMasterSalary.length > 0 && !colFilterGenMasterSalary.includes(masterSalStr)) return false;
+            if (colFilterGenPerDaySalary.length > 0 && !colFilterGenPerDaySalary.includes(perDayStr)) return false;
+            if (colFilterGenOtRate.length > 0 && !colFilterGenOtRate.includes(otRateStr)) return false;
 
             return true;
         });
@@ -550,6 +647,15 @@ export default function SalariesTab() {
                 } else if (key === 'workingDays') {
                     valA = a.payableDays;
                     valB = b.payableDays;
+                } else if (key === 'masterSalary') {
+                    valA = a.baseGrossSalary;
+                    valB = b.baseGrossSalary;
+                } else if (key === 'perDaySalary') {
+                    valA = a.perDaySalary || 0;
+                    valB = b.perDaySalary || 0;
+                } else if (key === 'otRate') {
+                    valA = a.otHourlyRate || 0;
+                    valB = b.otHourlyRate || 0;
                 } else if (key === 'otApplied') {
                     valA = a.isOTApplicable ? 1 : 0;
                     valB = b.isOTApplicable ? 1 : 0;
@@ -573,9 +679,11 @@ export default function SalariesTab() {
 
         return list;
     }, [
-        calculatedRows, colFilterGenEmployee, colFilterGenType, colFilterGenDept,
+        calculatedRows, genSearchTerm, colFilterGenEmployee, colFilterGenType, colFilterGenDept,
         colFilterGenDesig, colFilterGenStatus, colFilterGenDays, colFilterGenOT,
-        colFilterGenGenStatus, genSortConfig
+        colFilterGenGross, colFilterGenNet, colFilterGenGenStatus,
+        colFilterGenMasterSalary, colFilterGenPerDaySalary, colFilterGenOtRate,
+        genSortConfig
     ]);
 
     // Checkbox multi-select logic
@@ -613,6 +721,36 @@ export default function SalariesTab() {
         if (selectedEmployeeIds.length === 0) {
             alert("Please select at least one employee from the list to generate salaries.");
             return;
+        }
+
+        // Strict Mode Check: All selected employees must have all month days validated
+        const unvalidatedSelected = calculatedRows.filter(
+            r => selectedEmployeeIds.includes(r.employee._id) && !r.validationStatus?.isFullyValidated
+        );
+
+        if (unvalidatedSelected.length > 0) {
+            alert(
+                `Strict Mode: ${unvalidatedSelected.length} of the selected employees have unvalidated attendance days for ${month} ${year}. All days must be validated by HR in the Attendance Validation tab before salary generation can proceed.`
+            );
+            return;
+        }
+
+        setBulkGenerationResult(null);
+        setIsBulkModalOpen(true);
+    };
+
+    const handleOpenBulkModalFromValidation = (empIds?: string[]) => {
+        if (empIds && empIds.length > 0) {
+            setSelectedEmployeeIds(empIds);
+        } else {
+            const fullyValIds = calculatedRows
+                .filter(r => r.validationStatus?.isFullyValidated)
+                .map(r => r.employee._id);
+            if (fullyValIds.length === 0) {
+                alert(`No employees have their full month attendance validated for ${month} ${year} yet. Please validate attendance in the Attendance Validation tab first.`);
+                return;
+            }
+            setSelectedEmployeeIds(fullyValIds);
         }
         setBulkGenerationResult(null);
         setIsBulkModalOpen(true);
@@ -1119,6 +1257,16 @@ export default function SalariesTab() {
 
     // Quick single employee generation
     const handleGenerateSingle = async (row: EnrichedEmployeeRow) => {
+        // Strict Mode Check
+        if (!row.validationStatus?.isFullyValidated) {
+            alert(
+                `Strict Mode: ${row.employee.name} has ${row.validationStatus?.pendingDays || 'some'} unvalidated days in ${month} ${year}. In accordance with your HR policy, all working days must be validated before salary can be generated.`
+            );
+            setValidationModalEmployeeId(row.employee._id);
+            setIsValidationModalOpen(true);
+            return;
+        }
+
         try {
             const token = localStorage.getItem('token');
             const payload = {
@@ -1174,6 +1322,25 @@ export default function SalariesTab() {
     const generatedCount = calculatedRows.filter(r => r.hasGenerated).length;
     const pendingCount = calculatedRows.filter(r => !r.hasGenerated).length;
 
+    // Render full-page dedicated Salary Review & Edit screen if an employee is selected
+    if (selectedEmployeeForSalaryEdit) {
+        return (
+            <div className="animate-in fade-in duration-200">
+                <EditSalaryPageView
+                    row={selectedEmployeeForSalaryEdit}
+                    month={month}
+                    year={year}
+                    employees={employees}
+                    onBack={() => setSelectedEmployeeForSalaryEdit(null)}
+                    onSuccess={() => {
+                        setSelectedEmployeeForSalaryEdit(null);
+                        fetchMonthData();
+                    }}
+                />
+            </div>
+        );
+    }
+
     return (
         <div className="animate-in duration-300 fade-in space-y-6">
             
@@ -1181,14 +1348,14 @@ export default function SalariesTab() {
             <div className="bg-white border border-slate-200 dark:bg-slate-800 dark:border-slate-700 p-4 rounded-2xl shadow-sm flex flex-col xl:flex-row justify-between items-center gap-4 relative z-20">
                 <div className="flex gap-2 w-full xl:w-auto">
                     <button 
-                        onClick={() => setActiveMainTab('generator')}
+                        onClick={() => setActiveMainTab('validation')}
                         className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all flex items-center gap-2 flex-1 xl:flex-none ${
-                            activeMainTab === 'generator' 
+                            activeMainTab === 'validation' || activeMainTab === 'calculation'
                                 ? 'bg-blue-600 text-white shadow-md' 
                                 : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'
                         }`}
                     >
-                        <Calculator size={16} /> Salary Generator
+                        <CheckSquare size={16} /> Attendance Validation
                     </button>
                     <button 
                         onClick={() => setActiveMainTab('saved')}
@@ -1298,41 +1465,79 @@ export default function SalariesTab() {
                 </div>
             )}
 
-            {/* TAB 1: SALARIES GENERATOR */}
-            {activeMainTab === 'generator' && (
-                <div className="bg-white border border-slate-200 dark:bg-slate-800 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden flex flex-col">
-                    {/* Generator Table Header Controls */}
-                    <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            {/* TAB 1: ATTENDANCE VALIDATION */}
+            {activeMainTab === 'validation' && (
+                <AttendanceValidationTab
+                    initialMonth={month}
+                    initialYear={year}
+                    onViewSavedSalaries={() => setActiveMainTab('saved')}
+                    onSalaryGenerated={() => fetchMonthData()}
+                    onOpenBulkGenerate={handleOpenBulkModalFromValidation}
+                    onNavigateToSalaryCalculation={(empId?: string) => {
+                        if (empId) {
+                            const target = calculatedRows.find(r => r.employee._id === empId);
+                            if (target) {
+                                setSelectedEmployeeForSalaryEdit(target);
+                                return;
+                            }
+                        }
+                        setActiveMainTab('calculation');
+                    }}
+                />
+            )}
+
+            {/* TAB 2: COMPLETE SALARY CALCULATION PAGE (Opened from Monthwise Attendance Validation) */}
+            {activeMainTab === 'calculation' && (
+                <div className="bg-white border border-slate-200 dark:bg-slate-800 dark:border-slate-700 rounded-2xl shadow-sm p-4 sm:p-5 space-y-4 animate-in fade-in duration-200">
+                    {/* Header Controls with Back Button & Search Bar */}
+                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-200 dark:border-slate-700 pb-4">
                         <div className="flex flex-wrap items-center gap-3">
-                            <span className="font-bold text-sm text-slate-800 dark:text-slate-200">
-                                Employees for {month} {year}
-                            </span>
-                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
-                                Showing {filteredGeneratorRows.length} of {calculatedRows.length}
-                            </span>
-                            {selectedEmployeeIds.length > 0 && (
-                                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                    {selectedEmployeeIds.length} Selected
-                                </span>
-                            )}
-                            {isAnyGenFilterActive && (
-                                <button
-                                    onClick={handleResetGenFilters}
-                                    className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 font-medium flex items-center gap-1 hover:underline ml-2"
-                                >
-                                    <X size={13} /> Reset Filters
-                                </button>
-                            )}
+                            <button
+                                type="button"
+                                onClick={() => setActiveMainTab('validation')}
+                                className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1.5 transition-colors shadow-sm"
+                            >
+                                <ChevronLeft size={16} /> Back to Attendance Validation
+                            </button>
+                            <div>
+                                <h3 className="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                    <Calculator size={18} className="text-blue-600" />
+                                    Monthwise Salary Calculation & Generation — {month} {year}
+                                </h3>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                    Review master salary, live per-day rates, OT rates, and attendance before generating.
+                                </p>
+                            </div>
                         </div>
 
-                        {/* Top Action Buttons */}
-                        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+                        {/* Top Action Ribbon: Search + Bulk Actions */}
+                        <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto justify-start lg:justify-end">
+                            {/* Top Search Input */}
+                            <div className="relative flex-1 sm:flex-none min-w-[220px]">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                                <input
+                                    type="text"
+                                    placeholder="Search employee, dept..."
+                                    value={genSearchTerm}
+                                    onChange={(e) => setGenSearchTerm(e.target.value)}
+                                    className="w-full pl-8 pr-7 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-inner"
+                                />
+                                {genSearchTerm && (
+                                    <button
+                                        onClick={() => setGenSearchTerm('')}
+                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                                    >
+                                        <X size={13} />
+                                    </button>
+                                )}
+                            </div>
+
                             <button
                                 type="button"
                                 onClick={handleSelectAllActivePending}
-                                className="px-3 py-2 text-xs font-semibold rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors"
+                                className="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors shadow-sm"
                             >
-                                Select All Active Pending ({pendingCount})
+                                Select Pending ({pendingCount})
                             </button>
 
                             {/* MAIN BULK GENERATE BUTTON */}
@@ -1340,19 +1545,41 @@ export default function SalariesTab() {
                                 type="button"
                                 onClick={handleTriggerBulkGenerate}
                                 disabled={selectedEmployeeIds.length === 0}
-                                className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center gap-2 shadow-md transition-all ${
+                                className={`px-4 py-1.5 text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-md transition-all ${
                                     selectedEmployeeIds.length > 0
                                         ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer active:scale-95'
                                         : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
                                 }`}
                             >
                                 <Zap size={14} className="fill-current" />
-                                Generate Whole Month Salaries ({selectedEmployeeIds.length})
+                                Save & Generate Selected ({selectedEmployeeIds.length})
                             </button>
                         </div>
                     </div>
 
-                    {/* Table View */}
+                    {/* Filter Ribbon */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-slate-600 dark:text-slate-300">
+                                Showing {filteredGeneratorRows.length} of {calculatedRows.length} employees
+                            </span>
+                            {selectedEmployeeIds.length > 0 && (
+                                <span className="px-2.5 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                    {selectedEmployeeIds.length} Selected
+                                </span>
+                            )}
+                            {isAnyGenFilterActive && (
+                                <button
+                                    onClick={handleResetGenFilters}
+                                    className="text-red-600 hover:text-red-700 dark:text-red-400 font-medium flex items-center gap-1 hover:underline ml-2"
+                                >
+                                    <X size={13} /> Reset Filters
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Table / Cards View */}
                     {loading ? (
                         <div className="py-20 text-center">
                             <LoadingSpinner />
@@ -1360,8 +1587,8 @@ export default function SalariesTab() {
                         </div>
                     ) : filteredGeneratorRows.length === 0 ? (
                         <div className="py-16 text-center text-slate-500 dark:text-slate-400">
-                            <p className="font-semibold text-base">No employees found matching the active filters.</p>
-                            <p className="text-xs mt-1">Try resetting the status or column filters above.</p>
+                            <p className="font-semibold text-base">No employees found matching the active filters or search.</p>
+                            <p className="text-xs mt-1">Try clearing the search term or column filters.</p>
                             <button
                                 onClick={handleResetGenFilters}
                                 className="mt-3 px-4 py-1.5 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-colors"
@@ -1370,301 +1597,451 @@ export default function SalariesTab() {
                             </button>
                         </div>
                     ) : (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-xs border-collapse">
-                                <thead className="bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300 uppercase text-[11px] font-semibold border-b border-slate-200 dark:border-slate-700">
-                                    <tr>
-                                        {/* Master Checkbox */}
-                                        <th className="px-3.5 py-3 w-10 text-center">
-                                            <input
-                                                type="checkbox"
-                                                checked={isAllVisibleSelected}
-                                                onChange={handleToggleSelectAllVisible}
-                                                className="w-4 h-4 rounded text-blue-600 border-slate-300 dark:border-slate-600 focus:ring-0 cursor-pointer"
-                                                title="Select all visible"
-                                            />
-                                        </th>
+                        <>
+                            {/* 1. DESKTOP VIEW: Clean flat table, non-scrollable container */}
+                            <div className="hidden md:block rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-x-auto">
+                                <table className="w-full text-left text-xs border-collapse">
+                                    <thead className="bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300 uppercase text-[11px] font-semibold border-b border-slate-200 dark:border-slate-700">
+                                        <tr>
+                                            {/* Master Checkbox */}
+                                            <th className="px-3.5 py-3 w-10 text-center">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isAllVisibleSelected}
+                                                    onChange={handleToggleSelectAllVisible}
+                                                    className="w-4 h-4 rounded text-blue-600 border-slate-300 dark:border-slate-600 focus:ring-0 cursor-pointer"
+                                                    title="Select all visible"
+                                                />
+                                            </th>
 
-                                        {/* Employee */}
-                                        <th className="px-4 py-3 min-w-[180px]">
-                                            <ExcelColumnFilter
-                                                title="Employee"
-                                                columnKey="employee"
-                                                data={calculatedRows}
-                                                getValue={(r) => `${r.employee.name} (${r.employee.employeeId})`}
-                                                selectedValues={colFilterGenEmployee}
-                                                onFilterChange={setColFilterGenEmployee}
-                                                sortConfig={genSortConfig}
-                                                onSortChange={setGenSortConfig}
-                                            />
-                                        </th>
+                                            {/* Employee Standard Display */}
+                                            <th className="px-3.5 py-3 min-w-[170px]">
+                                                <ExcelColumnFilter
+                                                    title="Employee"
+                                                    columnKey="employee"
+                                                    data={calculatedRows}
+                                                    getValue={(r) => `${r.employee.name} (${r.employee.employeeId})`}
+                                                    selectedValues={colFilterGenEmployee}
+                                                    onFilterChange={setColFilterGenEmployee}
+                                                    sortConfig={genSortConfig}
+                                                    onSortChange={setGenSortConfig}
+                                                />
+                                            </th>
 
-                                        {/* Employee Type */}
-                                        <th className="px-3.5 py-3 min-w-[120px]">
-                                            <ExcelColumnFilter
-                                                title="Employee Type"
-                                                columnKey="employeeType"
-                                                data={calculatedRows}
-                                                getValue={(r) => r.employee.employeeType || 'Full-Time'}
-                                                selectedValues={colFilterGenType}
-                                                onFilterChange={setColFilterGenType}
-                                                sortConfig={genSortConfig}
-                                                onSortChange={setGenSortConfig}
-                                            />
-                                        </th>
+                                            {/* Employee Type */}
+                                            <th className="px-3 py-3 min-w-[110px]">
+                                                <ExcelColumnFilter
+                                                    title="Type"
+                                                    columnKey="employeeType"
+                                                    data={calculatedRows}
+                                                    getValue={(r) => r.employee.employeeType || 'Full-Time'}
+                                                    selectedValues={colFilterGenType}
+                                                    onFilterChange={setColFilterGenType}
+                                                    sortConfig={genSortConfig}
+                                                    onSortChange={setGenSortConfig}
+                                                />
+                                            </th>
 
-                                        {/* Department / Destination */}
-                                        <th className="px-3.5 py-3 min-w-[130px]">
-                                            <ExcelColumnFilter
-                                                title="Department"
-                                                columnKey="department"
-                                                data={calculatedRows}
-                                                getValue={(r) => r.employee.department || '(Blanks)'}
-                                                selectedValues={colFilterGenDept}
-                                                onFilterChange={setColFilterGenDept}
-                                                sortConfig={genSortConfig}
-                                                onSortChange={setGenSortConfig}
-                                            />
-                                        </th>
+                                            {/* Department */}
+                                            <th className="px-3 py-3 min-w-[120px]">
+                                                <ExcelColumnFilter
+                                                    title="Department"
+                                                    columnKey="department"
+                                                    data={calculatedRows}
+                                                    getValue={(r) => r.employee.department || '(Blanks)'}
+                                                    selectedValues={colFilterGenDept}
+                                                    onFilterChange={setColFilterGenDept}
+                                                    sortConfig={genSortConfig}
+                                                    onSortChange={setGenSortConfig}
+                                                />
+                                            </th>
 
-                                        {/* Designation */}
-                                        <th className="px-3.5 py-3 min-w-[130px]">
-                                            <ExcelColumnFilter
-                                                title="Designation"
-                                                columnKey="designation"
-                                                data={calculatedRows}
-                                                getValue={(r) => r.employee.designation || '(Blanks)'}
-                                                selectedValues={colFilterGenDesig}
-                                                onFilterChange={setColFilterGenDesig}
-                                                sortConfig={genSortConfig}
-                                                onSortChange={setGenSortConfig}
-                                            />
-                                        </th>
+                                            {/* Master Salary */}
+                                            <th className="px-3 py-3 min-w-[125px]">
+                                                <ExcelColumnFilter
+                                                    title="Master Salary"
+                                                    columnKey="masterSalary"
+                                                    data={calculatedRows}
+                                                    getValue={(r) => `₹ ${(r.baseGrossSalary || 0).toLocaleString('en-IN')}`}
+                                                    selectedValues={colFilterGenMasterSalary}
+                                                    onFilterChange={setColFilterGenMasterSalary}
+                                                    sortConfig={genSortConfig}
+                                                    onSortChange={setGenSortConfig}
+                                                />
+                                            </th>
 
-                                        {/* Status (Default Active) */}
-                                        <th className="px-3.5 py-3 min-w-[110px]">
-                                            <ExcelColumnFilter
-                                                title="Status"
-                                                columnKey="status"
-                                                data={calculatedRows}
-                                                getValue={(r) => r.employee.status || (r.employee.isActive ? 'Active' : 'Inactive')}
-                                                selectedValues={colFilterGenStatus}
-                                                onFilterChange={setColFilterGenStatus}
-                                                sortConfig={genSortConfig}
-                                                onSortChange={setGenSortConfig}
-                                            />
-                                        </th>
+                                            {/* Per Day Rate */}
+                                            <th className="px-3 py-3 min-w-[125px]">
+                                                <ExcelColumnFilter
+                                                    title="Per Day Rate"
+                                                    columnKey="perDaySalary"
+                                                    data={calculatedRows}
+                                                    getValue={(r) => `₹ ${r.perDaySalary || 0}`}
+                                                    selectedValues={colFilterGenPerDaySalary}
+                                                    onFilterChange={setColFilterGenPerDaySalary}
+                                                    sortConfig={genSortConfig}
+                                                    onSortChange={setGenSortConfig}
+                                                />
+                                            </th>
 
-                                        {/* Total Working Days */}
-                                        <th className="px-3.5 py-3 min-w-[140px]">
-                                            <ExcelColumnFilter
-                                                title="Working Days"
-                                                columnKey="workingDays"
-                                                data={calculatedRows}
-                                                getValue={(r) => `${r.payableDays} Days`}
-                                                selectedValues={colFilterGenDays}
-                                                onFilterChange={setColFilterGenDays}
-                                                sortConfig={genSortConfig}
-                                                onSortChange={setGenSortConfig}
-                                            />
-                                        </th>
+                                            {/* OT Rate */}
+                                            <th className="px-3 py-3 min-w-[110px]">
+                                                <ExcelColumnFilter
+                                                    title="OT Rate"
+                                                    columnKey="otRate"
+                                                    data={calculatedRows}
+                                                    getValue={(r) => r.isOTApplicable ? `₹ ${r.otHourlyRate || 0}/hr` : 'N/A'}
+                                                    selectedValues={colFilterGenOtRate}
+                                                    onFilterChange={setColFilterGenOtRate}
+                                                    sortConfig={genSortConfig}
+                                                    onSortChange={setGenSortConfig}
+                                                />
+                                            </th>
 
-                                        {/* OT Applied or Not */}
-                                        <th className="px-3.5 py-3 min-w-[120px]">
-                                            <ExcelColumnFilter
-                                                title="OT Applied"
-                                                columnKey="otApplied"
-                                                data={calculatedRows}
-                                                getValue={(r) => r.isOTApplicable ? 'Yes' : 'No'}
-                                                selectedValues={colFilterGenOT}
-                                                onFilterChange={setColFilterGenOT}
-                                                sortConfig={genSortConfig}
-                                                onSortChange={setGenSortConfig}
-                                            />
-                                        </th>
+                                            {/* Attendance & Days (Payable / Absent) */}
+                                            <th className="px-3 py-3 min-w-[135px]">
+                                                <ExcelColumnFilter
+                                                    title="Present / Absent"
+                                                    columnKey="workingDays"
+                                                    data={calculatedRows}
+                                                    getValue={(r) => `${r.payableDays} Days`}
+                                                    selectedValues={colFilterGenDays}
+                                                    onFilterChange={setColFilterGenDays}
+                                                    sortConfig={genSortConfig}
+                                                    onSortChange={setGenSortConfig}
+                                                />
+                                            </th>
 
-                                        {/* Gross Base Pay */}
-                                        <th className="px-3.5 py-3 min-w-[110px] text-right">
-                                            <ExcelColumnFilter
-                                                title="Gross Pay"
-                                                columnKey="grossPay"
-                                                data={calculatedRows}
-                                                getValue={(r) => `₹ ${r.grossPay.toLocaleString('en-IN')}`}
-                                                selectedValues={colFilterGenGross}
-                                                onFilterChange={setColFilterGenGross}
-                                                sortConfig={genSortConfig}
-                                                onSortChange={setGenSortConfig}
-                                                align="right"
-                                            />
-                                        </th>
+                                            {/* OT Hours & Pay */}
+                                            <th className="px-3 py-3 min-w-[110px]">
+                                                <ExcelColumnFilter
+                                                    title="OT Applied"
+                                                    columnKey="ot"
+                                                    data={calculatedRows}
+                                                    getValue={(r) => r.isOTApplicable ? 'Yes' : 'No'}
+                                                    selectedValues={colFilterGenOT}
+                                                    onFilterChange={setColFilterGenOT}
+                                                    sortConfig={genSortConfig}
+                                                    onSortChange={setGenSortConfig}
+                                                />
+                                            </th>
 
-                                        {/* Net Pay Preview */}
-                                        <th className="px-3.5 py-3 min-w-[110px] text-right">
-                                            <ExcelColumnFilter
-                                                title="Net Pay"
-                                                columnKey="netPay"
-                                                data={calculatedRows}
-                                                getValue={(r) => `₹ ${r.netPay.toLocaleString('en-IN')}`}
-                                                selectedValues={colFilterGenNet}
-                                                onFilterChange={setColFilterGenNet}
-                                                sortConfig={genSortConfig}
-                                                onSortChange={setGenSortConfig}
-                                                align="right"
-                                            />
-                                        </th>
+                                            {/* Net Pay */}
+                                            <th className="px-3 py-3 min-w-[110px] text-right">
+                                                <ExcelColumnFilter
+                                                    title="Net Pay"
+                                                    columnKey="netPay"
+                                                    data={calculatedRows}
+                                                    getValue={(r) => `₹ ${r.netPay.toLocaleString('en-IN')}`}
+                                                    selectedValues={colFilterGenNet}
+                                                    onFilterChange={setColFilterGenNet}
+                                                    sortConfig={genSortConfig}
+                                                    onSortChange={setGenSortConfig}
+                                                    align="right"
+                                                />
+                                            </th>
 
-                                        {/* Generation Status */}
-                                        <th className="px-3.5 py-3 min-w-[110px]">
-                                            <ExcelColumnFilter
-                                                title="Gen Status"
-                                                columnKey="genStatus"
-                                                data={calculatedRows}
-                                                getValue={(r) => r.hasGenerated ? 'Generated' : 'Pending'}
-                                                selectedValues={colFilterGenGenStatus}
-                                                onFilterChange={setColFilterGenGenStatus}
-                                                sortConfig={genSortConfig}
-                                                onSortChange={setGenSortConfig}
-                                            />
-                                        </th>
+                                            {/* Gen Status */}
+                                            <th className="px-3 py-3 min-w-[100px]">
+                                                <ExcelColumnFilter
+                                                    title="Status"
+                                                    columnKey="genStatus"
+                                                    data={calculatedRows}
+                                                    getValue={(r) => r.hasGenerated ? 'Generated' : 'Pending'}
+                                                    selectedValues={colFilterGenGenStatus}
+                                                    onFilterChange={setColFilterGenGenStatus}
+                                                    sortConfig={genSortConfig}
+                                                    onSortChange={setGenSortConfig}
+                                                />
+                                            </th>
 
-                                        {/* Actions */}
-                                        <th className="px-4 py-3 text-right min-w-[130px]">
-                                            Actions
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                    {filteredGeneratorRows.map(row => {
-                                        const emp = row.employee;
-                                        const isSelected = selectedEmployeeIds.includes(emp._id);
+                                            {/* Actions */}
+                                            <th className="px-4 py-3 text-right min-w-[160px]">
+                                                Actions
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {filteredGeneratorRows.map((row) => {
+                                            const emp = row.employee;
+                                            const isSelected = selectedEmployeeIds.includes(emp._id);
 
-                                        return (
-                                            <tr
-                                                key={emp._id}
-                                                className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${
-                                                    isSelected ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''
-                                                }`}
-                                            >
-                                                {/* Checkbox */}
-                                                <td className="px-3.5 py-3 text-center">
+                                            return (
+                                                <tr
+                                                    key={emp._id}
+                                                    className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${
+                                                        isSelected ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''
+                                                    }`}
+                                                >
+                                                    {/* Checkbox */}
+                                                    <td className="px-3.5 py-3 text-center">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isSelected}
+                                                            onChange={() => handleToggleSelectRow(emp._id)}
+                                                            className="w-4 h-4 rounded text-blue-600 border-slate-300 dark:border-slate-600 focus:ring-0 cursor-pointer"
+                                                        />
+                                                    </td>
+
+                                                    {/* Employee Name & Description Standard */}
+                                                    <td className="px-3.5 py-3 font-medium text-slate-800 dark:text-slate-100">
+                                                        <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                                                            {emp.name || 'N/A'}
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
+                                                            {emp.designation || 'Staff'} &bull; {emp.department || 'General'}
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Employee Type */}
+                                                    <td className="px-3 py-3 text-slate-600 dark:text-slate-300">
+                                                        <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[11px] font-medium">
+                                                            {emp.employeeType || 'Full-Time'}
+                                                        </span>
+                                                    </td>
+
+                                                    {/* Department */}
+                                                    <td className="px-3 py-3 text-slate-700 dark:text-slate-300 font-medium">
+                                                        {emp.department || '-'}
+                                                    </td>
+
+                                                    {/* Master Salary */}
+                                                    <td className="px-3 py-3 font-medium">
+                                                        <div className="font-bold text-slate-800 dark:text-slate-200">
+                                                            ₹ {(row.baseGrossSalary || 0).toLocaleString('en-IN')}
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-400">
+                                                            Basic: ₹ {((emp.salary?.basic || 0)).toLocaleString('en-IN')}
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Per Day Rate */}
+                                                    <td className="px-3 py-3 font-medium">
+                                                        <div className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                                                            ₹ {(row.perDaySalary || 0).toLocaleString('en-IN')}
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-400">
+                                                            {row.dailyDivisorBasis === 'WorkingDays' ? 'Working Days' : 'Month'} ({row.divisor || row.totalMonthDays}d)
+                                                        </div>
+                                                    </td>
+
+                                                    {/* OT Rate */}
+                                                    <td className="px-3 py-3">
+                                                        {row.isOTApplicable ? (
+                                                            <div>
+                                                                <span className="font-mono font-bold text-purple-600 dark:text-purple-400">
+                                                                    ₹ {row.otHourlyRate || 0}/hr
+                                                                </span>
+                                                                <span className="text-[10px] text-slate-400 ml-1">
+                                                                    ({row.otMultiplier || 1}x)
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-slate-400 text-xs">N/A</span>
+                                                        )}
+                                                    </td>
+
+                                                    {/* Present / Absent Days */}
+                                                    <td className="px-3 py-3 font-medium">
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <div className="font-bold text-slate-800 dark:text-slate-200">
+                                                                {row.payableDays} <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">(Payable)</span>
+                                                            </div>
+                                                            <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                                                                Worked: {row.workedDays}d &bull; Absent: <span className={row.actualAbsentDays > 0 ? "text-rose-500 font-bold" : ""}>{row.actualAbsentDays}d</span>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+
+                                                    {/* OT Pay */}
+                                                    <td className="px-3 py-3">
+                                                        {row.isOTApplicable && row.totalOtHours > 0 ? (
+                                                            <div className="flex flex-col gap-0.5">
+                                                                <span className="font-mono font-bold text-purple-700 dark:text-purple-300">
+                                                                    ₹ {(row.otPay || 0).toLocaleString('en-IN')}
+                                                                </span>
+                                                                <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono font-semibold">
+                                                                    +{row.totalOtHours}h OT
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-slate-400 text-xs">-</span>
+                                                        )}
+                                                    </td>
+
+                                                    {/* Net Pay */}
+                                                    <td className="px-3 py-3 text-right font-mono font-bold text-slate-900 dark:text-emerald-400">
+                                                        ₹ {row.netPay.toLocaleString('en-IN')}
+                                                    </td>
+
+                                                    {/* Status */}
+                                                    <td className="px-3 py-3">
+                                                        {row.hasGenerated ? (
+                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300 flex items-center gap-1 w-fit">
+                                                                <Check size={11} /> Generated
+                                                            </span>
+                                                        ) : (
+                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 w-fit">
+                                                                Pending
+                                                            </span>
+                                                        )}
+                                                    </td>
+
+                                                    {/* Row Actions */}
+                                                    <td className="px-4 py-3 text-right space-x-1.5 whitespace-nowrap">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setDailyLogsModalEmployee(emp)}
+                                                            className="px-2 py-1 text-[11px] font-medium text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
+                                                            title="Inspect raw daily attendance logs"
+                                                        >
+                                                            Logs
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSelectedEmployeeForSalaryEdit(row)}
+                                                            className="px-2.5 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-all shadow-sm inline-flex items-center gap-1 active:scale-95 cursor-pointer"
+                                                            title="Open dedicated full-page review & edit screen"
+                                                        >
+                                                            <Sparkles size={12} />
+                                                            {row.hasGenerated ? "Review & Update" : "Review & Generate"}
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* 2. MOBILE CARD VIEW (< md): Responsive card list, no side scroll */}
+                            <div className="block md:hidden space-y-3">
+                                {filteredGeneratorRows.map((row) => {
+                                    const emp = row.employee;
+                                    const isSelected = selectedEmployeeIds.includes(emp._id);
+
+                                    return (
+                                        <div
+                                            key={emp._id}
+                                            className={`p-4 rounded-2xl border transition-all ${
+                                                isSelected
+                                                    ? 'border-blue-400 bg-blue-50/30 dark:bg-blue-950/20 dark:border-blue-700'
+                                                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm'
+                                            }`}
+                                        >
+                                            {/* Card Top: Checkbox, Name, Status */}
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="flex items-start gap-2.5">
                                                     <input
                                                         type="checkbox"
                                                         checked={isSelected}
                                                         onChange={() => handleToggleSelectRow(emp._id)}
-                                                        className="w-4 h-4 rounded text-blue-600 border-slate-300 dark:border-slate-600 focus:ring-0 cursor-pointer"
+                                                        className="w-4 h-4 mt-0.5 rounded text-blue-600 border-slate-300 dark:border-slate-600 focus:ring-0 cursor-pointer"
                                                     />
-                                                </td>
-
-                                                {/* Employee Name & ID */}
-                                                <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">
-                                                    <div className="font-bold text-xs">{emp.name}</div>
-                                                    <div className="text-[11px] text-slate-500 font-mono">{emp.employeeId}</div>
-                                                </td>
-
-                                                {/* Employee Type */}
-                                                <td className="px-3.5 py-3 text-slate-600 dark:text-slate-300">
-                                                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[11px] font-medium">
-                                                        {emp.employeeType || 'Full-Time'}
-                                                    </span>
-                                                </td>
-
-                                                {/* Department */}
-                                                <td className="px-3.5 py-3 text-slate-700 dark:text-slate-300">
-                                                    {emp.department || '-'}
-                                                </td>
-
-                                                {/* Designation */}
-                                                <td className="px-3.5 py-3 text-slate-700 dark:text-slate-300">
-                                                    {emp.designation || '-'}
-                                                </td>
-
-                                                {/* Status */}
-                                                <td className="px-3.5 py-3">
-                                                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                                                        (emp.status === 'Active' || emp.isActive)
-                                                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
-                                                            : 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                                                    }`}>
-                                                        {emp.status || (emp.isActive ? 'Active' : 'Inactive')}
-                                                    </span>
-                                                </td>
-
-                                                {/* Total Working Days */}
-                                                <td className="px-3.5 py-3 font-medium">
-                                                    <div className="text-slate-800 dark:text-slate-200 font-bold">
-                                                        {row.payableDays} <span className="text-[10px] text-slate-400 font-normal">/ {row.totalMonthDays} Days</span>
-                                                    </div>
-                                                    <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                                                        Worked: {row.workedDays}d &bull; Off: {row.weeklyOffsCount + row.holidaysCount}d
-                                                    </div>
-                                                </td>
-
-                                                {/* OT Applied or Not */}
-                                                <td className="px-3.5 py-3">
-                                                    {row.isOTApplicable ? (
-                                                        <div className="flex flex-col gap-0.5">
-                                                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 w-fit">
-                                                                Yes (Active)
-                                                            </span>
-                                                            {row.totalOtHours > 0 && (
-                                                                <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono font-semibold">
-                                                                    +{row.totalOtHours}h (₹{row.otPay})
-                                                                </span>
-                                                            )}
+                                                    <div>
+                                                        <div className="font-bold text-sm text-slate-900 dark:text-white">
+                                                            {emp.name || 'N/A'}
                                                         </div>
-                                                    ) : (
-                                                        <span className="text-slate-400 text-xs">No</span>
-                                                    )}
-                                                </td>
-
-                                                {/* Gross Pay */}
-                                                <td className="px-3.5 py-3 text-right font-mono font-medium text-slate-700 dark:text-slate-300">
-                                                    ₹ {row.grossPay.toLocaleString('en-IN')}
-                                                </td>
-
-                                                {/* Net Pay */}
-                                                <td className="px-3.5 py-3 text-right font-mono font-bold text-slate-900 dark:text-emerald-400">
-                                                    ₹ {row.netPay.toLocaleString('en-IN')}
-                                                </td>
-
-                                                {/* Generation Status */}
-                                                <td className="px-3.5 py-3">
+                                                        <div className="text-xs text-slate-500 italic mt-0.5">
+                                                            {emp.designation || 'Staff'} &bull; {emp.department || 'General'}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col items-end gap-1">
                                                     {row.hasGenerated ? (
-                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300 flex items-center gap-1 w-fit">
-                                                            <Check size={11} /> Generated
+                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300 flex items-center gap-1">
+                                                            <Check size={10} /> Generated
                                                         </span>
                                                     ) : (
-                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 w-fit">
+                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
                                                             Pending
                                                         </span>
                                                     )}
-                                                </td>
+                                                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-medium text-slate-600 dark:text-slate-400">
+                                                        {emp.employeeType || 'Full-Time'}
+                                                    </span>
+                                                </div>
+                                            </div>
 
-                                                {/* Row Actions */}
-                                                <td className="px-4 py-3 text-right space-x-1 whitespace-nowrap">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setDailyLogsModalEmployee(emp)}
-                                                        className="px-2 py-1 text-[11px] font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-slate-700 rounded transition-colors"
-                                                        title="Inspect or override daily attendance logs"
-                                                    >
-                                                        Adjust Logs
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleGenerateSingle(row)}
-                                                        className="px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-blue-600 hover:text-white dark:bg-slate-700 dark:hover:bg-blue-600 text-slate-700 dark:text-slate-200 rounded transition-colors shadow-sm"
-                                                        title="Generate or update single salary"
-                                                    >
-                                                        {row.hasGenerated ? "Update" : "Generate"}
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
+                                            {/* Key Metrics Grid */}
+                                            <div className="grid grid-cols-2 gap-2 mt-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 text-xs">
+                                                <div>
+                                                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Master Salary</span>
+                                                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                                                        ₹ {(row.baseGrossSalary || 0).toLocaleString('en-IN')}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-400 block">
+                                                        Basic: ₹ {(emp.salary?.basic || 0).toLocaleString('en-IN')}
+                                                    </span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Per Day Rate</span>
+                                                    <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                                                        ₹ {(row.perDaySalary || 0).toLocaleString('en-IN')} / day
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-400 block">
+                                                        {row.dailyDivisorBasis === 'WorkingDays' ? 'Working Days' : 'Month'} ({row.divisor || row.totalMonthDays}d)
+                                                    </span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Present / Absent</span>
+                                                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                                                        {row.payableDays}d <span className="text-emerald-600 font-normal">Payable</span>
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-500 block">
+                                                        Worked: {row.workedDays}d &bull; Absent: {row.actualAbsentDays}d
+                                                    </span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Overtime Rate & Pay</span>
+                                                    {row.isOTApplicable ? (
+                                                        <>
+                                                            <span className="font-mono font-bold text-purple-600 dark:text-purple-400">
+                                                                ₹ {row.otHourlyRate || 0}/hr ({row.otMultiplier || 1}x)
+                                                            </span>
+                                                            <span className="text-[10px] text-purple-600 block">
+                                                                +{row.totalOtHours}h (₹{row.otPay})
+                                                            </span>
+                                                        </>
+                                                    ) : (
+                                                        <span className="text-slate-400">N/A</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Net Pay Banner */}
+                                            <div className="flex items-center justify-between mt-2.5 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/40">
+                                                <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                                                    Net Take-Home Pay:
+                                                </span>
+                                                <span className="font-mono font-extrabold text-sm text-emerald-700 dark:text-emerald-300">
+                                                    ₹ {row.netPay.toLocaleString('en-IN')}
+                                                </span>
+                                            </div>
+
+                                            {/* Card Action Buttons */}
+                                            <div className="flex items-center justify-end gap-2 mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setDailyLogsModalEmployee(emp)}
+                                                    className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 dark:text-slate-300 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                                >
+                                                    Daily Logs
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedEmployeeForSalaryEdit(row)}
+                                                    className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-1.5 active:scale-95 transition-all"
+                                                >
+                                                    <Sparkles size={13} />
+                                                    {row.hasGenerated ? "Review & Update" : "Review & Generate"}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </>
                     )}
                 </div>
             )}
@@ -2149,7 +2526,7 @@ export default function SalariesTab() {
                                         }}
                                         className="px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                                     >
-                                        Stay on Generator
+                                        Close
                                     </button>
                                     <button
                                         type="button"
@@ -2195,6 +2572,21 @@ export default function SalariesTab() {
                 }
                 onSaveLogs={(empId, updatedLogs) => {
                     setEmployeeOverrides(prev => ({ ...prev, [empId]: updatedLogs }));
+                }}
+            />
+
+            {/* MONTHLY ATTENDANCE VALIDATION MODAL */}
+            <MonthlyAttendanceValidationModal
+                isOpen={isValidationModalOpen}
+                onClose={() => {
+                    setIsValidationModalOpen(false);
+                    setValidationModalEmployeeId(null);
+                }}
+                employeeId={validationModalEmployeeId}
+                month={month}
+                year={year}
+                onSaved={() => {
+                    fetchMonthData();
                 }}
             />
         </div>

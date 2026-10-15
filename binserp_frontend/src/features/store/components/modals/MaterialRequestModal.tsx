@@ -23,6 +23,7 @@ interface MaterialRequestModalProps {
     loading?: boolean;
     defaultType?: RequestInventoryType | "inhouse";
     allowedTypes?: RequestInventoryType[];
+    initialData?: any;
 }
 
 export default function MaterialRequestModal({
@@ -40,7 +41,8 @@ export default function MaterialRequestModal({
     customerPos = [],
     loading,
     defaultType = "consumable",
-    allowedTypes
+    allowedTypes,
+    initialData
 }: MaterialRequestModalProps) {
     const [mrpPlans, setMrpPlans] = useState<any[]>([]);
 
@@ -125,19 +127,56 @@ export default function MaterialRequestModal({
             setIsMrpItemPickerOpen(false);
             setSelectedMrpItemIndices(new Set());
             setMrpPickerSearch('');
-            const currentInitial: RequestInventoryType = (
-                defaultType === 'inhouse' ? 'fg' : (defaultType as RequestInventoryType) || 'consumable'
-            );
 
-            setFormData({
-                requestNumber: generateRequestNumber(),
-                type: currentInitial,
-                salesOrder: "",
-                soNumber: "",
-                mrpPlan: "",
-                mrpNumber: "",
-                items: [createBlankItem(currentInitial, "")]
-            });
+            if (initialData) {
+                const initType: RequestInventoryType = (initialData.type === 'inhouse' ? 'fg' : initialData.type) || 'consumable';
+                setFormData({
+                    requestNumber: initialData.requestNumber || generateRequestNumber(),
+                    type: initType,
+                    salesOrder: initialData.salesOrder || "",
+                    soNumber: initialData.soNumber || "",
+                    mrpPlan: initialData.mrpPlan || "",
+                    mrpNumber: initialData.mrpNumber || "",
+                    items: (initialData.items && initialData.items.length > 0)
+                        ? initialData.items.map((it: any) => ({
+                            material: it.material?._id || it.material || it.component?._id || it.component || it.consumable?._id || it.consumable || "",
+                            itemType: it.itemType,
+                            materialName: it.materialName || "",
+                            materialCode: it.materialCode || "",
+                            materialDescription: it.materialDescription || it.description || it.descriptions || "",
+                            quantity: Number(it.quantity) || 1,
+                            unit: it.unit || "PCS",
+                            hasSecondaryUnit: Boolean(it.hasSecondaryUnit),
+                            secondaryUnit: it.secondaryUnit || "",
+                            conversionFactor: Number(it.conversionFactor) || 0,
+                            secondaryQuantity: Number(it.secondaryQuantity) || 0,
+                            selectedUnit: it.selectedUnit || it.unit || "PCS",
+                            purpose: it.purpose || "",
+                            component: it.component?._id || it.component,
+                            consumable: it.consumable?._id || it.consumable,
+                            fgItem: it.fgItem?._id || it.fgItem,
+                            currentStock: it.currentStock || 0,
+                            issuedQuantity: Number(it.issuedQuantity) || 0,
+                            pendingQuantity: Number(it.pendingQuantity) || 0,
+                            _id: it._id
+                        }))
+                        : [createBlankItem(initType, initialData.mrpNumber || "")]
+                });
+            } else {
+                const currentInitial: RequestInventoryType = (
+                    defaultType === 'inhouse' ? 'fg' : (defaultType as RequestInventoryType) || 'consumable'
+                );
+
+                setFormData({
+                    requestNumber: generateRequestNumber(),
+                    type: currentInitial,
+                    salesOrder: "",
+                    soNumber: "",
+                    mrpPlan: "",
+                    mrpNumber: "",
+                    items: [createBlankItem(currentInitial, "")]
+                });
+            }
 
             // Fetch active MRP plans
             const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
@@ -147,7 +186,7 @@ export default function MaterialRequestModal({
                     .catch(err => console.error('Failed to load MRP plans in request modal:', err));
             }
         }
-    }, [isOpen, defaultType]);
+    }, [isOpen, defaultType, initialData]);
 
     // Filter only ACTIVE (NOT COMPLETED) MRP Plans
     const activeMrpPlans = useMemo(() => {
@@ -600,7 +639,9 @@ export default function MaterialRequestModal({
                 <div className="p-3.5 sm:p-5 border-b border-gray-100 dark:border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-50/80 dark:bg-gray-800/80 shrink-0 backdrop-blur-md">
                     <div className="flex items-center justify-between sm:justify-start gap-3 w-full sm:w-auto">
                         <div className="flex items-center gap-2 sm:gap-3">
-                            <h2 className="text-base sm:text-lg font-black text-gray-900 dark:text-white">New Material Request</h2>
+                            <h2 className="text-base sm:text-lg font-black text-gray-900 dark:text-white">
+                                {initialData ? "Edit Material Request" : "New Material Request"}
+                            </h2>
                             <span className="text-xs font-mono font-bold bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-2 py-0.5 rounded-md">
                                 {formData.requestNumber}
                             </span>
@@ -1131,10 +1172,10 @@ export default function MaterialRequestModal({
                             {loading ? (
                                 <div className="flex items-center gap-2">
                                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                    <span>Submitting...</span>
+                                    <span>{initialData ? "Updating..." : "Submitting..."}</span>
                                 </div>
                             ) : (
-                                "Submit Request"
+                                initialData ? "Update Request" : "Submit Request"
                             )}
                         </button>
                     </div>

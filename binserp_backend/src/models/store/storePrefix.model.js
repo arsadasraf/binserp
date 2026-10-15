@@ -42,6 +42,8 @@ export const storePrefixSchema = new mongoose.Schema(
             rfqQuotation: { type: Number, default: 24 },
             mrbDisposition: { type: Number, default: 24 },
             mrpPlan: { type: Number, default: 24 },
+            materialRequest: { type: Number, default: 24 },
+            materialIssue: { type: Number, default: 24 },
         },
         approvalSettings: {
             materialRequest: {

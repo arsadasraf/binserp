@@ -7,6 +7,7 @@ import MaterialIssueHistoryTable, { resolveIssueType } from '../tables/MaterialI
 import MaterialRequestModal from '../modals/MaterialRequestModal';
 import MaterialRequestDetailsModal from '../modals/MaterialRequestDetailsModal';
 import MaterialIssueDetailsModal from '../modals/MaterialIssueDetailsModal';
+import EditMaterialIssueModal from '../modals/EditMaterialIssueModal';
 import { showDestructiveConfirm, showSuccessToast, showErrorDialog, showWarningDialog } from '@/src/features/store/utils/storeDialogHelper';
 import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 
@@ -51,6 +52,8 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
     const [viewRequest, setViewRequest] = useState<any>(null);
     const [viewIssue, setViewIssue] = useState<any>(null);
+    const [editIssue, setEditIssue] = useState<any>(null);
+    const [editRequest, setEditRequest] = useState<any>(null);
 
     // Filter States for requests
     const [requestSearchQuery, setRequestSearchQuery] = useState<string>('');
@@ -103,7 +106,10 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
         data: issueHistory = [],
         createMaterialRequest,
         updateMaterialRequest,
+        deleteMaterialRequest,
         createMaterialIssue,
+        updateMaterialIssue,
+        deleteMaterialIssue,
         rawMaterials = [],
         boughtOuts = [],
         materials = [],
@@ -246,6 +252,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
         try {
             await createMaterialRequest(formData);
             setIsRequestModalOpen(false);
+            setEditRequest(null);
             Swal.fire({
                 icon: 'success',
                 title: 'Request Submitted!',
@@ -262,6 +269,98 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                 text: errorMsg,
                 confirmButtonColor: '#4f46e5',
             });
+        }
+    };
+
+    const handleRequestModalSubmit = async (formData: any) => {
+        if (editRequest) {
+            try {
+                const cleanId = (val: any) => {
+                    if (!val) return undefined;
+                    const idStr = typeof val === 'object' ? (val._id || val.id) : val;
+                    return idStr && typeof idStr === 'string' && idStr.trim().length > 0 ? idStr.trim() : undefined;
+                };
+
+                const updatePayload = {
+                    department: formData.department || undefined,
+                    priority: formData.priority || undefined,
+                    type: formData.type || undefined,
+                    remarks: formData.remarks || undefined,
+                    soNumber: formData.soNumber ? String(formData.soNumber).trim() : undefined,
+                    salesOrder: cleanId(formData.salesOrder),
+                    mrpNumber: formData.mrpNumber ? String(formData.mrpNumber).trim() : undefined,
+                    mrpPlan: cleanId(formData.mrpPlan),
+                    items: (formData.items || []).map((it: any) => ({
+                        ...it,
+                        material: cleanId(it.material),
+                        consumable: cleanId(it.consumable),
+                        component: cleanId(it.component),
+                        fgItem: cleanId(it.fgItem),
+                        quantity: Number(it.quantity) || 1,
+                        secondaryQuantity: Number(it.secondaryQuantity) || 0,
+                    }))
+                };
+
+                await updateMaterialRequest(editRequest._id, updatePayload);
+                setEditRequest(null);
+                setIsRequestModalOpen(false);
+                showSuccessToast("Material request updated successfully.");
+            } catch (error: any) {
+                console.error("Update request failed:", error);
+                const errorMsg = error?.data?.message || error?.message || (typeof error === 'string' ? error : 'Failed to update material request.');
+                await showErrorDialog("Update Failed", errorMsg);
+            }
+        } else {
+            await handleCreateRequest(formData);
+        }
+    };
+
+    const handleEditRequest = (request: any) => {
+        setEditRequest(request);
+        setIsRequestModalOpen(true);
+    };
+
+    const handleDeleteRequest = async (request: any) => {
+        const confirmed = await showDestructiveConfirm({
+            title: `Delete Request #${request.requestNumber}?`,
+            text: `Are you sure you want to delete this Material Request? Deletion is permanently blocked if active material issues are linked to it.`,
+            confirmButtonText: "Yes, Delete Request"
+        });
+        if (!confirmed) return;
+        try {
+            await deleteMaterialRequest(request._id);
+        } catch (error: any) {
+            console.error("Delete request failed:", error);
+        }
+    };
+
+    const handleEditIssue = (issue: any) => {
+        setEditIssue(issue);
+    };
+
+    const handleDeleteIssue = async (issue: any) => {
+        const confirmed = await showDestructiveConfirm({
+            title: `Delete Issue #${issue.issueNumber}?`,
+            text: `Deleting this Material Issue will automatically return and reverse ${issue.items?.length || 0} items back into warehouse inventory stock and update linked request status. This action cannot be undone.`,
+            confirmButtonText: "Yes, Delete & Restore Stock"
+        });
+        if (!confirmed) return;
+        try {
+            await deleteMaterialIssue(issue._id);
+        } catch (error: any) {
+            console.error("Delete issue failed:", error);
+        }
+    };
+
+    const handleSaveEditedIssue = async (updatedData: any) => {
+        if (!editIssue) return;
+        try {
+            await updateMaterialIssue(editIssue._id, updatedData);
+            setEditIssue(null);
+        } catch (error: any) {
+            console.error("Update issue failed:", error);
+            const errorMsg = error?.data?.message || error?.message || 'Failed to update material issue.';
+            await showErrorDialog("Update Failed", errorMsg);
         }
     };
 
@@ -661,6 +760,9 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                                 onIssue={handleIssueRequest}
                                 onReject={handleRejectRequest}
                                 onView={(req) => setViewRequest(req)}
+                                onEdit={handleEditRequest}
+                                onDelete={handleDeleteRequest}
+                                token={token}
                                 storeData={storeData}
                             />
                         </div>
@@ -760,6 +862,9 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                             <MaterialIssueHistoryTable
                                 issues={filteredHistory}
                                 onView={(issue) => setViewIssue(issue)}
+                                onEdit={handleEditIssue}
+                                onDelete={handleDeleteIssue}
+                                token={token}
                             />
                         </div>
                     </div>
@@ -768,9 +873,13 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
 
             {/* Modals */}
             <MaterialRequestModal
-                isOpen={isRequestModalOpen}
-                onClose={() => setIsRequestModalOpen(false)}
-                onSubmit={handleCreateRequest}
+                isOpen={isRequestModalOpen || Boolean(editRequest)}
+                onClose={() => {
+                    setIsRequestModalOpen(false);
+                    setEditRequest(null);
+                }}
+                onSubmit={handleRequestModalSubmit}
+                initialData={editRequest}
                 rawMaterials={rawMaterials}
                 boughtOuts={boughtOuts}
                 materials={materials}
@@ -801,6 +910,14 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                 isOpen={!!viewIssue}
                 onClose={() => setViewIssue(null)}
                 issue={viewIssue}
+            />
+
+            <EditMaterialIssueModal
+                isOpen={Boolean(editIssue)}
+                onClose={() => setEditIssue(null)}
+                issue={editIssue}
+                onSave={handleSaveEditedIssue}
+                storeData={storeData}
             />
         </div>
     );

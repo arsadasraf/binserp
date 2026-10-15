@@ -32,8 +32,12 @@ export default function WipActionModal({
   const [targetComponentCode, setTargetComponentCode] = useState<string>("");
   const [targetDescription, setTargetDescription] = useState<string>("");
   const [targetType, setTargetType] = useState<string>("Component");
-  const [targetQuantity, setTargetQuantity] = useState<string>("");
+  const [targetQuantity, setTargetQuantity] = useState<string>("1");
   const [targetUnit, setTargetUnit] = useState<string>("PCS");
+  const [targetHasSecondaryUnit, setTargetHasSecondaryUnit] = useState<boolean>(false);
+  const [targetSecondaryUnit, setTargetSecondaryUnit] = useState<string>("");
+  const [targetConversionFactor, setTargetConversionFactor] = useState<number>(1);
+  const [targetIsSecondaryActive, setTargetIsSecondaryActive] = useState<boolean>(false);
 
   const unit = wipItem?.unit || "PCS";
   const hasDualUnit = Boolean(wipItem?.hasSecondaryUnit && wipItem?.secondaryUnit && Number(wipItem?.conversionFactor) > 0);
@@ -54,6 +58,10 @@ export default function WipActionModal({
       setTargetQuantity("");
       setTargetUnit("PCS");
       setTargetType("Component");
+      setTargetHasSecondaryUnit(false);
+      setTargetSecondaryUnit("");
+      setTargetConversionFactor(1);
+      setTargetIsSecondaryActive(false);
     }
   }, [isOpen, wipItem, mode]);
 
@@ -80,7 +88,10 @@ export default function WipActionModal({
                 code: it.code || "",
                 description: it.description || "",
                 unit: it.unit || "Nos",
-                category: it.type || "Component"
+                category: it.type || "Component",
+                hasSecondaryUnit: Boolean(it.hasSecondaryUnit),
+                secondaryUnit: it.secondaryUnit || "",
+                conversionFactor: Number(it.conversionFactor) || 1
               });
             }
           });
@@ -101,7 +112,10 @@ export default function WipActionModal({
                 code: it.materialCode || it.code || "",
                 description: it.materialDescription || it.description || "",
                 unit: it.unit || "Nos",
-                category: it.categoryName || "Component"
+                category: it.categoryName || "Component",
+                hasSecondaryUnit: Boolean(it.hasSecondaryUnit),
+                secondaryUnit: it.secondaryUnit || "",
+                conversionFactor: Number(it.conversionFactor) || 1
               });
             }
           });
@@ -139,6 +153,10 @@ export default function WipActionModal({
       setTargetComponentCode("");
       setTargetDescription("");
       setTargetUnit("PCS");
+      setTargetHasSecondaryUnit(false);
+      setTargetSecondaryUnit("");
+      setTargetConversionFactor(1);
+      setTargetIsSecondaryActive(false);
     } else {
       setSelectedComponentId(val);
       const found = existingComponents.find(c => String(c.id || c.materialId || c._id) === String(val));
@@ -148,8 +166,29 @@ export default function WipActionModal({
         setTargetDescription(found.description || found.materialDescription || "");
         setTargetUnit(found.unit || "PCS");
         if (found.category) setTargetType(found.category);
+        setTargetHasSecondaryUnit(Boolean(found.hasSecondaryUnit));
+        setTargetSecondaryUnit(found.secondaryUnit || "");
+        setTargetConversionFactor(Number(found.conversionFactor) || 1);
+        setTargetIsSecondaryActive(false);
       }
     }
+  };
+
+  const handleToggleTargetUnit = (unitToSelect: string) => {
+    const isSec = unitToSelect === targetSecondaryUnit;
+    if (targetIsSecondaryActive === isSec) return;
+    const cf = Number(targetConversionFactor) || 1;
+    const currentNum = parseFloat(targetQuantity) || 0;
+    let newQty = targetQuantity;
+    if (currentNum > 0 && cf > 0) {
+      if (isSec && !targetIsSecondaryActive) {
+        newQty = parseFloat((currentNum * cf).toFixed(4)).toString();
+      } else if (!isSec && targetIsSecondaryActive) {
+        newQty = parseFloat((currentNum / cf).toFixed(4)).toString();
+      }
+    }
+    setTargetIsSecondaryActive(isSec);
+    setTargetQuantity(newQty);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -225,6 +264,15 @@ export default function WipActionModal({
           remarks: reason.trim() || "Process Scrap"
         };
       } else if (isConvert) {
+        const numTarget = parseFloat(targetQuantity);
+        const targetCf = Number(targetConversionFactor) || 1;
+        const finalTargetPrimaryQty = targetIsSecondaryActive && targetCf > 0
+          ? parseFloat((numTarget / targetCf).toFixed(4))
+          : numTarget;
+        const finalTargetSecondaryQty = targetIsSecondaryActive
+          ? numTarget
+          : (targetHasSecondaryUnit && targetCf > 0 ? parseFloat((numTarget * targetCf).toFixed(4)) : 0);
+
         endpoint = "/api/store/wip/convert-to-component";
         payload = {
           materialId: resolvedMaterialId,
@@ -241,8 +289,12 @@ export default function WipActionModal({
           targetComponentCode: targetComponentCode.trim(),
           targetDescription: targetDescription.trim(),
           targetType: targetType,
-          targetQuantity: parseFloat(targetQuantity),
+          targetQuantity: finalTargetPrimaryQty,
           targetUnit: targetUnit.trim() || "PCS",
+          targetHasSecondaryUnit: Boolean(targetHasSecondaryUnit),
+          targetSecondaryUnit: targetSecondaryUnit || "",
+          targetConversionFactor: targetCf,
+          targetSecondaryQuantity: finalTargetSecondaryQty,
           remarks: reason.trim() || "In-house WIP conversion"
         };
       }
@@ -492,29 +544,75 @@ export default function WipActionModal({
                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                       Produced Qty in WIP <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0.0001"
-                      value={targetQuantity}
-                      onChange={(e) => setTargetQuantity(e.target.value)}
-                      placeholder="0.00"
-                      required={isConvert}
-                      className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded-xl text-sm font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                    />
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.0001"
+                        value={targetQuantity}
+                        onChange={(e) => setTargetQuantity(e.target.value)}
+                        placeholder="0.00"
+                        required={isConvert}
+                        className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded-xl text-sm font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden pr-12"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        {targetIsSecondaryActive ? targetSecondaryUnit : targetUnit}
+                      </span>
+                    </div>
+                    {targetHasSecondaryUnit && targetSecondaryUnit && parseFloat(targetQuantity) > 0 && (
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1 block">
+                        {targetIsSecondaryActive
+                          ? `(~${parseFloat((parseFloat(targetQuantity) / (targetConversionFactor || 1)).toFixed(3))} ${targetUnit})`
+                          : `(~${parseFloat((parseFloat(targetQuantity) * (targetConversionFactor || 1)).toFixed(3))} ${targetSecondaryUnit})`}
+                      </span>
+                    )}
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                       Produced Unit
                     </label>
-                    <input
-                      type="text"
-                      value={targetUnit}
-                      onChange={(e) => setTargetUnit(e.target.value)}
-                      placeholder="PCS / Nos"
-                      required={isConvert}
-                      className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                    />
+                    {targetHasSecondaryUnit && targetSecondaryUnit && Number(targetConversionFactor) > 0 ? (
+                      <div className="flex flex-col gap-1">
+                        <div className="inline-flex p-0.5 rounded-lg bg-slate-200 dark:bg-slate-700 border border-slate-300 dark:border-slate-600">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTargetUnit(targetUnit)}
+                            className={`flex-1 px-2 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                              !targetIsSecondaryActive
+                                ? "bg-indigo-600 text-white shadow-xs"
+                                : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                            }`}
+                            title={`Primary Unit: ${targetUnit}`}
+                          >
+                            {targetUnit}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTargetUnit(targetSecondaryUnit)}
+                            className={`flex-1 px-2 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                              targetIsSecondaryActive
+                                ? "bg-indigo-600 text-white shadow-xs"
+                                : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                            }`}
+                            title={`Secondary Unit: ${targetSecondaryUnit}`}
+                          >
+                            {targetSecondaryUnit}
+                          </button>
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-medium">
+                          1 {targetUnit} = {targetConversionFactor} {targetSecondaryUnit}
+                        </span>
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={targetUnit}
+                        onChange={(e) => setTargetUnit(e.target.value)}
+                        placeholder="PCS / Nos"
+                        required={isConvert}
+                        className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                      />
+                    )}
                   </div>
                 </div>
               </div>
