@@ -65,6 +65,7 @@ router.route("/work-order")
 
 // MRP Plan Routes (Primary MRP Engine)
 router.route("/plan")
+  .get(getAllMRPPlans)
   .post(createMRPPlan);
 
 router.route("/preview-bom-budget")

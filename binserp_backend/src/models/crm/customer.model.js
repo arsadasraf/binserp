@@ -70,6 +70,72 @@ export const customerSchema = new mongoose.Schema(
         tags: [{ type: String, trim: true }],
         notes: { type: String },
 
+        // Multi-modal Contact Notes (Audio, Photos, Documents/Files, Formatted text)
+        notesHistory: [
+            {
+                type: { 
+                    type: String, 
+                    enum: ["Call", "WhatsApp", "Meeting", "Email", "Note", "Site Visit", "Demo"],
+                    default: "Note" 
+                },
+                text: { type: String, required: true },
+                voiceUrl: { type: String },
+                voiceDuration: { type: Number, default: 0 },
+                photos: [{ type: String }],
+                attachments: [
+                    {
+                        name: String,
+                        url: String,
+                        size: Number,
+                        mimeType: String
+                    }
+                ],
+                createdBy: {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: "User"
+                },
+                createdByName: { type: String },
+                createdAt: { type: Date, default: Date.now }
+            }
+        ],
+
+        // Customer Travel & Visit History Tracking
+        travelHistory: [
+            {
+                visitDate: { type: Date, default: Date.now },
+                visitorName: { type: String, trim: true },
+                visitorId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+                purpose: { type: String, trim: true },
+                location: { type: String, trim: true },
+                distanceKm: { type: Number, default: 0 },
+                travelMode: { 
+                    type: String, 
+                    enum: ["Flight", "Train", "Cab", "Car", "Bike", "Bus", "Other"],
+                    default: "Car" 
+                },
+                expense: { type: Number, default: 0 },
+                minutesOfMeeting: { type: String },
+                outcome: { 
+                    type: String, 
+                    enum: ["Positive", "Follow-up Needed", "PO Expected", "Closure", "No Outcome"],
+                    default: "Positive" 
+                },
+                nextVisitDate: { type: Date },
+                photos: [{ type: String }],
+                attachments: [
+                    {
+                        name: String,
+                        url: String
+                    }
+                ],
+                createdBy: {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: "User"
+                },
+                createdAt: { type: Date, default: Date.now }
+            }
+        ],
+
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",

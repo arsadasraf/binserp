@@ -46,6 +46,20 @@ export const dealSchema = new mongoose.Schema(
             ref: "User",
         },
 
+        // Linked Commercial Documents
+        quotations: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "CRMProposal"
+        }],
+        proformaInvoices: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "CRMProformaInvoice"
+        }],
+        invoices: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Invoice"
+        }],
+
         status: {
             type: String,
             enum: ["Open", "Won", "Lost", "Abandoned"],

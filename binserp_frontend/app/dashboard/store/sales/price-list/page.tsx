@@ -11,7 +11,7 @@ import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from "@/src
 
 export default function SalesPriceListPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { priceLists, fgItems, loading, refetch } = useStoreData("price-list", "vendor", token);
+  const { priceLists, fgItems, categories, loading, refetch } = useStoreData("price-list", "vendor", token);
   const [createStoreRecord] = useCreateStoreRecordMutation();
   const [deleteStoreRecord] = useDeleteStoreRecordMutation();
 
@@ -25,6 +25,7 @@ export default function SalesPriceListPage() {
       <PriceListTable
         priceLists={priceLists || []}
         fgItems={fgItems || []}
+        categories={categories || []}
         onAddPriceList={() => { setEditingItem(null); setShowModal(true); }}
         onEdit={(item) => { setEditingItem(item); setShowModal(true); }}
         onDelete={async (id) => {

@@ -118,6 +118,7 @@ router.route("/mrp/wip-360/:id")
 
 // MRP Plan Routes (New MRP Engine)
 router.route("/mrp/plan")
+  .get(getAllMRPPlans)
   .post(createMRPPlan);
 
 router.route("/mrp/preview-bom-budget")

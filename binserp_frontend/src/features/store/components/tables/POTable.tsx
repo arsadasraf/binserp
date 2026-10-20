@@ -11,15 +11,17 @@
  */
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck, Plus, Lock, Package, ChevronDown, Check, Layers, IndianRupee, BarChart3, MessageSquare, Send, Link2, Link2Off, Loader2 } from 'lucide-react';
+import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck, Plus, Lock, Package, ChevronDown, Check, Layers, IndianRupee, BarChart3, MessageSquare, Send, Link2, Link2Off, Loader2, Calendar, ArrowUpDown, Filter } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { generateDocument } from '@/src/utils/documentHelper';
 import { generateFrontendPoPDF } from '@/src/utils/frontendPdfHelper';
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { API_BASE_URL } from '@/src/utils/config';
+import { apiGet, apiPut } from '@/src/lib/api';
 import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 import OutwardPOItemWiseView from '../views/OutwardPOItemWiseView';
+import ColumnFilter from './ColumnFilter';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 import { resolveLineItemDisplay } from '@/src/utils/dualUomHelper';
@@ -69,6 +71,22 @@ const getMaterialNameStr = (item: any): string => {
     return 'Material Item';
 };
 
+const getMaterialDescStr = (item: any): string => {
+    if (!item) return '';
+    if (Array.isArray(item.items) && item.items.length > 0) {
+        const first = item.items[0];
+        if (typeof first?.description === 'string' && first.description.trim()) return first.description;
+        if (typeof first?.material === 'object' && first.material) {
+            return first.material.descriptions || first.material.description || first.material.specification || '';
+        }
+    }
+    if (typeof item.description === 'string' && item.description.trim()) return item.description;
+    if (typeof item.material === 'object' && item.material) {
+        return item.material.descriptions || item.material.description || item.material.specification || '';
+    }
+    return '';
+};
+
 const getVendorAddressStr = (vendorObj: any): string => {
     if (!vendorObj || typeof vendorObj !== 'object') return '';
     return vendorObj.address || vendorObj.billingAddress || vendorObj.street || '';
@@ -105,11 +123,6 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [selectedPoPreview, setSelectedPoPreview] = useState<any | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [selectedVendors, setSelectedVendors] = useState<string[]>([]);
-    const [isVendorDropdownOpen, setIsVendorDropdownOpen] = useState(false);
-    const [vendorSearchTerm, setVendorSearchTerm] = useState('');
-    const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
-    const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
     const [viewMode, setViewMode] = useState<'po' | 'items'>('po');
     const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
     const [fetchedCompanyInfo, setFetchedCompanyInfo] = useState<any>(null);
@@ -150,25 +163,134 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
     const [isLoadingMrpPlans, setIsLoadingMrpPlans] = useState(false);
     const [localMrpMap, setLocalMrpMap] = useState<Record<string, { mrpNumber?: string; mrpPlanId?: any }>>({});
 
-    const statusDropdownRef = useRef<HTMLDivElement>(null);
-    const vendorDropdownRef = useRef<HTMLDivElement>(null);
+    // Date Filtering & Column Filter State
+    type DateMode = 'all' | 'day' | 'month' | 'year' | 'range';
+    const [dateMode, setDateMode] = useState<DateMode>('all');
+    const [selectedDay, setSelectedDay] = useState<string>('');
+    const [selectedMonth, setSelectedMonth] = useState<string>('');
+    const [selectedYear, setSelectedYear] = useState<string>(() => {
+        const d = new Date();
+        const yr = d.getFullYear();
+        return d.getMonth() >= 3 ? `FY-${yr}-${yr + 1}` : `FY-${yr - 1}-${yr}`;
+    });
+    const [startDate, setStartDate] = useState<string>('');
+    const [endDate, setEndDate] = useState<string>('');
 
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target as Node)) {
-                setIsStatusDropdownOpen(false);
+    // Column Filters (Excel-style)
+    const [colFilterType, setColFilterType] = useState<string[]>([]);
+    const [colFilterVendor, setColFilterVendor] = useState<string[]>([]);
+    const [colFilterStatus, setColFilterStatus] = useState<string[]>([]);
+    const [tableSortConfig, setTableSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+    // Date Presets & Quick Pickers Helper
+    const getTodayStr = () => new Date().toISOString().split('T')[0];
+    const getYesterdayStr = () => {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        return d.toISOString().split('T')[0];
+    };
+    const getCurrentMonthStr = () => {
+        const d = new Date();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        return `${d.getFullYear()}-${mo}`;
+    };
+    const getLastMonthStr = () => {
+        const d = new Date();
+        d.setMonth(d.getMonth() - 1);
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        return `${d.getFullYear()}-${mo}`;
+    };
+
+    const currentYearNum = new Date().getFullYear();
+    const currentMonthNum = new Date().getMonth();
+
+    const calendarYearOptions = useMemo(() => {
+        const options: { value: string; label: string }[] = [];
+        for (let y = currentYearNum + 1; y >= currentYearNum - 4; y--) {
+            options.push({ value: `CY-${y}`, label: `Year ${y}` });
+        }
+        return options;
+    }, [currentYearNum]);
+
+    const financialYearOptions = useMemo(() => {
+        const currentFyStart = currentMonthNum >= 3 ? currentYearNum : currentYearNum - 1;
+        const options: { value: string; label: string }[] = [];
+        for (let y = currentFyStart + 1; y >= currentFyStart - 4; y--) {
+            const shortEnd = String(y + 1).slice(-2);
+            options.push({ value: `FY-${y}-${y + 1}`, label: `FY ${y}-${shortEnd}` });
+        }
+        return options;
+    }, [currentYearNum, currentMonthNum]);
+
+    const getPoDateObj = (item: any): Date | null => {
+        if (!item) return null;
+        const raw = item.date || item.createdAt;
+        if (!raw) return null;
+        const d = new Date(raw);
+        return isNaN(d.getTime()) ? null : d;
+    };
+
+    const matchesDateFilter = (item: any): boolean => {
+        if (dateMode === 'all') return true;
+        const d = getPoDateObj(item);
+        if (!d) return false;
+
+        if (dateMode === 'day') {
+            if (!selectedDay) return true;
+            const yr = d.getFullYear();
+            const mo = String(d.getMonth() + 1).padStart(2, '0');
+            const da = String(d.getDate()).padStart(2, '0');
+            return `${yr}-${mo}-${da}` === selectedDay;
+        }
+
+        if (dateMode === 'month') {
+            if (!selectedMonth) return true;
+            const yr = d.getFullYear();
+            const mo = String(d.getMonth() + 1).padStart(2, '0');
+            return `${yr}-${mo}` === selectedMonth;
+        }
+
+        if (dateMode === 'year') {
+            if (!selectedYear) return true;
+            if (selectedYear.startsWith('FY-')) {
+                const parts = selectedYear.replace('FY-', '').split('-');
+                const startYr = parseInt(parts[0], 10);
+                const endYr = parseInt(parts[1], 10);
+                const fyStart = new Date(startYr, 3, 1, 0, 0, 0, 0);
+                const fyEnd = new Date(endYr, 2, 31, 23, 59, 59, 999);
+                return d >= fyStart && d <= fyEnd;
+            } else {
+                const calYr = parseInt(selectedYear.replace('CY-', ''), 10);
+                return d.getFullYear() === calYr;
             }
-            if (vendorDropdownRef.current && !vendorDropdownRef.current.contains(event.target as Node)) {
-                setIsVendorDropdownOpen(false);
+        }
+
+        if (dateMode === 'range') {
+            if (startDate) {
+                const [sY, sM, sD] = startDate.split('-').map(Number);
+                const start = new Date(sY, sM - 1, sD, 0, 0, 0, 0);
+                if (d < start) return false;
             }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
+            if (endDate) {
+                const [eY, eM, eD] = endDate.split('-').map(Number);
+                const end = new Date(eY, eM - 1, eD, 23, 59, 59, 999);
+                if (d > end) return false;
+            }
+            return true;
+        }
+
+        return true;
+    };
+
+    // 1. Date Filtered Dataset (Primary base for date scope)
+    const dateFilteredData = useMemo(() => {
+        if (!Array.isArray(data)) return [];
+        return data.filter(matchesDateFilter);
+    }, [data, dateMode, selectedDay, selectedMonth, selectedYear, startDate, endDate]);
 
     const uniqueItemCount = useMemo(() => {
         const itemKeys = new Set<string>();
-        (Array.isArray(data) ? data : []).forEach(po => {
+        dateFilteredData.forEach(po => {
             if (po.status === 'Cancelled') return;
             if (Array.isArray(po.items) && po.items.length > 0) {
                 po.items.forEach((it: any) => {
@@ -185,17 +307,14 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             }
         });
         return itemKeys.size;
-    }, [data]);
+    }, [dateFilteredData]);
 
     // Fetch company info if not passed
     useEffect(() => {
         if (!companyInfo || !companyInfo.companyName) {
             const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
             if (token) {
-                fetch(`${API_BASE_URL}/api/store/company-info`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                })
-                .then(res => res.json())
+                apiGet('/api/store/company-info', token)
                 .then(info => {
                     if (info && (info.companyName || info.name)) {
                         setFetchedCompanyInfo(info);
@@ -383,16 +502,11 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
             if (token) {
                 try {
-                    const res = await fetch(`${API_BASE_URL}/api/store/company-info`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    if (res.ok) {
-                        const info = await res.json();
-                        if (info && (info.companyName || info.name)) {
-                            resolvedCompany = { ...(resolvedCompany || {}), ...info };
-                            setFetchedCompanyInfo(resolvedCompany);
-                            try { localStorage.setItem('storeCompanyInfo', JSON.stringify(resolvedCompany)); } catch (e) {}
-                        }
+                    const info = await apiGet('/api/store/company-info', token);
+                    if (info && (info.companyName || info.name)) {
+                        resolvedCompany = { ...(resolvedCompany || {}), ...info };
+                        setFetchedCompanyInfo(resolvedCompany);
+                        try { localStorage.setItem('storeCompanyInfo', JSON.stringify(resolvedCompany)); } catch (e) {}
                     }
                 } catch (e) {
                     console.error("Failed to fetch fresh company-info for PDF:", e);
@@ -481,45 +595,6 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         }
     };
 
-    const statusCounts = useMemo(() => {
-        const counts: Record<string, number> = {
-            'Released': 0,
-            'Approved': 0,
-            'Partially Received': 0,
-            'Completed': 0,
-            'Cancelled': 0
-        };
-        if (Array.isArray(data)) {
-            data.forEach((po: any) => {
-                const st = po.status || 'Released';
-                if (counts[st] !== undefined) {
-                    counts[st]++;
-                }
-            });
-        }
-        return counts;
-    }, [data]);
-
-    const vendorPoCounts = useMemo(() => {
-        const counts: Record<string, number> = {};
-        if (Array.isArray(data)) {
-            data.forEach((po: any) => {
-                const vId = typeof po.vendor === 'string' ? po.vendor : (po.vendor?._id || po.vendor?.id || po.vendorId);
-                const vName = getVendorNameStr(po);
-                if (vId) counts[vId.toString()] = (counts[vId.toString()] || 0) + 1;
-                if (vName) counts[vName] = (counts[vName] || 0) + 1;
-            });
-        }
-        return counts;
-    }, [data]);
-
-    const filteredVendorList = useMemo(() => {
-        if (!Array.isArray(vendors)) return [];
-        if (!vendorSearchTerm) return vendors;
-        const q = vendorSearchTerm.toLowerCase();
-        return vendors.filter((v: any) => (v.name || v.companyName || '').toLowerCase().includes(q));
-    }, [vendors, vendorSearchTerm]);
-
     const getPoCategory = (item: any): 'RM' | 'BO' | 'Consumable' => {
         if (!item) return 'RM';
         const cat = (item.category || '').toLowerCase();
@@ -531,6 +606,11 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             if (firstType.includes('consumable')) return 'Consumable';
         }
         return 'RM';
+    };
+
+    const getPoCategoryLabel = (item: any): string => {
+        const cat = getPoCategory(item);
+        return cat === 'RM' ? 'Raw Material (RM)' : cat === 'BO' ? 'Bought Out (BO)' : 'Consumable Item';
     };
 
     const getResolvedMrp = (item: any): string => {
@@ -572,16 +652,16 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         if (mrpPlanList.length === 0) {
             setIsLoadingMrpPlans(true);
             const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-            fetch(`${API_BASE_URL}/api/purchase/mrp/plan`, {
-                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-            })
-            .then(res => res.json())
-            .then(json => {
-                const plans = Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []);
-                setMrpPlanList(plans);
-            })
-            .catch(err => console.error("Failed to load MRP plans:", err))
-            .finally(() => setIsLoadingMrpPlans(false));
+            apiGet('/api/purchase/mrp/plans', token)
+                .then(res => {
+                    const plans = Array.isArray(res?.mrpPlans) ? res.mrpPlans : (Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []));
+                    setMrpPlanList(plans);
+                })
+                .catch(err => {
+                    console.error("Failed to load MRP plans:", err);
+                    setMrpPlanList([]);
+                })
+                .finally(() => setIsLoadingMrpPlans(false));
         }
     };
 
@@ -592,43 +672,32 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
         try {
-            const res = await fetch(`${API_BASE_URL}/api/purchase/po/${poId}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-                },
-                body: JSON.stringify({
+            await apiPut(`/api/purchase/po/${poId}`, {
+                mrpNumber: linkingMrpNumber.trim(),
+                mrpPlanId: linkingMrpPlanId || null
+            }, token);
+
+            setLocalMrpMap(prev => ({
+                ...prev,
+                [poId]: {
                     mrpNumber: linkingMrpNumber.trim(),
                     mrpPlanId: linkingMrpPlanId || null
-                })
-            });
-
-            if (res.ok) {
-                setLocalMrpMap(prev => ({
-                    ...prev,
-                    [poId]: {
-                        mrpNumber: linkingMrpNumber.trim(),
-                        mrpPlanId: linkingMrpPlanId || null
-                    }
-                }));
-
-                if (selectedPoPreview && (selectedPoPreview._id === poId || selectedPoPreview.id === poId)) {
-                    setSelectedPoPreview((prev: any) => ({
-                        ...prev,
-                        mrpNumber: linkingMrpNumber.trim(),
-                        mrpPlanId: linkingMrpPlanId || null
-                    }));
                 }
+            }));
 
-                setLinkingPO(null);
-            } else {
-                const errJson = await res.json().catch(() => ({}));
-                await showErrorDialog("Error", errJson.message || "Failed to update MRP link.");
+            if (selectedPoPreview && (selectedPoPreview._id === poId || selectedPoPreview.id === poId)) {
+                setSelectedPoPreview((prev: any) => ({
+                    ...prev,
+                    mrpNumber: linkingMrpNumber.trim(),
+                    mrpPlanId: linkingMrpPlanId || null
+                }));
             }
-        } catch (e) {
+
+            setLinkingPO(null);
+            showSuccessToast("MRP Plan linked successfully");
+        } catch (e: any) {
             console.error("Failed to save MRP link:", e);
-            await showErrorDialog("Error", "Error connecting to server to link MRP.");
+            await showErrorDialog("Error", e?.message || "Failed to update MRP link.");
         } finally {
             setIsSavingLinkMrp(false);
         }
@@ -650,50 +719,95 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
         try {
-            const res = await fetch(`${API_BASE_URL}/api/purchase/po/${poId}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-                },
-                body: JSON.stringify({
+            await apiPut(`/api/purchase/po/${poId}`, {
+                mrpNumber: '',
+                mrpPlanId: null
+            }, token);
+
+            setLocalMrpMap(prev => ({
+                ...prev,
+                [poId]: { mrpNumber: '', mrpPlanId: null }
+            }));
+
+            if (selectedPoPreview && (selectedPoPreview._id === poId || selectedPoPreview.id === poId)) {
+                setSelectedPoPreview((prev: any) => ({
+                    ...prev,
                     mrpNumber: '',
                     mrpPlanId: null
-                })
-            });
-
-            if (res.ok) {
-                setLocalMrpMap(prev => ({
-                    ...prev,
-                    [poId]: { mrpNumber: '', mrpPlanId: null }
                 }));
-
-                if (selectedPoPreview && (selectedPoPreview._id === poId || selectedPoPreview.id === poId)) {
-                    setSelectedPoPreview((prev: any) => ({
-                        ...prev,
-                        mrpNumber: '',
-                        mrpPlanId: null
-                    }));
-                }
-
-                setLinkingPO(null);
-            } else {
-                const errJson = await res.json().catch(() => ({}));
-                await showErrorDialog("Error", errJson.message || "Failed to unlink MRP Plan.");
             }
-        } catch (e) {
+
+            setLinkingPO(null);
+            showSuccessToast("MRP Plan unlinked successfully");
+        } catch (e: any) {
             console.error("Failed to unlink MRP Plan:", e);
-            await showErrorDialog("Error", "Network error unlinking MRP Plan.");
+            await showErrorDialog("Error", e?.message || "Network error unlinking MRP Plan.");
         } finally {
             setIsSavingLinkMrp(false);
         }
     };
 
-    const [filterType, setFilterType] = useState<string>('All');
+    const periodLabel = useMemo(() => {
+        if (dateMode === 'all') return 'All Time';
+        if (dateMode === 'day') {
+            if (!selectedDay) return 'Day: Today';
+            try {
+                const [y, m, d] = selectedDay.split('-').map(Number);
+                return `Day: ${new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+            } catch {
+                return `Day: ${selectedDay}`;
+            }
+        }
+        if (dateMode === 'month') {
+            if (!selectedMonth) return 'Month: Current';
+            try {
+                const [y, m] = selectedMonth.split('-').map(Number);
+                return `Month: ${new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`;
+            } catch {
+                return `Month: ${selectedMonth}`;
+            }
+        }
+        if (dateMode === 'year') {
+            if (!selectedYear) return 'Year';
+            if (selectedYear.startsWith('FY-')) {
+                const parts = selectedYear.replace('FY-', '').split('-');
+                return `Financial Year FY ${parts[0]}-${(parts[1] || '').slice(-2)}`;
+            }
+            return `Calendar Year ${selectedYear.replace('CY-', '')}`;
+        }
+        if (dateMode === 'range') {
+            if (startDate && endDate) return `Range: ${startDate} to ${endDate}`;
+            if (startDate) return `Since ${startDate}`;
+            if (endDate) return `Until ${endDate}`;
+            return 'Custom Range';
+        }
+        return 'All Time';
+    }, [dateMode, selectedDay, selectedMonth, selectedYear, startDate, endDate]);
 
+    const handleSelectDateMode = (mode: DateMode) => {
+        setDateMode(mode);
+        if (mode === 'day' && !selectedDay) {
+            setSelectedDay(getTodayStr());
+        } else if (mode === 'month' && !selectedMonth) {
+            setSelectedMonth(getCurrentMonthStr());
+        } else if (mode === 'range' && !startDate && !endDate) {
+            setStartDate(getTodayStr());
+            setEndDate(getTodayStr());
+        }
+    };
+
+    const handleSortChange = (key: string, direction: 'asc' | 'desc') => {
+        setTableSortConfig(prev => {
+            if (prev?.key === key && prev?.direction === direction) {
+                return null;
+            }
+            return { key, direction };
+        });
+    };
+
+    // 2. Fully Filtered Dataset (Search + Column Filters)
     const filteredData = useMemo(() => {
-        if (!Array.isArray(data)) return [];
-        return data.filter(item => {
+        return dateFilteredData.filter(item => {
             const vName = getVendorNameStr(item);
             const mName = getMaterialNameStr(item);
             const poNo = item.poNumber || '';
@@ -708,24 +822,63 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
             const poStatus = item.status || 'Released';
             const matchStatus = 
-                selectedStatuses.length === 0 || 
-                selectedStatuses.includes(poStatus);
+                colFilterStatus.length === 0 || 
+                colFilterStatus.includes(poStatus);
 
             let matchVendor = true;
-            if (selectedVendors.length > 0) {
-                const vId = typeof item.vendor === 'string' 
-                    ? item.vendor 
-                    : (item.vendor?._id || item.vendor?.id || item.vendorId);
-                const vIdStr = vId ? vId.toString() : '';
-                matchVendor = selectedVendors.includes(vIdStr) || selectedVendors.some(sel => vName.toLowerCase().includes(sel.toLowerCase()));
+            if (colFilterVendor.length > 0) {
+                matchVendor = colFilterVendor.includes(vName);
             }
 
-            const matchType = filterType === 'All' || getPoCategory(item) === filterType;
+            let matchType = true;
+            if (colFilterType.length > 0) {
+                const catLabel = getPoCategoryLabel(item);
+                const cat = getPoCategory(item);
+                matchType = colFilterType.includes(catLabel) || colFilterType.includes(cat);
+            }
 
             return matchSearch && matchStatus && matchVendor && matchType;
         });
-    }, [data, searchTerm, selectedStatuses, selectedVendors, filterType, localMrpMap]);
+    }, [dateFilteredData, searchTerm, colFilterStatus, colFilterVendor, colFilterType, localMrpMap]);
 
+    // 3. Sorted Dataset
+    const sortedData = useMemo(() => {
+        if (!tableSortConfig) return filteredData;
+        const { key, direction } = tableSortConfig;
+        return [...filteredData].sort((a, b) => {
+            let aVal: any = '';
+            let bVal: any = '';
+            if (key === 'category' || key === 'materialType') {
+                aVal = getPoCategoryLabel(a);
+                bVal = getPoCategoryLabel(b);
+            } else if (key === 'vendorName') {
+                aVal = getVendorNameStr(a).toLowerCase();
+                bVal = getVendorNameStr(b).toLowerCase();
+            } else if (key === 'status') {
+                aVal = (a.status || 'Released').toLowerCase();
+                bVal = (b.status || 'Released').toLowerCase();
+            } else if (key === 'amount' || key === 'totalValue') {
+                aVal = Number(a.grandTotal || a.totalAmount || a.amount || 0);
+                bVal = Number(b.grandTotal || b.totalAmount || b.amount || 0);
+                return direction === 'asc' ? aVal - bVal : bVal - aVal;
+            } else if (key === 'poNumber') {
+                aVal = (a.poNumber || '').toLowerCase();
+                bVal = (b.poNumber || '').toLowerCase();
+            } else if (key === 'date') {
+                aVal = new Date(a.date || a.createdAt || 0).getTime();
+                bVal = new Date(b.date || b.createdAt || 0).getTime();
+                return direction === 'asc' ? aVal - bVal : bVal - aVal;
+            }
+            if (typeof aVal === 'string' && typeof bVal === 'string') {
+                return direction === 'asc' 
+                    ? aVal.localeCompare(bVal, undefined, { numeric: true }) 
+                    : bVal.localeCompare(aVal, undefined, { numeric: true });
+            }
+            return 0;
+        });
+    }, [filteredData, tableSortConfig]);
+
+    // Metrics recalculates dynamically based on dateFilteredData and filteredData
     const metrics = useMemo(() => {
         let totalItemsCount = 0;
         let totalPiecesCount = 0;
@@ -765,7 +918,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         });
 
         return {
-            totalPOs: Array.isArray(data) ? data.length : 0,
+            totalPOs: dateFilteredData.length,
             filteredCount: filteredData.length,
             totalItemsCount,
             totalPiecesCount,
@@ -777,10 +930,32 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             completedCount,
             cancelledCount
         };
-    }, [data, filteredData]);
+    }, [dateFilteredData, filteredData]);
+
+    const isAnyFilterActive = Boolean(
+        searchTerm || 
+        colFilterType.length > 0 || 
+        colFilterVendor.length > 0 || 
+        colFilterStatus.length > 0 || 
+        dateMode !== 'all' ||
+        tableSortConfig !== null
+    );
+
+    const handleClearAllFilters = () => {
+        setSearchTerm('');
+        setColFilterType([]);
+        setColFilterVendor([]);
+        setColFilterStatus([]);
+        setDateMode('all');
+        setSelectedDay('');
+        setSelectedMonth('');
+        setStartDate('');
+        setEndDate('');
+        setTableSortConfig(null);
+    };
 
     const exportPOListToExcel = () => {
-        const exportData = filteredData.map((po: any, idx: number) => {
+        const exportData = sortedData.map((po: any, idx: number) => {
             const items = Array.isArray(po.items) && po.items.length > 0 ? po.items : [];
             let pcs = 0;
             items.forEach((it: any) => pcs += Number(it.pieceCount || it.count || 0));
@@ -788,8 +963,8 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             return {
                 'S.No': idx + 1,
                 'PO Number': po.poNumber || '-',
-                'Material Type': getPoCategory(po) === 'RM' ? 'Raw Material (RM)' : getPoCategory(po) === 'BO' ? 'Bought Out (BO)' : 'Consumable Item',
-                'PO Date': new Date(po.date || Date.now()).toLocaleDateString('en-GB'),
+                'Material Type': getPoCategoryLabel(po),
+                'PO Date': new Date(po.date || po.createdAt || Date.now()).toLocaleDateString('en-GB'),
                 'Vendor Name': getVendorNameStr(po),
                 'Items Count': items.length || 1,
                 'Total Piece Count': pcs > 0 ? `${pcs} Pcs` : '-',
@@ -802,96 +977,114 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         const ws = XLSX.utils.json_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Purchase Orders');
-        XLSX.writeFile(wb, `Purchase_Orders_${new Date().toISOString().split('T')[0]}.xlsx`);
+        XLSX.writeFile(wb, `Purchase_Orders_${dateMode}_${new Date().toISOString().split('T')[0]}.xlsx`);
     };    return (
         <div className="w-full h-full flex-1 overflow-y-auto space-y-4 pb-28 sm:pb-20 pr-1 sm:pr-2 scroll-smooth">
             {/* Top Dashboard: Dynamic KPI & Operations Summary (Default Hidden) */}
             {showDashboard && (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                    {/* Card 1: Total Outward POs */}
-                    <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-                        <div className="min-w-0">
-                            <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
-                                Total Outward POs
+                <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                <BarChart3 size={14} className="text-purple-600" />
+                                Dynamic Outward PO Metrics
                             </span>
-                            <div className="flex items-baseline gap-1.5 mt-0.5">
-                                <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono">
-                                    {metrics.totalPOs}
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/70 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                <Calendar size={11} className="text-purple-500" />
+                                {periodLabel}
+                            </span>
+                        </div>
+                        <span className="text-[11px] text-slate-400 font-medium">
+                            {metrics.filteredCount} of {metrics.totalPOs} PO(s) in scope
+                        </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+                        {/* Card 1: Total Outward POs */}
+                        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+                            <div className="min-w-0">
+                                <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
+                                    Total Outward POs
                                 </span>
-                                {(searchTerm || selectedStatuses.length > 0 || selectedVendors.length > 0 || filterType !== 'All') && (
-                                    <span className="text-[10px] sm:text-xs text-purple-600 dark:text-purple-400 font-bold bg-purple-50 dark:bg-purple-950/60 px-1.5 py-0.5 rounded-md truncate">
-                                        Shown: {metrics.filteredCount}
+                                <div className="flex items-baseline gap-1.5 mt-0.5">
+                                    <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono">
+                                        {metrics.totalPOs}
                                     </span>
-                                )}
-                            </div>
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-0.5 truncate font-medium">
-                                {metrics.totalPOs - metrics.completedCount - metrics.cancelledCount} Active in Pipeline
-                            </span>
-                        </div>
-                        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-purple-50 dark:bg-purple-950/50 flex items-center justify-center text-purple-600 dark:text-purple-400 border border-purple-100 dark:border-purple-900/40 shrink-0">
-                            <ShoppingCart size={20} className="sm:w-[22px] sm:h-[22px]" />
-                        </div>
-                    </div>
-
-                    {/* Card 2: Status Pipeline Breakdown */}
-                    <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-                        <div className="min-w-0">
-                            <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
-                                Status Pipeline
-                            </span>
-                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold bg-cyan-50 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800/60">
-                                    Rel: {metrics.releasedCount}
-                                </span>
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60">
-                                    Appr: {metrics.approvedCount}
-                                </span>
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
-                                    Done: {metrics.completedCount}
+                                    {(searchTerm || colFilterStatus.length > 0 || colFilterVendor.length > 0 || colFilterType.length > 0) && (
+                                        <span className="text-[10px] sm:text-xs text-purple-600 dark:text-purple-400 font-bold bg-purple-50 dark:bg-purple-950/60 px-1.5 py-0.5 rounded-md truncate">
+                                            Shown: {metrics.filteredCount}
+                                        </span>
+                                    )}
+                                </div>
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-0.5 truncate font-medium">
+                                    {metrics.totalPOs - metrics.completedCount - metrics.cancelledCount} Active in Pipeline
                                 </span>
                             </div>
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-1 truncate font-medium">
-                                Partially Recv: {metrics.partiallyReceivedCount}
-                            </span>
-                        </div>
-                        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/40 shrink-0">
-                            <Layers size={20} className="sm:w-[22px] sm:h-[22px]" />
-                        </div>
-                    </div>
-
-                    {/* Card 3: Total Materials & Piece Count */}
-                    <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-                        <div className="min-w-0">
-                            <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
-                                Materials & Pieces
-                            </span>
-                            <div className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 font-mono mt-0.5 truncate">
-                                {metrics.totalPiecesCount > 0 ? `${metrics.totalPiecesCount} Pcs` : `${metrics.totalQuantity} Units`}
+                            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-purple-50 dark:bg-purple-950/50 flex items-center justify-center text-purple-600 dark:text-purple-400 border border-purple-100 dark:border-purple-900/40 shrink-0">
+                                <ShoppingCart size={20} className="sm:w-[22px] sm:h-[22px]" />
                             </div>
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-0.5 truncate font-medium">
-                                {metrics.totalItemsCount} items across {metrics.filteredCount} PO(s)
-                            </span>
                         </div>
-                        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-900/40 shrink-0">
-                            <Package size={20} className="sm:w-[22px] sm:h-[22px]" />
-                        </div>
-                    </div>
 
-                    {/* Card 4: Total Order Value */}
-                    <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
-                        <div className="min-w-0">
-                            <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
-                                Total Order Value
-                            </span>
-                            <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono mt-0.5 truncate">
-                                ₹{metrics.totalPOValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        {/* Card 2: Status Pipeline Breakdown */}
+                        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+                            <div className="min-w-0">
+                                <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
+                                    Status Pipeline
+                                </span>
+                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold bg-cyan-50 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800/60">
+                                        Rel: {metrics.releasedCount}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60">
+                                        Appr: {metrics.approvedCount}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
+                                        Done: {metrics.completedCount}
+                                    </span>
+                                </div>
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-1 truncate font-medium">
+                                    Partially Recv: {metrics.partiallyReceivedCount}
+                                </span>
                             </div>
-                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block mt-0.5 truncate font-semibold">
-                                Pre-tax + GST & Freight
-                            </span>
+                            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/40 shrink-0">
+                                <Layers size={20} className="sm:w-[22px] sm:h-[22px]" />
+                            </div>
                         </div>
-                        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40 shrink-0">
-                            <IndianRupee size={20} className="sm:w-[22px] sm:h-[22px]" />
+
+                        {/* Card 3: Total Materials & Piece Count */}
+                        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+                            <div className="min-w-0">
+                                <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
+                                    Materials & Pieces
+                                </span>
+                                <div className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 font-mono mt-0.5 truncate">
+                                    {metrics.totalPiecesCount > 0 ? `${metrics.totalPiecesCount} Pcs` : `${metrics.totalQuantity} Units`}
+                                </div>
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-0.5 truncate font-medium">
+                                    {metrics.totalItemsCount} items across {metrics.filteredCount} PO(s)
+                                </span>
+                            </div>
+                            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-900/40 shrink-0">
+                                <Package size={20} className="sm:w-[22px] sm:h-[22px]" />
+                            </div>
+                        </div>
+
+                        {/* Card 4: Total Order Value */}
+                        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+                            <div className="min-w-0">
+                                <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
+                                    Total Order Value
+                                </span>
+                                <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono mt-0.5 truncate">
+                                    ₹{metrics.totalPOValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                </div>
+                                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block mt-0.5 truncate font-semibold">
+                                    Pre-tax + GST & Freight
+                                </span>
+                            </div>
+                            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40 shrink-0">
+                                <IndianRupee size={20} className="sm:w-[22px] sm:h-[22px]" />
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -934,7 +1127,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             title="View Outward Purchase Orders"
                         >
                             <ShoppingCart size={13} />
-                            <span>POs ({data.length})</span>
+                            <span>POs ({dateFilteredData.length})</span>
                         </button>
                         <button
                             type="button"
@@ -951,219 +1144,149 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                         </button>
                     </div>
 
-                    {/* Status Multi-Select Dropdown */}
-                    <div className="relative shrink-0" ref={statusDropdownRef}>
-                        <button
-                            type="button"
-                            onClick={() => setIsStatusDropdownOpen(prev => !prev)}
-                            className={`flex items-center justify-between gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer min-w-[130px] ${
-                                selectedStatuses.length > 0
-                                    ? 'bg-purple-50 dark:bg-purple-950/50 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 shadow-2xs'
-                                    : 'bg-slate-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-700'
-                            }`}
-                        >
-                            <div className="flex items-center gap-1.5 truncate">
-                                <Clock size={13} className="text-purple-500 shrink-0" />
-                                <span className="truncate">
-                                    {selectedStatuses.length === 0
-                                        ? 'All Statuses'
-                                        : selectedStatuses.length === 1
-                                        ? selectedStatuses[0]
-                                        : `Status (${selectedStatuses.length})`}
-                                </span>
-                            </div>
-                            <ChevronDown size={13} className={`text-slate-400 shrink-0 transition-transform ${isStatusDropdownOpen ? 'rotate-180' : ''}`} />
-                        </button>
+                    {/* Dynamic Date Filter Controller (Day / Month / Year / Custom Range) */}
+                    <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/80 shrink-0">
+                        <div className="flex items-center gap-0.5">
+                            {(['all', 'day', 'month', 'year', 'range'] as const).map(mode => (
+                                <button
+                                    key={mode}
+                                    type="button"
+                                    onClick={() => handleSelectDateMode(mode)}
+                                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                        dateMode === mode
+                                            ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-2xs'
+                                            : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    {mode === 'all' ? 'All Time' : mode === 'day' ? 'Day' : mode === 'month' ? 'Month' : mode === 'year' ? 'Year' : 'Range'}
+                                </button>
+                            ))}
+                        </div>
 
-                        {isStatusDropdownOpen && (
-                            <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-50 p-2.5 space-y-2">
-                                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5 px-1">
-                                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Filter Status</span>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setSelectedStatuses([...ALL_STATUSES])}
-                                            className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline font-bold cursor-pointer"
-                                        >
-                                            Select All
-                                        </button>
-                                        <span className="text-slate-300 dark:text-slate-600">•</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setSelectedStatuses([])}
-                                            className="text-[11px] text-slate-500 hover:underline font-bold cursor-pointer"
-                                        >
-                                            Clear
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1">
-                                    {ALL_STATUSES.map((st) => {
-                                        const isSelected = selectedStatuses.includes(st);
-                                        const count = statusCounts[st] || 0;
-                                        return (
-                                            <div
-                                                key={st}
-                                                onClick={() => {
-                                                    setSelectedStatuses(prev => 
-                                                        prev.includes(st) 
-                                                            ? prev.filter(s => s !== st) 
-                                                            : [...prev, st]
-                                                    );
-                                                }}
-                                                className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/80 cursor-pointer transition-colors"
-                                            >
-                                                <div className="flex items-center gap-2">
-                                                    <div className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${
-                                                        isSelected 
-                                                            ? 'bg-purple-600 border-purple-600 text-white' 
-                                                            : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
-                                                    }`}>
-                                                        {isSelected && <Check size={12} strokeWidth={3} />}
-                                                    </div>
-                                                    <span className={`text-xs font-semibold ${isSelected ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-700 dark:text-slate-300'}`}>
-                                                        {st}
-                                                    </span>
-                                                </div>
-                                                <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                                                    {count}
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                        {/* Mode Specific Controls */}
+                        {dateMode === 'day' && (
+                            <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-200 dark:border-slate-700">
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedDay(getTodayStr())}
+                                    className={`px-2 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
+                                        selectedDay === getTodayStr()
+                                            ? 'bg-purple-600 text-white shadow-2xs'
+                                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-purple-300'
+                                    }`}
+                                >
+                                    Today
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedDay(getYesterdayStr())}
+                                    className={`px-2 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
+                                        selectedDay === getYesterdayStr()
+                                            ? 'bg-purple-600 text-white shadow-2xs'
+                                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-purple-300'
+                                    }`}
+                                >
+                                    Yesterday
+                                </button>
+                                <input
+                                    type="date"
+                                    value={selectedDay}
+                                    onChange={(e) => setSelectedDay(e.target.value)}
+                                    className="h-7 px-2 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-purple-500"
+                                />
                             </div>
                         )}
-                    </div>
 
-                    {/* Searchable Multi-Select Vendor Dropdown */}
-                    <div className="relative shrink-0" ref={vendorDropdownRef}>
-                        <button
-                            type="button"
-                            onClick={() => setIsVendorDropdownOpen(prev => !prev)}
-                            className={`flex items-center justify-between gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer min-w-[140px] max-w-[200px] ${
-                                selectedVendors.length > 0
-                                    ? 'bg-purple-50 dark:bg-purple-950/50 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 shadow-2xs'
-                                    : 'bg-slate-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-700'
-                            }`}
-                        >
-                            <div className="flex items-center gap-1.5 truncate">
-                                <Building2 size={13} className="text-purple-500 shrink-0" />
-                                <span className="truncate">
-                                    {selectedVendors.length === 0
-                                        ? `All Vendors (${vendors.length})`
-                                        : selectedVendors.length === 1
-                                        ? (() => {
-                                            const v = vendors.find((vend: any) => (vend._id || vend.id)?.toString() === selectedVendors[0] || vend.name === selectedVendors[0]);
-                                            return v?.name || v?.companyName || selectedVendors[0];
-                                          })()
-                                        : `Vendors (${selectedVendors.length})`}
-                                </span>
-                            </div>
-                            <ChevronDown size={13} className={`text-slate-400 shrink-0 transition-transform ${isVendorDropdownOpen ? 'rotate-180' : ''}`} />
-                        </button>
-
-                        {isVendorDropdownOpen && (
-                            <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-72 sm:w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-50 p-2.5 space-y-2">
-                                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5 px-1">
-                                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Filter Vendors</span>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setSelectedVendors([])}
-                                            className="text-[11px] text-slate-500 hover:underline font-bold cursor-pointer"
-                                        >
-                                            Reset (All)
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Vendor Keyword Search Input */}
-                                <div className="relative">
-                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
-                                    <input
-                                        type="text"
-                                        placeholder="Search vendor name..."
-                                        value={vendorSearchTerm}
-                                        onChange={(e) => setVendorSearchTerm(e.target.value)}
-                                        className="w-full pl-8 pr-7 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-1 focus:ring-purple-500 text-slate-900 dark:text-white"
-                                    />
-                                    {vendorSearchTerm && (
-                                        <button 
-                                            type="button"
-                                            onClick={() => setVendorSearchTerm('')}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
-                                        >
-                                            ×
-                                        </button>
-                                    )}
-                                </div>
-
-                                {/* Vendor List with Checkboxes */}
-                                <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
-                                    {filteredVendorList.length === 0 ? (
-                                        <div className="p-3 text-center text-xs text-slate-400">
-                                            No vendors match "{vendorSearchTerm}"
-                                        </div>
-                                    ) : (
-                                        filteredVendorList.map((v: any) => {
-                                            const vId = (v._id || v.id)?.toString();
-                                            const vName = v.name || v.companyName || 'Vendor';
-                                            const isSelected = selectedVendors.includes(vId) || selectedVendors.includes(vName);
-                                            const poCount = vendorPoCounts[vId] || vendorPoCounts[vName] || 0;
-
-                                            return (
-                                                <div
-                                                    key={vId || vName}
-                                                    onClick={() => {
-                                                        const targetKey = vId || vName;
-                                                        setSelectedVendors(prev =>
-                                                            prev.includes(targetKey)
-                                                                ? prev.filter(k => k !== targetKey)
-                                                                : [...prev, targetKey]
-                                                        );
-                                                    }}
-                                                    className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/80 cursor-pointer transition-colors"
-                                                >
-                                                    <div className="flex items-center gap-2 min-w-0 pr-2">
-                                                        <div className={`w-4 h-4 rounded flex items-center justify-center border transition-colors shrink-0 ${
-                                                            isSelected 
-                                                                ? 'bg-purple-600 border-purple-600 text-white' 
-                                                                : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
-                                                        }`}>
-                                                            {isSelected && <Check size={12} strokeWidth={3} />}
-                                                        </div>
-                                                        <span className={`text-xs truncate ${isSelected ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-700 dark:text-slate-300'}`}>
-                                                            {vName}
-                                                        </span>
-                                                    </div>
-                                                    {poCount > 0 && (
-                                                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 shrink-0">
-                                                            {poCount} POs
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            );
-                                        })
-                                    )}
-                                </div>
+                        {dateMode === 'month' && (
+                            <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-200 dark:border-slate-700">
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedMonth(getCurrentMonthStr())}
+                                    className={`px-2 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
+                                        selectedMonth === getCurrentMonthStr()
+                                            ? 'bg-purple-600 text-white shadow-2xs'
+                                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-purple-300'
+                                    }`}
+                                >
+                                    This Month
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedMonth(getLastMonthStr())}
+                                    className={`px-2 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
+                                        selectedMonth === getLastMonthStr()
+                                            ? 'bg-purple-600 text-white shadow-2xs'
+                                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-purple-300'
+                                    }`}
+                                >
+                                    Last Month
+                                </button>
+                                <input
+                                    type="month"
+                                    value={selectedMonth}
+                                    onChange={(e) => setSelectedMonth(e.target.value)}
+                                    className="h-7 px-2 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-purple-500"
+                                />
                             </div>
                         )}
-                    </div>
 
-                    {/* Material Type Selector */}
-                    <div className="flex items-center gap-1.5 shrink-0">
-                        <select
-                            value={filterType}
-                            onChange={(e) => setFilterType(e.target.value)}
-                            className="px-2.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20"
-                        >
-                            <option value="All">All Types</option>
-                            <option value="RM">Raw Material (RM)</option>
-                            <option value="BO">Bought Out (BO)</option>
-                            <option value="Consumable">Consumable Item</option>
-                        </select>
+                        {dateMode === 'year' && (
+                            <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-200 dark:border-slate-700">
+                                <select
+                                    value={selectedYear}
+                                    onChange={(e) => setSelectedYear(e.target.value)}
+                                    className="h-7 px-2 text-[11px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-1 focus:ring-purple-500"
+                                >
+                                    <optgroup label="Financial Years (Apr - Mar)">
+                                        {financialYearOptions.map(opt => (
+                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                        ))}
+                                    </optgroup>
+                                    <optgroup label="Calendar Years (Jan - Dec)">
+                                        {calendarYearOptions.map(opt => (
+                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                        ))}
+                                    </optgroup>
+                                </select>
+                            </div>
+                        )}
+
+                        {dateMode === 'range' && (
+                            <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-200 dark:border-slate-700">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase">From</span>
+                                <input
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    className="h-7 px-2 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-purple-500"
+                                />
+                                <span className="text-[10px] text-slate-400 font-bold uppercase">To</span>
+                                <input
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    className="h-7 px-2 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-purple-500"
+                                />
+                            </div>
+                        )}
+
+                        {/* Reset date button */}
+                        {dateMode !== 'all' && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setDateMode('all');
+                                    setSelectedDay('');
+                                    setSelectedMonth('');
+                                    setStartDate('');
+                                    setEndDate('');
+                                }}
+                                className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                                title="Reset Date Filter"
+                            >
+                                <X size={13} />
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -1184,6 +1307,17 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                         <span>{showDashboard ? "Hide KPI" : "Show KPI"}</span>
                     </button>
 
+                    {/* Export to Excel */}
+                    <button
+                        type="button"
+                        onClick={exportPOListToExcel}
+                        className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        title="Export filtered PO list to Excel"
+                    >
+                        <FileSpreadsheet size={14} className="text-emerald-600 dark:text-emerald-400" />
+                        <span className="hidden sm:inline">Export Excel</span>
+                    </button>
+
                     {onCreatePO && (
                         <button
                             onClick={onCreatePO}
@@ -1197,42 +1331,56 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
             {viewMode === 'items' ? (
                 <OutwardPOItemWiseView
-                    data={data}
+                    data={dateFilteredData}
                     materials={materials}
                     vendors={vendors}
                     onViewPo={(po) => setSelectedPoPreview(po)}
                     searchTerm={searchTerm}
-                    filterVendor={selectedVendors.length > 0 ? selectedVendors : 'All'}
-                    filterType={filterType}
+                    filterVendor={colFilterVendor.length > 0 ? colFilterVendor : 'All'}
+                    filterType={colFilterType.length === 1 ? (colFilterType[0].includes('RM') ? 'RM' : colFilterType[0].includes('BO') ? 'BO' : colFilterType[0].includes('Consumable') ? 'Consumable' : 'All') : 'All'}
                 />
             ) : (
                 <>
             {/* Filter and Search Match Count Bar */}
             <div className="flex items-center justify-between text-xs px-1 text-slate-500 dark:text-slate-400">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <span>
-                        Showing <strong className="text-slate-900 dark:text-white font-bold">{filteredData.length}</strong> of <strong className="text-slate-900 dark:text-white font-bold">{data.length}</strong> Purchase Orders
+                        Showing <strong className="text-slate-900 dark:text-white font-bold">{sortedData.length}</strong> of <strong className="text-slate-900 dark:text-white font-bold">{data.length}</strong> Purchase Orders
                     </span>
-                    {(searchTerm || selectedStatuses.length > 0 || selectedVendors.length > 0 || filterType !== 'All') && (
-                        <span className="text-[11px] text-purple-600 dark:text-purple-400 font-semibold">
-                            (Filtered Results)
+                    {dateMode !== 'all' && (
+                        <span className="text-[11px] text-purple-700 dark:text-purple-300 font-bold bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-md border border-purple-200 dark:border-purple-800/60">
+                            {periodLabel} ({dateFilteredData.length} in period)
+                        </span>
+                    )}
+                    {(searchTerm || colFilterType.length > 0 || colFilterVendor.length > 0 || colFilterStatus.length > 0) && (
+                        <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold">
+                            (Filtered by Column / Search)
                         </span>
                     )}
                 </div>
-                {(searchTerm || selectedStatuses.length > 0 || selectedVendors.length > 0 || filterType !== 'All') && (
+                {isAnyFilterActive && (
                     <button
-                        onClick={() => { setSearchTerm(''); setSelectedStatuses([]); setSelectedVendors([]); setFilterType('All'); }}
+                        onClick={handleClearAllFilters}
                         className="text-purple-600 dark:text-purple-400 hover:underline font-bold text-[11px] cursor-pointer"
                     >
-                        Clear Filters
+                        Clear All Filters
                     </button>
                 )}
             </div>
 
-            {filteredData.length === 0 ? (
+            {sortedData.length === 0 ? (
                 <div className="bg-white dark:bg-slate-900 p-12 text-center rounded-2xl border border-gray-200 dark:border-slate-800 text-gray-500">
                     <ShoppingCart className="mx-auto mb-3 text-slate-300" size={32} />
-                    <p className="font-medium text-sm">No Purchase Orders found matching current search or filters.</p>
+                    <p className="font-medium text-sm">No Purchase Orders found matching current date period or filters.</p>
+                    {isAnyFilterActive && (
+                        <button
+                            type="button"
+                            onClick={handleClearAllFilters}
+                            className="mt-3 px-3 py-1.5 text-xs font-bold text-purple-600 bg-purple-50 dark:bg-purple-950/60 rounded-lg hover:underline cursor-pointer"
+                        >
+                            Reset All Filters
+                        </button>
+                    )}
                 </div>
             ) : (
                 <>
@@ -1241,20 +1389,78 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                         <table className="w-full text-left border-collapse relative">
                             <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 shadow-2xs">
                                 <tr className="border-b border-gray-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-[11px] uppercase font-bold text-gray-500 dark:text-slate-400 tracking-wider">
-                                    <th className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800">PO Details</th>
-                                    <th className="px-4 py-3.5 w-36 bg-slate-50 dark:bg-slate-800">Material Type</th>
-                                    <th className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800">Vendor / Supplier</th>
+                                    <th className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800">
+                                        <div className="flex items-center gap-1.5">
+                                            <span>PO Details</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSortChange('date', tableSortConfig?.direction === 'asc' ? 'desc' : 'asc')}
+                                                className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                                                title="Sort by Date"
+                                            >
+                                                <ArrowUpDown size={12} className={tableSortConfig?.key === 'date' ? 'text-purple-600 font-bold' : ''} />
+                                            </button>
+                                        </div>
+                                    </th>
+                                    <th className="px-4 py-3.5 w-44 bg-slate-50 dark:bg-slate-800">
+                                        <ColumnFilter
+                                            column="category"
+                                            title="Material Type"
+                                            data={dateFilteredData}
+                                            currentFilters={colFilterType}
+                                            onFilterChange={setColFilterType}
+                                            getValue={(item) => getPoCategoryLabel(item)}
+                                            sortConfig={tableSortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
+                                    <th className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800">
+                                        <ColumnFilter
+                                            column="vendorName"
+                                            title="Vendor / Supplier"
+                                            data={dateFilteredData}
+                                            currentFilters={colFilterVendor}
+                                            onFilterChange={setColFilterVendor}
+                                            getValue={(item) => getVendorNameStr(item)}
+                                            sortConfig={tableSortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
                                     <th className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800">Items & Piece Count</th>
                                     <th className="px-5 py-3.5 w-72 bg-slate-50 dark:bg-slate-800">Follow-Up / Remarks</th>
-                                    <th className="px-6 py-3.5 text-right bg-slate-50 dark:bg-slate-800">Total Value</th>
-                                    <th className="px-6 py-3.5 text-center bg-slate-50 dark:bg-slate-800">Status</th>
+                                    <th className="px-6 py-3.5 text-right bg-slate-50 dark:bg-slate-800">
+                                        <div className="flex items-center justify-end gap-1.5">
+                                            <span>Total Value</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSortChange('amount', tableSortConfig?.direction === 'asc' ? 'desc' : 'asc')}
+                                                className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                                                title="Sort by Total Amount"
+                                            >
+                                                <ArrowUpDown size={12} className={tableSortConfig?.key === 'amount' ? 'text-purple-600 font-bold' : ''} />
+                                            </button>
+                                        </div>
+                                    </th>
+                                    <th className="px-6 py-3.5 text-center bg-slate-50 dark:bg-slate-800">
+                                        <ColumnFilter
+                                            column="status"
+                                            title="Status"
+                                            data={dateFilteredData}
+                                            currentFilters={colFilterStatus}
+                                            onFilterChange={setColFilterStatus}
+                                            getValue={(item) => item.status || 'Released'}
+                                            sortConfig={tableSortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
                                     <th className="px-6 py-3.5 text-right bg-slate-50 dark:bg-slate-800">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100 dark:divide-slate-800 text-sm">
-                                {filteredData.map((item) => {
+                                {sortedData.map((item) => {
                                     const vendorName = getVendorNameStr(item);
                                     const materialName = getMaterialNameStr(item);
+                                    const materialDesc = getMaterialDescStr(item);
                                     const amount = Number(item.grandTotal || item.totalAmount || item.amount || 0);
                                     const poDate = new Date(item.date || item.createdAt || Date.now()).toLocaleDateString('en-GB');
                                     const category = getPoCategory(item);
@@ -1345,6 +1551,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
                                             <td className="px-6 py-4 text-gray-600 dark:text-slate-300 font-medium">
                                                 <div className="font-bold text-slate-900 dark:text-white">{materialName}</div>
+                                                {materialDesc && <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">{materialDesc}</div>}
                                                 <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-0.5">
                                                     {rowPieceCount > 0 && (
                                                         <span className="font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.2 rounded">
@@ -1584,9 +1791,10 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
                     {/* Mobile Card View */}
                     <div className="block md:hidden space-y-3 pb-28 sm:pb-20 overflow-y-auto max-h-[calc(100vh-240px)]">
-                        {filteredData.map((item) => {
+                        {sortedData.map((item) => {
                             const vendorName = getVendorNameStr(item);
                             const materialName = getMaterialNameStr(item);
+                            const materialDesc = getMaterialDescStr(item);
                             const amount = Number(item.grandTotal || item.totalAmount || item.amount || 0);
                             const poDate = new Date(item.date || item.createdAt || Date.now()).toLocaleDateString('en-GB');
                             const remainingSecs = getRemainingEditSeconds(item.createdAt || item.date);
@@ -1679,12 +1887,17 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
                                     {/* Items & Amount Summary */}
                                     <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl text-xs space-y-1.5 border border-slate-100 dark:border-slate-800">
-                                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
-                                            <span className="font-semibold text-slate-500">Items:</span>
+                                        <div className="flex justify-between items-start text-slate-600 dark:text-slate-300">
+                                            <span className="font-semibold text-slate-500 pt-0.5">Items:</span>
                                             <div className="text-right">
                                                 <div className="font-bold truncate max-w-[200px]">
                                                     {materialName} {itemsList.length > 1 && `(+${itemsList.length - 1} more)`}
                                                 </div>
+                                                {materialDesc && (
+                                                    <div className="text-[10px] text-slate-500 italic mt-0.5 line-clamp-1 truncate max-w-[200px]">
+                                                        {materialDesc}
+                                                    </div>
+                                                )}
                                                 <div className="text-[10.5px] text-slate-400 flex justify-end gap-1.5 mt-0.5">
                                                     {rowPieceCount > 0 && <span className="text-amber-700 dark:text-amber-300 font-bold">{rowPieceCount} Pcs</span>}
                                                     {rowQuantity > 0 && <span>• Qty: {rowQuantity}</span>}

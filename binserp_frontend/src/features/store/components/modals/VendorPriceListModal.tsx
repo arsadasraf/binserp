@@ -314,7 +314,17 @@ export default function VendorPriceListModal({
               </label>
               {initialData?.material?.name ? (
                 <div className="w-full px-3.5 py-2 bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-xl text-xs text-gray-900 dark:text-gray-100 font-medium">
-                  <div className="font-bold">{initialData.material.name}</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-bold">{initialData.material.name}</div>
+                    {(() => {
+                      const subCat = initialData.material?.categoryId?.name || initialData.material?.category?.name || (typeof initialData.material?.category === 'string' ? initialData.material.category : '');
+                      return subCat ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200">
+                          {subCat}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
                   {getItemDescription(initialData.material) && (
                     <div className="text-[11px] text-slate-500 italic mt-0.5">{getItemDescription(initialData.material)}</div>
                   )}

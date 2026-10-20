@@ -1,4 +1,5 @@
-import { dealSchema, leadSchema, customerSchema } from "../../models/crm/index.js";
+import { dealSchema, leadSchema, customerSchema, crmProposalSchema, crmProformaInvoiceSchema } from "../../models/crm/index.js";
+import { invoiceSchema } from "../../models/sales/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
@@ -7,6 +8,9 @@ import { ApiResponse } from "../../utils/ApiResponse.js";
 export const getDeals = asyncHandler(async (req, res) => {
     const { stage, status, customerId, search } = req.query;
     const Deal = req.getModel("Deal", dealSchema);
+    const Proposal = req.getModel("CRMProposal", crmProposalSchema);
+    const Proforma = req.getModel("CRMProformaInvoice", crmProformaInvoiceSchema);
+    const Invoice = req.getModel("Invoice", invoiceSchema);
 
     const filter = { company: req.company._id };
     if (stage && stage !== "All") filter.stage = stage;
@@ -23,9 +27,35 @@ export const getDeals = asyncHandler(async (req, res) => {
         .populate("customer", "name email phone")
         .populate("lead", "name email phone")
         .populate("assignedTo", "name email")
-        .sort({ updatedAt: -1 });
+        .populate("quotations", "proposalNo revisionNumber title totalAmount status createdAt")
+        .populate("proformaInvoices", "piNumber revisionNumber title totalAmount advanceRequired advancePaid status quotationNo createdAt")
+        .populate("invoices", "invoiceNumber grandTotal paymentStatus date")
+        .sort({ updatedAt: -1 })
+        .lean();
 
-    return res.status(200).json(new ApiResponse(200, deals, "Deals fetched successfully"));
+    const dealIds = deals.map(d => d._id);
+    const [extraProps, extraPIs] = await Promise.all([
+        Proposal.find({ company: req.company._id, deal: { $in: dealIds } }).select("proposalNo revisionNumber title totalAmount status deal createdAt").lean().catch(() => []),
+        Proforma.find({ company: req.company._id, deal: { $in: dealIds } }).select("piNumber revisionNumber title totalAmount advanceRequired advancePaid status quotationNo deal createdAt").lean().catch(() => [])
+    ]);
+
+    const enrichedDeals = deals.map(d => {
+        const dIdStr = String(d._id);
+        const dealProps = [...(d.quotations || [])];
+        extraProps.filter(p => String(p.deal) === dIdStr && !dealProps.some(dp => String(dp._id) === String(p._id))).forEach(p => dealProps.push(p));
+
+        const dealPIs = [...(d.proformaInvoices || [])];
+        extraPIs.filter(pi => String(pi.deal) === dIdStr && !dealPIs.some(dpi => String(dpi._id) === String(pi._id))).forEach(pi => dealPIs.push(pi));
+
+        return {
+            ...d,
+            quotations: dealProps,
+            proformaInvoices: dealPIs,
+            invoices: d.invoices || []
+        };
+    });
+
+    return res.status(200).json(new ApiResponse(200, enrichedDeals, "Deals fetched successfully"));
 });
 
 // 2. Create Deal

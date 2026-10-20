@@ -127,6 +127,79 @@ export default function LeadKanban() {
     const [statusFilter, setStatusFilter] = useState("All");
     const [followUpFilter, setFollowUpFilter] = useState("All");
 
+    // Date Range Presets & Custom Date Filters
+    const [datePreset, setDatePreset] = useState<"all" | "today" | "yesterday" | "this_week" | "this_month" | "this_quarter" | "this_year" | "custom">("all");
+    const [fromDate, setFromDate] = useState("");
+    const [toDate, setToDate] = useState("");
+
+    const applyDatePreset = (preset: "all" | "today" | "yesterday" | "this_week" | "this_month" | "this_quarter" | "this_year" | "custom") => {
+        setDatePreset(preset);
+        const now = new Date();
+        const formatDate = (d: Date) => d.toISOString().slice(0, 10);
+
+        if (preset === "all") {
+            setFromDate("");
+            setToDate("");
+        } else if (preset === "today") {
+            const todayStr = formatDate(now);
+            setFromDate(todayStr);
+            setToDate(todayStr);
+        } else if (preset === "yesterday") {
+            const yest = new Date(now);
+            yest.setDate(yest.getDate() - 1);
+            const yestStr = formatDate(yest);
+            setFromDate(yestStr);
+            setToDate(yestStr);
+        } else if (preset === "this_week") {
+            const curr = new Date(now);
+            const day = curr.getDay();
+            const diff = curr.getDate() - day + (day === 0 ? -6 : 1); // Monday
+            const firstDay = new Date(curr.setDate(diff));
+            const lastDay = new Date(firstDay);
+            lastDay.setDate(firstDay.getDate() + 6);
+            setFromDate(formatDate(firstDay));
+            setToDate(formatDate(lastDay));
+        } else if (preset === "this_month") {
+            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+            const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            setFromDate(formatDate(firstDay));
+            setToDate(formatDate(lastDay));
+        } else if (preset === "this_quarter") {
+            const currentQuarter = Math.floor(now.getMonth() / 3);
+            const firstDay = new Date(now.getFullYear(), currentQuarter * 3, 1);
+            const lastDay = new Date(now.getFullYear(), currentQuarter * 3 + 3, 0);
+            setFromDate(formatDate(firstDay));
+            setToDate(formatDate(lastDay));
+        } else if (preset === "this_year") {
+            const firstDay = new Date(now.getFullYear(), 0, 1);
+            const lastDay = new Date(now.getFullYear(), 11, 31);
+            setFromDate(formatDate(firstDay));
+            setToDate(formatDate(lastDay));
+        }
+    };
+
+    // High-Contrast Lead Status Color Badge System
+    const getStageBadgeStyle = (stage: string) => {
+        switch (stage) {
+            case "New":
+                return "bg-cyan-50 text-cyan-800 border-2 border-cyan-400 font-extrabold dark:bg-cyan-950/60 dark:text-cyan-200 dark:border-cyan-600";
+            case "Contacted":
+                return "bg-blue-50 text-blue-800 border-2 border-blue-400 font-extrabold dark:bg-blue-950/60 dark:text-blue-200 dark:border-blue-600";
+            case "Qualified":
+                return "bg-indigo-50 text-indigo-800 border-2 border-indigo-400 font-extrabold dark:bg-indigo-950/60 dark:text-indigo-200 dark:border-indigo-600";
+            case "Proposal Sent":
+                return "bg-purple-50 text-purple-800 border-2 border-purple-400 font-extrabold dark:bg-purple-950/60 dark:text-purple-200 dark:border-purple-600";
+            case "Negotiation":
+                return "bg-amber-50 text-amber-900 border-2 border-amber-400 font-extrabold dark:bg-amber-950/60 dark:text-amber-200 dark:border-amber-600";
+            case "Won":
+                return "bg-emerald-600 text-white border-2 border-emerald-500 font-black shadow-xs";
+            case "Lost":
+                return "bg-rose-50 text-rose-800 border-2 border-rose-400 font-extrabold dark:bg-rose-950/60 dark:text-rose-200 dark:border-rose-600";
+            default:
+                return "bg-slate-100 text-slate-800 border-2 border-slate-300 font-bold dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600";
+        }
+    };
+
     // Lead Follow-Up Modal State
     const [followUpLead, setFollowUpLead] = useState<Lead | null>(null);
 
@@ -210,6 +283,8 @@ export default function LeadKanban() {
             if (warmthFilter !== "All") url += `&warmth=${encodeURIComponent(warmthFilter)}`;
             if (statusFilter !== "All") url += `&status=${encodeURIComponent(statusFilter)}`;
             if (followUpFilter !== "All") url += `&followUpFilter=${encodeURIComponent(followUpFilter)}`;
+            if (fromDate) url += `&fromDate=${encodeURIComponent(fromDate)}`;
+            if (toDate) url += `&toDate=${encodeURIComponent(toDate)}`;
 
             const res = await apiGet(url, token);
             setLeads(res.data || []);
@@ -226,7 +301,7 @@ export default function LeadKanban() {
 
     useEffect(() => {
         fetchLeads();
-    }, [sourceFilter, warmthFilter, statusFilter, followUpFilter]);
+    }, [sourceFilter, warmthFilter, statusFilter, followUpFilter, fromDate, toDate]);
 
     // Download Excel Template
     const handleDownloadTemplate = async () => {
@@ -263,6 +338,8 @@ export default function LeadKanban() {
             if (statusFilter !== "All") url += `status=${encodeURIComponent(statusFilter)}&`;
             if (sourceFilter !== "All") url += `source=${encodeURIComponent(sourceFilter)}&`;
             if (warmthFilter !== "All") url += `warmth=${encodeURIComponent(warmthFilter)}&`;
+            if (fromDate) url += `fromDate=${encodeURIComponent(fromDate)}&`;
+            if (toDate) url += `toDate=${encodeURIComponent(toDate)}&`;
 
             const res = await apiRequest(url, {
                 method: "GET"
@@ -629,6 +706,80 @@ export default function LeadKanban() {
 
             </div>
 
+            {/* DATE PRESETS & TIMELINE FILTER BAR (DAY / MONTH / YEAR / CUSTOM) */}
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-3 shadow-2xs flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-extrabold text-[11px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mr-1">
+                        <Calendar size={13} className="text-blue-500" />
+                        Date Filter:
+                    </span>
+                    {[
+                        { id: "all", label: "All Time" },
+                        { id: "today", label: "Today" },
+                        { id: "yesterday", label: "Yesterday" },
+                        { id: "this_week", label: "This Week" },
+                        { id: "this_month", label: "This Month" },
+                        { id: "this_quarter", label: "This Quarter" },
+                        { id: "this_year", label: "This Year" },
+                        { id: "custom", label: "Custom Range" },
+                    ].map((p) => (
+                        <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => applyDatePreset(p.id as any)}
+                            className={`px-2.5 py-1 rounded-xl font-bold text-[11px] transition-all cursor-pointer ${
+                                datePreset === p.id
+                                    ? "bg-blue-600 text-white shadow-xs"
+                                    : "bg-slate-100 hover:bg-slate-200 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300"
+                            }`}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Custom Date Pickers */}
+                {(datePreset === "custom" || fromDate || toDate) && (
+                    <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/60 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <div className="flex items-center gap-1">
+                            <span className="text-[10px] font-bold text-slate-400">From:</span>
+                            <input
+                                type="date"
+                                value={fromDate}
+                                onChange={(e) => {
+                                    setDatePreset("custom");
+                                    setFromDate(e.target.value);
+                                }}
+                                className="bg-transparent font-bold text-[11px] text-slate-800 dark:text-slate-200 outline-none cursor-pointer"
+                            />
+                        </div>
+                        <span className="text-slate-300">→</span>
+                        <div className="flex items-center gap-1">
+                            <span className="text-[10px] font-bold text-slate-400">To:</span>
+                            <input
+                                type="date"
+                                value={toDate}
+                                onChange={(e) => {
+                                    setDatePreset("custom");
+                                    setToDate(e.target.value);
+                                }}
+                                className="bg-transparent font-bold text-[11px] text-slate-800 dark:text-slate-200 outline-none cursor-pointer"
+                            />
+                        </div>
+                        {(fromDate || toDate) && (
+                            <button
+                                type="button"
+                                onClick={() => applyDatePreset("all")}
+                                className="text-slate-400 hover:text-slate-600 ml-1"
+                                title="Clear date filter"
+                            >
+                                <X size={12} />
+                            </button>
+                        )}
+                    </div>
+                )}
+            </div>
+
             {/* KANBAN BOARD VIEW */}
             {viewMode === "kanban" ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3.5 overflow-x-auto min-h-[600px] pb-4">
@@ -811,6 +962,18 @@ export default function LeadKanban() {
                                                 </div>
 
                                                 <div className="flex items-center gap-1">
+                                                    {/* WhatsApp Quick Action */}
+                                                    {lead.phone && (
+                                                        <a
+                                                            href={`https://wa.me/91${lead.phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(`Hello ${lead.name}, regarding your inquiry for ${lead.productInterest?.join(", ") || "our products"}...`)}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="p-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-md transition-colors"
+                                                            title="WhatsApp 1-Click Message"
+                                                        >
+                                                            <MessageSquare size={11} className="text-emerald-600" />
+                                                        </a>
+                                                    )}
                                                     <button
                                                         onClick={() => setFollowUpLead(lead)}
                                                         className="p-1 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 rounded-md transition-colors flex items-center gap-0.5 text-[10px] font-bold px-1.5"
@@ -965,7 +1128,7 @@ export default function LeadKanban() {
                                             </td>
 
                                             <td className="p-3.5">
-                                                <span className="px-2.5 py-1 rounded-full font-bold text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                                                <span className={`px-2.5 py-1 rounded-full text-[10px] ${getStageBadgeStyle(lead.status || "New")}`}>
                                                     {lead.status || "New"}
                                                 </span>
                                             </td>
@@ -1037,6 +1200,18 @@ export default function LeadKanban() {
 
                                             <td className="p-3.5 text-right">
                                                 <div className="flex items-center justify-end gap-1.5">
+                                                    {/* WhatsApp Quick Action */}
+                                                    {lead.phone && (
+                                                        <a
+                                                            href={`https://wa.me/91${lead.phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(`Hello ${lead.name}, regarding your inquiry for ${lead.productInterest?.join(", ") || "our products"}...`)}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-lg transition-colors"
+                                                            title="WhatsApp 1-Click Message"
+                                                        >
+                                                            <MessageSquare size={13} className="text-emerald-600" />
+                                                        </a>
+                                                    )}
                                                     <button
                                                         onClick={() => setFollowUpLead(lead)}
                                                         className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-bold"

@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { vendorPriceListSchema } from "../../models/purchase/index.js";
-import { vendorSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema } from "../../models/store/index.js";
+import { vendorSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema, categorySchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
@@ -72,6 +72,7 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
 
 export const getVendorPriceLists = asyncHandler(async (req, res) => {
   req.getModel('Vendor', vendorSchema);
+  req.getModel('Category', categorySchema);
   const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
   const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
   const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
@@ -97,19 +98,23 @@ export const getVendorPriceLists = asyncHandler(async (req, res) => {
   if (materialIds.length > 0) {
     const validObjectIds = materialIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
 
-    // Query separated collections in parallel
+    // Query separated collections in parallel with categoryId populated
     const [rawMaterials, boughtOuts, consumables, rmBoItems] = await Promise.all([
       RawMaterial.find({ company: companyId, _id: { $in: validObjectIds } })
-        .select('name code unit category descriptions description specification photos hasSecondaryUnit secondaryUnit conversionFactor')
+        .select('name code unit category categoryId descriptions description specification photos hasSecondaryUnit secondaryUnit conversionFactor')
+        .populate('categoryId', 'name code')
         .lean(),
       BoughtOut.find({ company: companyId, _id: { $in: validObjectIds } })
-        .select('name code unit category descriptions description specification photos hasSecondaryUnit secondaryUnit conversionFactor')
+        .select('name code unit category categoryId descriptions description specification photos hasSecondaryUnit secondaryUnit conversionFactor')
+        .populate('categoryId', 'name code')
         .lean(),
       ConsumableItem.find({ company: companyId, _id: { $in: validObjectIds } })
-        .select('name code unit category descriptions description specification photos hasSecondaryUnit secondaryUnit conversionFactor')
+        .select('name code unit category categoryId descriptions description specification photos hasSecondaryUnit secondaryUnit conversionFactor')
+        .populate('categoryId', 'name code')
         .lean(),
       RmBoItem.find({ company: companyId, _id: { $in: validObjectIds } })
-        .select('name code unit category descriptions description specification photos itemType hasSecondaryUnit secondaryUnit conversionFactor')
+        .select('name code unit category categoryId descriptions description specification photos itemType hasSecondaryUnit secondaryUnit conversionFactor')
+        .populate('categoryId', 'name code')
         .lean()
     ]);
 

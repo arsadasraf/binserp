@@ -1,14 +1,16 @@
 "use client";
-import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Filter, Check, Globe } from "lucide-react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Filter, Check, Globe, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getCurrencySymbol } from "@/src/utils/currencyHelper";
+import ColumnFilter from "./ColumnFilter";
 
 export type FgTypeFilter = "all" | "assembly" | "subassembly" | "component";
 
 interface PriceListTableProps {
   priceLists: any[];
   fgItems: any[];
+  categories?: any[];
   onAddPriceList?: () => void;
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
@@ -26,6 +28,7 @@ export const normalizeFgType = (typeStr?: string): "assembly" | "subassembly" | 
 export default function PriceListTable({
   priceLists,
   fgItems = [],
+  categories = [],
   onAddPriceList,
   onEdit,
   onDelete,
@@ -34,7 +37,47 @@ export default function PriceListTable({
   const [selectedType, setSelectedType] = useState<FgTypeFilter>("all");
   const [selectedCurrency, setSelectedCurrency] = useState<string>("all");
   const [isTypeFilterOpen, setIsTypeFilterOpen] = useState(false);
+  const [subCategoryFilters, setSubCategoryFilters] = useState<string[]>([]);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const typeFilterRef = useRef<HTMLTableCellElement>(null);
+
+  const handleSortChange = (key: string, direction: 'asc' | 'desc') => {
+    setSortConfig(prev => {
+      if (prev?.key === key && prev?.direction === direction) return null;
+      return { key, direction };
+    });
+  };
+
+  // Map of categories for fast ID resolution
+  const categoriesMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (categories || []).forEach((c: any) => {
+      const id = c._id?.toString() || c.id?.toString();
+      if (id && c.name) {
+        map.set(id, c.name);
+      }
+    });
+    return map;
+  }, [categories]);
+
+  // Robust Sub-Category resolver
+  const getSubCategoryName = useCallback((item: any): string => {
+    if (!item) return '-';
+    if (item.categoryId && typeof item.categoryId === 'object') {
+      return item.categoryId.name || item.categoryId.code || '-';
+    }
+    if (item.category && typeof item.category === 'object') {
+      return item.category.name || item.category.code || '-';
+    }
+    if (typeof item.category === 'string' && item.category.trim() && !/^[0-9a-fA-F]{24}$/.test(item.category)) {
+      return item.category.trim();
+    }
+    const idStr = (item.categoryId || item.category)?.toString();
+    if (idStr && categoriesMap.has(idStr)) {
+      return categoriesMap.get(idStr)!;
+    }
+    return '-';
+  }, [categoriesMap]);
 
   // Close type filter dropdown when clicking outside
   useEffect(() => {
@@ -76,26 +119,58 @@ export default function PriceListTable({
     component: fgItems.filter((i) => normalizeFgType(i.type) === "component").length,
   };
 
-  const filteredItems = fgItems.filter((item) => {
-    const searchLower = searchTerm.toLowerCase();
-    const fgItemName = item.name?.toLowerCase() || "";
-    const fgItemDesc = (item.description || item.descriptions || "")?.toLowerCase();
-    const matchesSearch = fgItemName.includes(searchLower) || fgItemDesc.includes(searchLower);
+  const baseFilteredItems = useMemo(() => {
+    return fgItems.filter((item) => {
+      const searchLower = searchTerm.toLowerCase();
+      const fgItemName = item.name?.toLowerCase() || "";
+      const fgItemDesc = (item.description || item.descriptions || "")?.toLowerCase();
+      const matchesSearch = fgItemName.includes(searchLower) || fgItemDesc.includes(searchLower);
 
-    if (!matchesSearch) return false;
+      if (!matchesSearch) return false;
 
-    if (selectedType !== "all") {
-      if (normalizeFgType(item.type) !== selectedType) return false;
+      if (selectedType !== "all") {
+        if (normalizeFgType(item.type) !== selectedType) return false;
+      }
+
+      if (selectedCurrency !== "all") {
+        const p = priceListMap[item._id?.toString()];
+        const itemCurrency = (p?.currency || item.currency || "INR").toUpperCase();
+        if (itemCurrency !== selectedCurrency) return false;
+      }
+
+      return true;
+    });
+  }, [fgItems, searchTerm, selectedType, selectedCurrency, priceListMap]);
+
+  const filteredItems = useMemo(() => {
+    let result = baseFilteredItems.filter((item) => {
+      if (subCategoryFilters.length > 0) {
+        const subCat = getSubCategoryName(item);
+        if (!subCategoryFilters.includes(subCat)) return false;
+      }
+      return true;
+    });
+
+    if (sortConfig) {
+      const { key, direction } = sortConfig;
+      result = [...result].sort((a, b) => {
+        let valA = '';
+        let valB = '';
+
+        if (key === 'subCategory') {
+          valA = getSubCategoryName(a);
+          valB = getSubCategoryName(b);
+        } else if (key === 'name') {
+          valA = a.name || '';
+          valB = b.name || '';
+        }
+
+        return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      });
     }
 
-    if (selectedCurrency !== "all") {
-      const p = priceListMap[item._id?.toString()];
-      const itemCurrency = (p?.currency || item.currency || "INR").toUpperCase();
-      if (itemCurrency !== selectedCurrency) return false;
-    }
-
-    return true;
-  });
+    return result;
+  }, [baseFilteredItems, subCategoryFilters, getSubCategoryName, sortConfig]);
 
   const renderTypeBadge = (type?: string) => {
     const norm = normalizeFgType(type);
@@ -172,6 +247,38 @@ export default function PriceListTable({
           </div>
         </div>
       </div>
+
+      {/* Active Filter Indicator Bar */}
+      {subCategoryFilters.length > 0 && (
+        <div className="px-4 py-2 bg-purple-50/70 dark:bg-purple-950/30 border-b border-purple-100 dark:border-purple-900/40 flex items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-purple-900 dark:text-purple-200">
+              Active Sub-Category Filter:
+            </span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold bg-purple-100 text-purple-900 dark:bg-purple-900/60 dark:text-purple-200 border border-purple-300 dark:border-purple-700 text-[11px]">
+              {subCategoryFilters.join(', ')}
+              <button
+                type="button"
+                onClick={() => setSubCategoryFilters([])}
+                className="hover:bg-purple-200 dark:hover:bg-purple-800 rounded-full p-0.5 ml-1 cursor-pointer"
+                title="Remove sub-category filter"
+              >
+                <X size={12} />
+              </button>
+            </span>
+            <span className="text-gray-500 text-[11px]">
+              ({filteredItems.length} {filteredItems.length === 1 ? 'item' : 'items'})
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSubCategoryFilters([])}
+            className="text-[11px] font-bold text-purple-700 dark:text-purple-300 hover:underline cursor-pointer"
+          >
+            Clear Filter
+          </button>
+        </div>
+      )}
 
       {/* Desktop Table View - Scrollable with Sticky Header */}
       <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] min-h-[350px]">
@@ -263,6 +370,21 @@ export default function PriceListTable({
                   )}
                 </AnimatePresence>
               </th>
+              
+              {/* Dedicated Sub-Category Column with Excel-Style ColumnFilter */}
+              <th className="p-4 font-medium w-44">
+                <ColumnFilter
+                  column="subCategory"
+                  title="Sub-Category"
+                  data={baseFilteredItems}
+                  currentFilters={subCategoryFilters}
+                  onFilterChange={setSubCategoryFilters}
+                  getValue={(item) => getSubCategoryName(item)}
+                  sortConfig={sortConfig}
+                  onSortChange={handleSortChange}
+                />
+              </th>
+              
               <th className="p-4 font-medium">HSN Code (Master)</th>
               <th className="p-4 font-medium text-right">Selling Price</th>
               <th className="p-4 font-medium text-right">Tax Rate (%)</th>
@@ -272,7 +394,7 @@ export default function PriceListTable({
           <tbody className="text-sm divide-y divide-gray-100 dark:divide-gray-800">
             {filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-gray-500">
+                <td colSpan={8} className="p-8 text-center text-gray-500">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <Tag className="w-8 h-8 text-gray-300" />
                     <p>No finished goods found matching filter.</p>
@@ -322,6 +444,18 @@ export default function PriceListTable({
                     </td>
                     <td className="p-4 text-gray-600 dark:text-gray-300">
                       {renderTypeBadge(item.type)}
+                    </td>
+                    <td className="p-4">
+                      {(() => {
+                        const subCat = getSubCategoryName(item);
+                        return subCat !== '-' ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
+                            {subCat}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-xs">-</span>
+                        );
+                      })()}
                     </td>
                     <td className="p-4 text-gray-700 dark:text-gray-300 font-mono text-xs font-semibold">
                       <span className="px-2.5 py-1 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 rounded-md border border-blue-200 dark:border-blue-800 inline-flex items-center gap-1">
@@ -449,6 +583,14 @@ export default function PriceListTable({
                       {isAssigned ? "Assigned" : "Unassigned"}
                     </span>
                     {renderTypeBadge(item.type)}
+                    {(() => {
+                      const subCat = getSubCategoryName(item);
+                      return subCat !== '-' ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
+                          {subCat}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
 

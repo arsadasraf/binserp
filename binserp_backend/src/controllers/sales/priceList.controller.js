@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { priceListSchema } from "../../models/sales/index.js";
-import { fgItemSchema } from "../../models/store/index.js";
+import { fgItemSchema, categorySchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 
 const getCompanyId = (req) => {
@@ -58,13 +58,15 @@ export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
 
 export const getAllPriceLists = asyncHandler(async (req, res) => {
   const PriceList = req.getModel("PriceList", priceListSchema);
+  req.getModel("Category", categorySchema);
   req.getModel("FGItem", fgItemSchema);
   const companyId = getCompanyId(req);
 
   const priceLists = await PriceList.find({ company: companyId })
     .populate({
       path: "fgItem",
-      select: "name code partNumber hsnCode type description descriptions specification unit hasSecondaryUnit secondaryUnit conversionFactor sellingPrice taxRate currency",
+      select: "name code partNumber hsnCode type description descriptions specification unit hasSecondaryUnit secondaryUnit conversionFactor sellingPrice taxRate currency category categoryId",
+      populate: { path: "categoryId", select: "name code" }
     })
     .sort({ updatedAt: -1 });
 

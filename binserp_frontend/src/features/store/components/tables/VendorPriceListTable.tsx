@@ -1,8 +1,9 @@
 "use client";
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Layers, Package, Cog, Wrench, Filter, Check, X, Star } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getItemDescription, ItemNameAndDescription } from "@/src/utils/itemDisplayHelper";
+import ColumnFilter from "./ColumnFilter";
 
 interface VendorPriceListTableProps {
   vendorPriceLists: any[];
@@ -10,6 +11,7 @@ interface VendorPriceListTableProps {
   rawMaterials?: any[];
   boughtOuts?: any[];
   consumables?: any[];
+  categories?: any[];
   onAddPriceSheet?: () => void;
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
@@ -21,6 +23,7 @@ export default function VendorPriceListTable({
   rawMaterials = [],
   boughtOuts = [],
   consumables = [],
+  categories = [],
   onAddPriceSheet,
   onEdit,
   onDelete,
@@ -29,7 +32,47 @@ export default function VendorPriceListTable({
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'rm' | 'bo' | 'consumable'>('all');
   const [vendorFilter, setVendorFilter] = useState<'all' | 'preferred_only' | 'unassigned' | string>('all');
   const [showVendorFilterMenu, setShowVendorFilterMenu] = useState(false);
+  const [subCategoryFilters, setSubCategoryFilters] = useState<string[]>([]);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const vendorFilterRef = useRef<HTMLDivElement>(null);
+
+  const handleSortChange = (key: string, direction: 'asc' | 'desc') => {
+    setSortConfig(prev => {
+      if (prev?.key === key && prev?.direction === direction) return null;
+      return { key, direction };
+    });
+  };
+
+  // Map of categories for fast ID resolution
+  const categoriesMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (categories || []).forEach((c: any) => {
+      const id = c._id?.toString() || c.id?.toString();
+      if (id && c.name) {
+        map.set(id, c.name);
+      }
+    });
+    return map;
+  }, [categories]);
+
+  // Robust Sub-Category resolver
+  const getSubCategoryName = useCallback((item: any): string => {
+    if (!item) return '-';
+    if (item.categoryId && typeof item.categoryId === 'object') {
+      return item.categoryId.name || item.categoryId.code || '-';
+    }
+    if (item.category && typeof item.category === 'object') {
+      return item.category.name || item.category.code || '-';
+    }
+    if (typeof item.category === 'string' && item.category.trim() && !/^[0-9a-fA-F]{24}$/.test(item.category)) {
+      return item.category.trim();
+    }
+    const idStr = (item.categoryId || item.category)?.toString();
+    if (idStr && categoriesMap.has(idStr)) {
+      return categoriesMap.get(idStr)!;
+    }
+    return '-';
+  }, [categoriesMap]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -140,8 +183,8 @@ export default function VendorPriceListTable({
     };
   }, [unifiedItems]);
 
-  // Filter items by category, vendor/preferred status, and search
-  const filteredItems = useMemo(() => {
+  // Base filtered items before subCategory filter (used as options data for ColumnFilter)
+  const baseFilteredItems = useMemo(() => {
     return unifiedItems.filter((item) => {
       if (selectedCategory !== 'all' && item.itemCategory !== selectedCategory) {
         return false;
@@ -173,6 +216,46 @@ export default function VendorPriceListTable({
       return materialName.includes(searchLower) || materialDesc.includes(searchLower);
     });
   }, [unifiedItems, selectedCategory, vendorFilter, priceListMap, searchTerm]);
+
+  // Final filtered items with subCategory filter and sortConfig applied
+  const filteredItems = useMemo(() => {
+    let result = baseFilteredItems.filter((item) => {
+      if (subCategoryFilters.length > 0) {
+        const subCat = getSubCategoryName(item);
+        if (!subCategoryFilters.includes(subCat)) return false;
+      }
+      return true;
+    });
+
+    if (sortConfig) {
+      const { key, direction } = sortConfig;
+      result = [...result].sort((a, b) => {
+        let valA = '';
+        let valB = '';
+
+        if (key === 'subCategory') {
+          valA = getSubCategoryName(a);
+          valB = getSubCategoryName(b);
+        } else if (key === 'name') {
+          valA = a.name || '';
+          valB = b.name || '';
+        } else if (key === 'category') {
+          valA = a.itemCategory || '';
+          valB = b.itemCategory || '';
+        } else if (key === 'price') {
+          const confA = (priceListMap[a._id?.toString()] || [])[0];
+          const confB = (priceListMap[b._id?.toString()] || [])[0];
+          const priceA = Number(confA?.price || 0);
+          const priceB = Number(confB?.price || 0);
+          return direction === 'asc' ? priceA - priceB : priceB - priceA;
+        }
+
+        return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      });
+    }
+
+    return result;
+  }, [baseFilteredItems, subCategoryFilters, getSubCategoryName, sortConfig, priceListMap]);
 
   const getCategoryBadge = (cat: 'rm' | 'bo' | 'consumable') => {
     switch (cat) {
@@ -311,37 +394,55 @@ export default function VendorPriceListTable({
       </div>
 
       {/* Active Filter Indicator Bar */}
-      {vendorFilter !== 'all' && (
-        <div className="px-4 py-2 bg-amber-50/70 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/40 flex items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-amber-900 dark:text-amber-200">
-              Filter Active:
+      {(vendorFilter !== 'all' || subCategoryFilters.length > 0) && (
+        <div className="px-4 py-2 bg-indigo-50/70 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900/40 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-indigo-900 dark:text-indigo-200">
+              Active Filters:
             </span>
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700 text-[11px]">
-              {vendorFilter === 'preferred_only'
-                ? '⭐ Preferred Vendors Only'
-                : vendorFilter === 'unassigned'
-                ? 'Unassigned Only'
-                : (availableVendors.find(v => v.id === vendorFilter)?.name || 'Specific Vendor')}
-              <button
-                type="button"
-                onClick={() => setVendorFilter('all')}
-                className="hover:bg-amber-200 dark:hover:bg-amber-800 rounded-full p-0.5 ml-1 cursor-pointer"
-                title="Remove filter"
-              >
-                <X size={12} />
-              </button>
-            </span>
+            {vendorFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700 text-[11px]">
+                {vendorFilter === 'preferred_only'
+                  ? '⭐ Preferred Vendors Only'
+                  : vendorFilter === 'unassigned'
+                  ? 'Unassigned Only'
+                  : (availableVendors.find(v => v.id === vendorFilter)?.name || 'Specific Vendor')}
+                <button
+                  type="button"
+                  onClick={() => setVendorFilter('all')}
+                  className="hover:bg-amber-200 dark:hover:bg-amber-800 rounded-full p-0.5 ml-1 cursor-pointer"
+                  title="Remove vendor filter"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            {subCategoryFilters.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold bg-purple-100 text-purple-900 dark:bg-purple-900/60 dark:text-purple-200 border border-purple-300 dark:border-purple-700 text-[11px]">
+                Sub-Category: {subCategoryFilters.join(', ')}
+                <button
+                  type="button"
+                  onClick={() => setSubCategoryFilters([])}
+                  className="hover:bg-purple-200 dark:hover:bg-purple-800 rounded-full p-0.5 ml-1 cursor-pointer"
+                  title="Remove sub-category filter"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
             <span className="text-gray-500 text-[11px]">
               ({filteredItems.length} {filteredItems.length === 1 ? 'item' : 'items'})
             </span>
           </div>
           <button
             type="button"
-            onClick={() => setVendorFilter('all')}
-            className="text-[11px] font-bold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer"
+            onClick={() => {
+              setVendorFilter('all');
+              setSubCategoryFilters([]);
+            }}
+            className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 hover:underline cursor-pointer"
           >
-            Clear Filter
+            Clear All Filters
           </button>
         </div>
       )}
@@ -354,6 +455,20 @@ export default function VendorPriceListTable({
               <th className="p-3.5 font-bold first:pl-6 w-16 bg-gray-50 dark:bg-gray-800">Photo</th>
               <th className="p-3.5 font-bold bg-gray-50 dark:bg-gray-800">Item Name & Description</th>
               <th className="p-3.5 font-bold w-28 bg-gray-50 dark:bg-gray-800">Category</th>
+              
+              {/* Dedicated Sub-Category Column with Excel-Style ColumnFilter */}
+              <th className="p-3.5 font-bold w-44 bg-gray-50 dark:bg-gray-800">
+                <ColumnFilter
+                  column="subCategory"
+                  title="Sub-Category"
+                  data={baseFilteredItems}
+                  currentFilters={subCategoryFilters}
+                  onFilterChange={setSubCategoryFilters}
+                  getValue={(item) => getSubCategoryName(item)}
+                  sortConfig={sortConfig}
+                  onSortChange={handleSortChange}
+                />
+              </th>
               
               {/* Supplier / Vendor Column with Filter Dropdown */}
               <th className="p-3.5 font-bold w-48 relative bg-gray-50 dark:bg-gray-800">
@@ -475,7 +590,7 @@ export default function VendorPriceListTable({
           <tbody className="text-sm divide-y divide-gray-100 dark:divide-gray-800">
             {filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-gray-500">
+                <td colSpan={8} className="p-8 text-center text-gray-500">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <Tag className="w-8 h-8 text-gray-300" />
                     <p className="text-xs font-semibold">No items found matching the selected category & search query.</p>
@@ -511,6 +626,18 @@ export default function VendorPriceListTable({
                     </td>
                     <td className="p-3.5">
                       {getCategoryBadge(item.itemCategory)}
+                    </td>
+                    <td className="p-3.5">
+                      {(() => {
+                        const subCat = getSubCategoryName(item);
+                        return subCat !== '-' ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200/80 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
+                            {subCat}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-xs">-</span>
+                        );
+                      })()}
                     </td>
                     <td className="p-3.5">
                       {hasPrice && (config.vendor || config.vendorName) ? (
@@ -642,6 +769,14 @@ export default function VendorPriceListTable({
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <h4 className="font-bold text-gray-900 dark:text-white text-xs sm:text-sm truncate">{item.name || "N/A"}</h4>
                       {getCategoryBadge(item.itemCategory)}
+                      {(() => {
+                        const subCat = getSubCategoryName(item);
+                        return subCat !== '-' ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                            {subCat}
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                     {getItemDescription(item) ? (
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">{getItemDescription(item)}</p>

@@ -172,7 +172,7 @@ export default function POModal({
                 apiGet('/api/store/prefix', token).catch(() => null),
                 apiGet('/api/store/category', token).catch(() => []),
                 apiGet('/api/store/location', token).catch(() => []),
-                apiGet('/api/purchase/mrp/plan', token).catch(() => ({ data: [] })),
+                apiGet('/api/purchase/mrp/plans', token).catch(() => ({ mrpPlans: [] })),
             ]).then(([rmRes, boRes, conRes, plRes, prefixRes, catRes, locRes, mrpRes]) => {
                 setRawMaterialsList(Array.isArray(rmRes) ? rmRes : (rmRes?.rawMaterials || []));
                 setBoughtOutsList(Array.isArray(boRes) ? boRes : (boRes?.boughtOuts || []));
@@ -181,7 +181,7 @@ export default function POModal({
                 setFetchedPriceLists(pl);
                 setCategoriesList(Array.isArray(catRes) ? catRes : (catRes?.categories || []));
                 setLocationsList(Array.isArray(locRes) ? locRes : (locRes?.locations || []));
-                const plans = Array.isArray(mrpRes?.data) ? mrpRes.data : (Array.isArray(mrpRes) ? mrpRes : []);
+                const plans = Array.isArray(mrpRes?.mrpPlans) ? mrpRes.mrpPlans : (Array.isArray(mrpRes?.data) ? mrpRes.data : (Array.isArray(mrpRes) ? mrpRes : []));
                 setMrpPlanList(plans);
 
                 // If not editing an existing PO, generate fresh PO number using outward prefix setting

@@ -17,6 +17,7 @@ export default function PurchaseVendorPriceListPage() {
     boughtOuts,
     consumables,
     materials,
+    categories,
     loading,
     refetch,
     vendors
@@ -66,6 +67,7 @@ export default function PurchaseVendorPriceListPage() {
         boughtOuts={boughtOuts || []}
         consumables={consumables || []}
         materials={materials || []}
+        categories={categories || []}
         onAddPriceSheet={() => { setEditingItem(null); setShowModal(true); }}
         onEdit={(item) => { setEditingItem(item); setShowModal(true); }}
         onDelete={async (id) => {

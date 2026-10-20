@@ -21,6 +21,12 @@ import {
     getCustomer360,
     updateCustomer,
     deleteCustomer,
+    addCustomerNote,
+    getCustomerNotes,
+    deleteCustomerNote,
+    addCustomerTravelLog,
+    getCustomerTravelLogs,
+    deleteCustomerTravelLog,
     createActivity,
     getActivities,
     updateActivity,
@@ -44,10 +50,19 @@ import {
     createProposal,
     updateProposal,
     deleteProposal,
+    createProposalRevision,
+    convertProposalToPI,
+    getProformaInvoices,
+    createProformaInvoice,
+    updateProformaInvoice,
+    createPIRevision,
+    convertPIToInvoice,
+    deleteProformaInvoice,
     getPayments,
     createPayment,
     updatePayment,
     deletePayment,
+    getReceivablesAging,
     getInstalledBase,
     createInstalledBase,
     updateInstalledBase,
@@ -56,6 +71,10 @@ import {
     createServiceTicket,
     updateServiceTicket,
     deleteServiceTicket,
+    getInstallations,
+    createInstallation,
+    updateInstallation,
+    deleteInstallation,
     getCRMTeamAccess
 } from "../controllers/crm/index.js";
 
@@ -129,7 +148,7 @@ router.get("/excel/export/leads", exportLeadsToExcel);
 // ------------------------------------------
 // 3. Deals & Revenue Tab (Deals, Proposals, Payment Receipts)
 // ------------------------------------------
-router.use(["/deals", "/proposals", "/payments"], requirePermission("CRM", "deals"));
+router.use(["/deals", "/proposals", "/proforma-invoices", "/payments"], requirePermission("CRM", "deals"));
 
 // Deals
 router.route("/deals")
@@ -145,11 +164,27 @@ router.route("/proposals")
     .get(getProposals)
     .post(createProposal);
 
+router.post("/proposals/:id/revision", createProposalRevision);
+router.post("/proposals/:id/convert-to-pi", convertProposalToPI);
+
 router.route("/proposals/:id")
     .put(updateProposal)
     .delete(deleteProposal);
 
+// Proforma Invoices (PI)
+router.route("/proforma-invoices")
+    .get(getProformaInvoices)
+    .post(createProformaInvoice);
+
+router.post("/proforma-invoices/:id/revision", createPIRevision);
+router.post("/proforma-invoices/:id/convert-to-invoice", convertPIToInvoice);
+
+router.route("/proforma-invoices/:id")
+    .put(updateProformaInvoice)
+    .delete(deleteProformaInvoice);
+
 // Payments & Receipts
+router.get("/payments/aging", getReceivablesAging);
 router.route("/payments")
     .get(getPayments)
     .post(createPayment);
@@ -177,6 +212,20 @@ router.route("/customers")
 
 router.get("/customers/:id/360", getCustomer360);
 
+// Multi-modal Contact Notes (Audio, Photos, Documents, Formatted Text)
+router.route("/customers/:id/notes")
+    .get(getCustomerNotes)
+    .post(followUpUpload, addCustomerNote);
+
+router.delete("/customers/:id/notes/:noteId", deleteCustomerNote);
+
+// Customer Travel & Visit History Tracking
+router.route("/customers/:id/travel-logs")
+    .get(getCustomerTravelLogs)
+    .post(followUpUpload, addCustomerTravelLog);
+
+router.delete("/customers/:id/travel-logs/:travelId", deleteCustomerTravelLog);
+
 router.route("/customers/:id")
     .put(updateCustomer)
     .delete(deleteCustomer);
@@ -201,6 +250,15 @@ router.route("/service-tickets")
 router.route("/service-tickets/:id")
     .put(updateServiceTicket)
     .delete(deleteServiceTicket);
+
+// Installation & Commissioning (I&C)
+router.route("/installations")
+    .get(getInstallations)
+    .post(createInstallation);
+
+router.route("/installations/:id")
+    .put(updateInstallation)
+    .delete(deleteInstallation);
 
 // Activities & Follow-ups
 router.route("/activities")

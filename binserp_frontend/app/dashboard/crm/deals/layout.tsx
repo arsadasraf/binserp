@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { TrendingUp, FileText, CreditCard } from "lucide-react";
+import { TrendingUp, FileText, Receipt, CreditCard } from "lucide-react";
 import type { ReactNode } from "react";
 
 export default function DealsLayout({ children }: { children: ReactNode }) {
@@ -10,6 +10,7 @@ export default function DealsLayout({ children }: { children: ReactNode }) {
 
   const isPipelineActive = pathname === "/dashboard/crm/deals";
   const isProposalsActive = pathname.startsWith("/dashboard/crm/deals/proposals");
+  const isProformaActive = pathname.startsWith("/dashboard/crm/deals/proforma");
   const isPaymentsActive = pathname.startsWith("/dashboard/crm/deals/payments");
 
   const subTabs = [
@@ -26,6 +27,13 @@ export default function DealsLayout({ children }: { children: ReactNode }) {
       href: "/dashboard/crm/deals/proposals",
       icon: FileText,
       isActive: isProposalsActive,
+    },
+    {
+      id: "proforma",
+      label: "Proforma Invoices (PI)",
+      href: "/dashboard/crm/deals/proforma",
+      icon: Receipt,
+      isActive: isProformaActive,
     },
     {
       id: "payments",

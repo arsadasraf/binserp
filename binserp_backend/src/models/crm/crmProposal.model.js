@@ -22,14 +22,33 @@ export const crmProposalSchema = new mongoose.Schema(
         email: { type: String, trim: true },
         phone: { type: String, trim: true },
 
+        revisionNumber: { type: Number, default: 0 },
+        isLatestRevision: { type: Boolean, default: true },
+        parentProposalId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "CRMProposal",
+        },
+
         items: [
             {
+                productId: { type: mongoose.Schema.Types.ObjectId },
+                productSource: { 
+                    type: String, 
+                    enum: ["FGItem", "CRMMaster", "Custom"], 
+                    default: "Custom" 
+                },
                 name: { type: String, required: true },
                 description: { type: String },
+                uom: { type: String, default: "NOS" },
+                hsnCode: { type: String, default: "" },
                 quantity: { type: Number, default: 1 },
+                proposalPrice: { type: Number, default: 0 },
+                leastPrice: { type: Number, default: 0 },
                 unitPrice: { type: Number, default: 0 },
+                discountPercent: { type: Number, default: 0 },
                 taxRate: { type: Number, default: 18 },
-                total: { type: Number, default: 0 }
+                total: { type: Number, default: 0 },
+                isBelowFloorPrice: { type: Boolean, default: false }
             }
         ],
 
@@ -40,7 +59,7 @@ export const crmProposalSchema = new mongoose.Schema(
 
         status: {
             type: String,
-            enum: ["Draft", "Sent", "Under Review", "Accepted", "Declined"],
+            enum: ["Draft", "Sent", "Under Review", "Accepted", "Declined", "Converted to PI"],
             default: "Sent"
         },
         sentDate: { type: Date, default: Date.now },
@@ -48,6 +67,32 @@ export const crmProposalSchema = new mongoose.Schema(
         documentUrl: { type: String, trim: true },
         notes: { type: String },
         terms: { type: String },
+
+        // Conversion Link to Proforma Invoice
+        convertedToPI: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "CRMProformaInvoice",
+        },
+        convertedToPINo: { type: String, trim: true },
+        convertedAt: { type: Date },
+
+        // Historical Revisions Tree
+        revisionHistory: [
+            {
+                revisionNumber: { type: Number, required: true },
+                proposalNo: { type: String, required: true },
+                title: { type: String },
+                items: { type: Array, default: [] },
+                subtotal: { type: Number, default: 0 },
+                taxAmount: { type: Number, default: 0 },
+                totalAmount: { type: Number, default: 0 },
+                changeNotes: { type: String, default: "" },
+                status: { type: String },
+                savedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+                savedByName: { type: String },
+                savedAt: { type: Date, default: Date.now }
+            }
+        ],
 
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,

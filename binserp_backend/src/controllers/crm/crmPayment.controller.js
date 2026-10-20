@@ -92,3 +92,67 @@ export const deletePayment = asyncHandler(async (req, res) => {
 
     return res.status(200).json(new ApiResponse(200, null, "Payment deleted successfully"));
 });
+
+/**
+ * Accounts Receivable & Payment Recovery Aging Tracker (Requirement #13)
+ * Buckets: 0-30 Days, 31-60 Days, 61-90 Days, 90+ Days Critical
+ */
+export const getReceivablesAging = asyncHandler(async (req, res) => {
+    const Payment = req.getModel("CRMPayment", crmPaymentSchema);
+    const Deal = req.getModel("Deal", dealSchema);
+
+    const deals = await Deal.find({ company: req.company._id, status: { $in: ["Won", "Open"] } })
+        .populate("customer", "name phone email customerCode");
+
+    const payments = await Payment.find({ company: req.company._id });
+
+    const now = new Date();
+
+    const receivables = deals.map(deal => {
+        const dealPayments = payments.filter(p => p.deal?.toString() === deal._id.toString());
+        const totalPaid = dealPayments.reduce((acc, cur) => acc + (cur.amount || 0), 0);
+        const totalValue = deal.value || 0;
+        const balanceDue = Math.max(0, totalValue - totalPaid);
+
+        const createdDate = new Date(deal.createdAt || now);
+        const daysOverdue = Math.max(0, Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)));
+
+        let agingBucket = "0-30 Days";
+        if (daysOverdue > 90) agingBucket = "90+ Days (Critical)";
+        else if (daysOverdue > 60) agingBucket = "61-90 Days";
+        else if (daysOverdue > 30) agingBucket = "31-60 Days";
+
+        return {
+            dealId: deal._id,
+            dealTitle: deal.title,
+            customerName: deal.customer?.name || deal.customerName || "Customer",
+            customerPhone: deal.customer?.phone || "",
+            customerEmail: deal.customer?.email || "",
+            totalValue,
+            totalPaid,
+            balanceDue,
+            daysOverdue,
+            agingBucket,
+            stage: deal.stage,
+            createdAt: deal.createdAt
+        };
+    }).filter(r => r.balanceDue > 0);
+
+    const bucket0_30 = receivables.filter(r => r.agingBucket === "0-30 Days").reduce((a, b) => a + b.balanceDue, 0);
+    const bucket31_60 = receivables.filter(r => r.agingBucket === "31-60 Days").reduce((a, b) => a + b.balanceDue, 0);
+    const bucket61_90 = receivables.filter(r => r.agingBucket === "61-90 Days").reduce((a, b) => a + b.balanceDue, 0);
+    const bucket90Plus = receivables.filter(r => r.agingBucket === "90+ Days (Critical)").reduce((a, b) => a + b.balanceDue, 0);
+    const totalOutstanding = receivables.reduce((a, b) => a + b.balanceDue, 0);
+
+    return res.status(200).json(new ApiResponse(200, {
+        receivables,
+        summary: {
+            bucket0_30,
+            bucket31_60,
+            bucket61_90,
+            bucket90Plus,
+            totalOutstanding,
+            overdueCount: receivables.length
+        }
+    }, "Accounts receivable aging fetched successfully"));
+});

@@ -3,9 +3,12 @@
 import React, { useState, useEffect } from "react";
 import { 
     Plus, Search, Filter, RefreshCw, Users, Building2, Phone, Mail, 
-    MapPin, FileText, ChevronRight, X, Edit2, Trash2, DollarSign, Calendar, Clock, CheckCircle2
+    MapPin, FileText, ChevronRight, X, Edit2, Trash2, DollarSign, Calendar, Clock, CheckCircle2,
+    Mic, Navigation, MessageSquare, Send
 } from "lucide-react";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/src/lib/api";
+import CustomerNotesModal from "./CustomerNotesModal";
+import CustomerTravelModal from "./CustomerTravelModal";
 
 interface Customer {
     _id: string;
@@ -36,6 +39,12 @@ export default function CustomerDirectory() {
     // 360 Drawer State
     const [selectedCustomer360, setSelectedCustomer360] = useState<any | null>(null);
     const [loading360, setLoading360] = useState(false);
+
+    // Multi-Modal Contact Notes Modal
+    const [notesCustomer, setNotesCustomer] = useState<any | null>(null);
+
+    // Customer Travel & Visit History Modal
+    const [travelCustomer, setTravelCustomer] = useState<any | null>(null);
 
     // Create / Edit Modal
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -313,11 +322,45 @@ export default function CustomerDirectory() {
                                         </td>
                                         <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex items-center justify-end gap-1.5">
+                                                {/* 1-Click WhatsApp Quick Action */}
+                                                {c.phone && (
+                                                    <a
+                                                        href={`https://wa.me/91${c.phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(`Hello ${c.contactPerson || c.name}, thank you for connecting with us!`)}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-lg transition-colors"
+                                                        title="WhatsApp Direct Message"
+                                                    >
+                                                        <MessageSquare size={13} className="text-emerald-600" />
+                                                    </a>
+                                                )}
+
+                                                {/* Multi-modal Notes (Voice/Photos/Docs) */}
+                                                <button
+                                                    onClick={() => setNotesCustomer(c)}
+                                                    className="px-2 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1"
+                                                    title="Voice & Media Notes"
+                                                >
+                                                    <Mic size={12} className="text-purple-600" />
+                                                    <span>Notes</span>
+                                                </button>
+
+                                                {/* Customer Travel & Site Visits */}
+                                                <button
+                                                    onClick={() => setTravelCustomer(c)}
+                                                    className="px-2 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1"
+                                                    title="Customer Travel & Field Visits"
+                                                >
+                                                    <Navigation size={12} className="text-indigo-600" />
+                                                    <span>Visits</span>
+                                                </button>
+
+                                                {/* 360 View */}
                                                 <button
                                                     onClick={() => handleOpenCustomer360(c._id)}
                                                     className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1"
                                                 >
-                                                    360° View <ChevronRight size={12} />
+                                                    360° <ChevronRight size={12} />
                                                 </button>
                                                 <button
                                                     onClick={() => handleOpenEdit(c)}
@@ -387,6 +430,32 @@ export default function CustomerDirectory() {
                                         {selectedCustomer360.analytics?.wonDealsCount || 0} / {selectedCustomer360.analytics?.totalDealsCount || 0}
                                     </strong>
                                 </div>
+                            </div>
+
+                            {/* Direct Actions Bar (Multi-modal notes, travel logs, WhatsApp) */}
+                            <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl">
+                                <button
+                                    onClick={() => setNotesCustomer(selectedCustomer360.customer)}
+                                    className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors"
+                                >
+                                    <Mic size={14} /> Log Voice & Media Note
+                                </button>
+                                <button
+                                    onClick={() => setTravelCustomer(selectedCustomer360.customer)}
+                                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors"
+                                >
+                                    <Navigation size={14} /> Log Site Visit
+                                </button>
+                                {selectedCustomer360.customer.phone && (
+                                    <a
+                                        href={`https://wa.me/91${selectedCustomer360.customer.phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(`Hello ${selectedCustomer360.customer.contactPerson || selectedCustomer360.customer.name}, regarding our commercial account...`)}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors ml-auto"
+                                    >
+                                        <MessageSquare size={14} /> WhatsApp
+                                    </a>
+                                )}
                             </div>
 
                             {/* Contact & Business Info */}
@@ -647,6 +716,42 @@ export default function CustomerDirectory() {
                         </form>
                     </div>
                 </div>
+            )}
+
+            {/* MULTI-MODAL CONTACT NOTES MODAL (AUDIO / PHOTOS / DOCS) */}
+            {notesCustomer && (
+                <CustomerNotesModal
+                    isOpen={Boolean(notesCustomer)}
+                    onClose={() => setNotesCustomer(null)}
+                    customer={notesCustomer}
+                    onCustomerUpdated={(updated) => {
+                        setCustomers(prev => prev.map(c => c._id === updated._id ? { ...c, ...updated } : c));
+                        if (selectedCustomer360?.customer?._id === updated._id) {
+                            setSelectedCustomer360({
+                                ...selectedCustomer360,
+                                customer: { ...selectedCustomer360.customer, ...updated }
+                            });
+                        }
+                    }}
+                />
+            )}
+
+            {/* CUSTOMER TRAVEL & VISIT HISTORY MODAL */}
+            {travelCustomer && (
+                <CustomerTravelModal
+                    isOpen={Boolean(travelCustomer)}
+                    onClose={() => setTravelCustomer(null)}
+                    customer={travelCustomer}
+                    onCustomerUpdated={(updated) => {
+                        setCustomers(prev => prev.map(c => c._id === updated._id ? { ...c, ...updated } : c));
+                        if (selectedCustomer360?.customer?._id === updated._id) {
+                            setSelectedCustomer360({
+                                ...selectedCustomer360,
+                                customer: { ...selectedCustomer360.customer, ...updated }
+                            });
+                        }
+                    }}
+                />
             )}
 
         </div>

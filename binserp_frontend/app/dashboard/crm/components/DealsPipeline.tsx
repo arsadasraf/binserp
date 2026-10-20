@@ -3,9 +3,29 @@
 import React, { useState, useEffect } from "react";
 import { 
     Plus, Search, Filter, RefreshCw, IndianRupee, Calendar, User, 
-    Building2, CheckCircle2, XCircle, ArrowRight, Edit2, Trash2, X, Tag 
+    Building2, CheckCircle2, XCircle, ArrowRight, Edit2, Trash2, X, Tag,
+    FileText, Receipt, CheckSquare, Layers, ExternalLink
 } from "lucide-react";
+import Link from "next/link";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/src/lib/api";
+
+interface LinkedDoc {
+    _id: string;
+    proposalNo?: string;
+    piNumber?: string;
+    invoiceNumber?: string;
+    revisionNumber?: number;
+    title?: string;
+    totalAmount?: number;
+    grandTotal?: number;
+    advanceRequired?: number;
+    advancePaid?: number;
+    status?: string;
+    paymentStatus?: string;
+    quotationNo?: string;
+    date?: string;
+    createdAt?: string;
+}
 
 interface Deal {
     _id: string;
@@ -24,6 +44,9 @@ interface Deal {
     lossReason?: string;
     notes?: string;
     createdAt?: string;
+    quotations?: LinkedDoc[];
+    proformaInvoices?: LinkedDoc[];
+    invoices?: LinkedDoc[];
 }
 
 const DEFAULT_STAGES = [
@@ -41,6 +64,7 @@ export default function DealsPipeline() {
     const [stageFilter, setStageFilter] = useState("All");
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
+    const [selectedCommercialDeal, setSelectedCommercialDeal] = useState<Deal | null>(null);
     const [submitting, setSubmitting] = useState(false);
 
     // Form State
@@ -285,6 +309,55 @@ export default function DealsPipeline() {
                                             </span>
                                         </div>
 
+                                        {/* Linked Commercial Documents (Quotation > PI > Invoice) */}
+                                        <div className="pt-1.5 border-t border-slate-100 dark:border-slate-700/60 flex flex-wrap gap-1">
+                                            {(deal.quotations || []).map((q, qIdx) => (
+                                                <button
+                                                    key={qIdx}
+                                                    type="button"
+                                                    onClick={() => setSelectedCommercialDeal(deal)}
+                                                    className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 rounded font-mono text-[9px] font-bold border border-blue-200 cursor-pointer hover:bg-blue-100 flex items-center gap-1"
+                                                    title={`Quotation: ${q.proposalNo} (Rev ${q.revisionNumber || 0}) - ₹${Number(q.totalAmount || 0).toLocaleString()}`}
+                                                >
+                                                    <FileText size={9} />
+                                                    <span>{q.proposalNo}</span>
+                                                </button>
+                                            ))}
+                                            {(deal.proformaInvoices || []).map((pi, piIdx) => (
+                                                <button
+                                                    key={piIdx}
+                                                    type="button"
+                                                    onClick={() => setSelectedCommercialDeal(deal)}
+                                                    className="px-1.5 py-0.5 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 rounded font-mono text-[9px] font-bold border border-purple-200 cursor-pointer hover:bg-purple-100 flex items-center gap-1"
+                                                    title={`Proforma Invoice: ${pi.piNumber} - ₹${Number(pi.totalAmount || 0).toLocaleString()}`}
+                                                >
+                                                    <Receipt size={9} />
+                                                    <span>{pi.piNumber}</span>
+                                                </button>
+                                            ))}
+                                            {(deal.invoices || []).map((inv, invIdx) => (
+                                                <button
+                                                    key={invIdx}
+                                                    type="button"
+                                                    onClick={() => setSelectedCommercialDeal(deal)}
+                                                    className="px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded font-mono text-[9px] font-bold border border-emerald-200 cursor-pointer hover:bg-emerald-100 flex items-center gap-1"
+                                                    title={`Tax Invoice: ${inv.invoiceNumber} - ₹${Number(inv.grandTotal || 0).toLocaleString()}`}
+                                                >
+                                                    <CheckSquare size={9} />
+                                                    <span>{inv.invoiceNumber}</span>
+                                                </button>
+                                            ))}
+                                            {(!deal.quotations?.length && !deal.proformaInvoices?.length && !deal.invoices?.length) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedCommercialDeal(deal)}
+                                                    className="text-[10px] text-slate-400 hover:text-blue-600 font-bold flex items-center gap-1 cursor-pointer py-0.5"
+                                                >
+                                                    <Plus size={10} /> Link Quote / PI
+                                                </button>
+                                            )}
+                                        </div>
+
                                         {/* Quick Move Stage Select */}
                                         <select
                                             value={deal.stage || stg.name}
@@ -437,6 +510,219 @@ export default function DealsPipeline() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* DEAL COMMERCIAL WORKFLOW DRAWER (QUOTATION > PI > INVOICE) */}
+            {selectedCommercialDeal && (
+                <div className="fixed inset-0 z-[220] flex items-center justify-end bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+                    <div className="bg-white dark:bg-slate-900 w-full max-w-xl h-full shadow-2xl border-l border-slate-200 dark:border-slate-800 flex flex-col">
+                        {/* Drawer Header */}
+                        <div className="p-5 bg-gradient-to-r from-slate-900 to-blue-950 text-white flex justify-between items-center border-b border-slate-800 shrink-0">
+                            <div>
+                                <h3 className="font-extrabold text-base flex items-center gap-2">
+                                    <Layers size={18} className="text-blue-400" />
+                                    Commercial Document Workflow
+                                </h3>
+                                <p className="text-xs text-slate-300 mt-0.5 font-medium truncate max-w-md">
+                                    {selectedCommercialDeal.title} • {selectedCommercialDeal.customerName || "Customer"}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setSelectedCommercialDeal(null)}
+                                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 cursor-pointer"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {/* Drawer Content */}
+                        <div className="p-5 overflow-y-auto space-y-5 flex-1 text-xs">
+                            {/* Deal Metric Bar */}
+                            <div className="p-4 bg-slate-50 dark:bg-slate-850 rounded-2xl border border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                                <div>
+                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">Deal Opportunity Value</span>
+                                    <strong className="text-lg font-extrabold font-mono text-blue-600 dark:text-blue-400">
+                                        ₹{Number(selectedCommercialDeal.value || 0).toLocaleString()}
+                                    </strong>
+                                </div>
+                                <div className="text-right">
+                                    <span className="px-2.5 py-1 bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 rounded-lg text-xs font-bold">
+                                        {selectedCommercialDeal.stage} ({selectedCommercialDeal.probability}% Win)
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Commercial Journey Step Indicator */}
+                            <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-2xl border border-blue-200/60 dark:border-blue-800/40">
+                                <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                    <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                                        <FileText size={12} /> 1. Quotation
+                                    </span>
+                                    <ArrowRight size={12} className="text-slate-400" />
+                                    <span className="flex items-center gap-1 text-purple-600 dark:text-purple-400">
+                                        <Receipt size={12} /> 2. Proforma (PI)
+                                    </span>
+                                    <ArrowRight size={12} className="text-slate-400" />
+                                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                                        <CheckSquare size={12} /> 3. Tax Invoice
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* SECTION 1: PROPOSALS & QUOTATIONS */}
+                            <div className="space-y-2.5">
+                                <div className="flex justify-between items-center">
+                                    <h4 className="font-extrabold text-xs uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                                        <FileText size={14} className="text-blue-500" />
+                                        Linked Quotations ({(selectedCommercialDeal.quotations || []).length})
+                                    </h4>
+                                    <Link
+                                        href="/dashboard/crm/deals/proposals"
+                                        className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1"
+                                    >
+                                        <Plus size={11} /> New Quote
+                                    </Link>
+                                </div>
+
+                                {(!selectedCommercialDeal.quotations || selectedCommercialDeal.quotations.length === 0) ? (
+                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-700">
+                                        No Quotation issued yet for this deal.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {selectedCommercialDeal.quotations.map((q, qIndex) => (
+                                            <div key={qIndex} className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex justify-between items-center">
+                                                <div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <strong className="font-mono text-slate-900 dark:text-white font-bold">{q.proposalNo}</strong>
+                                                        <span className="px-1.5 py-0.2 bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 rounded font-mono text-[9px] font-bold">
+                                                            Rev {q.revisionNumber || 0}
+                                                        </span>
+                                                        <span className="px-1.5 py-0.2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[9px]">
+                                                            {q.status || "Sent"}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[11px] text-slate-500 block mt-0.5 truncate max-w-xs">{q.title}</span>
+                                                </div>
+                                                <div className="text-right">
+                                                    <strong className="font-mono text-sm font-bold text-slate-900 dark:text-white block">
+                                                        ₹{Number(q.totalAmount || 0).toLocaleString()}
+                                                    </strong>
+                                                    <Link
+                                                        href="/dashboard/crm/deals/proposals"
+                                                        className="text-[10px] text-blue-600 hover:underline font-bold inline-flex items-center gap-0.5"
+                                                    >
+                                                        <span>View Quote</span> <ExternalLink size={9} />
+                                                    </Link>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* SECTION 2: PROFORMA INVOICES */}
+                            <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+                                <div className="flex justify-between items-center">
+                                    <h4 className="font-extrabold text-xs uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                                        <Receipt size={14} className="text-purple-500" />
+                                        Proforma Invoices ({(selectedCommercialDeal.proformaInvoices || []).length})
+                                    </h4>
+                                    <Link
+                                        href="/dashboard/crm/deals/proforma"
+                                        className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1"
+                                    >
+                                        <Plus size={11} /> New PI
+                                    </Link>
+                                </div>
+
+                                {(!selectedCommercialDeal.proformaInvoices || selectedCommercialDeal.proformaInvoices.length === 0) ? (
+                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-700">
+                                        No Proforma Invoice created yet.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {selectedCommercialDeal.proformaInvoices.map((pi, piIndex) => (
+                                            <div key={piIndex} className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex justify-between items-center">
+                                                <div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <strong className="font-mono text-purple-700 dark:text-purple-300 font-bold">{pi.piNumber}</strong>
+                                                        <span className="px-1.5 py-0.2 bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 rounded font-mono text-[9px] font-bold">
+                                                            Rev {pi.revisionNumber || 0}
+                                                        </span>
+                                                        <span className="px-1.5 py-0.2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[9px]">
+                                                            {pi.status || "Sent"}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[11px] text-slate-500 block mt-0.5 truncate max-w-xs">{pi.title}</span>
+                                                </div>
+                                                <div className="text-right">
+                                                    <strong className="font-mono text-sm font-bold text-slate-900 dark:text-white block">
+                                                        ₹{Number(pi.totalAmount || 0).toLocaleString()}
+                                                    </strong>
+                                                    <Link
+                                                        href="/dashboard/crm/deals/proforma"
+                                                        className="text-[10px] text-purple-600 hover:underline font-bold inline-flex items-center gap-0.5"
+                                                    >
+                                                        <span>View PI</span> <ExternalLink size={9} />
+                                                    </Link>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* SECTION 3: TAX INVOICES */}
+                            <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+                                <div className="flex justify-between items-center">
+                                    <h4 className="font-extrabold text-xs uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                                        <CheckSquare size={14} className="text-emerald-500" />
+                                        Tax Invoices ({(selectedCommercialDeal.invoices || []).length})
+                                    </h4>
+                                </div>
+
+                                {(!selectedCommercialDeal.invoices || selectedCommercialDeal.invoices.length === 0) ? (
+                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-700">
+                                        No Tax Invoice billed yet. Convert from Proforma Invoice above.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {selectedCommercialDeal.invoices.map((inv, invIndex) => (
+                                            <div key={invIndex} className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex justify-between items-center">
+                                                <div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <strong className="font-mono text-emerald-700 dark:text-emerald-300 font-bold">{inv.invoiceNumber}</strong>
+                                                        <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded text-[9px] font-bold">
+                                                            {inv.paymentStatus || "Unpaid"}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[11px] text-slate-400 block mt-0.5">{inv.date ? new Date(inv.date).toLocaleDateString() : ""}</span>
+                                                </div>
+                                                <div className="text-right">
+                                                    <strong className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400 block">
+                                                        ₹{Number(inv.grandTotal || 0).toLocaleString()}
+                                                    </strong>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Drawer Footer */}
+                        <div className="p-4 bg-slate-50 dark:bg-slate-850 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setSelectedCommercialDeal(null)}
+                                className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl cursor-pointer"
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

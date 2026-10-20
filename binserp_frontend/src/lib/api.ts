@@ -127,18 +127,44 @@ export const apiRequest = async (
   }
 };
 
+const handleApiResponse = async (response: Response) => {
+  const contentType = response.headers.get("content-type");
+  const isJson = contentType && contentType.includes("application/json");
+
+  if (!response.ok) {
+    let errorMsg = `HTTP error! status: ${response.status}`;
+    if (isJson) {
+      try {
+        const error = await response.json();
+        if (error && error.message) errorMsg = error.message;
+      } catch {}
+    } else {
+      try {
+        const text = await response.text();
+        if (text && text.length < 200 && !text.includes("<")) errorMsg = text;
+      } catch {}
+    }
+    throw new Error(errorMsg);
+  }
+
+  if (isJson) {
+    return response.json();
+  }
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { data: text, raw: text };
+  }
+};
+
 export const apiGet = async (endpoint: string, token?: string | null) => {
   const response = await apiRequest(endpoint, {
     method: "GET",
     token,
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
-    throw new Error(error.message || `HTTP error! status: ${response.status}`);
-  }
-
-  return response.json();
+  return handleApiResponse(response);
 };
 
 export const apiPost = async (endpoint: string, data: any, token?: string | null) => {
@@ -149,12 +175,7 @@ export const apiPost = async (endpoint: string, data: any, token?: string | null
     token,
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
-    throw new Error(error.message || `HTTP error! status: ${response.status}`);
-  }
-
-  return response.json();
+  return handleApiResponse(response);
 };
 
 export const apiPut = async (endpoint: string, data: any, token?: string | null) => {
@@ -165,12 +186,7 @@ export const apiPut = async (endpoint: string, data: any, token?: string | null)
     token,
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
-    throw new Error(error.message || `HTTP error! status: ${response.status}`);
-  }
-
-  return response.json();
+  return handleApiResponse(response);
 };
 
 export const apiPatch = async (endpoint: string, data: any, token?: string | null) => {
@@ -181,12 +197,7 @@ export const apiPatch = async (endpoint: string, data: any, token?: string | nul
     token,
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
-    throw new Error(error.message || `HTTP error! status: ${response.status}`);
-  }
-
-  return response.json();
+  return handleApiResponse(response);
 };
 
 export const apiDelete = async (endpoint: string, token?: string | null) => {
@@ -195,11 +206,7 @@ export const apiDelete = async (endpoint: string, token?: string | null) => {
     token,
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
-    throw new Error(error.message || `HTTP error! status: ${response.status}`);
-  }
-
-  return response.json();
+  return handleApiResponse(response);
 };
+
 

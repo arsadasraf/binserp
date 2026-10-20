@@ -14,6 +14,14 @@ export { createCustomer } from "./createCustomer.controller.js";
 export { getCustomers, getCustomer360 } from "./getCustomers.controller.js";
 export { updateCustomer } from "./updateCustomer.controller.js";
 export { deleteCustomer } from "./deleteCustomer.controller.js";
+export {
+    addCustomerNote,
+    getCustomerNotes,
+    deleteCustomerNote,
+    addCustomerTravelLog,
+    getCustomerTravelLogs,
+    deleteCustomerTravelLog
+} from "./customerNotesAndTravel.controller.js";
 
 // Activities
 export { createActivity } from "./createActivity.controller.js";
@@ -28,16 +36,34 @@ export { downloadExcelTemplate, importLeadsFromExcel, importCustomersFromExcel, 
 // Integrations & Webhooks
 export { getCRMIntegrations, saveCRMIntegrations, syncIndiaMartLeads, receiveWebhookLead, getSyncLogs } from "./crmIntegration.controller.js";
 
-// Proposals
-export { getProposals, createProposal, updateProposal, deleteProposal } from "./crmProposal.controller.js";
+// Proposals & Quotations
+export { 
+    getProposals, 
+    createProposal, 
+    updateProposal, 
+    deleteProposal,
+    createProposalRevision,
+    convertProposalToPI 
+} from "./crmProposal.controller.js";
+
+// Proforma Invoices
+export {
+    getProformaInvoices,
+    createProformaInvoice,
+    updateProformaInvoice,
+    createPIRevision,
+    convertPIToInvoice,
+    deleteProformaInvoice
+} from "./crmProformaInvoice.controller.js";
 
 // Payments & Receipts
-export { getPayments, createPayment, updatePayment, deletePayment } from "./crmPayment.controller.js";
+export { getPayments, createPayment, updatePayment, deletePayment, getReceivablesAging } from "./crmPayment.controller.js";
 
-// After-Sales Service (Installed Base & Service Tickets)
+// After-Sales Service (Installed Base, Service Tickets, Installations & Commissioning)
 export { 
     getInstalledBase, createInstalledBase, updateInstalledBase, deleteInstalledBase, 
-    getServiceTickets, createServiceTicket, updateServiceTicket, deleteServiceTicket 
+    getServiceTickets, createServiceTicket, updateServiceTicket, deleteServiceTicket,
+    getInstallations, createInstallation, updateInstallation, deleteInstallation
 } from "./afterSalesService.controller.js";
 
 // Team Access
