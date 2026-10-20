@@ -1,10 +1,11 @@
 import express from "express";
-import { verifyJWT as protect } from "../middlewares/auth.middleware.js";
+import { verifyJWT as protect, requirePermission } from "../middlewares/auth.middleware.js";
 import { createVehicle, updateVehicle, deleteVehicle, getActiveVehicles, getAllVehicles, checkOutVehicle, getVehicleSuggestions } from "../controllers/gateentry/index.js";
 
 const router = express.Router();
 
 router.use(protect); // Ensure all routes are protected
+router.use(requirePermission("Security", "vehicle"));
 
 router.post("/", createVehicle);
 router.get("/suggestions", getVehicleSuggestions);

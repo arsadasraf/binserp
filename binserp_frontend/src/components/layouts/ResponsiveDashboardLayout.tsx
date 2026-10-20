@@ -150,7 +150,8 @@ function resolveNavItems(userType: string | null, department: string | null, rol
     roles.forEach((r) => {
       if (!r) return;
       const roleName = typeof r === "string" ? r : r.name;
-      if (roleName === "GM" || roleName === "Admin Default Role" || roleName === "Company Management") {
+      const isDefaultRole = typeof r === "object" ? r?.isDefault !== false : true;
+      if ((roleName === "GM" || roleName === "Admin Default Role" || roleName === "Company Management") && isDefaultRole) {
         isGM = true;
       }
       if (typeof r === "object" && Array.isArray(r.policies)) {
@@ -188,9 +189,8 @@ function resolveNavItems(userType: string | null, department: string | null, rol
     return [departmentNavMap[matchedKey]];
   }
 
-  return Object.values(departmentNavMap)
-    .filter((navObj) => navObj.label !== "Admin")
-    .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+  // Fallback for users with no assigned role and no department: Safe Dashboard only
+  return fallbackNav;
 }
 
 // ----------------------------------------------------------------------

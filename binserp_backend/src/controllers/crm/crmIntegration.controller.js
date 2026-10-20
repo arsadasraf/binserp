@@ -1,8 +1,13 @@
 import axios from "axios";
 import { crmIntegrationSchema, leadSchema } from "../../models/crm/index.js";
+import { Company } from "../../models/company/index.js";
+import { getTenantModel } from "../../db/tenant.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
+
+// In-memory cache for mapping webhook token -> { dbName, companyId }
+const webhookTokenCache = new Map();
 
 // 1. Get Integration Settings
 export const getCRMIntegrations = asyncHandler(async (req, res) => {
@@ -15,6 +20,13 @@ export const getCRMIntegrations = asyncHandler(async (req, res) => {
             indiaMart: { autoSync: false, defaultSource: "IndiaMART" },
             tradeIndia: { autoSync: false },
             webhook: { isActive: true, defaultSource: "Website Webhook" }
+        });
+    }
+
+    if (integration?.webhook?.webhookToken && req.company?.dbName) {
+        webhookTokenCache.set(integration.webhook.webhookToken, {
+            dbName: req.company.dbName,
+            companyId: req.company._id
         });
     }
 
@@ -44,6 +56,14 @@ export const saveCRMIntegrations = asyncHandler(async (req, res) => {
     }
 
     await integration.save();
+
+    if (integration?.webhook?.webhookToken && req.company?.dbName) {
+        webhookTokenCache.set(integration.webhook.webhookToken, {
+            dbName: req.company.dbName,
+            companyId: req.company._id
+        });
+    }
+
     return res.status(200).json(new ApiResponse(200, integration, "CRM Integration settings saved successfully"));
 });
 
@@ -163,21 +183,67 @@ export const receiveWebhookLead = asyncHandler(async (req, res) => {
     const { token } = req.params;
     if (!token) throw new ApiError(400, "Webhook token is required");
 
-    const CRMIntegration = req.getModel("CRMIntegration", crmIntegrationSchema);
-    const Lead = req.getModel("Lead", leadSchema);
+    let dbName = null;
+    let integration = null;
 
-    const integration = await CRMIntegration.findOne({ "webhook.webhookToken": token, "webhook.isActive": true });
+    if (typeof req.getModel === "function" && req.company?.dbName) {
+        const CRMIntegration = req.getModel("CRMIntegration", crmIntegrationSchema);
+        integration = await CRMIntegration.findOne({ "webhook.webhookToken": token, "webhook.isActive": true });
+        if (integration) {
+            dbName = req.company.dbName;
+        }
+    }
+
+    if (!integration && webhookTokenCache.has(token)) {
+        const cached = webhookTokenCache.get(token);
+        try {
+            const CRMIntegration = getTenantModel(cached.dbName, "CRMIntegration", crmIntegrationSchema);
+            const found = await CRMIntegration.findOne({ "webhook.webhookToken": token, "webhook.isActive": true });
+            if (found) {
+                integration = found;
+                dbName = cached.dbName;
+            } else {
+                webhookTokenCache.delete(token);
+            }
+        } catch {
+            webhookTokenCache.delete(token);
+        }
+    }
+
     if (!integration) {
+        // Resolve tenant DB across active companies
+        const companies = await Company.find({ isSuspended: { $ne: true } }).select("_id dbName");
+        for (const comp of companies) {
+            if (!comp.dbName) continue;
+            try {
+                const CRMIntegration = getTenantModel(comp.dbName, "CRMIntegration", crmIntegrationSchema);
+                const found = await CRMIntegration.findOne({ "webhook.webhookToken": token, "webhook.isActive": true });
+                if (found) {
+                    integration = found;
+                    dbName = comp.dbName;
+                    webhookTokenCache.set(token, { dbName: comp.dbName, companyId: comp._id });
+                    break;
+                }
+            } catch {
+                // Ignore errors for individual tenant DBs
+            }
+        }
+    }
+
+    if (!integration || !dbName) {
         throw new ApiError(403, "Invalid or disabled webhook endpoint");
     }
 
+    const Lead = getTenantModel(dbName, "Lead", leadSchema);
+
     const payload = req.body || {};
-    const name = payload.name || payload.fullName || payload.contactPerson || payload.buyerName || "Web Lead";
-    const companyName = payload.company || payload.companyName || payload.organization || name;
-    const email = (payload.email || payload.emailAddress || "").toLowerCase();
-    const phone = payload.phone || payload.mobile || payload.contactNumber;
-    const requirements = payload.requirements || payload.message || payload.inquiry || payload.query || JSON.stringify(payload);
-    const source = payload.source || integration.webhook.defaultSource || "Website Webhook";
+    const name = String(payload.name || payload.fullName || payload.contactPerson || payload.buyerName || "Web Lead").slice(0, 150);
+    const companyName = String(payload.company || payload.companyName || payload.organization || name).slice(0, 150);
+    const email = String(payload.email || payload.emailAddress || "").toLowerCase().slice(0, 100);
+    const phone = String(payload.phone || payload.mobile || payload.contactNumber || "").slice(0, 30);
+    const rawRequirements = payload.requirements || payload.message || payload.inquiry || payload.query || JSON.stringify(payload);
+    const requirements = String(rawRequirements).slice(0, 2000);
+    const source = String(payload.source || integration.webhook?.defaultSource || "Website Webhook").slice(0, 80);
 
     const lead = await Lead.create({
         company: integration.company,
@@ -185,15 +251,15 @@ export const receiveWebhookLead = asyncHandler(async (req, res) => {
         companyName,
         email: email || undefined,
         phone: phone || undefined,
-        city: payload.city,
-        state: payload.state,
+        city: payload.city ? String(payload.city).slice(0, 100) : undefined,
+        state: payload.state ? String(payload.state).slice(0, 100) : undefined,
         source,
-        sourceRawData: payload,
+        sourceRawData: typeof payload === "object" ? payload : {},
         warmth: "Hot",
         status: "New",
         requirements,
-        productInterest: payload.product ? [payload.product] : [],
-        assignedTo: integration.webhook.defaultAssignedTo || undefined,
+        productInterest: payload.product ? [String(payload.product).slice(0, 100)] : [],
+        assignedTo: integration.webhook?.defaultAssignedTo || undefined,
         tags: ["Webhook", source]
     });
 

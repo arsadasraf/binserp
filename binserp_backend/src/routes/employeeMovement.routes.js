@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, requirePermission } from "../middlewares/auth.middleware.js";
 import {
     createEmployeeOut,
     updateEmployeeIn,
@@ -11,8 +11,9 @@ import {
 
 const router = Router();
 
-// Apply auth middleware
+// Apply auth & RBAC middleware
 router.use(verifyJWT);
+router.use(requirePermission("Security", "employee-movement"));
 
 // Routes
 router.post("/out", createEmployeeOut);

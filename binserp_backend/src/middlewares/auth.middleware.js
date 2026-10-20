@@ -358,7 +358,10 @@ export const requirePermission = (moduleName, tabName, action = "") => {
     // 3. Full-access roles (GM, Company Management, Admin Default Role)
     for (const r of rolesToCheck) {
       const rName = (r?.name || "").trim();
-      if (rName === "GM" || rName === "Admin Default Role" || rName === "Company Management") {
+      if (
+        (rName === "GM" || rName === "Admin Default Role" || rName === "Company Management") &&
+        r?.isDefault !== false
+      ) {
         return next();
       }
     }

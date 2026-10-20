@@ -4,12 +4,13 @@ import {
   getManpowerReports,
   getMaterialReports
 } from "../controllers/reports/reports.controller.js";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, requirePermission } from "../middlewares/auth.middleware.js";
 
 const router = express.Router();
 
-// Require authentication for all operational report routes
+// Require authentication & RBAC for all operational report routes
 router.use(verifyJWT);
+router.use(requirePermission("Reports", "overview"));
 
 // Machine & Workstation Insights (OEE)
 router.route("/machines").get(getMachineReports);

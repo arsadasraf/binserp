@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, requirePermission } from "../middlewares/auth.middleware.js";
 import {
   createMRPPlan,
   getAllMRPPlans,
@@ -27,8 +27,9 @@ import {
 
 const router = Router();
 
-// Apply auth middleware to all MRP routes
+// Apply auth and RBAC middleware to all MRP routes
 router.use(verifyJWT);
+router.use(requirePermission("Store", "purchase"));
 
 // MRP Procurement & WIP Intelligence Routes
 router.route("/procurement-workbench")

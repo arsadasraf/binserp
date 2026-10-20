@@ -24,6 +24,11 @@ export const createRole = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Role name is required");
   }
 
+  const RESERVED_NAMES = ["gm", "admin default role", "company management"];
+  if (RESERVED_NAMES.includes(name.trim().toLowerCase())) {
+    throw new ApiError(400, `The role name '${name}' is reserved by the system.`);
+  }
+
   const roleExists = await RoleModel.findOne({ name, company: req.company._id });
   if (roleExists) {
     throw new ApiError(400, "Role with this name already exists");
@@ -34,6 +39,7 @@ export const createRole = asyncHandler(async (req, res) => {
     name,
     description,
     policies,
+    isDefault: false,
   });
 
   res.status(201).json(new ApiResponse(201, role, "Role created successfully"));
@@ -79,7 +85,17 @@ export const updateRole = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Role not found");
   }
 
-  if (name) role.name = name;
+  if (name) {
+    const trimmed = name.trim();
+    const RESERVED_NAMES = ["gm", "admin default role", "company management"];
+    if (!role.isDefault && RESERVED_NAMES.includes(trimmed.toLowerCase())) {
+      throw new ApiError(400, `The role name '${name}' is reserved by the system.`);
+    }
+    if (role.isDefault && trimmed.toLowerCase() !== role.name.toLowerCase()) {
+      throw new ApiError(403, "System default role names cannot be renamed.");
+    }
+    role.name = trimmed;
+  }
   if (description !== undefined) role.description = description;
   if (policies) role.policies = policies;
   if (isActive !== undefined) role.isActive = isActive;

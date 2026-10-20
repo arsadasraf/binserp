@@ -11,14 +11,15 @@ import {
     updateSparePartStock,
     getMaintenanceStats
 } from "../controllers/maintenance/index.js";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, requirePermission } from "../middlewares/auth.middleware.js";
 import { resolveTenant } from "../middlewares/tenant.middleware.js";
 
 const router = express.Router();
 
-// Middleware: Auth + Tenant
+// Middleware: Auth + Tenant + RBAC
 router.use(verifyJWT);
 router.use(resolveTenant);
+router.use(requirePermission("Maintenance", "overview"));
 
 // Dashboard
 router.get("/stats", getMaintenanceStats);

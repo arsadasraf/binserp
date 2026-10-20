@@ -19,9 +19,9 @@ router.post("/register", registerCompany);
 router.post("/login", loginCompany);
 router.post("/forgot-password", requestPasswordReset);
 router.post("/reset-password", resetPassword);
-router.post("/image-to-base64", convertImageToBase64);
 
 // Protected routes
+router.post("/image-to-base64", verifyJWT, convertImageToBase64);
 router.get("/me", verifyJWT, getCompanyProfile);
 router.put("/settings", verifyJWT, updateCompanySettings);
 router.post("/upload-logo", verifyJWT, upload.single("logo"), uploadCompanyLogo);

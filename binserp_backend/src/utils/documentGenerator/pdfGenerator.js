@@ -21,7 +21,8 @@ export const generatePDF = async (templateName, data) => {
                 '--no-sandbox', 
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-gpu'
+                '--disable-gpu',
+                '--disable-local-file-access'
             ]
         });
         

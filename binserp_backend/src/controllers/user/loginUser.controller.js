@@ -54,6 +54,8 @@ export const loginUser = async (req, res) => {
     const cleanUserId = rawUserId.replace(/[\s-]/g, "");
     const formattedWithHyphen = rawUserId.replace(/([A-Za-z]+)[\s-]*(\d+)/, "$1-$2");
     const formattedNoHyphen = rawUserId.replace(/([A-Za-z]+)[\s-]*(\d+)/, "$1$2");
+    const safeRegexClean = cleanUserId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const userLookupRegex = new RegExp(`^${safeRegexClean.replace(/(\d+)/, "-?$1")}$`, "i");
 
     // 3. Try Finding Staff User first
     const user = await UserModel.findOne({
@@ -62,7 +64,7 @@ export const loginUser = async (req, res) => {
         { userId: cleanUserId },
         { userId: formattedWithHyphen },
         { userId: formattedNoHyphen },
-        { userId: { $regex: `^${cleanUserId.replace(/(\d+)/, "-?$1")}$`, $options: "i" } },
+        { userId: userLookupRegex },
       ],
     })
       .populate("role")
@@ -163,7 +165,7 @@ export const loginUser = async (req, res) => {
         { employeeId: cleanUserId },
         { employeeId: formattedWithHyphen },
         { employeeId: formattedNoHyphen },
-        { employeeId: { $regex: `^${cleanUserId.replace(/(\d+)/, "-?$1")}$`, $options: "i" } },
+        { employeeId: userLookupRegex },
       ],
     }).populate("roles");
 

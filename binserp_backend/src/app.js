@@ -11,7 +11,7 @@ import mongoSanitize from "express-mongo-sanitize";
 
 const app = express();
 
-app.set('trust proxy', true); // Trust proxy for correct IP resolution
+app.set('trust proxy', 1); // Trust first reverse proxy hop (Nginx/Cloudflare) to prevent IP spoofing
 
 const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
 // ✅ Fixed CORS configuration for credentials support & local network access
@@ -55,7 +55,15 @@ app.use(
 
 app.use(express.json({ limit: "16mb" }));
 app.use(express.urlencoded({ extended: true, limit: "16mb" }));
-app.use(express.static("public"));
+app.use(express.static("public", {
+    setHeaders: (res, filePath) => {
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        // Sandbox uploaded static assets so browsers will not execute HTML/JS in application origin
+        if (filePath.includes("temp") || filePath.includes("uploads")) {
+            res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+        }
+    }
+}));
 app.use(cookieParser());
 
 // Security Middlewares - allow cross-origin resource sharing between frontend and backend

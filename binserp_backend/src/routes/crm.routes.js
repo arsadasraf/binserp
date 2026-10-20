@@ -92,13 +92,52 @@ const followUpStorage = multer.diskStorage({
     },
     filename: function (req, file, cb) {
         const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-        cb(null, uniqueSuffix + "-" + file.originalname);
+        const safeExt = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, "");
+        const base = path.basename(file.originalname, safeExt).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50);
+        cb(null, `${uniqueSuffix}-${base || "file"}${safeExt}`);
     }
 });
 
+// Strict file filter preventing execution of scripts, HTML, or dangerous executables
+const followUpFileFilter = (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const dangerousExts = /\.(html?|svg|js|mjs|exe|bat|cmd|sh|php|asp|jsp|cgi|pl|py|vbs|jar|com|scr)$/i;
+    
+    if (dangerousExts.test(ext) || dangerousExts.test(file.originalname)) {
+        return cb(new Error("File type not permitted for security reasons (executable or script detected)."), false);
+    }
+
+    if (file.fieldname === "voice") {
+        const allowedVoice = /\.(webm|wav|mp3|ogg|m4a|aac)$/i;
+        if (allowedVoice.test(ext) || file.mimetype.startsWith("audio/")) {
+            return cb(null, true);
+        }
+        return cb(new Error("Only audio files (webm, wav, mp3, ogg, m4a, aac) are allowed for voice notes."), false);
+    }
+
+    if (file.fieldname === "photos") {
+        const allowedPhotos = /\.(jpe?g|png|webp|gif)$/i;
+        if (allowedPhotos.test(ext) && file.mimetype.startsWith("image/")) {
+            return cb(null, true);
+        }
+        return cb(new Error("Only image files (JPEG, PNG, WEBP, GIF) are allowed for photos."), false);
+    }
+
+    if (file.fieldname === "files") {
+        const allowedDocs = /\.(pdf|docx?|xlsx?|csv|txt|rtf|zip)$/i;
+        if (allowedDocs.test(ext)) {
+            return cb(null, true);
+        }
+        return cb(new Error("Only document files (PDF, DOC/DOCX, XLS/XLSX, CSV, TXT, RTF, ZIP) are allowed."), false);
+    }
+
+    cb(null, true);
+};
+
 const followUpUpload = multer({
     storage: followUpStorage,
-    limits: { fileSize: 30 * 1024 * 1024 }
+    limits: { fileSize: 30 * 1024 * 1024 },
+    fileFilter: followUpFileFilter
 }).fields([
     { name: "voice", maxCount: 1 },
     { name: "photos", maxCount: 6 },
