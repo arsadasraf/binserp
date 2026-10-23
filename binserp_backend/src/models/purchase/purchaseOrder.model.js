@@ -57,6 +57,23 @@ export const purchaseOrderSchema = new mongoose.Schema(
       ref: "MrpProcurementPlan",
     },
     mrpNumber: String,
+    poType: {
+      type: String,
+      enum: ["standard", "jobwork"],
+      default: "standard",
+      index: true,
+    },
+    processType: {
+      type: String,
+      default: "",
+    },
+    sacCode: {
+      type: String,
+      default: "",
+    },
+    expectedDeliveryDate: {
+      type: Date,
+    },
     transportType: String,
     transportCharge: { type: Number, default: 0 },
     packingType: String,
@@ -102,6 +119,8 @@ export const purchaseOrderSchema = new mongoose.Schema(
         },
         materialName: { type: String, required: true },
         description: String,
+        processType: { type: String, default: "" },
+        processNote: { type: String, default: "" },
         hsnCode: { type: String, default: "" },
         pieceCount: { type: Number, default: 0 },
         quantity: { type: Number, required: true },

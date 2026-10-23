@@ -61,8 +61,12 @@ export default function PurchaseBillDetailModal({
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-800/50">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400">
-              <FileText size={20} />
+            <div className={`p-2.5 rounded-xl border ${
+              bill.billType === 'job-work-service'
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400'
+                : 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400'
+            }`}>
+              {bill.billType === 'job-work-service' ? <IndianRupee size={20} /> : <FileText size={20} />}
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -203,6 +207,11 @@ export default function PurchaseBillDetailModal({
                           <div className="font-bold text-slate-800 dark:text-slate-100">
                             {item.serviceName || item.materialName || 'Service / Item'}
                           </div>
+                          {item.processType && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/50 mt-0.5 mr-1.5">
+                              ⚙️ {item.processType}
+                            </span>
+                          )}
                           {item.description && (
                             <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
                               📝 {item.description}

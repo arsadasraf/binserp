@@ -102,6 +102,8 @@ export const purchaseBillSchema = new mongoose.Schema(
         consumable: { type: mongoose.Schema.Types.ObjectId, ref: "Consumable" },
         materialName: { type: String, required: true },
         serviceName: { type: String, default: "" },
+        processType: { type: String, default: "" },
+        processNote: { type: String, default: "" },
         description: { type: String, default: "" }, // Technical description per AGENTS.md
         hsnCode: { type: String, default: "" },
         sacCode: { type: String, default: "" },

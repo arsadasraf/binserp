@@ -1,13 +1,15 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { 
     X, Download, Edit3, Trash2, Building2, User, Phone, Mail, Globe, 
     MapPin, CreditCard, ShieldCheck, Tag, Layers, Box, Package, 
     Calendar, CheckCircle2, AlertCircle, FileText, Printer, FileSpreadsheet,
     Eye, ExternalLink, Hash, Info, Layers3, ChevronRight, ChevronDown, ChevronsUpDown, Sparkles,
-    GitFork, List, ListFilter, ArrowDownToLine, Check
+    GitFork, List, ListFilter, ArrowDownToLine, Check, FilterX
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import ColumnFilter from '../tables/ColumnFilter';
 import { generateMasterRecordPDF } from '@/src/utils/masterPdfHelper';
 import { useGetStoreDataQuery } from '@/src/store/services/storeService';
 import { 
@@ -84,6 +86,98 @@ export default function MasterDetailPreviewModal({
         if (!explodedBOM) return [];
         return filterNestedBOMTree(explodedBOM.nestedTree, activeBOMFilter);
     }, [explodedBOM, activeBOMFilter]);
+
+    // Excel-style column filters state for BOM Workbench
+    const [colFilterMaterialName, setColFilterMaterialName] = useState<string[]>([]);
+    const [colFilterSubCategory, setColFilterSubCategory] = useState<string[]>([]);
+    const [colFilterClassification, setColFilterClassification] = useState<string[]>([]);
+    const [colFilterLevel, setColFilterLevel] = useState<string[]>([]);
+    const [tableSortConfig, setTableSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+    const handleSortChange = (key: string, direction: 'asc' | 'desc') => {
+        setTableSortConfig({ key, direction });
+    };
+
+    const handleClearAllFilters = () => {
+        setColFilterMaterialName([]);
+        setColFilterSubCategory([]);
+        setColFilterClassification([]);
+        setColFilterLevel([]);
+        setTableSortConfig(null);
+    };
+
+    const hasActiveFilters = colFilterMaterialName.length > 0 || colFilterSubCategory.length > 0 || colFilterClassification.length > 0 || colFilterLevel.length > 0;
+
+    const getNormalizedClassification = useCallback((itemType: string): string => {
+        if (itemType === 'SubAssembly') return 'Sub-Assembly';
+        if (itemType === 'Assembly') return 'Assembly';
+        if (itemType === 'Component') return 'Component';
+        if (itemType === 'BO') return 'Bought Out';
+        return 'Raw Material';
+    }, []);
+
+    // Filter and sort for Consolidated View
+    const finalDisplayConsolidated = useMemo(() => {
+        let items = consolidatedItems.filter((cItem) => {
+            if (colFilterMaterialName.length > 0 && !colFilterMaterialName.includes(cItem.materialName)) return false;
+            if (colFilterSubCategory.length > 0 && !colFilterSubCategory.includes(cItem.subCategory || '-')) return false;
+            if (colFilterClassification.length > 0) {
+                const cls = getNormalizedClassification(cItem.itemType);
+                if (!colFilterClassification.includes(cls)) return false;
+            }
+            return true;
+        });
+
+        if (tableSortConfig) {
+            const { key, direction } = tableSortConfig;
+            items = [...items].sort((a, b) => {
+                let valA: any = '';
+                let valB: any = '';
+                if (key === 'materialName') { valA = a.materialName; valB = b.materialName; }
+                else if (key === 'subCategory') { valA = a.subCategory || '-'; valB = b.subCategory || '-'; }
+                else if (key === 'classification') { valA = getNormalizedClassification(a.itemType); valB = getNormalizedClassification(b.itemType); }
+                else if (key === 'totalQty') { valA = a.totalCumulativeQuantity; valB = b.totalCumulativeQuantity; }
+                if (typeof valA === 'number' && typeof valB === 'number') {
+                    return direction === 'asc' ? valA - valB : valB - valA;
+                }
+                return direction === 'asc' ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
+            });
+        }
+        return items;
+    }, [consolidatedItems, colFilterMaterialName, colFilterSubCategory, colFilterClassification, tableSortConfig, getNormalizedClassification]);
+
+    // Filter and sort for Multi-Level Nested Tree View
+    const matchesExcelFiltersForNode = useCallback((node: ExplodedBOMNode): boolean => {
+        if (colFilterMaterialName.length > 0 && !colFilterMaterialName.includes(node.materialName)) return false;
+        if (colFilterSubCategory.length > 0 && !colFilterSubCategory.includes(node.subCategory || '-')) return false;
+        if (colFilterClassification.length > 0) {
+            const cls = getNormalizedClassification(node.itemType);
+            if (!colFilterClassification.includes(cls)) return false;
+        }
+        if (colFilterLevel.length > 0 && !colFilterLevel.includes(`L${node.level}`)) return false;
+        return true;
+    }, [colFilterMaterialName, colFilterSubCategory, colFilterClassification, colFilterLevel, getNormalizedClassification]);
+
+    const filterTreeByExcel = useCallback((nodes: ExplodedBOMNode[]): ExplodedBOMNode[] => {
+        if (!hasActiveFilters) return nodes;
+        const result: ExplodedBOMNode[] = [];
+        nodes.forEach(node => {
+            const isSelfMatch = matchesExcelFiltersForNode(node);
+            const filteredChildren = filterTreeByExcel(node.children || []);
+            if (isSelfMatch || filteredChildren.length > 0) {
+                result.push({
+                    ...node,
+                    children: filteredChildren,
+                    hasChildren: filteredChildren.length > 0
+                });
+            }
+        });
+        return result;
+    }, [hasActiveFilters, matchesExcelFiltersForNode]);
+
+    const finalDisplayTree = useMemo(() => {
+        return filterTreeByExcel(filteredNestedTree);
+    }, [filteredNestedTree, filterTreeByExcel]);
 
     // Tree collapse state for parent sub-assemblies
     const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
@@ -242,8 +336,61 @@ export default function MasterDetailPreviewModal({
             allRMItems: rmList,
             allBOItems: boList,
             explodedBOM: explodedBOM || undefined,
-            bomFilterType: filterType
+            bomFilterType: filterType,
+            customConsolidatedItems: hasActiveFilters ? finalDisplayConsolidated : undefined,
+            customExplodedNodes: hasActiveFilters ? finalDisplayTree : undefined
         });
+    };
+
+    const handleExportExcel = () => {
+        if (!explodedBOM || !item) return;
+        const wb = XLSX.utils.book_new();
+        const cleanFgName = item.name || 'Finished-Good';
+
+        // Sheet 1: Active Multi-Level BOM Tree
+        const treeData: any[] = [];
+        const traverseForExcel = (nodes: ExplodedBOMNode[]) => {
+            nodes.forEach(n => {
+                const indent = n.level > 2 ? '  '.repeat(n.level - 2) + '↳ ' : '';
+                treeData.push({
+                    'Level': `L${n.level}`,
+                    'Parent FG / Assy': n.parentName || cleanFgName,
+                    'Item Name': `${indent}${n.materialName}`,
+                    'Technical Description': n.description || '-',
+                    'Subcategory': n.subCategory || '-',
+                    'Classification': getNormalizedClassification(n.itemType),
+                    'Unit': n.unit || 'Nos',
+                    'Qty / Parent': n.quantityPerParent,
+                    'Cumulative Qty': n.cumulativeQuantity,
+                    'Sec Qty / Parent': n.secondaryQuantityPerParent || '-',
+                    'Sec Cumulative Qty': n.secondaryCumulativeQuantity || '-',
+                    'Sec Unit': n.secondaryUnit || '-'
+                });
+                if (n.children && n.children.length > 0) {
+                    traverseForExcel(n.children);
+                }
+            });
+        };
+        traverseForExcel(finalDisplayTree);
+        const wsTree = XLSX.utils.json_to_sheet(treeData);
+        XLSX.utils.book_append_sheet(wb, wsTree, 'Multi-Level BOM Tree');
+
+        // Sheet 2: Consolidated Summary
+        const summaryData = finalDisplayConsolidated.map((c, i) => ({
+            '#': i + 1,
+            'Item Name': c.materialName,
+            'Technical Description': c.description || '-',
+            'Subcategory': c.subCategory || '-',
+            'Classification': getNormalizedClassification(c.itemType),
+            'Total Required Qty (1 FG)': `${c.totalCumulativeQuantity} ${c.unit}`,
+            'Secondary Total Qty': c.totalSecondaryCumulativeQuantity ? `${c.totalSecondaryCumulativeQuantity} ${c.secondaryUnit || ''}` : '-',
+            'Parent Usages': (c.usages || []).map(u => `${u.parentName}: ${u.quantityPerParent} ${u.unit}`).join('; ')
+        }));
+        const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+        XLSX.utils.book_append_sheet(wb, wsSummary, 'Consolidated Requirements');
+
+        const filename = `${cleanFgName.replace(/[^a-zA-Z0-9_-]/g, '_')}_BOM_${activeBOMFilter}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        XLSX.writeFile(wb, filename);
     };
 
     const getDownloadButtonLabel = () => {
@@ -258,8 +405,8 @@ export default function MasterDetailPreviewModal({
     };
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-4xl my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+        <div className={`fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 ${isFG ? 'lg:p-6 xl:p-8' : 'sm:p-6'} bg-slate-950/75 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200`}>
+            <div className={`bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full ${isFG ? 'max-w-6xl xl:max-w-7xl 2xl:max-w-[1536px]' : 'max-w-4xl'} my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh] transition-all duration-300`}>
                 
                 {/* Modal Header */}
                 <div className={`p-5 sm:p-6 bg-gradient-to-r ${theme.headerGradient} text-white flex justify-between items-center flex-shrink-0 border-b ${theme.borderColor}`}>
@@ -269,7 +416,7 @@ export default function MasterDetailPreviewModal({
                         </div>
                         <div className="min-w-0">
                             <div className="flex items-center gap-2.5 flex-wrap">
-                                <h2 className="text-xl font-extrabold tracking-tight text-white truncate max-w-md">
+                                <h2 className="text-xl font-extrabold tracking-tight text-white truncate max-w-md lg:max-w-xl xl:max-w-2xl">
                                     {theme.title}
                                 </h2>
                                 <span className={`px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider border ${theme.badgeBg}`}>
@@ -285,88 +432,99 @@ export default function MasterDetailPreviewModal({
                     {/* Header Action Buttons */}
                     <div className="flex items-center gap-2 shrink-0 relative">
                         {isFG ? (
-                            <div className="relative flex items-center">
-                                <button
-                                    onClick={() => handleDownloadPDF(activeBOMFilter)}
-                                    className={`px-3.5 py-2 ${theme.btnBg} text-white text-xs font-bold rounded-l-xl transition-all shadow-md flex items-center gap-1.5 border border-white/20 hover:brightness-110 active:scale-95`}
-                                    title="Generate & Download Printable PDF for current view"
-                                >
-                                    <Download size={15} />
-                                    <span className="hidden sm:inline">{getDownloadButtonLabel()}</span>
-                                    <span className="sm:hidden">PDF</span>
-                                </button>
+                            <div className="flex items-center gap-2">
                                 <button
                                     type="button"
-                                    onClick={() => setIsPdfDropdownOpen(!isPdfDropdownOpen)}
-                                    className={`px-2 py-2 ${theme.btnBg} text-white text-xs font-bold rounded-r-xl transition-all shadow-md flex items-center border-y border-r border-white/20 border-l border-white/10 hover:brightness-110`}
-                                    title="Choose specific BOM category PDF to download"
+                                    onClick={handleExportExcel}
+                                    className="px-3 py-2 bg-emerald-600/90 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-1.5 border border-white/20 hover:scale-105 active:scale-95 cursor-pointer"
+                                    title="Export BOM to Excel (.xlsx) with current filters"
                                 >
-                                    <ChevronDown size={14} className={`transition-transform duration-200 ${isPdfDropdownOpen ? 'rotate-180' : ''}`} />
+                                    <FileSpreadsheet size={15} />
+                                    <span className="hidden sm:inline">Export Excel</span>
                                 </button>
+                                <div className="relative flex items-center">
+                                    <button
+                                        onClick={() => handleDownloadPDF(activeBOMFilter)}
+                                        className={`px-3.5 py-2 ${theme.btnBg} text-white text-xs font-bold rounded-l-xl transition-all shadow-md flex items-center gap-1.5 border border-white/20 hover:brightness-110 active:scale-95 cursor-pointer`}
+                                        title="Generate & Download Printable PDF for current view"
+                                    >
+                                        <Download size={15} />
+                                        <span className="hidden sm:inline">{getDownloadButtonLabel()}</span>
+                                        <span className="sm:hidden">PDF</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsPdfDropdownOpen(!isPdfDropdownOpen)}
+                                        className={`px-2 py-2 ${theme.btnBg} text-white text-xs font-bold rounded-r-xl transition-all shadow-md flex items-center border-y border-r border-white/20 border-l border-white/10 hover:brightness-110 cursor-pointer`}
+                                        title="Choose specific BOM category PDF to download"
+                                    >
+                                        <ChevronDown size={14} className={`transition-transform duration-200 ${isPdfDropdownOpen ? 'rotate-180' : ''}`} />
+                                    </button>
 
-                                {/* PDF Dropdown Menu */}
-                                {isPdfDropdownOpen && (
-                                    <div className="absolute right-0 top-full mt-1.5 w-60 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 py-1.5 z-[210] animate-in fade-in slide-in-from-top-1 text-slate-800 dark:text-slate-100">
-                                        <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-800">
-                                            Export Specification PDF
+                                    {/* PDF Dropdown Menu */}
+                                    {isPdfDropdownOpen && (
+                                        <div className="absolute right-0 top-full mt-1.5 w-60 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 py-1.5 z-[210] animate-in fade-in slide-in-from-top-1 text-slate-800 dark:text-slate-100">
+                                            <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                                                Export Specification PDF
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDownloadPDF('ALL')}
+                                                className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-purple-50 dark:hover:bg-purple-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
+                                            >
+                                                <span className="flex items-center gap-2">
+                                                    <Layers3 size={14} className="text-purple-500" />
+                                                    <span>Full Multi-Level BOM</span>
+                                                </span>
+                                                {activeBOMFilter === 'ALL' && <Check size={13} className="text-purple-600" />}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDownloadPDF('RM')}
+                                                className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-blue-50 dark:hover:bg-blue-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                            >
+                                                <span className="flex items-center gap-2">
+                                                    <Box size={14} className="text-blue-500" />
+                                                    <span>Raw Materials (RM)</span>
+                                                </span>
+                                                {activeBOMFilter === 'RM' && <Check size={13} className="text-blue-600" />}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDownloadPDF('BO')}
+                                                className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
+                                            >
+                                                <span className="flex items-center gap-2">
+                                                    <Package size={14} className="text-amber-500" />
+                                                    <span>Bought Out (BO) Items</span>
+                                                </span>
+                                                {activeBOMFilter === 'BO' && <Check size={13} className="text-amber-600" />}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDownloadPDF('COMPONENT')}
+                                                className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-sky-50 dark:hover:bg-sky-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-sky-600 dark:hover:text-sky-400 transition-colors"
+                                            >
+                                                <span className="flex items-center gap-2">
+                                                    <Layers size={14} className="text-sky-500" />
+                                                    <span>In-House Components</span>
+                                                </span>
+                                                {activeBOMFilter === 'COMPONENT' && <Check size={13} className="text-sky-600" />}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDownloadPDF('SUBASSEMBLY')}
+                                                className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                            >
+                                                <span className="flex items-center gap-2">
+                                                    <GitFork size={14} className="text-indigo-500" />
+                                                    <span>Sub-Assemblies</span>
+                                                </span>
+                                                {activeBOMFilter === 'SUBASSEMBLY' && <Check size={13} className="text-indigo-600" />}
+                                            </button>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleDownloadPDF('ALL')}
-                                            className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-purple-50 dark:hover:bg-purple-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
-                                        >
-                                            <span className="flex items-center gap-2">
-                                                <Layers3 size={14} className="text-purple-500" />
-                                                <span>Full Multi-Level BOM</span>
-                                            </span>
-                                            {activeBOMFilter === 'ALL' && <Check size={13} className="text-purple-600" />}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleDownloadPDF('RM')}
-                                            className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-blue-50 dark:hover:bg-blue-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                                        >
-                                            <span className="flex items-center gap-2">
-                                                <Box size={14} className="text-blue-500" />
-                                                <span>Raw Materials (RM)</span>
-                                            </span>
-                                            {activeBOMFilter === 'RM' && <Check size={13} className="text-blue-600" />}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleDownloadPDF('BO')}
-                                            className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-                                        >
-                                            <span className="flex items-center gap-2">
-                                                <Package size={14} className="text-amber-500" />
-                                                <span>Bought Out (BO) Items</span>
-                                            </span>
-                                            {activeBOMFilter === 'BO' && <Check size={13} className="text-amber-600" />}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleDownloadPDF('COMPONENT')}
-                                            className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-sky-50 dark:hover:bg-sky-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-sky-600 dark:hover:text-sky-400 transition-colors"
-                                        >
-                                            <span className="flex items-center gap-2">
-                                                <Layers size={14} className="text-sky-500" />
-                                                <span>In-House Components</span>
-                                            </span>
-                                            {activeBOMFilter === 'COMPONENT' && <Check size={13} className="text-sky-600" />}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleDownloadPDF('SUBASSEMBLY')}
-                                            className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-950/40 flex items-center justify-between text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                                        >
-                                            <span className="flex items-center gap-2">
-                                                <GitFork size={14} className="text-indigo-500" />
-                                                <span>Sub-Assemblies</span>
-                                            </span>
-                                            {activeBOMFilter === 'SUBASSEMBLY' && <Check size={13} className="text-indigo-600" />}
-                                        </button>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
                             </div>
                         ) : (
                             <button
@@ -715,7 +873,7 @@ export default function MasterDetailPreviewModal({
                                 <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                                     <Layers size={14} className={theme.accentColor} /> Product Specifications
                                 </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-xs">
                                     <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
                                         <span className="text-slate-500 dark:text-slate-400">Product Name:</span>
                                         <span className="font-extrabold text-slate-900 dark:text-white">{item.name || item.productName || '-'}</span>
@@ -926,6 +1084,46 @@ export default function MasterDetailPreviewModal({
                                         })}
                                     </div>
 
+                                    {/* Active Filter Chips & Reset */}
+                                    {hasActiveFilters && (
+                                        <div className="flex items-center gap-2 flex-wrap px-3 py-2 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-200/60 dark:border-indigo-800/60 text-xs">
+                                            <span className="font-extrabold text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
+                                                <ListFilter size={13} /> Active Filters:
+                                            </span>
+                                            {colFilterMaterialName.length > 0 && (
+                                                <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center gap-1 font-medium text-[11px]">
+                                                    Items: {colFilterMaterialName.length}
+                                                    <button type="button" onClick={() => setColFilterMaterialName([])} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"><X size={11} /></button>
+                                                </span>
+                                            )}
+                                            {colFilterSubCategory.length > 0 && (
+                                                <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center gap-1 font-medium text-[11px]">
+                                                    Subcategory: {colFilterSubCategory.join(', ')}
+                                                    <button type="button" onClick={() => setColFilterSubCategory([])} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"><X size={11} /></button>
+                                                </span>
+                                            )}
+                                            {colFilterClassification.length > 0 && (
+                                                <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center gap-1 font-medium text-[11px]">
+                                                    Classification: {colFilterClassification.join(', ')}
+                                                    <button type="button" onClick={() => setColFilterClassification([])} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"><X size={11} /></button>
+                                                </span>
+                                            )}
+                                            {colFilterLevel.length > 0 && (
+                                                <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center gap-1 font-medium text-[11px]">
+                                                    Level: {colFilterLevel.join(', ')}
+                                                    <button type="button" onClick={() => setColFilterLevel([])} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"><X size={11} /></button>
+                                                </span>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={handleClearAllFilters}
+                                                className="ml-auto text-xs text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 font-bold cursor-pointer"
+                                            >
+                                                <FilterX size={13} /> Reset Filters
+                                            </button>
+                                        </div>
+                                    )}
+
                                     {/* Mode 1: Consolidated Summary Table View */}
                                     {bomViewMode === 'table' ? (
                                         <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900/60">
@@ -933,15 +1131,72 @@ export default function MasterDetailPreviewModal({
                                                 <thead className="text-[10px] text-slate-500 dark:text-slate-400 uppercase bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700/80">
                                                     <tr>
                                                         <th className="px-3 py-2.5 text-center w-12">#</th>
-                                                        <th className="px-3 py-2.5">Component / Item Name & Description</th>
-                                                        <th className="px-3 py-2.5 text-center w-36">Classification</th>
-                                                        <th className="px-3 py-2.5 w-64">Parent Assemblies & Usages</th>
-                                                        <th className="px-3 py-2.5 text-right w-36">Total Required (1 FG)</th>
+                                                        <th className="px-3 py-2.5">
+                                                            <div className="flex items-center justify-between gap-1">
+                                                                <span>Component / Item Name & Description</span>
+                                                                <ColumnFilter
+                                                                    column="materialName"
+                                                                    title="Item Name"
+                                                                    data={consolidatedItems}
+                                                                    currentFilters={colFilterMaterialName}
+                                                                    onFilterChange={setColFilterMaterialName}
+                                                                    getValue={(item) => item.materialName}
+                                                                    sortConfig={tableSortConfig}
+                                                                    onSortChange={handleSortChange}
+                                                                />
+                                                            </div>
+                                                        </th>
+                                                        <th className="px-3 py-2.5 w-36">
+                                                            <div className="flex items-center justify-between gap-1">
+                                                                <span>Subcategory</span>
+                                                                <ColumnFilter
+                                                                    column="subCategory"
+                                                                    title="Subcategory"
+                                                                    data={consolidatedItems}
+                                                                    currentFilters={colFilterSubCategory}
+                                                                    onFilterChange={setColFilterSubCategory}
+                                                                    getValue={(item) => item.subCategory || '-'}
+                                                                    sortConfig={tableSortConfig}
+                                                                    onSortChange={handleSortChange}
+                                                                />
+                                                            </div>
+                                                        </th>
+                                                        <th className="px-3 py-2.5 text-center w-36">
+                                                            <div className="flex items-center justify-center gap-1">
+                                                                <span>Classification</span>
+                                                                <ColumnFilter
+                                                                    column="classification"
+                                                                    title="Classification"
+                                                                    data={consolidatedItems}
+                                                                    currentFilters={colFilterClassification}
+                                                                    onFilterChange={setColFilterClassification}
+                                                                    getValue={(item) => getNormalizedClassification(item.itemType)}
+                                                                    sortConfig={tableSortConfig}
+                                                                    onSortChange={handleSortChange}
+                                                                />
+                                                            </div>
+                                                        </th>
+                                                        <th className="px-3 py-2.5 w-60">Parent Assemblies & Usages</th>
+                                                        <th className="px-3 py-2.5 text-right w-36">
+                                                            <div className="flex items-center justify-end gap-1">
+                                                                <span>Total Required (1 FG)</span>
+                                                                <ColumnFilter
+                                                                    column="totalQty"
+                                                                    title="Total Required"
+                                                                    data={consolidatedItems}
+                                                                    currentFilters={[]}
+                                                                    onFilterChange={() => {}}
+                                                                    enableSort={true}
+                                                                    sortConfig={tableSortConfig}
+                                                                    onSortChange={handleSortChange}
+                                                                />
+                                                            </div>
+                                                        </th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                                    {consolidatedItems.length > 0 ? (
-                                                        consolidatedItems.map((cItem, idx) => {
+                                                    {finalDisplayConsolidated.length > 0 ? (
+                                                        finalDisplayConsolidated.map((cItem, idx) => {
                                                             let typeBadgeClass = 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60';
                                                             let typeText = 'Raw Material (RM)';
                                                             if (cItem.itemType === 'SubAssembly') {
@@ -972,6 +1227,9 @@ export default function MasterDetailPreviewModal({
                                                                                 {cItem.description}
                                                                             </div>
                                                                         )}
+                                                                    </td>
+                                                                    <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs">
+                                                                        {cItem.subCategory || '-'}
                                                                     </td>
                                                                     <td className="px-3 py-2.5 text-center whitespace-nowrap">
                                                                         <span className={`px-2 py-0.5 font-bold rounded text-[10px] border ${typeBadgeClass}`}>
@@ -1006,8 +1264,8 @@ export default function MasterDetailPreviewModal({
                                                         })
                                                     ) : (
                                                         <tr>
-                                                            <td colSpan={5} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
-                                                                No items match the "{activeBOMFilter}" category filter.
+                                                            <td colSpan={6} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
+                                                                No items match the active filters or "{activeBOMFilter}" category filter.
                                                             </td>
                                                         </tr>
                                                     )}
@@ -1020,9 +1278,58 @@ export default function MasterDetailPreviewModal({
                                             <table className="w-full text-xs text-left">
                                                 <thead className="text-[10px] text-slate-500 dark:text-slate-400 uppercase bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700/80">
                                                     <tr>
-                                                        <th className="px-3 py-2.5 text-center w-14">Level</th>
-                                                        <th className="px-3 py-2.5">Component / Item Name & Description</th>
-                                                        <th className="px-3 py-2.5 text-center w-36">Classification</th>
+                                                        <th className="px-3 py-2.5 text-center w-16">
+                                                            <div className="flex items-center justify-center gap-1">
+                                                                <span>Level</span>
+                                                                <ColumnFilter
+                                                                    column="level"
+                                                                    title="Level"
+                                                                    data={explodedBOM.flatTree}
+                                                                    currentFilters={colFilterLevel}
+                                                                    onFilterChange={setColFilterLevel}
+                                                                    getValue={(node) => `L${node.level}`}
+                                                                />
+                                                            </div>
+                                                        </th>
+                                                        <th className="px-3 py-2.5">
+                                                            <div className="flex items-center justify-between gap-1">
+                                                                <span>Component / Item Name & Description</span>
+                                                                <ColumnFilter
+                                                                    column="materialName"
+                                                                    title="Item Name"
+                                                                    data={explodedBOM.flatTree}
+                                                                    currentFilters={colFilterMaterialName}
+                                                                    onFilterChange={setColFilterMaterialName}
+                                                                    getValue={(node) => node.materialName}
+                                                                />
+                                                            </div>
+                                                        </th>
+                                                        <th className="px-3 py-2.5 w-36">
+                                                            <div className="flex items-center justify-between gap-1">
+                                                                <span>Subcategory</span>
+                                                                <ColumnFilter
+                                                                    column="subCategory"
+                                                                    title="Subcategory"
+                                                                    data={explodedBOM.flatTree}
+                                                                    currentFilters={colFilterSubCategory}
+                                                                    onFilterChange={setColFilterSubCategory}
+                                                                    getValue={(node) => node.subCategory || '-'}
+                                                                />
+                                                            </div>
+                                                        </th>
+                                                        <th className="px-3 py-2.5 text-center w-36">
+                                                            <div className="flex items-center justify-center gap-1">
+                                                                <span>Classification</span>
+                                                                <ColumnFilter
+                                                                    column="classification"
+                                                                    title="Classification"
+                                                                    data={explodedBOM.flatTree}
+                                                                    currentFilters={colFilterClassification}
+                                                                    onFilterChange={setColFilterClassification}
+                                                                    getValue={(node) => getNormalizedClassification(node.itemType)}
+                                                                />
+                                                            </div>
+                                                        </th>
                                                         <th className="px-3 py-2.5 text-right w-32">Qty / Parent</th>
                                                         <th className="px-3 py-2.5 text-right w-32">Cumulative Qty</th>
                                                     </tr>
@@ -1104,6 +1411,11 @@ export default function MasterDetailPreviewModal({
                                                                                 </div>
                                                                             </td>
 
+                                                                            {/* Subcategory */}
+                                                                            <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs">
+                                                                                {node.subCategory || '-'}
+                                                                            </td>
+
                                                                             {/* Classification */}
                                                                             <td className="px-3 py-2.5 text-center whitespace-nowrap">
                                                                                 <span className={`px-2 py-0.5 font-bold rounded text-[10px] border ${typeBadgeClass}`}>
@@ -1143,12 +1455,12 @@ export default function MasterDetailPreviewModal({
                                                             });
                                                         };
 
-                                                        return filteredNestedTree.length > 0 ? (
-                                                            renderTreeRows(filteredNestedTree)
+                                                        return finalDisplayTree.length > 0 ? (
+                                                            renderTreeRows(finalDisplayTree)
                                                         ) : (
                                                             <tr>
-                                                                <td colSpan={5} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
-                                                                    No items match the "{activeBOMFilter}" category filter in the tree hierarchy.
+                                                                <td colSpan={6} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
+                                                                    No items match the active filters or "{activeBOMFilter}" category filter in the tree hierarchy.
                                                                 </td>
                                                             </tr>
                                                         );

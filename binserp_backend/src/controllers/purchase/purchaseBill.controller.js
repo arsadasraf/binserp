@@ -212,7 +212,15 @@ export const getPurchaseBills = asyncHandler(async (req, res) => {
 
   // Bill Type Filter
   if (billType && billType !== "all") {
-    filter.billType = billType;
+    if (billType === "job-work-service" || billType === "jobwork") {
+      filter.$or = [
+        { billType: { $in: ["job-work-service", "jobwork"] } },
+        { jobWorkChallan: { $exists: true, $ne: null } },
+        { jobWorkChallanNumber: { $exists: true, $ne: "" } }
+      ];
+    } else {
+      filter.billType = billType;
+    }
   }
 
   // Date Range Filter
@@ -263,7 +271,11 @@ export const getPurchaseBills = asyncHandler(async (req, res) => {
     ];
     const searchCondition = buildMultiFieldSearchFilter(search, fields);
     if (searchCondition) {
-      if (searchCondition.$or) {
+      if (filter.$or) {
+        const existingOr = filter.$or;
+        delete filter.$or;
+        filter.$and = [{ $or: existingOr }, searchCondition];
+      } else if (searchCondition.$or) {
         filter.$or = searchCondition.$or;
       } else if (searchCondition.$and) {
         filter.$and = searchCondition.$and;

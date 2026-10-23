@@ -11,6 +11,7 @@ export interface ExplodedBOMNode {
   key: string;
   itemType: 'SubAssembly' | 'Assembly' | 'Component' | 'BO' | 'RM';
   categoryLabel: string;
+  subCategory?: string;
   rawType: string;
   materialName: string;
   materialCode?: string;
@@ -50,6 +51,7 @@ export interface ConsolidatedBOMItem {
   description?: string;
   itemType: 'SubAssembly' | 'Assembly' | 'Component' | 'BO' | 'RM';
   categoryLabel: string;
+  subCategory?: string;
   unit: string;
   hasSecondaryUnit?: boolean;
   secondaryUnit?: string;
@@ -178,19 +180,61 @@ export function explodeFGBOMHierarchy(
       const canonicalUnit = matchedRM?.unit || matchedBO?.unit || (isBOType || isFGType ? 'NOS' : 'KG');
       const unit = canonicalUnit;
 
+      // Subcategory / Category resolution across all master collections
+      const resolvedSubCategory = (
+        matchedFG?.categoryId?.name ||
+        matchedFG?.category?.name ||
+        matchedFG?.category ||
+        matchedRM?.categoryId?.name ||
+        matchedRM?.category?.name ||
+        matchedRM?.category ||
+        matchedBO?.categoryId?.name ||
+        matchedBO?.category?.name ||
+        matchedBO?.category ||
+        (typeof bItem.item === 'object' && bItem.item !== null
+          ? (bItem.item?.categoryId?.name || bItem.item?.category?.name || bItem.item?.category)
+          : '') ||
+        bItem.subCategory ||
+        bItem.category ||
+        ''
+      ).toString().trim() || '-';
+
       if (isFGType) {
-        const fgClassification = bItem.fgType || bItem.itemClassification || matchedFG?.type || 'Component';
+        // Priority order for classification:
+        // 1. Explicit bItem.fgType or bItem.itemClassification
+        // 2. Populated bItem.item.type
+        // 3. Matched master record type (matchedFG.type)
+        const rawExplicitType = (
+          bItem.fgType ||
+          bItem.itemClassification ||
+          (typeof bItem.item === 'object' && bItem.item !== null ? bItem.item?.type : '') ||
+          matchedFG?.type ||
+          ''
+        ).toString().trim();
+
+        const normType = rawExplicitType.toLowerCase();
         const hasChildBOM = Array.isArray(matchedFG?.bom) && matchedFG.bom.length > 0;
 
-        if (fgClassification === 'Sub Assembly' || hasChildBOM || rawName.toLowerCase().includes('sub')) {
+        if (normType === 'component') {
+          // Strictly Component - even if it has a child BOM for manufacturing raw materials
+          resolvedType = 'Component';
+          categoryLabel = 'In-House Component';
+          componentCount++;
+        } else if (normType === 'sub assembly' || normType === 'subassembly') {
           resolvedType = 'SubAssembly';
           categoryLabel = 'Sub-Assembly';
           subAssemblyCount++;
-        } else if (fgClassification === 'Assembly') {
+        } else if (normType === 'assembly') {
           resolvedType = 'Assembly';
           categoryLabel = 'Assembly';
           subAssemblyCount++;
+        } else if (hasChildBOM) {
+          // Unclassified fallback: if it has child BOM, assume Sub-Assembly
+          resolvedType = 'SubAssembly';
+          categoryLabel = 'Sub-Assembly';
+          subAssemblyCount++;
         } else {
+          // Unclassified fallback with no child BOM: assume Component
           resolvedType = 'Component';
           categoryLabel = 'In-House Component';
           componentCount++;
@@ -263,6 +307,7 @@ export function explodeFGBOMHierarchy(
         key: uniqueKey,
         itemType: resolvedType,
         categoryLabel,
+        subCategory: resolvedSubCategory,
         rawType,
         materialName: rawName || 'Unnamed Material',
         materialCode: bItem.materialCode || bItem.code || matchedFG?.code || matchedRM?.code || matchedBO?.code || '',
@@ -371,6 +416,7 @@ export function consolidateBOMItems(
         description: node.description,
         itemType: node.itemType,
         categoryLabel: node.categoryLabel,
+        subCategory: node.subCategory || '-',
         unit: node.unit,
         hasSecondaryUnit: node.hasSecondaryUnit,
         secondaryUnit: node.secondaryUnit,

@@ -28,6 +28,8 @@ interface GenerateMasterPdfProps {
     allBOItems?: any[];
     explodedBOM?: ExplodedBOMResult;
     bomFilterType?: BOMFilterType;
+    customConsolidatedItems?: ConsolidatedBOMItem[];
+    customExplodedNodes?: ExplodedBOMNode[];
 }
 
 export const generateMasterRecordPDF = ({ 
@@ -38,7 +40,9 @@ export const generateMasterRecordPDF = ({
     allRMItems,
     allBOItems,
     explodedBOM,
-    bomFilterType = 'ALL'
+    bomFilterType = 'ALL',
+    customConsolidatedItems,
+    customExplodedNodes
 }: GenerateMasterPdfProps) => {
     if (!item) {
         alert("No record data provided for PDF generation");
@@ -422,7 +426,7 @@ export const generateMasterRecordPDF = ({
             allRMItems || [], 
             allBOItems || []
         );
-        const explodedNodes = explodedResult?.flatTree || [];
+        const explodedNodes = customExplodedNodes || explodedResult?.flatTree || [];
         const summary = explodedResult?.summary || {
             totalLevels: 1,
             subAssemblyCount: 0,
@@ -432,20 +436,21 @@ export const generateMasterRecordPDF = ({
             totalItemCount: 0
         };
 
-        const consolidatedItems = isFiltered ? consolidateBOMItems(explodedNodes, bomFilterType) : [];
+        const consolidatedItems = customConsolidatedItems || (isFiltered ? consolidateBOMItems(explodedNodes, bomFilterType) : []);
 
         let bomTheadHtml = '';
         let bomRowsHtml = '';
 
-        if (isFiltered) {
+        if (isFiltered || customConsolidatedItems) {
             // Consolidated filtered table layout
             bomTheadHtml = `
                 <tr style="background: ${headerThBg}; color: ${headerThColor};">
                     <th style="width: 5%; padding: 6px 4px; border: 1px solid #cbd5e1; text-align: center;">#</th>
-                    <th style="width: 36%; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left;">Component / Item Name & Description</th>
-                    <th style="width: 15%; padding: 6px 4px; border: 1px solid #cbd5e1; text-align: center;">Classification</th>
-                    <th style="width: 26%; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left;">Parent Assemblies & Usages</th>
-                    <th style="width: 18%; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right;">Total Required Qty (1 FG)</th>
+                    <th style="width: 31%; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left;">Component / Item Name & Description</th>
+                    <th style="width: 15%; padding: 6px 4px; border: 1px solid #cbd5e1; text-align: center;">Subcategory</th>
+                    <th style="width: 14%; padding: 6px 4px; border: 1px solid #cbd5e1; text-align: center;">Classification</th>
+                    <th style="width: 20%; padding: 6px 6px; border: 1px solid #cbd5e1; text-align: left;">Parent Assemblies & Usages</th>
+                    <th style="width: 15%; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right;">Total Required Qty (1 FG)</th>
                 </tr>
             `;
 
@@ -494,6 +499,11 @@ export const generateMasterRecordPDF = ({
                                 </div>
                                 ${cItem.description ? `<div style="font-size: 9.5px; color: #64748b; font-style: italic; margin-top: 2px; line-height: 1.3;">${cItem.description}</div>` : ''}
                             </td>
+                            <td style="text-align: center; padding: 6px 4px; border: 1px solid #e2e8f0; font-size: 10px; color: #475569;">
+                                <span style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-weight: 600;">
+                                    ${cItem.subCategory || '-'}
+                                </span>
+                            </td>
                             <td style="text-align: center; padding: 6px 4px; border: 1px solid #e2e8f0;">
                                 <span style="background: ${typeBg}; color: ${typeColor}; padding: 2px 6px; border-radius: 4px; font-size: 9.5px; font-weight: bold; white-space: nowrap;">
                                     ${typeLabel}
@@ -510,7 +520,7 @@ export const generateMasterRecordPDF = ({
                     `;
                 });
             } else {
-                bomRowsHtml = `<tr><td colspan="5" style="text-align: center; padding: 18px; color: #64748b; border: 1px solid #e2e8f0;">No ${bomFilterType} items present in this finished product's BOM tree.</td></tr>`;
+                bomRowsHtml = `<tr><td colspan="6" style="text-align: center; padding: 18px; color: #64748b; border: 1px solid #e2e8f0;">No ${bomFilterType} items present in this finished product's BOM tree.</td></tr>`;
             }
         } else {
             // Full multi-level recursive tree layout
@@ -518,9 +528,10 @@ export const generateMasterRecordPDF = ({
                 <tr style="background: ${headerThBg}; color: ${headerThColor};">
                     <th style="width: 6%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Level</th>
                     <th style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: left;">Component / Item Name & Description</th>
-                    <th style="width: 20%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Classification</th>
-                    <th style="width: 17%; padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">Qty / Parent</th>
-                    <th style="width: 17%; padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">Cumulative Qty</th>
+                    <th style="width: 15%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Subcategory</th>
+                    <th style="width: 17%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Classification</th>
+                    <th style="width: 15%; padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">Qty / Parent</th>
+                    <th style="width: 15%; padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">Cumulative Qty</th>
                 </tr>
             `;
 
@@ -573,6 +584,11 @@ export const generateMasterRecordPDF = ({
                                 </div>
                                 ${node.description ? `<div style="font-size: 9.5px; color: #64748b; font-style: italic; margin-top: 2px; line-height: 1.3;">${node.description}</div>` : ''}
                             </td>
+                            <td style="text-align: center; padding: 6px 4px; border: 1px solid #e2e8f0; font-size: 10px; color: #475569;">
+                                <span style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-weight: 600;">
+                                    ${node.subCategory || '-'}
+                                </span>
+                            </td>
                             <td style="text-align: center; padding: 6px 4px; border: 1px solid #e2e8f0;">
                                 <span style="background: ${typeBg}; color: ${typeColor}; padding: 2.5px 6px; border-radius: 4px; font-size: 9.5px; font-weight: bold; white-space: nowrap;">
                                     ${typeLabel}
@@ -590,7 +606,7 @@ export const generateMasterRecordPDF = ({
                     `;
                 });
             } else {
-                bomRowsHtml = `<tr><td colspan="5" style="text-align: center; padding: 16px; color: #64748b; border: 1px solid #e2e8f0;">No BOM components configured for this finished product.</td></tr>`;
+                bomRowsHtml = `<tr><td colspan="6" style="text-align: center; padding: 16px; color: #64748b; border: 1px solid #e2e8f0;">No BOM components configured for this finished product.</td></tr>`;
             }
         }
 

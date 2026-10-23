@@ -646,9 +646,9 @@ export const createMRPPlan = async (req, res) => {
                             null;
           const nestedSubBOM = findBOM(sName, sCode, undefined, matchedFG?._id);
           const fgType = matchedFG?.type || subItem.fgType || subItem.itemClassification;
-          const isSubAssembly = fgType === "Sub Assembly" || Boolean(nestedSubBOM);
           const isComponent = fgType === "Component";
           const isAssembly = fgType === "Assembly";
+          const isSubAssembly = fgType === "Sub Assembly" || (!isComponent && !isAssembly && Boolean(nestedSubBOM));
 
           const assignedMasterCat = rawMat?.categoryId?.name || boughtOut?.categoryId?.name || rmBo?.categoryId?.name || rawMat?.category || boughtOut?.category || rmBo?.category || "";
           const catName = (assignedMasterCat || rmBo?.categoryId?.name || rmBo?.category || "").toLowerCase();
@@ -659,12 +659,12 @@ export const createMRPPlan = async (req, res) => {
           let resolvedItemType = "RM";
           let categoryLabel = assignedMasterCat || "Raw Material";
 
-          if (isSubAssembly) {
-            resolvedItemType = "SubAssembly";
-            categoryLabel = "Sub Assembly";
-          } else if (isComponent) {
+          if (isComponent) {
             resolvedItemType = "Component";
             categoryLabel = "In-House Component";
+          } else if (isSubAssembly) {
+            resolvedItemType = "SubAssembly";
+            categoryLabel = "Sub Assembly";
           } else if (isAssembly) {
             resolvedItemType = "Assembly";
             categoryLabel = "Finished Good / Assembly";
@@ -2283,7 +2283,10 @@ export const previewMRPBOMBudget = async (req, res) => {
           );
           const nestedSubBOM = findBOM(sName, sCode);
           const fgType = matchedFG?.type || subItem.fgType || subItem.itemClassification;
-          const isSubAssembly = fgType === "Sub Assembly" || Boolean(nestedSubBOM);
+          const hasChildBOM = Boolean(nestedSubBOM);
+          const isComponent = fgType === "Component";
+          const isAssembly = fgType === "Assembly";
+          const isSubAssembly = fgType === "Sub Assembly" || (!isComponent && !isAssembly && hasChildBOM);
 
           const assignedMasterCat = rawMat?.categoryId?.name || boughtOut?.categoryId?.name || rmBo?.categoryId?.name || rawMat?.category || boughtOut?.category || rmBo?.category || "";
           const catName = (assignedMasterCat || rmBo?.categoryId?.name || rmBo?.category || "").toLowerCase();
@@ -2292,7 +2295,7 @@ export const previewMRPBOMBudget = async (req, res) => {
 
           const sDesc = subItem.description || matchedFG?.description || matchedFG?.descriptions || rmBo?.description || rmBo?.descriptions || rawMat?.descriptions || rawMat?.description || boughtOut?.descriptions || boughtOut?.description || "";
 
-          if (isSubAssembly) {
+          if (hasChildBOM) {
             explodeTree(sName, sCode, grossQty, level + 1, undefined, undefined);
           } else if (isBO) {
             const itemKey = (sCode || sName).toLowerCase();
@@ -2830,9 +2833,9 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
                           null;
         const nestedSubBOM = findBOM(sName, sCode, undefined, matchedFG?._id);
         const fgType = matchedFG?.type || subItem.fgType || subItem.itemClassification;
-        const isSubAssembly = fgType === "Sub Assembly" || Boolean(nestedSubBOM);
         const isComponent = fgType === "Component";
         const isAssembly = fgType === "Assembly";
+        const isSubAssembly = fgType === "Sub Assembly" || (!isComponent && !isAssembly && Boolean(nestedSubBOM));
 
         const assignedMasterCat = rawMat?.categoryId?.name || boughtOut?.categoryId?.name || rmBo?.categoryId?.name || rawMat?.category || boughtOut?.category || rmBo?.category || "";
         const catName = (assignedMasterCat || rmBo?.categoryId?.name || rmBo?.category || "").toLowerCase();
@@ -2843,12 +2846,12 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
         let resolvedItemType = "RM";
         let categoryLabel = assignedMasterCat || "Raw Material";
 
-        if (isSubAssembly) {
-          resolvedItemType = "SubAssembly";
-          categoryLabel = "Sub Assembly";
-        } else if (isComponent) {
+        if (isComponent) {
           resolvedItemType = "Component";
           categoryLabel = "In-House Component";
+        } else if (isSubAssembly) {
+          resolvedItemType = "SubAssembly";
+          categoryLabel = "Sub Assembly";
         } else if (isAssembly) {
           resolvedItemType = "Assembly";
           categoryLabel = "Finished Good / Assembly";

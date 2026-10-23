@@ -177,11 +177,11 @@ router.route("/bill/unbilled-docs")
 router.route("/bill/sync-historical")
   .post(syncHistoricalBills);
 
-router.route("/bill")
+router.route(["/bill", "/bills"])
   .post(createPurchaseBill)
   .get(getPurchaseBills);
 
-router.route("/bill/:id")
+router.route(["/bill/:id", "/bills/:id"])
   .get(getPurchaseBillById)
   .put(updatePurchaseBill)
   .delete(deletePurchaseBill);
@@ -193,11 +193,11 @@ router.route("/bill/:id/comment")
   .post(addBillComment);
 
 // Purchase Order Routes (Migrated from Store)
-router.route("/po")
+router.route(["/po", "/pos"])
   .post(createPO)
   .get(getAllPOs);
 
-router.route("/po/:id")
+router.route(["/po/:id", "/pos/:id"])
   .put(updatePO)
   .delete(deletePO);
 

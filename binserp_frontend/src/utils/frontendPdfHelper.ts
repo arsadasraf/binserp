@@ -1644,7 +1644,7 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
             taxRate: po.taxRate != null ? po.taxRate : 18,
             amount: po.amount || (po.quantity * po.rate) || 0
         }];
-
+    const isJobWork = po.poType === 'jobwork' || Boolean(po.sacCode);
     let itemsSubtotal = 0;
     let itemsTableRowsHtml = '';
 
@@ -1669,7 +1669,7 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
             itemDesc = itemDesc.replace(/(?:Generated from\\s+)?MRP\s*(?:Requirement for|Consolidated:|Plan:?)\s*MRP[-A-Za-z0-9_/]*/gi, '').trim();
             itemDesc = itemDesc.replace(/^[|,\s-]+|[|,\s-]+$/g, '');
         }
-        const itemHsn = item.hsnCode || item.hsn || '-';
+        const itemHsn = item.hsnCode || item.hsn || item.sacCode || po.sacCode || (isJobWork ? '9988' : '-');
         const pieceCount = Number(item.pieceCount || item.count || 0);
 
         itemsSubtotal += lineNet;
@@ -1683,6 +1683,7 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                     <div style="font-weight: bold; color: #0f172a; font-size: 11px;">
                         ${item.materialName || item.material?.name || item.itemName || 'Material Item'}
                     </div>
+                    ${item.processType ? `<div style="font-size: 9.5px; color: #4338ca; font-weight: bold; margin-top: 2px;">Process: ${item.processType}${item.processNote ? ` (${item.processNote})` : ''}</div>` : ''}
                     ${itemDesc ? `<div style="font-size: 9.5px; color: #475569; margin-top: 3px; font-style: italic;">${itemDesc}</div>` : ''}
                 </td>
                 <td style="text-align: center; font-family: monospace; padding: 7px 4px; vertical-align: top; color: #475569;">${itemHsn}</td>
@@ -1753,7 +1754,7 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
             <!-- Title -->
             <div style="text-align: center; margin-bottom: 14px;">
                 <span style="font-size: 14px; font-weight: 900; color: #1e1b4b; letter-spacing: 1px; text-transform: uppercase; border-bottom: 2px solid #6b21a8; padding-bottom: 2px;">
-                    PURCHASE ORDER
+                    ${isJobWork ? 'JOB WORK PURCHASE ORDER' : 'PURCHASE ORDER'}
                 </span>
             </div>
 
@@ -1787,6 +1788,18 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                                 <td style="padding: 4px 0; color: #64748b; white-space: nowrap;"><b>PO Date:</b></td>
                                 <td style="padding: 4px 0; font-weight: bold;">${new Date(po.date || po.createdAt || Date.now()).toLocaleDateString('en-GB')}</td>
                             </tr>
+                            ${(po.sacCode || isJobWork) ? `
+                                <tr>
+                                    <td style="padding: 4px 0; color: #64748b; white-space: nowrap;"><b>SAC Code:</b></td>
+                                    <td style="padding: 4px 0; font-weight: 800; font-size: 11px; color: #4338ca; font-family: monospace;">${po.sacCode || '9988'}</td>
+                                </tr>
+                            ` : ''}
+                            ${(po.processType && isJobWork) ? `
+                                <tr>
+                                    <td style="padding: 4px 0; color: #64748b; white-space: nowrap;"><b>Process / Scope:</b></td>
+                                    <td style="padding: 4px 0; font-weight: bold; color: #0f172a;">${po.processType}</td>
+                                </tr>
+                            ` : ''}
                             ${resolvedMrp ? `
                                 <tr>
                                     <td style="padding: 4px 0; color: #64748b; white-space: nowrap;"><b>MRP No:</b></td>
@@ -1816,7 +1829,7 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                     <tr>
                         <th style="width: 5%; padding: 7px 4px; text-align: center;">S.No</th>
                         <th style="width: 40%; padding: 7px 8px; text-align: left;">Item Name & Specifications</th>
-                        <th style="width: 10%; padding: 7px 4px; text-align: center;">HSN / SAC</th>
+                        <th style="width: 10%; padding: 7px 4px; text-align: center;">${isJobWork ? 'SAC Code' : 'HSN / SAC'}</th>
                         <th style="width: 10%; padding: 7px 4px; text-align: center;">Count</th>
                         <th style="width: 11%; padding: 7px 4px; text-align: center;">Quantity</th>
                         <th style="width: 12%; padding: 7px 8px; text-align: right;">Unit Rate</th>
@@ -1853,7 +1866,7 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                 </div>
 
                 <div style="width: 330px; border: 1px solid #6b21a8; padding: 10px; background: #faf5ff; border-radius: 4px;">
-                    <div style="font-weight: bold; color: #6b21a8; font-size: 10px; uppercase; margin-bottom: 6px; border-bottom: 1px border #e9d5ff; padding-bottom: 4px;">TAX & FINANCIAL BREAKDOWN</div>
+                    <div style="font-weight: bold; color: #6b21a8; font-size: 10px; uppercase; margin-bottom: 6px; border-bottom: 1px border #e9d5ff; padding-bottom: 4px;">TAX & FINANCIAL BREAKDOWN ${isJobWork ? `(SAC ${po.sacCode || '9988'})` : ''}</div>
                     <table style="width: 100%; font-size: 10px; line-height: 1.6;">
                         <tr>
                             <td style="color: #475569;">Items Subtotal:</td>

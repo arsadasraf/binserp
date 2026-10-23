@@ -4,7 +4,7 @@ export const SYSTEM_PERMISSIONS = [
     module: "Store",
     label: "Store & Inventory",
     tabs: [
-      { id: "inventory", label: "Inventory", description: "RM & BO Stock, In-House Stock, GRN & FG GRN History", route: "/dashboard/store/inventory/rm-bo-stock" },
+      { id: "inventory", label: "Inventory", description: "RM & BO Stock, In-House Stock, GRN & FG GRN History", route: "/dashboard/store/inventory/rm-stock" },
       { id: "wip", label: "WIP", description: "WIP Material Requests & Issue History", route: "/dashboard/store/wip/requests" },
       { id: "sales", label: "Sales", description: "Sales Orders, Quotations, Invoices, Delivery Challans, Price List, RFQ", route: "/dashboard/store/sales/orders" },
       { id: "purchase", label: "Purchase", description: "Purchase Orders (PO), MRP Planning, Vendor Quotes, Purchase Bills", route: "/dashboard/store/purchase/po" },

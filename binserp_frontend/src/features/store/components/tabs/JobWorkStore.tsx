@@ -956,22 +956,21 @@ export default function JobWorkStore({
                 </div>
             </div>
 
-            {/* Top Row: Two Main Tabs & Desktop Action Button */}
+            {/* Top Row: View Switcher & Desktop Action Button */}
             <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2.5">
-                {/* Two Main Tabs: Challans & Rejection Bins */}
                 <div className="flex bg-gray-100 dark:bg-gray-800/70 p-1 rounded-2xl gap-1 w-full sm:w-auto">
                     <button
-                        onClick={() => setMainTab('challans')}
+                        onClick={() => setChallanViewMode('challans')}
                         className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-                            mainTab === 'challans'
+                            challanViewMode === 'challans'
                                 ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                                 : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                         }`}
                     >
                         <Truck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                        <span>Job Work Challans</span>
+                        <span>Challans Register</span>
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                            mainTab === 'challans'
+                            challanViewMode === 'challans'
                                 ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
                                 : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
                         }`}>
@@ -980,15 +979,15 @@ export default function JobWorkStore({
                     </button>
 
                     <button
-                        onClick={() => setMainTab('rejections')}
+                        onClick={() => setChallanViewMode('item-stock')}
                         className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-                            mainTab === 'rejections'
-                                ? 'bg-white dark:bg-gray-700 text-rose-600 dark:text-rose-400 shadow-xs'
+                            challanViewMode === 'item-stock'
+                                ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                                 : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                         }`}
                     >
-                        <ShieldAlert className="w-4 h-4 text-rose-500" />
-                        <span>Rejection Bins</span>
+                        <Boxes className="w-4 h-4 text-amber-500" />
+                        <span>Item-Wise Vendor Stock</span>
                     </button>
                 </div>
 
@@ -1002,14 +1001,8 @@ export default function JobWorkStore({
                 </button>
             </div>
 
-            {mainTab === 'rejections' ? (
-                <div className="pt-1">
-                    <RejectionReworkHub context="wip-jobwork" />
-                </div>
-            ) : (
-                <>
-                    {/* Mobile Quick-Toggle Status Pills (shown when in challans mode) */}
-                    {challanViewMode === 'challans' && (
+            {/* Mobile Quick-Toggle Status Pills (shown when in challans mode) */}
+            {challanViewMode === 'challans' && (
                         <div className="sm:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
                             {STATUS_OPTIONS.map(st => {
                                 const isChecked = selectedStatuses.includes(st.id);
@@ -2108,8 +2101,6 @@ export default function JobWorkStore({
                             );
                         })}
                     </div>
-                </>
-            )}
                 </>
             )}
 

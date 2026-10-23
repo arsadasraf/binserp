@@ -24,7 +24,8 @@ export const createPO = asyncHandler(async (req, res) => {
     mrpPlanId, mrpNumber,
     items, material, component, materialName, quantity, unit, rate, amount, category, status,
     transportType, transportCharge, packingType, packingCharge, subtotal, totalTax, grandTotal, remarks, description,
-    gstType, cgstAmount, sgstAmount, igstAmount
+    gstType, cgstAmount, sgstAmount, igstAmount,
+    poType, processType, sacCode, expectedDeliveryDate
   } = req.body;
 
   if (!poNumber) {
@@ -40,6 +41,10 @@ export const createPO = asyncHandler(async (req, res) => {
   const poData = {
     company: companyId,
     poNumber,
+    poType: poType || 'standard',
+    processType: processType || '',
+    sacCode: sacCode || '',
+    expectedDeliveryDate: expectedDeliveryDate ? new Date(expectedDeliveryDate) : undefined,
     date: date || new Date(),
     vendor: isValidObjectId(vendor) ? vendor : vendor,
     vendorName,
@@ -112,6 +117,8 @@ export const createPO = asyncHandler(async (req, res) => {
         materialName: matName,
         itemType: (item.itemType || 'rm').toLowerCase(),
         description: item.description || item.itemDescription || item.remarks || item.specifications || description || '',
+        processType: item.processType || processType || '',
+        processNote: item.processNote || '',
         hsnCode: item.hsnCode || item.hsn || '',
         pieceCount: Number(item.pieceCount || item.count || 0),
         quantity: pricing.quantity,
@@ -236,7 +243,15 @@ export const getAllPOs = asyncHandler(async (req, res) => {
   const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
 
   const companyId = getCompanyId(req);
-  const pos = await PurchaseOrder.find({ company: companyId })
+  const filter = { company: companyId };
+  if (req.query.poType) {
+    if (req.query.poType === 'jobwork') {
+      filter.poType = 'jobwork';
+    } else if (req.query.poType === 'standard') {
+      filter.poType = { $in: ['standard', null, undefined] };
+    }
+  }
+  const pos = await PurchaseOrder.find(filter)
     .populate("vendor", "name code email phone address gst")
     .populate("material", "name code descriptions description specification")
     .populate("items.material", "name code unit category descriptions description specification")
@@ -303,7 +318,7 @@ export const getAllPOs = asyncHandler(async (req, res) => {
     return poObj;
   });
 
-  res.status(200).json({ pos: posWithVendorName, count: pos.length });
+  res.status(200).json({ pos: posWithVendorName, data: posWithVendorName, count: pos.length });
 });
 
 export const getVendorActivePOs = asyncHandler(async (req, res) => {
@@ -752,6 +767,8 @@ export const updatePO = asyncHandler(async (req, res) => {
         materialName: matName,
         itemType: (item.itemType || 'rm').toLowerCase(),
         description: item.description || item.itemDescription || item.remarks || item.specifications || '',
+        processType: item.processType || req.body.processType || existingPO.processType || '',
+        processNote: item.processNote || '',
         hsnCode: item.hsnCode || item.hsn || '',
         pieceCount: Number(item.pieceCount || item.count || 0),
         quantity: pricing.quantity,

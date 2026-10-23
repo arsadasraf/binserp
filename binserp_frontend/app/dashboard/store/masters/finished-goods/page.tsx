@@ -100,6 +100,8 @@ export default function FinishedGoodsPage() {
         item: rawId,
         itemName: b.itemName || matchedMaster?.name || (typeof b.item === 'object' ? b.item?.name : '') || '',
         itemDescription: b.itemDescription || matchedMaster?.descriptions || matchedMaster?.description || (typeof b.item === 'object' ? (b.item?.descriptions || b.item?.description) : '') || '',
+        fgType: b.fgType || b.itemClassification || (bType === 'FGItem' ? matchedMaster?.type : undefined),
+        itemClassification: b.itemClassification || b.fgType || (bType === 'FGItem' ? matchedMaster?.type : undefined),
         unit: priUnit,
         hasSecondaryUnit: hasSec && Boolean(secUnit) && convFactor > 0,
         secondaryUnit: secUnit,
@@ -436,6 +438,7 @@ export default function FinishedGoodsPage() {
             fgItems={finishedGoods}
             photos={photos}
             setPhotos={setPhotos}
+            onPreviewBOM={() => setPreviewItem(formData)}
           />
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-slate-800">
             <button

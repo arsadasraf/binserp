@@ -4,6 +4,8 @@ export interface PurchaseBillItem {
   consumable?: any;
   materialName: string;
   serviceName?: string;
+  processType?: string;
+  processNote?: string;
   description?: string;
   hsnCode?: string;
   sacCode?: string;

@@ -21,6 +21,7 @@ interface FGItemFormProps {
     fgItems?: any[]; // Other FG Items for BOM
     photos: File[];
     setPhotos: (photos: File[]) => void;
+    onPreviewBOM?: () => void;
 }
 
 export default function FGItemForm({
@@ -33,7 +34,8 @@ export default function FGItemForm({
     materials = [],
     fgItems = [],
     photos,
-    setPhotos
+    setPhotos,
+    onPreviewBOM
 }: FGItemFormProps) {
     // Merge fallback materials if rawMaterials / boughtOuts are empty
     const effectiveRM = (rawMaterials && rawMaterials.length > 0) 
@@ -200,6 +202,7 @@ export default function FGItemForm({
             itemName: '',
             itemDescription: '',
             itemClassification: '',
+            fgType: undefined,
             itemRevision: '',
             unit: defaultUom,
             hasSecondaryUnit: false,
@@ -821,7 +824,7 @@ export default function FGItemForm({
             <div className="lg:col-span-7 space-y-4">
                 <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-gray-200 dark:border-slate-800 shadow-xs">
                     {/* BOM Header */}
-                    <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100 dark:border-slate-800">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 mb-4 border-b border-gray-100 dark:border-slate-800 gap-2">
                         <div className="flex items-center gap-2.5">
                             <div className="w-1.5 h-4 bg-amber-500 rounded-full" />
                             <h3 className="text-sm font-bold text-gray-900 dark:text-white">
@@ -832,14 +835,27 @@ export default function FGItemForm({
                             </span>
                         </div>
 
-                        <button
-                            type="button"
-                            onClick={addBOMItem}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition-colors cursor-pointer"
-                        >
-                            <Plus size={14} />
-                            <span>Add Material</span>
-                        </button>
+                        <div className="flex items-center gap-2">
+                            {onPreviewBOM && (formData.bom || []).length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={onPreviewBOM}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800/80 hover:bg-purple-100 dark:hover:bg-purple-900/40 rounded-lg shadow-xs transition-colors cursor-pointer"
+                                    title="Live Preview Multi-Level Engineering BOM hierarchy"
+                                >
+                                    <Sparkles size={14} className="text-purple-500" />
+                                    <span>Preview Multi-Level BOM</span>
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={addBOMItem}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition-colors cursor-pointer"
+                            >
+                                <Plus size={14} />
+                                <span>Add Material</span>
+                            </button>
+                        </div>
                     </div>
 
                     {/* BOM Items List */}

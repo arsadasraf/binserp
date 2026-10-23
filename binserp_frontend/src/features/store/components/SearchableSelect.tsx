@@ -29,6 +29,7 @@ interface SearchableSelectProps {
     hasError?: boolean;
     asyncSearch?: (query: string) => Promise<SearchableOption[]>;
     onCreateCustom?: (query: string) => void;
+    customActionLabel?: (query: string) => string;
 }
 
 const MAX_RENDER_STEP = 50;
@@ -46,7 +47,8 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     disabled = false,
     hasError = false,
     asyncSearch,
-    onCreateCustom
+    onCreateCustom,
+    customActionLabel
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
@@ -460,7 +462,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                                         }}
                                     >
                                         <PackagePlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                                        <span>Use &quot;{searchTerm.trim()}&quot;</span>
+                                        <span>{customActionLabel ? customActionLabel(searchTerm.trim()) : `Use "${searchTerm.trim()}"`}</span>
                                     </div>
                                 )}
                                 {visibleOptions.map((o, idx) => {
@@ -560,7 +562,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                                 }}
                             >
                                 <PackagePlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                                <span>Create &quot;{searchTerm.trim()}&quot; in Master</span>
+                                <span>{customActionLabel ? customActionLabel(searchTerm.trim()) : `Use "${searchTerm.trim()}"`}</span>
                             </div>
                         ) : (
                             <div className="px-3 py-6 text-xs text-gray-400 dark:text-slate-500 text-center flex flex-col items-center gap-2">
