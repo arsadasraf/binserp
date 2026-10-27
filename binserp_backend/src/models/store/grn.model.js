@@ -137,7 +137,7 @@ export const grnSchema = new mongoose.Schema(
     },
     isTransportationTaxable: {
       type: Boolean,
-      default: false,
+      default: true,
     },
     transportationTaxRate: {
       type: Number,
@@ -154,7 +154,7 @@ export const grnSchema = new mongoose.Schema(
     },
     isPackingTaxable: {
       type: Boolean,
-      default: false,
+      default: true,
     },
     packingTaxRate: {
       type: Number,

@@ -4,7 +4,7 @@ import {
     FileText, FileSpreadsheet, Clock, Edit2, Trash2, Lock, 
     AlertTriangle, ArrowRight, Layers, RefreshCw, X, ShieldAlert, ShieldCheck,
     Check, ChevronDown, SlidersHorizontal, Boxes, Building2, Download, Filter,
-    RotateCcw
+    RotateCcw, User
 } from 'lucide-react';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import { JobWorkChallan, Vendor, JobWorkSupplier, JOB_WORK_PURPOSES } from "@/src/features/store/types/store.types";
@@ -62,6 +62,17 @@ const formatDateTime = (dateStr?: string | Date): string => {
     });
 };
 
+const getCreatorName = (challan: JobWorkChallan): string => {
+    if (!challan) return '-';
+    if (typeof challan.createdBy === 'object' && challan.createdBy) {
+        return challan.createdBy.name || challan.createdBy.username || challan.createdBy.email || 'Admin User';
+    }
+    if (typeof challan.createdBy === 'string' && challan.createdBy.trim()) {
+        return challan.createdBy.trim();
+    }
+    return 'Admin User';
+};
+
 export default function JobWorkStore({ 
     vendors, 
     jobWorkSuppliers = [], 
@@ -89,10 +100,11 @@ export default function JobWorkStore({
     // Item-Wise View Filter: Only items with pending balance (> 0)
     const [onlyPendingBalance, setOnlyPendingBalance] = useState(true);
 
-    // Excel-Style Table Column Filters (Vendor & Purpose)
+    // Excel-Style Table Column Filters (Vendor, Purpose & Created By)
     const [selectedVendors, setSelectedVendors] = useState<string[]>([]);
     const [selectedPurposes, setSelectedPurposes] = useState<string[]>([]);
-    const [tableDropdownCol, setTableDropdownCol] = useState<'vendor' | 'purpose' | null>(null);
+    const [selectedCreators, setSelectedCreators] = useState<string[]>([]);
+    const [tableDropdownCol, setTableDropdownCol] = useState<'vendor' | 'purpose' | 'createdBy' | null>(null);
     const [tableDropdownSearch, setTableDropdownSearch] = useState('');
     const tableDropdownRef = useRef<HTMLDivElement>(null);
     const [vendorSearchQuery, setVendorSearchQuery] = useState('');
@@ -361,6 +373,12 @@ export default function JobWorkStore({
                 if (!selectedPurposes.includes(chalPurpose)) return false;
             }
 
+            // Excel Column Filter: Created By
+            if (selectedCreators.length > 0) {
+                const creator = getCreatorName(c);
+                if (!selectedCreators.includes(creator)) return false;
+            }
+
             // Date Filter Logic (Day / Month / Year)
             if (filterDate) {
                 const challanDateObj = new Date(c.date);
@@ -397,13 +415,14 @@ export default function JobWorkStore({
 
             return true;
         });
-    }, [challans, searchTerm, workflowFilter, selectedVendors, selectedPurposes, filterDate, filterMode, selectedStatuses]);
+    }, [challans, searchTerm, workflowFilter, selectedVendors, selectedPurposes, selectedCreators, filterDate, filterMode, selectedStatuses]);
 
     const activeFilterCount = useMemo(() => {
         let count = 0;
         if (workflowFilter !== 'all') count++;
         if (selectedVendors.length > 0) count++;
         if (selectedPurposes.length > 0) count++;
+        if (selectedCreators.length > 0) count++;
         if (filterDate) count++;
         if (selectedStatuses.length !== 1 || selectedStatuses[0] !== 'active') count++;
         return count;
@@ -443,67 +462,103 @@ export default function JobWorkStore({
         return Array.from(names).sort((a, b) => a.localeCompare(b));
     }, [challans]);
 
+    // Unique Creators for Excel Column Filter & Mobile Drawer
+    const uniqueCreatorNames = useMemo(() => {
+        const names = new Set<string>();
+        challans.forEach(c => {
+            const name = getCreatorName(c);
+            if (name) names.add(name);
+        });
+        return Array.from(names).sort((a, b) => a.localeCompare(b));
+    }, [challans]);
+
     // Excel Column Header Helpers
-    const getValueCount = (colKey: 'vendor' | 'purpose', val: string) => {
+    const getValueCount = (colKey: 'vendor' | 'purpose' | 'createdBy', val: string) => {
         if (colKey === 'vendor') {
             if (challanViewMode === 'item-stock') {
                 return itemWiseVendorStock.filter(r => r.vendorName === val).length;
             }
             return challans.filter(c => c.vendor?.name === val).length;
-        } else {
+        } else if (colKey === 'purpose') {
             return challans.filter(c => (c.purpose || c.items?.[0]?.processType || 'Machining') === val).length;
+        } else {
+            return challans.filter(c => getCreatorName(c) === val).length;
         }
     };
 
-    const handleSelectAllExcel = (colKey: 'vendor' | 'purpose', allValues: string[]) => {
+    const handleSelectAllExcel = (colKey: 'vendor' | 'purpose' | 'createdBy', allValues: string[]) => {
         if (colKey === 'vendor') {
             if (selectedVendors.length === allValues.length) {
                 setSelectedVendors([]);
             } else {
                 setSelectedVendors([...allValues]);
             }
-        } else {
+        } else if (colKey === 'purpose') {
             if (selectedPurposes.length === allValues.length) {
                 setSelectedPurposes([]);
             } else {
                 setSelectedPurposes([...allValues]);
             }
+        } else {
+            if (selectedCreators.length === allValues.length) {
+                setSelectedCreators([]);
+            } else {
+                setSelectedCreators([...allValues]);
+            }
         }
     };
 
-    const handleToggleExcelValue = (colKey: 'vendor' | 'purpose', val: string) => {
+    const handleToggleExcelValue = (colKey: 'vendor' | 'purpose' | 'createdBy', val: string) => {
         if (colKey === 'vendor') {
             setSelectedVendors(prev => 
                 prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]
             );
-        } else {
+        } else if (colKey === 'purpose') {
             setSelectedPurposes(prev => 
                 prev.includes(val) ? prev.filter(p => p !== val) : [...prev, val]
+            );
+        } else {
+            setSelectedCreators(prev => 
+                prev.includes(val) ? prev.filter(c => c !== val) : [...prev, val]
             );
         }
     };
 
-    const handleClearExcelFilter = (colKey: 'vendor' | 'purpose') => {
+    const handleClearExcelFilter = (colKey: 'vendor' | 'purpose' | 'createdBy') => {
         if (colKey === 'vendor') {
             setSelectedVendors([]);
-        } else {
+        } else if (colKey === 'purpose') {
             setSelectedPurposes([]);
+        } else {
+            setSelectedCreators([]);
         }
     };
 
     // Excel-Type Column Header Renderer
     const renderExcelHeader = (
-        colKey: 'vendor' | 'purpose',
+        colKey: 'vendor' | 'purpose' | 'createdBy',
         title: string,
         align: 'left' | 'center' | 'right' = 'left'
     ) => {
-        const isFiltered = colKey === 'vendor' ? selectedVendors.length > 0 : selectedPurposes.length > 0;
+        const isFiltered = colKey === 'vendor' 
+            ? selectedVendors.length > 0 
+            : colKey === 'purpose' 
+                ? selectedPurposes.length > 0 
+                : selectedCreators.length > 0;
         const isOpen = tableDropdownCol === colKey;
-        const allValues = colKey === 'vendor' ? uniqueVendorNames : uniquePurposeNames;
+        const allValues = colKey === 'vendor' 
+            ? uniqueVendorNames 
+            : colKey === 'purpose' 
+                ? uniquePurposeNames 
+                : uniqueCreatorNames;
         const filteredDropdownValues = allValues.filter((v) =>
             v.toLowerCase().includes(tableDropdownSearch.toLowerCase().trim())
         );
-        const selectedValues = colKey === 'vendor' ? selectedVendors : selectedPurposes;
+        const selectedValues = colKey === 'vendor' 
+            ? selectedVendors 
+            : colKey === 'purpose' 
+                ? selectedPurposes 
+                : selectedCreators;
         const isAllSelected = selectedValues.length === allValues.length && allValues.length > 0;
 
         return (
@@ -913,50 +968,9 @@ export default function JobWorkStore({
                         )}
                     </button>
                 </div>
-
-                {/* Mobile View Toggle Switch */}
-                <div className="flex items-center justify-between gap-2 px-0.5">
-                    <div className="flex items-center p-0.5 bg-gray-100 dark:bg-gray-800 rounded-xl border border-gray-200/80 dark:border-gray-700 shrink-0">
-                        <button
-                            type="button"
-                            onClick={() => setChallanViewMode('challans')}
-                            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                                challanViewMode === 'challans'
-                                    ? 'bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
-                                    : 'text-gray-500'
-                            }`}
-                        >
-                            <Truck size={12} />
-                            <span>Challans ({filteredChallans.length})</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setChallanViewMode('item-stock')}
-                            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                                challanViewMode === 'item-stock'
-                                    ? 'bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
-                                    : 'text-gray-500'
-                            }`}
-                        >
-                            <Boxes size={12} />
-                            <span>Item Stock ({filteredItemStock.length})</span>
-                        </button>
-                    </div>
-
-                    {challanViewMode === 'item-stock' && (
-                        <button
-                            type="button"
-                            onClick={handleExportItemStockExcel}
-                            className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-xs shrink-0 cursor-pointer"
-                        >
-                            <Download size={12} />
-                            <span>Excel</span>
-                        </button>
-                    )}
-                </div>
             </div>
 
-            {/* Top Row: View Switcher & Desktop Action Button */}
+            {/* Top Row: View Switcher & Action Button (Only header switch across all screens) */}
             <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2.5">
                 <div className="flex bg-gray-100 dark:bg-gray-800/70 p-1 rounded-2xl gap-1 w-full sm:w-auto">
                     <button
@@ -991,14 +1005,28 @@ export default function JobWorkStore({
                     </button>
                 </div>
 
-                {/* Primary Action Button (Desktop) */}
-                <button
-                    onClick={() => handleCreateChallan()}
-                    className="hidden sm:flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
-                >
-                    <Plus size={15} />
-                    <span>Create Returnable DC</span>
-                </button>
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                    {challanViewMode === 'item-stock' && (
+                        <button
+                            type="button"
+                            onClick={handleExportItemStockExcel}
+                            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                            title="Export Item-Wise Vendor Stock to Excel"
+                        >
+                            <Download size={14} />
+                            <span>Export Excel</span>
+                        </button>
+                    )}
+
+                    {/* Primary Action Button (Desktop) */}
+                    <button
+                        onClick={() => handleCreateChallan()}
+                        className="hidden sm:flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                    >
+                        <Plus size={15} />
+                        <span>Create Returnable DC</span>
+                    </button>
+                </div>
             </div>
 
             {/* Mobile Quick-Toggle Status Pills (shown when in challans mode) */}
@@ -1054,36 +1082,6 @@ export default function JobWorkStore({
                                             ✕
                                         </button>
                                     )}
-                                </div>
-
-                                {/* View Toggle Switch: Placed right next to the Searchbar */}
-                                <div className="flex items-center p-0.5 bg-gray-100 dark:bg-gray-800 rounded-xl border border-gray-200/80 dark:border-gray-700 shrink-0">
-                                    <button
-                                        type="button"
-                                        onClick={() => setChallanViewMode('challans')}
-                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                            challanViewMode === 'challans'
-                                                ? 'bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
-                                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-                                        }`}
-                                        title="Challans View"
-                                    >
-                                        <Truck size={13} className={challanViewMode === 'challans' ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400'} />
-                                        <span>Challans</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setChallanViewMode('item-stock')}
-                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                            challanViewMode === 'item-stock'
-                                                ? 'bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
-                                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-                                        }`}
-                                        title="Item-Wise Vendor Stock"
-                                    >
-                                        <Boxes size={13} className={challanViewMode === 'item-stock' ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400'} />
-                                        <span>Item Stock</span>
-                                    </button>
                                 </div>
 
                                 {/* Item-Stock Quick Action Controls */}
@@ -1259,7 +1257,7 @@ export default function JobWorkStore({
                     </div>
 
                     {/* Active Excel Column Filters Banner */}
-                    {(selectedVendors.length > 0 || selectedPurposes.length > 0) && (
+                    {(selectedVendors.length > 0 || selectedPurposes.length > 0 || selectedCreators.length > 0) && (
                         <div className="px-3.5 py-2 bg-indigo-50/80 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between text-xs animate-in fade-in">
                             <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
@@ -1290,10 +1288,22 @@ export default function JobWorkStore({
                                         </button>
                                     </span>
                                 )}
+                                {selectedCreators.length > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 font-semibold text-[11px]">
+                                        <span>Created By: {selectedCreators.length === 1 ? selectedCreators[0] : `${selectedCreators.length} selected`}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedCreators([])}
+                                            className="hover:text-red-500 cursor-pointer ml-0.5 font-bold"
+                                        >
+                                            ✕
+                                        </button>
+                                    </span>
+                                )}
                             </div>
                             <button
                                 type="button"
-                                onClick={() => { setSelectedVendors([]); setSelectedPurposes([]); }}
+                                onClick={() => { setSelectedVendors([]); setSelectedPurposes([]); setSelectedCreators([]); }}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
                             >
                                 <RotateCcw size={11} /> Clear Filters
@@ -1565,6 +1575,7 @@ export default function JobWorkStore({
                                         <th className="px-4 py-3">Outward Material Sent</th>
                                         <th className="px-4 py-3">Expected Return Item(s)</th>
                                         <th className="px-3.5 py-3">Dates & Status</th>
+                                        {renderExcelHeader('createdBy', 'Created By')}
                                         <th className="px-4 py-3 text-right">Actions</th>
                                     </tr>
                                 </thead>
@@ -1811,7 +1822,17 @@ export default function JobWorkStore({
                                                     </div>
                                                 </td>
 
-                                                {/* 8. Quick Actions & 24h Countdown Timer */}
+                                                {/* 8. Created By */}
+                                                <td className="px-3.5 py-3 whitespace-nowrap">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <User size={13} className="text-slate-400 shrink-0" />
+                                                        <span className="font-semibold text-xs text-slate-700 dark:text-slate-200">
+                                                            {getCreatorName(challan)}
+                                                        </span>
+                                                    </div>
+                                                </td>
+
+                                                {/* 9. Quick Actions & 24h Countdown Timer */}
                                                 <td className="px-4 py-3 text-right whitespace-nowrap">
                                                     <div className="flex justify-end items-center gap-1.5">
                                                         {/* Preview Action */}
@@ -2035,6 +2056,13 @@ export default function JobWorkStore({
                                                 </span>
                                             </div>
                                         )}
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-slate-400">Created By:</span>
+                                            <span className="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1">
+                                                <User size={12} className="text-slate-400" />
+                                                {getCreatorName(challan)}
+                                            </span>
+                                        </div>
                                     </div>
 
                                     {/* Mobile Actions */}
@@ -2316,6 +2344,49 @@ export default function JobWorkStore({
                             </div>
                         </div>
 
+                        {/* Created By Filter (Mobile) */}
+                        {uniqueCreatorNames.length > 0 && (
+                            <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="text-[11px] font-bold text-slate-500 uppercase">Created By ({selectedCreators.length}/{uniqueCreatorNames.length})</label>
+                                    {selectedCreators.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedCreators([])}
+                                            className="text-[10px] text-rose-600 font-bold hover:underline"
+                                        >
+                                            Clear
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="max-h-36 overflow-y-auto space-y-1 bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-200 dark:border-slate-700">
+                                    {uniqueCreatorNames.map(creator => {
+                                        const isChecked = selectedCreators.includes(creator);
+                                        const count = getValueCount('createdBy', creator);
+                                        return (
+                                            <label
+                                                key={creator}
+                                                className="flex items-center justify-between text-xs p-1 rounded-lg hover:bg-white dark:hover:bg-slate-700 cursor-pointer"
+                                            >
+                                                <div className="flex items-center gap-2 min-w-0 pr-2">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={() => handleToggleExcelValue('createdBy', creator)}
+                                                        className="rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                                                    />
+                                                    <span className="truncate">{creator}</span>
+                                                </div>
+                                                <span className="shrink-0 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400">
+                                                    {count}
+                                                </span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Date Mode & Picker */}
                         <div>
                             <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Date Filter</label>
@@ -2351,6 +2422,7 @@ export default function JobWorkStore({
                                     setWorkflowFilter('all');
                                     setSelectedVendors([]);
                                     setSelectedPurposes([]);
+                                    setSelectedCreators([]);
                                     setVendorSearchQuery('');
                                     setFilterDate('');
                                 }}

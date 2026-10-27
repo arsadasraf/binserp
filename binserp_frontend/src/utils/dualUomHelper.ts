@@ -154,7 +154,9 @@ export function computePOTaxAndGrandTotals(
   taxRate: number = 18,
   isInterState: boolean = false,
   isRoundOffEnabled: boolean = true,
-  roundingMode: RoundingMode = 'nearest'
+  roundingMode: RoundingMode = 'nearest',
+  isTransportationTaxable: boolean = true,
+  isPackingTaxable: boolean = true
 ) {
   // Pure subtotal: sum of each line's computed taxable base amount
   const subtotal = items.reduce((sum, item) => {
@@ -164,15 +166,30 @@ export function computePOTaxAndGrandTotals(
     return sum + (amt || 0);
   }, 0);
 
-  const logistics = (Number(transportCharge) || 0) + (Number(packingCharge) || 0);
-  const taxableAmount = subtotal + logistics;
+  const tCharge = Number(transportCharge) || 0;
+  const pCharge = Number(packingCharge) || 0;
+  const isTransTaxable = isTransportationTaxable !== false && (isTransportationTaxable as any) !== 'false';
+  const isPackTaxable = isPackingTaxable !== false && (isPackingTaxable as any) !== 'false';
+
+  const taxableTransport = isTransTaxable ? tCharge : 0;
+  const taxablePacking = isPackTaxable ? pCharge : 0;
+  const taxableLogistics = taxableTransport + taxablePacking;
+  const nonTaxableTransport = isTransTaxable ? 0 : tCharge;
+  const nonTaxablePacking = isPackTaxable ? 0 : pCharge;
+
+  const taxableAmount = subtotal + taxableLogistics;
   const rate = Math.max(0, Number(taxRate) || 0);
   const totalTax = parseFloat(((taxableAmount * rate) / 100).toFixed(2));
+
+  const transportationTaxAmount = isTransTaxable ? parseFloat(((tCharge * rate) / 100).toFixed(2)) : 0;
+  const packingTaxAmount = isPackTaxable ? parseFloat(((pCharge * rate) / 100).toFixed(2)) : 0;
 
   // Compute exact and rounded grand totals with explicit round-off
   const rounding = computeProfessionalTotalWithRoundOff({
     subtotal: taxableAmount,
     totalTax,
+    transportationCharges: nonTaxableTransport,
+    packagingCharges: nonTaxablePacking,
     isRoundOffEnabled,
     roundingMode
   });
@@ -180,6 +197,12 @@ export function computePOTaxAndGrandTotals(
   return {
     subtotal: parseFloat(subtotal.toFixed(2)),
     taxableAmount: parseFloat(taxableAmount.toFixed(2)),
+    taxableLogistics: parseFloat(taxableLogistics.toFixed(2)),
+    nonTaxableLogistics: parseFloat((nonTaxableTransport + nonTaxablePacking).toFixed(2)),
+    isTransportationTaxable: isTransTaxable,
+    isPackingTaxable: isPackTaxable,
+    transportationTaxAmount,
+    packingTaxAmount,
     taxRate: rate,
     totalTax,
     cgstAmount: isInterState ? 0 : parseFloat((totalTax / 2).toFixed(2)),

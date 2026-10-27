@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { useTimeLockPolicy } from "@/src/hooks/useTimeLockPolicy";
 import { useGetStoreDataQuery, useDeleteStoreRecordMutation } from "@/src/store/services/storeService";
+import ColumnFilter from "./ColumnFilter";
 import GRNDetailModal from "../modals/GRNDetailModal";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -204,11 +205,36 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [photoViewerUrls, setPhotoViewerUrls] = useState<string[] | null>(null);
 
-  // Filters
+  // Global Search
   const [search, setSearch] = useState<string>("");
-  const [typeFilter, setTypeFilter] = useState<string>(initialTypeFilter || "all");
-  const [qcStatusFilter, setQcStatusFilter] = useState<string>("all");
-  const [receivedByFilter, setReceivedByFilter] = useState<string>("all");
+
+  // Excel-Style Multi-Select Column Filters & Sorting State
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>(() => {
+    const initial: Record<string, string[]> = {};
+    if (initialTypeFilter && initialTypeFilter !== "all") {
+      const typeLabel =
+        initialTypeFilter === "RM" ? "Raw Material (RM)" :
+        initialTypeFilter === "BO" ? "Bought Out (BO)" :
+        initialTypeFilter === "Consumable" ? "Consumable" :
+        initialTypeFilter === "FG" ? "Finished Goods (FG)" : initialTypeFilter;
+      initial.grnType = [typeLabel];
+    }
+    return initial;
+  });
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [qtyCondition, setQtyCondition] = useState<'all' | 'gt0' | 'eq0'>('all');
+
+  const handleColumnFilterChange = (column: string, values: string[]) => {
+    setColumnFilters((prev) => ({
+      ...prev,
+      [column]: values,
+    }));
+    setCurrentPage(1);
+  };
+
+  const handleSortChange = (key: string, direction: 'asc' | 'desc') => {
+    setSortConfig({ key, direction });
+  };
 
   const formatDateTime = (dateStr?: string | Date) => {
     if (!dateStr) return "-";
@@ -355,37 +381,51 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [allNormalizedGrns]);
 
-  // Filtered GRN records
+  // Filtered and Sorted GRN records
   const filteredGrns = useMemo(() => {
-    return allNormalizedGrns.filter((grn) => {
-      // 1. Type Filter
-      if (typeFilter !== "all") {
-        if (typeFilter === "RM" && grn.grnType !== "RM") return false;
-        if (typeFilter === "BO" && grn.grnType !== "BO") return false;
-        if (typeFilter === "Consumable" && grn.grnType !== "Consumable") return false;
-        if (typeFilter === "FG" && grn.grnType !== "FG") return false;
-      }
+    let result = allNormalizedGrns.filter((grn) => {
+      // 1. Excel-style Multi-Value Column Filters
+      for (const [col, selectedVals] of Object.entries(columnFilters)) {
+        if (!selectedVals || selectedVals.length === 0) continue;
 
-      // Received By User Filter
-      if (receivedByFilter !== "all") {
-        const recName = (grn.receivedBy?.name || grn.receivedByName || "").trim();
-        if (recName !== receivedByFilter) return false;
-      }
-
-      // 2. QC / Status Filter
-      if (qcStatusFilter !== "all") {
-        const qcStatus = (grn.qcStatus || "").toLowerCase();
-        const status = (grn.status || "").toLowerCase();
-        if (qcStatusFilter === "pending") {
-          if (!grn.qcRequired || qcStatus !== "pending") return false;
-        } else if (qcStatusFilter === "accepted") {
-          if (status !== "accepted" && qcStatus !== "passed" && status !== "received") return false;
-        } else if (qcStatusFilter === "rejected") {
-          if (status !== "rejected" && qcStatus !== "rejected") return false;
-        } else if (qcStatusFilter === "skipped") {
-          if (grn.qcRequired) return false;
+        if (col === "grnNumber") {
+          const val = grn.grnNumber || "-";
+          if (!selectedVals.includes(val)) return false;
+        } else if (col === "displayDate") {
+          const val = grn.displayDate ? new Date(grn.displayDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "-";
+          if (!selectedVals.includes(val)) return false;
+        } else if (col === "createdAt") {
+          const val = (grn.createdAt || grn.date) ? new Date(grn.createdAt || grn.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "-";
+          if (!selectedVals.includes(val)) return false;
+        } else if (col === "grnType") {
+          const val = grn.grnTypeLabel || grn.grnType || "RM";
+          if (!selectedVals.includes(val)) return false;
+        } else if (col === "supplierOrCustomer") {
+          const val = grn.supplierOrCustomer || "-";
+          if (!selectedVals.includes(val)) return false;
+        } else if (col === "items") {
+          const grnItemLabels = (grn.items || []).map((it: any) => {
+            const name = it.materialName || it.itemName || (typeof it.fgItem === "object" ? it.fgItem?.name : it.fgItem) || "Item";
+            const desc = getItemDescription(it) || (typeof it.material === "object" ? getItemDescription(it.material) : "") || (typeof it.fgItem === "object" ? getItemDescription(it.fgItem) : "");
+            return desc ? `${name} — ${desc}` : name;
+          });
+          const hasMatchingItem = grnItemLabels.some((lbl: string) => selectedVals.includes(lbl));
+          if (!hasMatchingItem) return false;
+        } else if (col === "totalQuantity") {
+          const val = `${grn.totalQuantity} ${grn.items?.[0]?.unit || "PCS"}`;
+          if (!selectedVals.includes(val)) return false;
+        } else if (col === "qcStatus") {
+          const val = !grn.qcRequired ? "Skipped" : (grn.qcStatus === "Passed" || grn.status === "Accepted") ? "QC Passed" : (grn.qcStatus === "Rejected" || grn.status === "Rejected") ? "QC Rejected" : "Pending QC";
+          if (!selectedVals.includes(val)) return false;
+        } else if (col === "receivedBy") {
+          const val = (grn.receivedBy?.name || grn.receivedByName || "Store Executive").trim();
+          if (!selectedVals.includes(val)) return false;
         }
       }
+
+      // 2. Excel-style Numeric Conditions on Total Quantity
+      if (qtyCondition === "gt0" && Number(grn.totalQuantity || 0) <= 0) return false;
+      if (qtyCondition === "eq0" && Number(grn.totalQuantity || 0) !== 0) return false;
 
       // 3. Search Filter
       if (search && search.trim()) {
@@ -456,7 +496,43 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
 
       return true;
     });
-  }, [allNormalizedGrns, typeFilter, qcStatusFilter, receivedByFilter, search, dateMode, singleDate, selectedMonth, startDate, endDate, activePreset]);
+
+    // 5. Excel-Style Sorting Engine
+    if (sortConfig) {
+      const { key, direction } = sortConfig;
+      result = [...result].sort((a, b) => {
+        let cmp = 0;
+        if (key === "totalQuantity") {
+          cmp = (Number(a.totalQuantity) || 0) - (Number(b.totalQuantity) || 0);
+        } else if (key === "displayDate") {
+          cmp = new Date(a.displayDate).getTime() - new Date(b.displayDate).getTime();
+        } else if (key === "createdAt") {
+          cmp = new Date(a.createdAt || a.date).getTime() - new Date(b.createdAt || b.date).getTime();
+        } else if (key === "grnNumber") {
+          cmp = String(a.grnNumber || "").localeCompare(String(b.grnNumber || ""), undefined, { numeric: true });
+        } else if (key === "grnType") {
+          cmp = String(a.grnTypeLabel || "").localeCompare(String(b.grnTypeLabel || ""));
+        } else if (key === "supplierOrCustomer") {
+          cmp = String(a.supplierOrCustomer || "").localeCompare(String(b.supplierOrCustomer || ""));
+        } else if (key === "items") {
+          const aFirst = a.items?.[0]?.materialName || a.items?.[0]?.itemName || "";
+          const bFirst = b.items?.[0]?.materialName || b.items?.[0]?.itemName || "";
+          cmp = String(aFirst).localeCompare(String(bFirst));
+        } else if (key === "qcStatus") {
+          const aQc = !a.qcRequired ? "Skipped" : (a.qcStatus === "Passed" || a.status === "Accepted") ? "QC Passed" : (a.qcStatus === "Rejected" || a.status === "Rejected") ? "QC Rejected" : "Pending QC";
+          const bQc = !b.qcRequired ? "Skipped" : (b.qcStatus === "Passed" || b.status === "Accepted") ? "QC Passed" : (b.qcStatus === "Rejected" || b.status === "Rejected") ? "QC Rejected" : "Pending QC";
+          cmp = aQc.localeCompare(bQc);
+        } else if (key === "receivedBy") {
+          const aRec = a.receivedBy?.name || a.receivedByName || "Store Executive";
+          const bRec = b.receivedBy?.name || b.receivedByName || "Store Executive";
+          cmp = aRec.localeCompare(bRec);
+        }
+        return direction === "asc" ? cmp : -cmp;
+      });
+    }
+
+    return result;
+  }, [allNormalizedGrns, columnFilters, sortConfig, qtyCondition, search, dateMode, singleDate, selectedMonth, startDate, endDate, activePreset]);
 
   // Pagination slice
   const totalPages = Math.ceil(filteredGrns.length / itemsPerPage) || 1;
@@ -467,9 +543,9 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
 
   const handleResetFilters = () => {
     setSearch("");
-    setTypeFilter("all");
-    setQcStatusFilter("all");
-    setReceivedByFilter("all");
+    setColumnFilters({});
+    setSortConfig(null);
+    setQtyCondition("all");
     setDateMode("preset");
     setActivePreset("all");
     setSingleDate("");
@@ -525,9 +601,9 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
   const isLoading = isLoadingGrn || isLoadingFgGrn;
 
   const isGrnFiltered = Boolean(
-    typeFilter !== "all" ||
-    qcStatusFilter !== "all" ||
-    receivedByFilter !== "all" ||
+    Object.values(columnFilters).some((vals) => vals && vals.length > 0) ||
+    qtyCondition !== "all" ||
+    sortConfig !== null ||
     search.trim() !== "" ||
     (dateMode === "preset" && activePreset !== "all") ||
     (dateMode === "day" && singleDate) ||
@@ -552,19 +628,33 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                   <span className="font-bold text-slate-800 dark:text-slate-200">
                     Showing metrics for {filteredGrns.length} of {allNormalizedGrns.length} GRN records
                   </span>
-                  {typeFilter !== "all" && (
-                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                      Type: {typeFilter}
-                    </span>
-                  )}
-                  {qcStatusFilter !== "all" && (
-                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200">
-                      QC: {qcStatusFilter.toUpperCase()}
-                    </span>
-                  )}
-                  {receivedByFilter !== "all" && (
+                  {Object.entries(columnFilters).map(([col, vals]) => {
+                    if (!vals || vals.length === 0) return null;
+                    const colLabels: Record<string, string> = {
+                      grnNumber: "GRN #",
+                      displayDate: "Receipt Date",
+                      createdAt: "Created",
+                      grnType: "Type",
+                      supplierOrCustomer: "Party",
+                      items: "Items",
+                      totalQuantity: "Qty",
+                      qcStatus: "QC",
+                      receivedBy: "Received By",
+                    };
+                    return (
+                      <span key={col} className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300">
+                        {colLabels[col] || col}: {vals.length === 1 ? vals[0] : `${vals.length} selected`}
+                      </span>
+                    );
+                  })}
+                  {qtyCondition !== "all" && (
                     <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      Received By: {receivedByFilter}
+                      Qty: {qtyCondition === "gt0" ? "> 0" : "= 0"}
+                    </span>
+                  )}
+                  {sortConfig && (
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                      Sorted: {sortConfig.key} ({sortConfig.direction})
                     </span>
                   )}
                   {search.trim() && (
@@ -741,46 +831,6 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
               <span>{showDashboard ? "Hide Dashboard" : "Show Dashboard"}</span>
             </button>
 
-            {/* GRN Type Filter */}
-            <select
-              value={typeFilter}
-              onChange={(e) => { setTypeFilter(e.target.value); setCurrentPage(1); }}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-            >
-              <option value="all">All GRN Types</option>
-              <option value="RM">Raw Material (RM) GRN</option>
-              <option value="BO">Bought Out (BO) GRN</option>
-              <option value="Consumable">Consumable GRN</option>
-              <option value="FG">Finished Goods (FG) GRN</option>
-            </select>
-
-            {/* QC Status Filter */}
-            <select
-              value={qcStatusFilter}
-              onChange={(e) => { setQcStatusFilter(e.target.value); setCurrentPage(1); }}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-            >
-              <option value="all">All QC Statuses</option>
-              <option value="pending">Pending QC</option>
-              <option value="accepted">Accepted / Passed</option>
-              <option value="rejected">Rejected</option>
-              <option value="skipped">QC Skipped</option>
-            </select>
-
-            {/* Received By User Filter */}
-            <select
-              value={receivedByFilter}
-              onChange={(e) => { setReceivedByFilter(e.target.value); setCurrentPage(1); }}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-            >
-              <option value="all">👤 All Receivers</option>
-              {uniqueReceivers.map((user) => (
-                <option key={user} value={user}>
-                  👤 {user}
-                </option>
-              ))}
-            </select>
-
             {/* Date Mode Selector */}
             <select
               value={dateMode}
@@ -931,16 +981,129 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="sticky top-0 z-10 bg-gray-50/95 dark:bg-gray-800/95 backdrop-blur-xs border-b border-gray-100 dark:border-gray-800 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider shadow-2xs">
-                    <th className="py-3 px-4">GRN #</th>
-                    <th className="py-3 px-4">Receipt Date</th>
-                    <th className="py-3 px-4">Created / Edited</th>
-                    <th className="py-3 px-4">GRN Type</th>
-                    <th className="py-3 px-4">Party / Source</th>
-                    <th className="py-3 px-4">Items Received</th>
-                    <th className="py-3 px-4 text-right">Total Qty</th>
-                    <th className="py-3 px-4">QC Status</th>
-                    <th className="py-3 px-4">Received By</th>
-                    <th className="py-3 px-4 text-center">Actions</th>
+                    <th className="py-2.5 px-4 whitespace-nowrap">
+                      <ColumnFilter
+                        column="grnNumber"
+                        title="GRN #"
+                        data={allNormalizedGrns}
+                        currentFilters={columnFilters["grnNumber"] || []}
+                        onFilterChange={(vals) => handleColumnFilterChange("grnNumber", vals)}
+                        getValue={(g) => g.grnNumber || "-"}
+                        sortConfig={sortConfig}
+                        onSortChange={handleSortChange}
+                      />
+                    </th>
+                    <th className="py-2.5 px-4 whitespace-nowrap">
+                      <ColumnFilter
+                        column="displayDate"
+                        title="Receipt Date"
+                        data={allNormalizedGrns}
+                        currentFilters={columnFilters["displayDate"] || []}
+                        onFilterChange={(vals) => handleColumnFilterChange("displayDate", vals)}
+                        getValue={(g) => g.displayDate ? new Date(g.displayDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "-"}
+                        sortConfig={sortConfig}
+                        onSortChange={handleSortChange}
+                      />
+                    </th>
+                    <th className="py-2.5 px-4 whitespace-nowrap">
+                      <ColumnFilter
+                        column="createdAt"
+                        title="Created / Edited"
+                        data={allNormalizedGrns}
+                        currentFilters={columnFilters["createdAt"] || []}
+                        onFilterChange={(vals) => handleColumnFilterChange("createdAt", vals)}
+                        getValue={(g) => (g.createdAt || g.date) ? new Date(g.createdAt || g.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "-"}
+                        sortConfig={sortConfig}
+                        onSortChange={handleSortChange}
+                      />
+                    </th>
+                    <th className="py-2.5 px-4 whitespace-nowrap">
+                      <ColumnFilter
+                        column="grnType"
+                        title="GRN Type"
+                        data={allNormalizedGrns}
+                        currentFilters={columnFilters["grnType"] || []}
+                        onFilterChange={(vals) => handleColumnFilterChange("grnType", vals)}
+                        getValue={(g) => g.grnTypeLabel || g.grnType || "RM"}
+                        sortConfig={sortConfig}
+                        onSortChange={handleSortChange}
+                      />
+                    </th>
+                    <th className="py-2.5 px-4 whitespace-nowrap">
+                      <ColumnFilter
+                        column="supplierOrCustomer"
+                        title="Party / Source"
+                        data={allNormalizedGrns}
+                        currentFilters={columnFilters["supplierOrCustomer"] || []}
+                        onFilterChange={(vals) => handleColumnFilterChange("supplierOrCustomer", vals)}
+                        getValue={(g) => g.supplierOrCustomer || "-"}
+                        sortConfig={sortConfig}
+                        onSortChange={handleSortChange}
+                      />
+                    </th>
+                    <th className="py-2.5 px-4 whitespace-nowrap">
+                      <ColumnFilter
+                        column="items"
+                        title="Items Received"
+                        data={allNormalizedGrns}
+                        currentFilters={columnFilters["items"] || []}
+                        onFilterChange={(vals) => handleColumnFilterChange("items", vals)}
+                        getValues={(g) => (g.items || []).map((it: any) => {
+                          const name = it.materialName || it.itemName || (typeof it.fgItem === "object" ? it.fgItem?.name : it.fgItem) || "Item";
+                          const desc = getItemDescription(it) || (typeof it.material === "object" ? getItemDescription(it.material) : "") || (typeof it.fgItem === "object" ? getItemDescription(it.fgItem) : "");
+                          return desc ? `${name} — ${desc}` : name;
+                        })}
+                        sortConfig={sortConfig}
+                        onSortChange={handleSortChange}
+                      />
+                    </th>
+                    <th className="py-2.5 px-4 text-right whitespace-nowrap">
+                      <ColumnFilter
+                        column="totalQuantity"
+                        title="Total Qty"
+                        data={allNormalizedGrns}
+                        currentFilters={columnFilters["totalQuantity"] || []}
+                        onFilterChange={(vals) => handleColumnFilterChange("totalQuantity", vals)}
+                        getValue={(g) => `${g.totalQuantity} ${g.items?.[0]?.unit || "PCS"}`}
+                        sortConfig={sortConfig}
+                        onSortChange={handleSortChange}
+                        isNumeric={true}
+                        numericCondition={qtyCondition}
+                        onNumericConditionChange={setQtyCondition}
+                      />
+                    </th>
+                    <th className="py-2.5 px-4 whitespace-nowrap">
+                      <ColumnFilter
+                        column="qcStatus"
+                        title="QC Status"
+                        data={allNormalizedGrns}
+                        currentFilters={columnFilters["qcStatus"] || []}
+                        onFilterChange={(vals) => handleColumnFilterChange("qcStatus", vals)}
+                        getValue={(g) => {
+                          if (!g.qcRequired) return "Skipped";
+                          if (g.qcStatus === "Passed" || g.status === "Accepted") return "QC Passed";
+                          if (g.qcStatus === "Rejected" || g.status === "Rejected") return "QC Rejected";
+                          return "Pending QC";
+                        }}
+                        sortConfig={sortConfig}
+                        onSortChange={handleSortChange}
+                      />
+                    </th>
+                    <th className="py-2.5 px-4 whitespace-nowrap">
+                      <ColumnFilter
+                        column="receivedBy"
+                        title="Received By"
+                        data={allNormalizedGrns}
+                        currentFilters={columnFilters["receivedBy"] || []}
+                        onFilterChange={(vals) => handleColumnFilterChange("receivedBy", vals)}
+                        getValue={(g) => (g.receivedBy?.name || g.receivedByName || "Store Executive").trim()}
+                        sortConfig={sortConfig}
+                        onSortChange={handleSortChange}
+                      />
+                    </th>
+                    <th className="py-2.5 px-4 text-center whitespace-nowrap font-bold text-slate-500 dark:text-slate-400">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-xs">

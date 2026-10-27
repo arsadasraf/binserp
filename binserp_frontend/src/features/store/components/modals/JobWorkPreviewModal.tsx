@@ -211,6 +211,14 @@ export default function JobWorkPreviewModal({
                                     <strong className="text-slate-800 dark:text-slate-200">{challan.estimatedWeight ? `${challan.estimatedWeight} Kgs` : 'N/A'}</strong>
                                 </div>
 
+                                <div>
+                                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Created By</span>
+                                    <strong className="text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                                        <User size={12} className="text-slate-400 shrink-0" />
+                                        <span>{typeof challan.createdBy === 'object' && challan.createdBy?.name ? challan.createdBy.name : (typeof challan.createdBy === 'string' ? challan.createdBy : 'Admin User')}</span>
+                                    </strong>
+                                </div>
+
                                 {/* Purpose of Outward Movement Banner */}
                                 <div className="col-span-2 bg-indigo-50/70 dark:bg-indigo-950/40 p-2.5 rounded-xl border border-indigo-100 dark:border-indigo-900 flex items-center justify-between">
                                     <div>

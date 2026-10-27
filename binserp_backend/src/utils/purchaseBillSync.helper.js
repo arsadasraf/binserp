@@ -45,11 +45,15 @@ export const syncGRNToPurchaseBill = async (req, grn, action = "update") => {
     }
 
     const taxRate = Number(grn.taxRate) || 0;
-    const isTransportationTaxable = grn.isTransportationTaxable === true || grn.isTransportationTaxable === 'true';
+    const isTransportationTaxable = grn.isTransportationTaxable !== undefined
+      ? (grn.isTransportationTaxable === true || grn.isTransportationTaxable === 'true')
+      : true;
     const transportationTaxRate = grn.transportationTaxRate !== undefined ? Number(grn.transportationTaxRate) : (isTransportationTaxable ? taxRate : 0);
     const transportationTaxAmount = grn.transportationTaxAmount !== undefined ? Number(grn.transportationTaxAmount) : (isTransportationTaxable ? Number(((Number(grn.transportationCharges || 0) * transportationTaxRate) / 100).toFixed(2)) : 0);
 
-    const isPackingTaxable = grn.isPackingTaxable === true || grn.isPackingTaxable === 'true';
+    const isPackingTaxable = grn.isPackingTaxable !== undefined
+      ? (grn.isPackingTaxable === true || grn.isPackingTaxable === 'true')
+      : true;
     const packingTaxRate = grn.packingTaxRate !== undefined ? Number(grn.packingTaxRate) : (isPackingTaxable ? taxRate : 0);
     const packingTaxAmount = grn.packingTaxAmount !== undefined ? Number(grn.packingTaxAmount) : (isPackingTaxable ? Number(((Number(grn.packingCharges || 0) * packingTaxRate) / 100).toFixed(2)) : 0);
 

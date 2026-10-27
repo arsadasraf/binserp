@@ -1702,9 +1702,13 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
     const packingCharge = Number(po.packingCharge || 0);
     const packingType = po.packingType || 'Standard Packaging';
     const logisticsCharges = transportCharge + packingCharge;
+    const isTransTaxable = po.isTransportationTaxable !== undefined ? (po.isTransportationTaxable === true || po.isTransportationTaxable === 'true') : true;
+    const isPackTaxable = po.isPackingTaxable !== undefined ? (po.isPackingTaxable === true || po.isPackingTaxable === 'true') : true;
+    const taxableLogistics = (isTransTaxable ? transportCharge : 0) + (isPackTaxable ? packingCharge : 0);
+    const nonTaxableLogistics = (isTransTaxable ? 0 : transportCharge) + (isPackTaxable ? 0 : packingCharge);
     
     // Taxable base amount (composite supply including logistics)
-    const taxableAmount = itemsSubtotal + logisticsCharges;
+    const taxableAmount = itemsSubtotal + taxableLogistics;
     const computedTax = taxableAmount * (overallTaxRate / 100);
     const totalTaxAmount = (po.totalTax != null && Math.abs(Number(po.totalTax) - computedTax) <= 1)
         ? Number(po.totalTax)
@@ -1714,7 +1718,7 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
     const sgstVal = isInterState ? 0 : (po.sgstAmount != null && Math.abs(Number(po.sgstAmount) - (totalTaxAmount / 2)) <= 1 ? Number(po.sgstAmount) : parseFloat((totalTaxAmount / 2).toFixed(2)));
     const igstVal = isInterState ? (po.igstAmount != null && Math.abs(Number(po.igstAmount) - totalTaxAmount) <= 1 ? Number(po.igstAmount) : totalTaxAmount) : 0;
 
-    const rawGrandTotal = parseFloat((taxableAmount + totalTaxAmount).toFixed(2));
+    const rawGrandTotal = parseFloat((taxableAmount + totalTaxAmount + nonTaxableLogistics).toFixed(2));
     const isRoundOffEnabled = po.isRoundOff !== undefined ? Boolean(po.isRoundOff) : true;
     const roundOff = po.roundOff !== undefined ? Number(po.roundOff) : (isRoundOffEnabled ? parseFloat((Math.round(rawGrandTotal) - rawGrandTotal).toFixed(2)) : 0);
     const grandTotal = isRoundOffEnabled ? (po.grandTotal != null ? Number(po.grandTotal) : Math.round(rawGrandTotal)) : (po.grandTotal != null ? Number(po.grandTotal) : rawGrandTotal);
@@ -2793,12 +2797,16 @@ export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
 
     const grnSubtotal = Number(grn.subtotal) || totalVal;
     const grnTransportationCharges = Number(grn.transportationCharges) || 0;
-    const isTransportationTaxable = grn.isTransportationTaxable === true || grn.isTransportationTaxable === 'true';
+    const isTransportationTaxable = grn.isTransportationTaxable !== undefined
+        ? (grn.isTransportationTaxable === true || grn.isTransportationTaxable === 'true')
+        : true;
     const transportationTaxRate = grn.transportationTaxRate !== undefined ? Number(grn.transportationTaxRate) : (isTransportationTaxable ? grnTaxRate : 0);
     const transportationTaxAmount = grn.transportationTaxAmount !== undefined ? Number(grn.transportationTaxAmount) : (isTransportationTaxable ? Number(((grnTransportationCharges * transportationTaxRate) / 100).toFixed(2)) : 0);
 
     const grnPackingCharges = Number(grn.packingCharges) || 0;
-    const isPackingTaxable = grn.isPackingTaxable === true || grn.isPackingTaxable === 'true';
+    const isPackingTaxable = grn.isPackingTaxable !== undefined
+        ? (grn.isPackingTaxable === true || grn.isPackingTaxable === 'true')
+        : true;
     const packingTaxRate = grn.packingTaxRate !== undefined ? Number(grn.packingTaxRate) : (isPackingTaxable ? grnTaxRate : 0);
     const packingTaxAmount = grn.packingTaxAmount !== undefined ? Number(grn.packingTaxAmount) : (isPackingTaxable ? Number(((grnPackingCharges * packingTaxRate) / 100).toFixed(2)) : 0);
 

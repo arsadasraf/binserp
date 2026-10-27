@@ -50,7 +50,7 @@ export default function Modal({
     }[maxWidth];
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm transition-opacity duration-300">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 lg:p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
             <div
                 className="absolute inset-0"
                 onClick={onClose}
@@ -58,15 +58,15 @@ export default function Modal({
             />
             <div
                 ref={modalRef}
-                className={`bg-white dark:bg-slate-900 border border-transparent dark:border-slate-800 rounded-2xl shadow-2xl w-full ${maxWidthClass} max-h-[95dvh] flex flex-col transform transition-all duration-300 scale-100 animate-in fade-in zoom-in-95`}
+                className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl w-full ${maxWidthClass} max-h-[94vh] flex flex-col transform transition-all duration-300 scale-100 animate-in fade-in zoom-in-95 overflow-hidden`}
                 role="dialog"
                 aria-modal="true"
             >
-                <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-100 dark:border-slate-800 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md z-10 shrink-0">
-                    {title && <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white truncate">{title}</h3>}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-indigo-50/70 to-blue-50/70 dark:from-slate-800/80 dark:to-slate-800/40 sticky top-0 z-10 shrink-0">
+                    {title && <h3 className="text-lg font-black text-slate-900 dark:text-white truncate">{title}</h3>}
                     <button
                         onClick={onClose}
-                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 cursor-pointer active:scale-95"
+                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-2 rounded-xl hover:bg-white dark:hover:bg-slate-800 cursor-pointer active:scale-95"
                         aria-label="Close"
                     >
                         <svg
@@ -84,7 +84,7 @@ export default function Modal({
                         </svg>
                     </button>
                 </div>
-                <div className="p-3 sm:p-6 overflow-y-auto flex-1">{children}</div>
+                <div className="p-4 sm:p-6 overflow-y-auto flex-1">{children}</div>
             </div>
         </div>
     );

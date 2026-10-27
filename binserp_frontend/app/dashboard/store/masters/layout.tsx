@@ -1,15 +1,12 @@
 "use client";
 
-import React, { useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Users, MapPin, Box, Briefcase, Hash, Building2, RefreshCw } from 'lucide-react';
-import { motion } from 'framer-motion';
-import SyncMasterUomModal from '@/src/features/store/components/modals/SyncMasterUomModal';
+import { Users, MapPin, Box, Briefcase, Hash, Building2 } from 'lucide-react';
 
 export default function MastersLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
 
   const tabs = [
     { name: 'Vendors', href: '/dashboard/store/masters/vendors', icon: Briefcase },
@@ -40,7 +37,7 @@ export default function MastersLayout({ children }: { children: React.ReactNode 
         {/* Sub-navigation for Masters (Sticky & Scrollable on desktop + mobile) */}
         <div className="shrink-0 sticky top-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-md">
           <div className="flex items-center justify-between gap-2 max-w-full">
-            <div className="flex overflow-x-auto max-w-full no-scrollbar bg-white dark:bg-slate-900 p-1 rounded-xl shadow-2xs border border-slate-200/80 dark:border-slate-800 w-full sm:w-fit gap-1 scroll-smooth touch-pan-x">
+            <div className="flex overflow-x-auto max-w-full no-scrollbar bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs gap-1.5 scroll-smooth shrink-0 w-fit touch-pan-x">
               {tabs.map(tab => {
                 const isActive = pathname.startsWith(tab.href);
                 const Icon = tab.icon;
@@ -49,37 +46,20 @@ export default function MastersLayout({ children }: { children: React.ReactNode 
                   <Link
                     key={tab.href}
                     href={tab.href}
-                    className={`shrink-0 relative flex items-center gap-1.5 px-3 sm:px-4 py-1.5 min-h-[34px] rounded-lg font-semibold text-xs sm:text-sm whitespace-nowrap transition-all duration-150 active:scale-95 ${
+                    className={`flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all duration-150 whitespace-nowrap shrink-0 active:scale-95 ${
                       isActive
-                        ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 shadow-2xs font-bold"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100/70 dark:hover:bg-slate-800/50"
+                        ? "bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm shadow-indigo-500/25"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60"
                     }`}
                   >
-                    <Icon size={14} />
+                    <Icon size={15} className={isActive ? "text-white" : "text-slate-500 dark:text-slate-400"} />
                     <span>{tab.name}</span>
                   </Link>
                 );
               })}
             </div>
-
-            <button
-              onClick={() => setIsSyncModalOpen(true)}
-              type="button"
-              className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 min-h-[34px] bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-all active:scale-95 cursor-pointer whitespace-nowrap"
-              title="Global Master UOM Synchronization & Health Check"
-            >
-              <RefreshCw size={14} className="hover:rotate-180 transition-transform duration-500" />
-              <span className="hidden sm:inline">Sync Master UOMs</span>
-              <span className="sm:hidden">Sync UOMs</span>
-            </button>
           </div>
         </div>
-
-        {/* Global Master UOM Sync Modal */}
-        <SyncMasterUomModal
-          isOpen={isSyncModalOpen}
-          onClose={() => setIsSyncModalOpen(false)}
-        />
 
         {/* Page Content */}
         <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">

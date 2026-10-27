@@ -466,15 +466,15 @@ export default function JobWorkBillModal({
       <div className="relative w-full max-w-6xl xl:max-w-7xl 2xl:max-w-[1550px] max-h-[94vh] flex flex-col bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-emerald-50/70 to-teal-50/70 dark:from-slate-800/80 dark:to-slate-800/40">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-indigo-50/70 to-blue-50/70 dark:from-slate-800/80 dark:to-slate-800/40">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-emerald-600 text-white shadow-md shadow-emerald-500/25">
+            <div className="p-2.5 rounded-2xl bg-indigo-600 text-white shadow-md shadow-indigo-500/25">
               <IndianRupee size={20} />
             </div>
             <div>
               <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <span>Record Job Work Service Bill</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
                   Dual Linkage & TDS 194C
                 </span>
               </h2>
@@ -1040,7 +1040,7 @@ export default function JobWorkBillModal({
             <button
               type="submit"
               disabled={submitting}
-              className="px-6 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md shadow-emerald-500/25 transition-all cursor-pointer flex items-center gap-2 active:scale-95"
+              className="px-6 py-2.5 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 rounded-xl shadow-md shadow-indigo-500/25 hover:shadow-lg hover:shadow-indigo-500/35 transition-all cursor-pointer flex items-center gap-2 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {submitting && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
               <span>Save & Record Job Work Bill</span>

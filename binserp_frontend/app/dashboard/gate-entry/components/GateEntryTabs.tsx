@@ -34,7 +34,7 @@ export default function GateEntryTabs({ activeTab }: GateEntryTabsProps) {
     return (
         <>
             {/* Desktop View: Modern Floating Tabs */}
-            <div className="hidden md:flex mb-8 items-center bg-white dark:bg-slate-800 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 w-fit">
+            <div className="hidden md:flex mb-6 items-center overflow-x-auto max-w-full no-scrollbar bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs gap-1.5 scroll-smooth shrink-0 w-fit">
                 {tabs.map((tab) => {
                     const isActive = pathname.startsWith(tab.href) || (pathname === "/dashboard/gate-entry" && tab.id === "overview") || activeTab === tab.id;
                     const Icon = tab.icon;
@@ -42,24 +42,14 @@ export default function GateEntryTabs({ activeTab }: GateEntryTabsProps) {
                         <Link
                             key={tab.id}
                             href={tab.href}
-                            className={`relative flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 ${
+                            className={`flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all duration-150 whitespace-nowrap shrink-0 active:scale-95 ${
                                 isActive
-                                    ? "text-white shadow-md font-semibold"
-                                    : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100/70 dark:hover:bg-slate-700/60"
+                                    ? "bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm shadow-indigo-500/25"
+                                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60"
                             }`}
                         >
-                            {isActive && (
-                                <motion.div
-                                    layoutId="activeTabGate"
-                                    className="absolute inset-0 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl"
-                                    initial={false}
-                                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                                />
-                            )}
-                            <div className="relative z-10 flex items-center gap-2">
-                                <Icon size={18} />
-                                {tab.label}
-                            </div>
+                            <Icon size={15} className={isActive ? "text-white" : "text-slate-500 dark:text-slate-400"} />
+                            <span>{tab.label}</span>
                         </Link>
                     );
                 })}

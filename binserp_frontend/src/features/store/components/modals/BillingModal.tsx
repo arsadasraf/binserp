@@ -1003,26 +1003,29 @@ export default function BillingModal({
     };
 
     return (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[200] flex items-center justify-center p-2 sm:p-5 overflow-y-auto">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-[98vw] xl:max-w-7xl 2xl:max-w-[1600px] max-h-[92vh] flex flex-col border border-slate-200 dark:border-slate-800 my-auto overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 lg:p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="relative w-full max-w-[98vw] xl:max-w-7xl 2xl:max-w-[1600px] max-h-[94vh] flex flex-col bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
                 
                 {/* Modal Header */}
-                <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 sticky top-0 z-20">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-indigo-50/70 to-blue-50/70 dark:from-slate-800/80 dark:to-slate-800/40 sticky top-0 z-20 shrink-0">
                     <div className="flex items-center gap-3">
-                        <div className="p-2.5 bg-indigo-600 text-white rounded-2xl shadow-md">
+                        <div className="p-2.5 rounded-2xl bg-indigo-600 text-white shadow-md shadow-indigo-500/25 shrink-0">
                             <FileText size={20} />
                         </div>
                         <div>
-                            <h2 className="text-base sm:text-xl font-bold text-slate-900 dark:text-white">
-                                {isEditing ? "Edit Tax Invoice" : "Create Tax Invoice / Bill"}
+                            <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                                <span>{isEditing ? "Edit Tax Invoice" : "Create Tax Invoice / Bill"}</span>
                             </h2>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                Generate GST-compliant sales invoices, link customer POs, and record revenue
+                            </p>
                         </div>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
+                        className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-white dark:hover:bg-slate-800 transition-colors cursor-pointer active:scale-95"
                     >
-                        <X size={20} />
+                        <X size={18} />
                     </button>
                 </div>
 
@@ -1821,21 +1824,21 @@ export default function BillingModal({
                     </div>
 
                     {/* Bottom Actions */}
-                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center justify-end gap-3 px-6 py-4 -mx-3.5 sm:-mx-6 -mb-3.5 sm:-mb-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 shrink-0 mt-6">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-5 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold rounded-xl text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            className="px-4.5 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all cursor-pointer active:scale-95"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
                             disabled={loading}
-                            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-md shadow-indigo-500/20 transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
+                            className="px-6 py-2.5 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 rounded-xl shadow-md shadow-indigo-500/25 hover:shadow-lg hover:shadow-indigo-500/35 transition-all cursor-pointer flex items-center gap-2 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                            {loading && <RefreshCw size={14} className="animate-spin" />}
-                            {isEditing ? "Update Tax Invoice" : "Create Tax Invoice"}
+                            {loading && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                            <span>{loading ? "Saving..." : (isEditing ? "Update Tax Invoice" : "Create Tax Invoice")}</span>
                         </button>
                     </div>
                 </form>

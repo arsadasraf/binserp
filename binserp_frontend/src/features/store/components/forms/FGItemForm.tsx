@@ -221,21 +221,22 @@ export default function FGItemForm({
         const target = { ...newBOM[idx] };
 
         const rawId = typeof target.item === 'object' && target.item !== null ? (target.item?._id || target.item?.id) : target.item;
+        const rawIdStr = rawId ? String(rawId) : '';
         let matchedMaster: any = null;
         const t = target.itemType || 'RawMaterial';
         if (t === 'RawMaterial' || t === 'Material') {
-            matchedMaster = effectiveRM.find((m: any) => (m._id || m.id) === rawId);
+            matchedMaster = effectiveRM.find((m: any) => String(m._id || m.id) === rawIdStr);
         } else if (t === 'BoughtOut') {
-            matchedMaster = effectiveBO.find((b: any) => (b._id || b.id) === rawId);
+            matchedMaster = effectiveBO.find((b: any) => String(b._id || b.id) === rawIdStr);
         } else if (t === 'FGItem') {
-            matchedMaster = fgItems.find((f: any) => (f._id || f.id) === rawId);
+            matchedMaster = fgItems.find((f: any) => String(f._id || f.id) === rawIdStr);
         }
 
         const hasSec = Boolean(target.hasSecondaryUnit || matchedMaster?.hasSecondaryUnit || (typeof target.item === 'object' && target.item?.hasSecondaryUnit));
-        const secUnit = target.secondaryUnit || matchedMaster?.secondaryUnit || (typeof target.item === 'object' ? target.item?.secondaryUnit : '') || '';
+        const secUnit = (target.secondaryUnit || matchedMaster?.secondaryUnit || (typeof target.item === 'object' ? target.item?.secondaryUnit : '') || '').toString().trim();
         const factor = Number(target.conversionFactor || matchedMaster?.conversionFactor || (typeof target.item === 'object' ? target.item?.conversionFactor : 1)) || 1;
         const canonicalBase = (t === 'RawMaterial' || t === 'Material') ? 'KG' : 'NOS';
-        const priUnit = matchedMaster?.unit || (typeof target.item === 'object' ? target.item?.unit : '') || canonicalBase;
+        const priUnit = (matchedMaster?.unit || (typeof target.item === 'object' ? target.item?.unit : '') || canonicalBase).toString().trim();
         const isDual = Boolean(hasSec && secUnit && factor > 0);
 
         target.hasSecondaryUnit = isDual;
@@ -251,7 +252,8 @@ export default function FGItemForm({
             const numVal = parseFloat(rawVal);
             target.inputQuantity = rawVal;
             
-            if (isDual && target.selectedUnit === secUnit) {
+            const isTargetSec = isDual && Boolean(secUnit && target.selectedUnit && target.selectedUnit.toString().trim().toUpperCase() === secUnit.toUpperCase());
+            if (isTargetSec) {
                 target.secondaryQuantity = isNaN(numVal) ? 0 : numVal;
                 target.quantity = (isNaN(numVal) || factor <= 0) ? 0 : Number((numVal / factor).toFixed(4));
             } else {
@@ -269,35 +271,39 @@ export default function FGItemForm({
         const target = { ...newBOM[idx] };
 
         const rawId = typeof target.item === 'object' && target.item !== null ? (target.item?._id || target.item?.id) : target.item;
+        const rawIdStr = rawId ? String(rawId) : '';
         let matchedMaster: any = null;
         const t = target.itemType || 'RawMaterial';
         if (t === 'RawMaterial' || t === 'Material') {
-            matchedMaster = effectiveRM.find((m: any) => (m._id || m.id) === rawId);
+            matchedMaster = effectiveRM.find((m: any) => String(m._id || m.id) === rawIdStr);
         } else if (t === 'BoughtOut') {
-            matchedMaster = effectiveBO.find((b: any) => (b._id || b.id) === rawId);
+            matchedMaster = effectiveBO.find((b: any) => String(b._id || b.id) === rawIdStr);
         } else if (t === 'FGItem') {
-            matchedMaster = fgItems.find((f: any) => (f._id || f.id) === rawId);
+            matchedMaster = fgItems.find((f: any) => String(f._id || f.id) === rawIdStr);
         }
 
         const hasSec = Boolean(target.hasSecondaryUnit || matchedMaster?.hasSecondaryUnit || (typeof target.item === 'object' && target.item?.hasSecondaryUnit));
-        const secUnit = target.secondaryUnit || matchedMaster?.secondaryUnit || (typeof target.item === 'object' ? target.item?.secondaryUnit : '') || '';
+        const secUnit = (target.secondaryUnit || matchedMaster?.secondaryUnit || (typeof target.item === 'object' ? target.item?.secondaryUnit : '') || '').toString().trim();
         const factor = Number(target.conversionFactor || matchedMaster?.conversionFactor || (typeof target.item === 'object' ? target.item?.conversionFactor : 1)) || 1;
         const canonicalBase = (t === 'RawMaterial' || t === 'Material') ? 'KG' : 'NOS';
-        const priUnit = matchedMaster?.unit || (typeof target.item === 'object' ? target.item?.unit : '') || canonicalBase;
+        const priUnit = (matchedMaster?.unit || (typeof target.item === 'object' ? target.item?.unit : '') || canonicalBase).toString().trim();
         const isDual = Boolean(hasSec && secUnit && factor > 0);
+
+        const isSwitchToSec = isDual && Boolean(secUnit && newUnit && newUnit.toString().trim().toUpperCase() === secUnit.toUpperCase());
+        const selectedUom = isSwitchToSec ? secUnit : priUnit;
 
         target.hasSecondaryUnit = isDual;
         target.secondaryUnit = secUnit;
         target.conversionFactor = factor;
         target.unit = priUnit;
-        target.selectedUnit = newUnit;
+        target.selectedUnit = selectedUom;
 
         const currentPriQty = Number(target.quantity) || 0;
         const currentSecQty = target.secondaryQuantity !== undefined && target.secondaryQuantity !== ''
             ? Number(target.secondaryQuantity)
             : Number((currentPriQty * factor).toFixed(4));
 
-        if (newUnit === secUnit && isDual) {
+        if (isSwitchToSec) {
             target.inputQuantity = currentSecQty;
             target.secondaryQuantity = currentSecQty;
         } else {
@@ -533,23 +539,23 @@ export default function FGItemForm({
             {/* Left Column: FG Item Details & Settings (5 cols on desktop) */}
             <div className="lg:col-span-5 space-y-4">
                 {/* Basic Details Card */}
-                <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-gray-200 dark:border-slate-800 shadow-xs space-y-4">
-                    <div className="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-slate-800 text-sm font-bold text-gray-900 dark:text-white">
-                        <div className="w-1.5 h-4 bg-indigo-600 rounded-full" />
-                        <span>Item Details</span>
+                <div className="bg-slate-50/60 dark:bg-slate-800/40 rounded-2xl p-4 sm:p-5 border border-slate-200/70 dark:border-slate-750 shadow-2xs space-y-3.5">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-200/80 dark:border-slate-700/80">
+                        <div className="w-1.5 h-4 bg-indigo-600 rounded-full shrink-0" />
+                        <span className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">Item Details</span>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                         <div className="sm:col-span-1">
-                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
-                                Classification <span className="text-red-500">*</span>
+                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                Classification <span className="text-rose-500">*</span>
                             </label>
                             <select
                                 name="type"
                                 value={formData.type || 'Component'}
                                 onChange={handleChange}
                                 required
-                                className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-gray-900 dark:text-white"
+                                className="w-full px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-2xs"
                             >
                                 <option value="Component">Component</option>
                                 <option value="Sub Assembly">Sub Assembly</option>
@@ -558,7 +564,7 @@ export default function FGItemForm({
                         </div>
 
                         <div className="sm:col-span-1">
-                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
+                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                 Category
                             </label>
                             <SearchableSelect
@@ -571,7 +577,7 @@ export default function FGItemForm({
                         </div>
 
                         <div className="sm:col-span-1">
-                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
+                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                 Revision
                             </label>
                             <input
@@ -579,14 +585,14 @@ export default function FGItemForm({
                                 name="revisionNumber"
                                 value={formData.revisionNumber || ''}
                                 onChange={handleChange}
-                                className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-gray-900 dark:text-white"
+                                className="w-full px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-2xs"
                                 placeholder="e.g. Rev 1.0"
                             />
                         </div>
 
                         <div className="sm:col-span-3">
-                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
-                                Item Name <span className="text-red-500">*</span>
+                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                Item Name <span className="text-rose-500">*</span>
                             </label>
                             <input
                                 type="text"
@@ -594,29 +600,29 @@ export default function FGItemForm({
                                 value={formData.name || ''}
                                 onChange={handleChange}
                                 required
-                                className={`w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border rounded-lg focus:ring-2 outline-none text-gray-900 dark:text-white ${
+                                className={`w-full px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl border bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:border-transparent transition-all shadow-2xs ${
                                     duplicateFG 
                                         ? 'border-rose-400 focus:ring-rose-400 dark:border-rose-600' 
-                                        : 'border-gray-300 dark:border-slate-700 focus:ring-indigo-500 focus:border-indigo-500'
+                                        : 'border-slate-200 dark:border-slate-700 focus:ring-indigo-500'
                                 }`}
                                 placeholder="Enter finished good item name"
                             />
                             {duplicateFG && (
-                                <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-2 rounded-lg border border-rose-200 dark:border-rose-900/50">
-                                    <span className="font-semibold shrink-0">Duplicate:</span>
+                                <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-2.5 rounded-xl border border-rose-200 dark:border-rose-900/50">
+                                    <span className="font-bold shrink-0">Duplicate:</span>
                                     <span>An FG Item with this name and revision {formData.revisionNumber ? `("${formData.revisionNumber}")` : '(empty revision)'} already exists. Specify a new revision number (e.g. Rev 2.0) to create a new version.</span>
                                 </div>
                             )}
                             {hasSameNameDifferentRev && (
-                                <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-lg border border-emerald-200 dark:border-emerald-900/50">
-                                    <span className="font-semibold shrink-0">New Revision:</span>
+                                <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-900/50">
+                                    <span className="font-bold shrink-0">New Revision:</span>
                                     <span>An FG item named &ldquo;{formData.name}&rdquo; exists. Saving with revision &ldquo;{formData.revisionNumber || 'empty'}&rdquo; will create a new version of it.</span>
                                 </div>
                             )}
                         </div>
 
                         <div className="sm:col-span-3">
-                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
+                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                 Description
                             </label>
                             <textarea
@@ -624,20 +630,21 @@ export default function FGItemForm({
                                 rows={2}
                                 value={formData.description || ''}
                                 onChange={handleChange}
-                                className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-gray-900 dark:text-white resize-none"
+                                className="w-full px-3 py-2 text-xs sm:text-sm font-medium rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-2xs resize-none"
                                 placeholder="Specifications, dimensions, or technical notes..."
                             />
                         </div>
                     </div>
                 </div>
 
+
                 {/* Storage & Inventory Card */}
-                <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+                <div className="bg-slate-50/60 dark:bg-slate-800/40 rounded-2xl p-4 sm:p-5 border border-slate-200/70 dark:border-slate-750 shadow-2xs space-y-3.5">
                     {/* Section Header */}
-                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white">
-                            <div className="w-1.5 h-4 bg-purple-600 rounded-full" />
-                            <span>Storage & Inventory</span>
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200/80 dark:border-slate-700/80">
+                        <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-4 bg-indigo-600 rounded-full shrink-0" />
+                            <span className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">Storage & Inventory</span>
                         </div>
                     </div>
 
@@ -822,15 +829,15 @@ export default function FGItemForm({
 
             {/* Right Column: Bill of Materials (BOM) Workbench (7 cols on desktop) */}
             <div className="lg:col-span-7 space-y-4">
-                <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-gray-200 dark:border-slate-800 shadow-xs">
+                <div className="bg-slate-50/60 dark:bg-slate-800/40 rounded-2xl p-4 sm:p-5 border border-slate-200/70 dark:border-slate-750 shadow-2xs space-y-3.5">
                     {/* BOM Header */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 mb-4 border-b border-gray-100 dark:border-slate-800 gap-2">
-                        <div className="flex items-center gap-2.5">
-                            <div className="w-1.5 h-4 bg-amber-500 rounded-full" />
-                            <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80 gap-2">
+                        <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-4 bg-indigo-600 rounded-full shrink-0" />
+                            <span className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">
                                 Bill of Materials (BOM)
-                            </h3>
-                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60">
+                            </span>
+                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60">
                                 {(formData.bom || []).length} items
                             </span>
                         </div>
@@ -840,17 +847,17 @@ export default function FGItemForm({
                                 <button
                                     type="button"
                                     onClick={onPreviewBOM}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800/80 hover:bg-purple-100 dark:hover:bg-purple-900/40 rounded-lg shadow-xs transition-colors cursor-pointer"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/80 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-xl shadow-2xs transition-all cursor-pointer active:scale-95"
                                     title="Live Preview Multi-Level Engineering BOM hierarchy"
                                 >
-                                    <Sparkles size={14} className="text-purple-500" />
+                                    <Sparkles size={14} className="text-indigo-500" />
                                     <span>Preview Multi-Level BOM</span>
                                 </button>
                             )}
                             <button
                                 type="button"
                                 onClick={addBOMItem}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition-colors cursor-pointer"
+                                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 rounded-xl shadow-md shadow-indigo-500/25 transition-all cursor-pointer active:scale-95"
                             >
                                 <Plus size={14} />
                                 <span>Add Material</span>
@@ -879,12 +886,13 @@ export default function FGItemForm({
                             // Resolve master item metadata for dual unit tracking
                             let matchedMaster: any = null;
                             if (rawItemId) {
+                                const rawIdStr = String(rawItemId);
                                 if (currentType === 'RawMaterial' || currentType === 'Material') {
-                                    matchedMaster = effectiveRM.find((m: any) => (m._id || m.id) === rawItemId);
+                                    matchedMaster = effectiveRM.find((m: any) => String(m._id || m.id) === rawIdStr);
                                 } else if (currentType === 'BoughtOut') {
-                                    matchedMaster = effectiveBO.find((b: any) => (b._id || b.id) === rawItemId);
+                                    matchedMaster = effectiveBO.find((b: any) => String(b._id || b.id) === rawIdStr);
                                 } else if (currentType === 'FGItem') {
-                                    matchedMaster = fgItems.find((f: any) => (f._id || f.id) === rawItemId);
+                                    matchedMaster = fgItems.find((f: any) => String(f._id || f.id) === rawIdStr);
                                 }
                             }
 
@@ -894,13 +902,17 @@ export default function FGItemForm({
                                 (typeof item.item === 'object' && item.item?.hasSecondaryUnit)
                             );
                             const canonicalBase = (currentType === 'RawMaterial' || currentType === 'Material') ? 'KG' : 'NOS';
-                            const priUnitStr = matchedMaster?.unit || (typeof item.item === 'object' ? item.item?.unit : '') || canonicalBase;
-                            const secUnitStr = item.secondaryUnit || matchedMaster?.secondaryUnit || (typeof item.item === 'object' ? item.item?.secondaryUnit : '') || '';
+                            const priUnitStr = (matchedMaster?.unit || (typeof item.item === 'object' ? item.item?.unit : '') || canonicalBase).toString().trim();
+                            const secUnitStr = (item.secondaryUnit || matchedMaster?.secondaryUnit || (typeof item.item === 'object' ? item.item?.secondaryUnit : '') || '').toString().trim();
                             const convFactorNum = Number(item.conversionFactor || matchedMaster?.conversionFactor || (typeof item.item === 'object' ? item.item?.conversionFactor : 1)) || 1;
                             const isDualItem = Boolean(hasSecUnit && secUnitStr && convFactorNum > 0);
 
-                            const currentSelectedUnit = item.selectedUnit || priUnitStr;
-                            const isSelectedSec = isDualItem && currentSelectedUnit === secUnitStr;
+                            const isSelectedSec = isDualItem && Boolean(
+                                secUnitStr && 
+                                item.selectedUnit && 
+                                item.selectedUnit.toString().trim().toUpperCase() === secUnitStr.toUpperCase()
+                            );
+                            const currentSelectedUnit = isSelectedSec ? secUnitStr : priUnitStr;
 
                             // Display value for quantity input
                             const displayQtyValue = item.inputQuantity !== undefined && item.inputQuantity !== null && item.inputQuantity !== ''

@@ -2615,7 +2615,14 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     </div>
                                     <div className="flex justify-between text-slate-600 dark:text-slate-400">
                                         <span>Freight Charges:</span>
-                                        <strong className="text-cyan-600 font-mono">₹{Number(selectedPoPreview.transportCharge || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                                        <div className="text-right">
+                                            <strong className="text-cyan-600 font-mono">₹{Number(selectedPoPreview.transportCharge || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                                            {Number(selectedPoPreview.transportCharge || 0) > 0 && (
+                                                <span className={`text-[10px] ml-1.5 font-bold ${(selectedPoPreview.isTransportationTaxable !== false && String(selectedPoPreview.isTransportationTaxable) !== 'false') ? 'text-cyan-600' : 'text-slate-500'}`}>
+                                                    {(selectedPoPreview.isTransportationTaxable !== false && String(selectedPoPreview.isTransportationTaxable) !== 'false') ? '(Taxable)' : '(Exempt)'}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="flex justify-between text-slate-600 dark:text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-700">
                                         <span>Packing Type:</span>
@@ -2623,7 +2630,14 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     </div>
                                     <div className="flex justify-between text-slate-600 dark:text-slate-400">
                                         <span>Packing Charges:</span>
-                                        <strong className="text-indigo-600 font-mono">₹{Number(selectedPoPreview.packingCharge || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                                        <div className="text-right">
+                                            <strong className="text-indigo-600 font-mono">₹{Number(selectedPoPreview.packingCharge || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                                            {Number(selectedPoPreview.packingCharge || 0) > 0 && (
+                                                <span className={`text-[10px] ml-1.5 font-bold ${(selectedPoPreview.isPackingTaxable !== false && String(selectedPoPreview.isPackingTaxable) !== 'false') ? 'text-indigo-600' : 'text-slate-500'}`}>
+                                                    {(selectedPoPreview.isPackingTaxable !== false && String(selectedPoPreview.isPackingTaxable) !== 'false') ? '(Taxable)' : '(Exempt)'}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -2634,8 +2648,12 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                         const subtotalVal = Number(selectedPoPreview.subtotal || 0) || (selectedPoPreview.items || []).reduce((s: number, it: any) => s + (Number(it.amount != null ? it.amount : (Number(it.quantity || 0) * Number(it.rate || 0)))), 0);
                                         const transportVal = Number(selectedPoPreview.transportCharge || 0);
                                         const packingVal = Number(selectedPoPreview.packingCharge || 0);
+                                        const isTransTax = selectedPoPreview.isTransportationTaxable !== false && String(selectedPoPreview.isTransportationTaxable) !== 'false';
+                                        const isPackTax = selectedPoPreview.isPackingTaxable !== false && String(selectedPoPreview.isPackingTaxable) !== 'false';
+                                        const taxableLogistics = (isTransTax ? transportVal : 0) + (isPackTax ? packingVal : 0);
+                                        const nonTaxableLogistics = (isTransTax ? 0 : transportVal) + (isPackTax ? 0 : packingVal);
                                         const logisticsVal = transportVal + packingVal;
-                                        const taxableVal = subtotalVal + logisticsVal;
+                                        const taxableVal = subtotalVal + taxableLogistics;
                                         const prevTaxRate = selectedPoPreview.taxRate != null ? Number(selectedPoPreview.taxRate) : 18;
                                         const isInterState = selectedPoPreview.gstType === 'inter_state';
                                         const prevCgstRate = selectedPoPreview.cgstRate != null ? Number(selectedPoPreview.cgstRate) : (prevTaxRate / 2);
@@ -2644,7 +2662,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
                                         const calculatedTax = taxableVal * (prevTaxRate / 100);
                                         const totalTaxVal = selectedPoPreview.totalTax != null ? Number(selectedPoPreview.totalTax) : calculatedTax;
-                                        const grandTotalVal = Number(selectedPoPreview.grandTotal || selectedPoPreview.totalAmount || (taxableVal + totalTaxVal));
+                                        const grandTotalVal = Number(selectedPoPreview.grandTotal || selectedPoPreview.totalAmount || (taxableVal + totalTaxVal + nonTaxableLogistics));
 
                                         return (
                                             <>

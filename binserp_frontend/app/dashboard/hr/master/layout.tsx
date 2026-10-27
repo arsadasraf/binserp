@@ -20,20 +20,20 @@ export default function HRMasterLayout({ children }: { children: React.ReactNode
   return (
     <div className="space-y-6">
       {/* Master Sub-tabs: Modern Pill Design */}
-      <div className="flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
+      <div className="flex overflow-x-auto max-w-full no-scrollbar bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs gap-1.5 scroll-smooth shrink-0 w-fit touch-pan-x">
         {masterTabs.map((tab) => {
           const isActive = pathname === tab.href || pathname.startsWith(tab.href + "/");
           return (
             <Link
               key={tab.id}
               href={tab.href}
-              className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+              className={`flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all duration-150 whitespace-nowrap shrink-0 active:scale-95 ${
                 isActive
-                  ? "bg-indigo-600 text-white shadow-md"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                  ? "bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm shadow-indigo-500/25"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60"
               }`}
             >
-              {tab.label}
+              <span>{tab.label}</span>
             </Link>
           );
         })}

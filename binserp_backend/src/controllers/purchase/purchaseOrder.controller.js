@@ -56,8 +56,18 @@ export const createPO = asyncHandler(async (req, res) => {
     description: description || '',
     transportType: transportType || 'Road Freight',
     transportCharge: transportCharge != null ? Number(transportCharge) : 0,
+    isTransportationTaxable: req.body.isTransportationTaxable !== undefined
+      ? (req.body.isTransportationTaxable === true || req.body.isTransportationTaxable === 'true')
+      : true,
+    transportationTaxRate: req.body.taxRate != null ? Number(req.body.taxRate) : 18,
+    transportationTaxAmount: 0,
     packingType: packingType || 'Standard Packaging',
     packingCharge: packingCharge != null ? Number(packingCharge) : 0,
+    isPackingTaxable: req.body.isPackingTaxable !== undefined
+      ? (req.body.isPackingTaxable === true || req.body.isPackingTaxable === 'true')
+      : true,
+    packingTaxRate: req.body.taxRate != null ? Number(req.body.taxRate) : 18,
+    packingTaxAmount: 0,
     gstType: gstType || 'intra_state',
     taxRate: req.body.taxRate != null ? Number(req.body.taxRate) : 18,
     cgstRate: req.body.cgstRate != null ? Number(req.body.cgstRate) : 9,
@@ -150,6 +160,9 @@ export const createPO = asyncHandler(async (req, res) => {
       : (req.body.isRoundOffEnabled !== undefined ? Boolean(req.body.isRoundOffEnabled) : true);
     const roundingMode = req.body.roundingMode || 'nearest';
 
+    const isTransportationTaxable = poData.isTransportationTaxable;
+    const isPackingTaxable = poData.isPackingTaxable;
+
     const totals = computePOTaxAndGrandTotals(
       poData.items,
       transportCharge,
@@ -157,11 +170,17 @@ export const createPO = asyncHandler(async (req, res) => {
       taxRate,
       isInterState,
       isRoundOffEnabled,
-      roundingMode
+      roundingMode,
+      isTransportationTaxable,
+      isPackingTaxable
     );
 
     poData.subtotal = totals.subtotal;
     poData.totalTax = totals.totalTax;
+    poData.transportationTaxRate = isTransportationTaxable ? taxRate : 0;
+    poData.transportationTaxAmount = totals.transportationTaxAmount;
+    poData.packingTaxRate = isPackingTaxable ? taxRate : 0;
+    poData.packingTaxAmount = totals.packingTaxAmount;
     poData.preRoundTotal = totals.preRoundTotal;
     poData.isRoundOff = totals.isRoundOffEnabled;
     poData.roundOff = totals.roundOff;
@@ -193,13 +212,21 @@ export const createPO = asyncHandler(async (req, res) => {
     const subtotal = amount || (qty * (rate || 0));
     const transportCharge = Number(req.body.transportCharge || 0);
     const packingCharge = Number(req.body.packingCharge || 0);
-    const taxableAmount = subtotal + transportCharge + packingCharge;
+    const isTransportationTaxable = poData.isTransportationTaxable;
+    const isPackingTaxable = poData.isPackingTaxable;
+    const taxableLogistics = (isTransportationTaxable ? transportCharge : 0) + (isPackingTaxable ? packingCharge : 0);
+    const nonTaxableLogistics = (isTransportationTaxable ? 0 : transportCharge) + (isPackingTaxable ? 0 : packingCharge);
+    const taxableAmount = subtotal + taxableLogistics;
     const taxRate = req.body.taxRate != null ? Number(req.body.taxRate) : 18;
     const totalTax = taxableAmount * (taxRate / 100);
-    const grandTotal = taxableAmount + totalTax;
+    const grandTotal = taxableAmount + totalTax + nonTaxableLogistics;
 
     poData.subtotal = subtotal;
     poData.totalTax = totalTax;
+    poData.transportationTaxRate = isTransportationTaxable ? taxRate : 0;
+    poData.transportationTaxAmount = isTransportationTaxable ? Number(((transportCharge * taxRate) / 100).toFixed(2)) : 0;
+    poData.packingTaxRate = isPackingTaxable ? taxRate : 0;
+    poData.packingTaxAmount = isPackingTaxable ? Number(((packingCharge * taxRate) / 100).toFixed(2)) : 0;
     poData.grandTotal = req.body.grandTotal || grandTotal;
     poData.totalAmount = req.body.grandTotal || req.body.totalAmount || grandTotal;
     poData.items = [{
@@ -802,6 +829,13 @@ export const updatePO = asyncHandler(async (req, res) => {
           : (existingPO.isRoundOff !== undefined ? existingPO.isRoundOff : true));
     const roundingMode = req.body.roundingMode || existingPO.roundingMode || 'nearest';
 
+    const isTransportationTaxable = req.body.isTransportationTaxable !== undefined
+      ? (req.body.isTransportationTaxable === true || req.body.isTransportationTaxable === 'true')
+      : (existingPO.isTransportationTaxable !== undefined ? existingPO.isTransportationTaxable : true);
+    const isPackingTaxable = req.body.isPackingTaxable !== undefined
+      ? (req.body.isPackingTaxable === true || req.body.isPackingTaxable === 'true')
+      : (existingPO.isPackingTaxable !== undefined ? existingPO.isPackingTaxable : true);
+
     const totals = computePOTaxAndGrandTotals(
       updateData.items,
       transportCharge,
@@ -809,9 +843,17 @@ export const updatePO = asyncHandler(async (req, res) => {
       taxRate,
       isInterState,
       isRoundOffEnabled,
-      roundingMode
+      roundingMode,
+      isTransportationTaxable,
+      isPackingTaxable
     );
 
+    updateData.isTransportationTaxable = isTransportationTaxable;
+    updateData.transportationTaxRate = isTransportationTaxable ? taxRate : 0;
+    updateData.transportationTaxAmount = totals.transportationTaxAmount;
+    updateData.isPackingTaxable = isPackingTaxable;
+    updateData.packingTaxRate = isPackingTaxable ? taxRate : 0;
+    updateData.packingTaxAmount = totals.packingTaxAmount;
     updateData.subtotal = totals.subtotal;
     updateData.totalTax = totals.totalTax;
     updateData.preRoundTotal = totals.preRoundTotal;

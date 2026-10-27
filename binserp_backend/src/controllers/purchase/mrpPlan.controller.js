@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { mrpPlanSchema, purchaseOrderSchema, vendorPriceListSchema } from "../../models/purchase/index.js";
 import { bomSchema, inventorySchema, rmBoItemSchema, categorySchema, fgItemSchema, rawMaterialSchema, boughtOutSchema, storePrefixSchema, vendorSchema } from "../../models/store/index.js";
 import { incomingPOSchema, priceListSchema } from "../../models/sales/index.js";
+import { componentSchema } from "../../models/ppc/index.js";
 import { userSchema } from "../../models/user/index.js";
 import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 
@@ -62,6 +63,7 @@ export const createMRPPlan = async (req, res) => {
     const BoughtOut = req.getModel("BoughtOut", boughtOutSchema);
     const Category = req.getModel("Category", categorySchema);
     const FGItem = req.getModel("FGItem", fgItemSchema);
+    const Component = req.getModel("Component", componentSchema);
     const IncomingPO = req.getModel("IncomingPO", incomingPOSchema);
     req.getModel("User", userSchema);
 
@@ -186,9 +188,10 @@ export const createMRPPlan = async (req, res) => {
       }
     }
 
-    // Maps to aggregate RM, BO, SubAssemblies and Consumables across all FG items
+    // Maps to aggregate RM, BO, Components, SubAssemblies and Consumables across all FG items
     const rmMap = new Map();
     const boMap = new Map();
+    const componentMap = new Map();
     const subAssemblyMap = new Map();
     const consumableMap = new Map();
 
@@ -202,6 +205,7 @@ export const createMRPPlan = async (req, res) => {
       allRmBoItems,
       allRawMaterials,
       allBoughtOuts,
+      allComponents,
       allBOMs,
       allFGItems,
       allPriceLists,
@@ -211,6 +215,7 @@ export const createMRPPlan = async (req, res) => {
       RmBoItem.find({ company: companyId }).populate("categoryId").lean(),
       RawMaterial.find({ company: companyId }).populate("categoryId").lean(),
       BoughtOut.find({ company: companyId }).populate("categoryId").lean(),
+      Component.find({ company: companyId }).populate("categoryId").lean().catch(() => []),
       BOM.find({ company: companyId }).lean(),
       FGItem.find({ company: companyId }).lean(),
       VendorPriceList.find({ company: companyId }).populate("vendor", "name code").lean().catch(() => []),
@@ -244,23 +249,40 @@ export const createMRPPlan = async (req, res) => {
       if (f.code) fgByCode.set(f.code.toLowerCase().trim(), f);
     });
 
+    const compById = new Map();
+    const compByName = new Map();
+    const compByCode = new Map();
+    (allComponents || []).forEach(c => {
+      if (c._id) compById.set(String(c._id), c);
+      if (c.code) compByCode.set(c.code.toLowerCase().trim(), c);
+      if (c.componentCode) compByCode.set(c.componentCode.toLowerCase().trim(), c);
+      if (c.name) compByName.set(c.name.toLowerCase().trim(), c);
+      if (c.componentName) compByName.set(c.componentName.toLowerCase().trim(), c);
+    });
+
+    const rmById = new Map();
     const rmByCode = new Map();
     const rmByName = new Map();
     (allRawMaterials || []).forEach(r => {
+      if (r._id) rmById.set(String(r._id), r);
       if (r.code) rmByCode.set(r.code.toLowerCase().trim(), r);
       if (r.name) rmByName.set(r.name.toLowerCase().trim(), r);
     });
 
+    const boById = new Map();
     const boByCode = new Map();
     const boByName = new Map();
     (allBoughtOuts || []).forEach(b => {
+      if (b._id) boById.set(String(b._id), b);
       if (b.code) boByCode.set(b.code.toLowerCase().trim(), b);
       if (b.name) boByName.set(b.name.toLowerCase().trim(), b);
     });
 
+    const rmBoById = new Map();
     const rmBoByCode = new Map();
     const rmBoByName = new Map();
     (allRmBoItems || []).forEach(r => {
+      if (r._id) rmBoById.set(String(r._id), r);
       if (r.code) rmBoByCode.set(r.code.toLowerCase().trim(), r);
       if (r.name) rmByName.set(r.name.toLowerCase().trim(), r);
     });
@@ -520,6 +542,35 @@ export const createMRPPlan = async (req, res) => {
 
     // Helper to find BOM for a product (from BOM collection OR FGItem embedded BOM) using O(1) Map lookups
     const findBOM = (pName, pCode, bId, fgId) => {
+      const mapBOMItems = (bomItems) => (bomItems || []).map((b) => {
+        const rawItemId = b.item ? String(typeof b.item === 'object' ? (b.item._id || b.item) : b.item) : null;
+        const masterComp = (rawItemId && compById.get(rawItemId)) || (b.itemName && compByName.get(cleanStr(b.itemName)));
+        const masterRM = (rawItemId && rmById.get(rawItemId)) || (b.itemName && rmByName.get(cleanStr(b.itemName)));
+        const masterBO = (rawItemId && boById.get(rawItemId)) || (b.itemName && boByName.get(cleanStr(b.itemName)));
+        const masterFG = (rawItemId && fgById.get(rawItemId)) || (b.itemName && fgByName.get(cleanStr(b.itemName)));
+        const masterRmBo = (rawItemId && rmBoById.get(rawItemId)) || (b.itemName && rmBoByName.get(cleanStr(b.itemName)));
+
+        const resolvedMaster = masterComp || masterRM || masterBO || masterFG || masterRmBo;
+        const itemCode = b.itemCode || b.code || resolvedMaster?.code || resolvedMaster?.componentCode || "";
+        const itemDesc = b.description || b.descriptions || resolvedMaster?.descriptions || resolvedMaster?.description || "";
+        const masterType = masterComp ? "Component" : masterRM ? "RawMaterial" : masterBO ? "BoughtOut" : masterFG ? "FGItem" : b.itemType;
+
+        return {
+          item: rawItemId,
+          materialName: b.itemName || b.name || resolvedMaster?.name || resolvedMaster?.componentName || "Material",
+          materialCode: itemCode,
+          description: itemDesc,
+          quantity: Number(b.quantity) || 1,
+          unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material' || masterType === 'RawMaterial') ? 'KG' : (b.unit || resolvedMaster?.unit || "NOS"),
+          itemType: masterType || b.itemType || "Material",
+          fgType: masterFG?.type || b.fgType,
+          itemClassification: b.itemClassification,
+          hasSecondaryUnit: Boolean(b.hasSecondaryUnit || resolvedMaster?.hasSecondaryUnit),
+          secondaryUnit: b.secondaryUnit || resolvedMaster?.secondaryUnit || "",
+          conversionFactor: Number(b.conversionFactor || resolvedMaster?.conversionFactor) || 1,
+        };
+      });
+
       // 1. Direct BOM ID match
       if (bId) {
         const found = bomById.get(bId.toString()) || bomById.get(bId.toString().toLowerCase().trim());
@@ -536,16 +587,7 @@ export const createMRPPlan = async (req, res) => {
             bomNumber: `BOM-${foundFG.code || foundFG.name}`,
             productName: foundFG.name,
             productCode: foundFG.code,
-            items: foundFG.bom.map((b) => ({
-              materialName: b.itemName || b.name || "Material",
-              materialCode: b.itemCode || b.code || "",
-              description: b.description || b.descriptions || "",
-              quantity: Number(b.quantity) || 1,
-              unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material') ? 'KG' : (b.unit || "NOS"),
-              itemType: b.itemType || "Material",
-              fgType: b.fgType,
-              itemClassification: b.itemClassification,
-            })),
+            items: mapBOMItems(foundFG.bom),
           };
         }
       }
@@ -554,9 +596,6 @@ export const createMRPPlan = async (req, res) => {
       if (pName) {
         const cleanPName = pName.trim().toLowerCase();
         if (cleanPName !== 'finished good' && cleanPName !== 'finish goods' && cleanPName !== 'finished goods') {
-          const found = bomByName.get(cleanPName);
-          if (found && Array.isArray(found.items) && found.items.length > 0) return found;
-
           const foundFG = fgByName.get(cleanPName);
           if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
             return {
@@ -564,27 +603,18 @@ export const createMRPPlan = async (req, res) => {
               bomNumber: `BOM-${foundFG.code || foundFG.name}`,
               productName: foundFG.name,
               productCode: foundFG.code,
-              items: foundFG.bom.map((b) => ({
-                materialName: b.itemName || b.name || "Material",
-                materialCode: b.itemCode || b.code || "",
-                description: b.description || b.descriptions || "",
-                quantity: Number(b.quantity) || 1,
-                unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material') ? 'KG' : (b.unit || "NOS"),
-                itemType: b.itemType || "Material",
-                fgType: b.fgType,
-                itemClassification: b.itemClassification,
-              })),
+              items: mapBOMItems(foundFG.bom),
             };
           }
+
+          const found = bomByName.get(cleanPName);
+          if (found && Array.isArray(found.items) && found.items.length > 0) return found;
         }
       }
 
       // 4. Match by Product Code
       if (pCode) {
         const cleanPCode = pCode.trim().toLowerCase();
-        const found = bomByCode.get(cleanPCode);
-        if (found && Array.isArray(found.items) && found.items.length > 0) return found;
-
         const foundFG = fgByCode.get(cleanPCode);
         if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
           return {
@@ -592,18 +622,12 @@ export const createMRPPlan = async (req, res) => {
             bomNumber: `BOM-${foundFG.code || foundFG.name}`,
             productName: foundFG.name,
             productCode: foundFG.code,
-            items: foundFG.bom.map((b) => ({
-              materialName: b.itemName || b.name || "Material",
-              materialCode: b.itemCode || b.code || "",
-              description: b.description || b.descriptions || "",
-              quantity: Number(b.quantity) || 1,
-              unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material') ? 'KG' : (b.unit || "NOS"),
-              itemType: b.itemType || "Material",
-              fgType: b.fgType,
-              itemClassification: b.itemClassification,
-            })),
+            items: mapBOMItems(foundFG.bom),
           };
         }
+
+        const found = bomByCode.get(cleanPCode);
+        if (found && Array.isArray(found.items) && found.items.length > 0) return found;
       }
 
       return null;
@@ -638,36 +662,41 @@ export const createMRPPlan = async (req, res) => {
                             (sName && boByName.get(sName.toLowerCase())) ||
                             null;
 
-          // Check if this subItem itself is an FGItem / sub-assembly via fast lookup
+          // Check if this subItem itself is a PPC Component or FGItem / Sub-Assembly
           const subItemId = subItem.item || subItem._id;
+          const matchedComp = (subItemId && compById.get(String(subItemId))) ||
+                              (sCode && compByCode.get(sCode.toLowerCase())) ||
+                              (sName && compByName.get(sName.toLowerCase())) ||
+                              null;
           const matchedFG = (subItemId && fgById.get(String(subItemId))) ||
                             (sCode && fgByCode.get(sCode.toLowerCase())) ||
                             (sName && fgByName.get(sName.toLowerCase())) ||
                             null;
           const nestedSubBOM = findBOM(sName, sCode, undefined, matchedFG?._id);
           const fgType = matchedFG?.type || subItem.fgType || subItem.itemClassification;
-          const isComponent = fgType === "Component";
-          const isAssembly = fgType === "Assembly";
-          const isSubAssembly = fgType === "Sub Assembly" || (!isComponent && !isAssembly && Boolean(nestedSubBOM));
 
-          const assignedMasterCat = rawMat?.categoryId?.name || boughtOut?.categoryId?.name || rmBo?.categoryId?.name || rawMat?.category || boughtOut?.category || rmBo?.category || "";
+          const isAssembly = fgType === "Assembly" || matchedFG?.type === "Assembly" || subItem.itemType === "Assembly";
+          const isSubAssembly = fgType === "Sub Assembly" || matchedFG?.type === "Sub Assembly" || subItem.itemType === "SubAssembly" || (!isAssembly && Boolean(nestedSubBOM) && !matchedComp);
+          const isComponent = !isSubAssembly && !isAssembly && (Boolean(matchedComp) || fgType === "Component" || subItem.itemType === "Component" || matchedFG?.type === "Component");
+
+          const assignedMasterCat = matchedComp?.category?.name || matchedComp?.categoryId?.name || rawMat?.categoryId?.name || boughtOut?.categoryId?.name || rmBo?.categoryId?.name || rawMat?.category || boughtOut?.category || rmBo?.category || "";
           const catName = (assignedMasterCat || rmBo?.categoryId?.name || rmBo?.category || "").toLowerCase();
           const rawItemType = (rawMat?.itemType || boughtOut?.itemType || rmBo?.itemType || "").toLowerCase();
-          const isBO = Boolean(boughtOut) || rawItemType === 'bought out' || rawItemType === 'bo' || catName.includes('bought') || catName.includes('hardware') || catName.includes('fastener');
-          const isConsumable = rawItemType === 'consumable' || catName.includes('consumable');
+          const isBO = !isComponent && !isSubAssembly && !isAssembly && (Boolean(boughtOut) || rawItemType === 'bought out' || rawItemType === 'bo' || catName.includes('bought') || catName.includes('hardware') || catName.includes('fastener') || sCode.toLowerCase().startsWith("bo-"));
+          const isConsumable = !isComponent && !isSubAssembly && !isAssembly && !isBO && (rawItemType === 'consumable' || catName.includes('consumable'));
 
           let resolvedItemType = "RM";
           let categoryLabel = assignedMasterCat || "Raw Material";
 
-          if (isComponent) {
-            resolvedItemType = "Component";
-            categoryLabel = "In-House Component";
+          if (isAssembly) {
+            resolvedItemType = "Assembly";
+            categoryLabel = "Finished Good / Assembly";
           } else if (isSubAssembly) {
             resolvedItemType = "SubAssembly";
             categoryLabel = "Sub Assembly";
-          } else if (isAssembly) {
-            resolvedItemType = "Assembly";
-            categoryLabel = "Finished Good / Assembly";
+          } else if (isComponent) {
+            resolvedItemType = "Component";
+            categoryLabel = "In-House Component";
           } else if (isBO) {
             resolvedItemType = "BO";
             categoryLabel = assignedMasterCat || "Bought Out";
@@ -676,13 +705,15 @@ export const createMRPPlan = async (req, res) => {
             categoryLabel = assignedMasterCat || "Consumable";
           }
 
-          const sDesc = subItem.description || matchedFG?.description || matchedFG?.descriptions || rmBo?.description || rmBo?.descriptions || rawMat?.descriptions || rawMat?.description || boughtOut?.descriptions || boughtOut?.description || "";
+          const sDesc = subItem.description || matchedComp?.description || matchedComp?.descriptions || matchedFG?.description || matchedFG?.descriptions || rmBo?.description || rmBo?.descriptions || rawMat?.descriptions || rawMat?.description || boughtOut?.descriptions || boughtOut?.description || "";
 
-          const resolvedMat = rmBo || rawMat || boughtOut || matchedFG;
+          const resolvedMat = matchedComp || rmBo || rawMat || boughtOut || matchedFG;
           const resolvedMatId = resolvedMat?._id || inv?.materialId || inv?._id;
           const canonicalUnit = (isBO || resolvedItemType === 'BO')
             ? (boughtOut?.unit || 'NOS')
-            : (resolvedItemType === 'RM' ? (rawMat?.unit || 'KG') : (matchedFG?.unit || 'NOS'));
+            : (isComponent || resolvedItemType === 'Component')
+              ? (matchedComp?.unit || matchedFG?.unit || 'NOS')
+              : (resolvedItemType === 'RM' ? (rawMat?.unit || 'KG') : (matchedFG?.unit || 'NOS'));
 
           const hasSec = Boolean(
             subItem.hasSecondaryUnit ||
@@ -726,13 +757,14 @@ export const createMRPPlan = async (req, res) => {
             : (cleanStr(sCode) ? `code_${cleanStr(sCode)}` : `name_${cleanKey(sName)}`);
 
           let targetMap = rmMap;
-          if (isSubAssembly) targetMap = subAssemblyMap;
+          if (isAssembly || isSubAssembly) targetMap = subAssemblyMap;
+          else if (isComponent) targetMap = componentMap;
           else if (isBO) targetMap = boMap;
           else if (isConsumable) targetMap = consumableMap;
 
           if (!targetMap.has(itemKey)) {
             targetMap.set(itemKey, {
-              material: resolvedMatId || rmBo?._id || rawMat?._id || boughtOut?._id,
+              material: resolvedMatId || rmBo?._id || rawMat?._id || boughtOut?._id || matchedComp?._id,
               materialName: sName,
               materialCode: sCode,
               description: sDesc,
@@ -784,7 +816,7 @@ export const createMRPPlan = async (req, res) => {
           }
 
           // If it has sub-components, recurse into next level with resolved sub-assembly IDs
-          if (isSubAssembly) {
+          if (isSubAssembly || isAssembly || (nestedSubBOM && !isBO && !isConsumable)) {
             explodeItemTree(sName, sCode, grossQty, sName, level + 1, nestedList, matchedFG?._id, nestedSubBOM?._id, sourcePoNumber);
           }
         }
@@ -1035,6 +1067,7 @@ export const createMRPPlan = async (req, res) => {
 
     const rmRequirements = Array.from(rmMap.values());
     const boRequirements = Array.from(boMap.values());
+    const componentRequirements = Array.from(componentMap.values());
     const subAssemblyRequirements = Array.from(subAssemblyMap.values());
     const consumableRequirements = Array.from(consumableMap.values());
 
@@ -1071,6 +1104,7 @@ export const createMRPPlan = async (req, res) => {
 
     populateReqPricing(rmRequirements);
     populateReqPricing(boRequirements);
+    populateReqPricing(componentRequirements);
     populateReqPricing(consumableRequirements);
 
     // Also populate pricing on nestedMaterials inside enrichedFgItems
@@ -1123,6 +1157,7 @@ export const createMRPPlan = async (req, res) => {
       fgItems: enrichedFgItems,
       rmRequirements,
       boRequirements,
+      componentRequirements,
       subAssemblyRequirements,
       consumableRequirements,
       totalIncome,
@@ -2418,6 +2453,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
   const RawMaterial = req.getModel("RawMaterial", rawMaterialSchema);
   const BoughtOut = req.getModel("BoughtOut", boughtOutSchema);
   const FGItem = req.getModel("FGItem", fgItemSchema);
+  const Component = req.getModel("Component", componentSchema);
   const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
   const PurchaseOrder = req.getModel("PurchaseOrder", purchaseOrderSchema);
   req.getModel("Vendor", vendorSchema);
@@ -2433,21 +2469,23 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     return plan;
   }
 
-  // Maps to aggregate RM, BO, SubAssemblies and Consumables across all FG items
+  // Maps to aggregate RM, BO, SubAssemblies, Components, and Consumables across all FG items
   const rmMap = new Map();
   const boMap = new Map();
   const subAssemblyMap = new Map();
+  const componentMap = new Map();
   const consumableMap = new Map();
 
   const PriceList = req.getModel("PriceList", priceListSchema);
   const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
 
-  // Cache inventory, RM/BO items, BOMs, FG items, vendor price lists, sales price lists, and prefixSettings
+  // Cache inventory, RM/BO items, BOMs, FG items, components, vendor price lists, sales price lists, and prefixSettings
   const [
     allInventories,
     allRmBoItems,
     allRawMaterials,
     allBoughtOuts,
+    allComponents,
     allBOMs,
     allFGItems,
     allPriceLists,
@@ -2459,6 +2497,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     RmBoItem.find({ company: companyId }).populate("categoryId").lean(),
     RawMaterial.find({ company: companyId }).populate("categoryId").lean(),
     BoughtOut.find({ company: companyId }).populate("categoryId").lean(),
+    Component.find({ company: companyId }).populate("category").lean().catch(() => []),
     BOM.find({ company: companyId, status: { $ne: "Inactive" } }).lean(),
     FGItem.find({ company: companyId }).lean(),
     VendorPriceList.find({ company: companyId }).populate("vendor", "name code").lean().catch(() => []),
@@ -2499,23 +2538,40 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     if (f.code) fgByCode.set(f.code.toLowerCase().trim(), f);
   });
 
+  const compById = new Map();
+  const compByName = new Map();
+  const compByCode = new Map();
+  (allComponents || []).forEach(c => {
+    if (c._id) compById.set(c._id.toString(), c);
+    const cName = c.name || c.componentName;
+    const cCode = c.code || c.componentCode;
+    if (cName) compByName.set(cName.toLowerCase().trim(), c);
+    if (cCode) compByCode.set(cCode.toLowerCase().trim(), c);
+  });
+
+  const rmById = new Map();
   const rmByCode = new Map();
   const rmByName = new Map();
   (allRawMaterials || []).forEach(r => {
+    if (r._id) rmById.set(r._id.toString(), r);
     if (r.code) rmByCode.set(r.code.toLowerCase().trim(), r);
     if (r.name) rmByName.set(r.name.toLowerCase().trim(), r);
   });
 
+  const boById = new Map();
   const boByCode = new Map();
   const boByName = new Map();
   (allBoughtOuts || []).forEach(b => {
+    if (b._id) boById.set(b._id.toString(), b);
     if (b.code) boByCode.set(b.code.toLowerCase().trim(), b);
     if (b.name) boByName.set(b.name.toLowerCase().trim(), b);
   });
 
+  const rmBoById = new Map();
   const rmBoByCode = new Map();
   const rmBoByName = new Map();
   (allRmBoItems || []).forEach(r => {
+    if (r._id) rmBoById.set(r._id.toString(), r);
     if (r.code) rmBoByCode.set(r.code.toLowerCase().trim(), r);
     if (r.name) rmByName.set(r.name.toLowerCase().trim(), r);
   });
@@ -2692,16 +2748,34 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
           bomNumber: `BOM-${foundFG.code || foundFG.name}`,
           productName: foundFG.name,
           productCode: foundFG.code,
-          items: foundFG.bom.map((b) => ({
-            materialName: b.itemName || b.name || "Material",
-            materialCode: b.itemCode || b.code || "",
-            quantity: Number(b.quantity) || 1,
-            unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material') ? 'KG' : (b.unit || "NOS"),
-            itemType: b.itemType || "Material",
-            fgType: b.fgType,
-            itemClassification: b.itemClassification,
-            description: b.description || b.descriptions || "",
-          })),
+          items: foundFG.bom.map((b) => {
+            const rawItemId = b.item ? String(typeof b.item === 'object' ? (b.item._id || b.item) : b.item) : null;
+            const masterComp = (rawItemId && compById.get(rawItemId)) || (b.itemName && compByName.get(cleanStr(b.itemName)));
+            const masterRM = (rawItemId && rmById.get(rawItemId)) || (b.itemName && rmByName.get(cleanStr(b.itemName)));
+            const masterBO = (rawItemId && boById.get(rawItemId)) || (b.itemName && boByName.get(cleanStr(b.itemName)));
+            const masterFG = (rawItemId && fgById.get(rawItemId)) || (b.itemName && fgByName.get(cleanStr(b.itemName)));
+            const masterRmBo = (rawItemId && rmBoById.get(rawItemId)) || (b.itemName && rmBoByName.get(cleanStr(b.itemName)));
+
+            const resolvedMaster = masterComp || masterRM || masterBO || masterFG || masterRmBo;
+            const itemCode = b.itemCode || b.code || resolvedMaster?.code || resolvedMaster?.componentCode || "";
+            const itemDesc = b.description || b.descriptions || resolvedMaster?.descriptions || resolvedMaster?.description || "";
+            const masterType = masterComp ? "Component" : masterRM ? "RawMaterial" : masterBO ? "BoughtOut" : masterFG ? "FGItem" : b.itemType;
+
+            return {
+              item: rawItemId,
+              materialName: b.itemName || b.name || resolvedMaster?.name || resolvedMaster?.componentName || "Material",
+              materialCode: itemCode,
+              description: itemDesc,
+              quantity: Number(b.quantity) || 1,
+              unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material' || masterType === 'RawMaterial') ? 'KG' : (b.unit || resolvedMaster?.unit || "NOS"),
+              itemType: masterType || b.itemType || "Material",
+              fgType: masterFG?.type || b.fgType,
+              itemClassification: b.itemClassification,
+              hasSecondaryUnit: Boolean(b.hasSecondaryUnit || resolvedMaster?.hasSecondaryUnit),
+              secondaryUnit: b.secondaryUnit || resolvedMaster?.secondaryUnit || "",
+              conversionFactor: Number(b.conversionFactor || resolvedMaster?.conversionFactor) || 1,
+            };
+          }),
         };
       }
     }
@@ -2717,16 +2791,34 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
             bomNumber: `BOM-${foundFG.code || foundFG.name}`,
             productName: foundFG.name,
             productCode: foundFG.code,
-            items: foundFG.bom.map((b) => ({
-              materialName: b.itemName || b.name || "Material",
-              materialCode: b.itemCode || b.code || "",
-              quantity: Number(b.quantity) || 1,
-              unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material') ? 'KG' : (b.unit || "NOS"),
-              itemType: b.itemType || "Material",
-              fgType: b.fgType,
-              itemClassification: b.itemClassification,
-              description: b.description || b.descriptions || "",
-            })),
+            items: foundFG.bom.map((b) => {
+              const rawItemId = b.item ? String(typeof b.item === 'object' ? (b.item._id || b.item) : b.item) : null;
+              const masterComp = (rawItemId && compById.get(rawItemId)) || (b.itemName && compByName.get(cleanStr(b.itemName)));
+              const masterRM = (rawItemId && rmById.get(rawItemId)) || (b.itemName && rmByName.get(cleanStr(b.itemName)));
+              const masterBO = (rawItemId && boById.get(rawItemId)) || (b.itemName && boByName.get(cleanStr(b.itemName)));
+              const masterFG = (rawItemId && fgById.get(rawItemId)) || (b.itemName && fgByName.get(cleanStr(b.itemName)));
+              const masterRmBo = (rawItemId && rmBoById.get(rawItemId)) || (b.itemName && rmBoByName.get(cleanStr(b.itemName)));
+
+              const resolvedMaster = masterComp || masterRM || masterBO || masterFG || masterRmBo;
+              const itemCode = b.itemCode || b.code || resolvedMaster?.code || resolvedMaster?.componentCode || "";
+              const itemDesc = b.description || b.descriptions || resolvedMaster?.descriptions || resolvedMaster?.description || "";
+              const masterType = masterComp ? "Component" : masterRM ? "RawMaterial" : masterBO ? "BoughtOut" : masterFG ? "FGItem" : b.itemType;
+
+              return {
+                item: rawItemId,
+                materialName: b.itemName || b.name || resolvedMaster?.name || resolvedMaster?.componentName || "Material",
+                materialCode: itemCode,
+                description: itemDesc,
+                quantity: Number(b.quantity) || 1,
+                unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material' || masterType === 'RawMaterial') ? 'KG' : (b.unit || resolvedMaster?.unit || "NOS"),
+                itemType: masterType || b.itemType || "Material",
+                fgType: masterFG?.type || b.fgType,
+                itemClassification: b.itemClassification,
+                hasSecondaryUnit: Boolean(b.hasSecondaryUnit || resolvedMaster?.hasSecondaryUnit),
+                secondaryUnit: b.secondaryUnit || resolvedMaster?.secondaryUnit || "",
+                conversionFactor: Number(b.conversionFactor || resolvedMaster?.conversionFactor) || 1,
+              };
+            }),
           };
         }
       }
@@ -2742,16 +2834,34 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
           bomNumber: `BOM-${foundFG.code || foundFG.name}`,
           productName: foundFG.name,
           productCode: foundFG.code,
-          items: foundFG.bom.map((b) => ({
-            materialName: b.itemName || b.name || "Material",
-            materialCode: b.itemCode || b.code || "",
-            quantity: Number(b.quantity) || 1,
-            unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material') ? 'KG' : (b.unit || "NOS"),
-            itemType: b.itemType || "Material",
-            fgType: b.fgType,
-            itemClassification: b.itemClassification,
-            description: b.description || b.descriptions || "",
-          })),
+          items: foundFG.bom.map((b) => {
+            const rawItemId = b.item ? String(typeof b.item === 'object' ? (b.item._id || b.item) : b.item) : null;
+            const masterComp = (rawItemId && compById.get(rawItemId)) || (b.itemName && compByName.get(cleanStr(b.itemName)));
+            const masterRM = (rawItemId && rmById.get(rawItemId)) || (b.itemName && rmByName.get(cleanStr(b.itemName)));
+            const masterBO = (rawItemId && boById.get(rawItemId)) || (b.itemName && boByName.get(cleanStr(b.itemName)));
+            const masterFG = (rawItemId && fgById.get(rawItemId)) || (b.itemName && fgByName.get(cleanStr(b.itemName)));
+            const masterRmBo = (rawItemId && rmBoById.get(rawItemId)) || (b.itemName && rmBoByName.get(cleanStr(b.itemName)));
+
+            const resolvedMaster = masterComp || masterRM || masterBO || masterFG || masterRmBo;
+            const itemCode = b.itemCode || b.code || resolvedMaster?.code || resolvedMaster?.componentCode || "";
+            const itemDesc = b.description || b.descriptions || resolvedMaster?.descriptions || resolvedMaster?.description || "";
+            const masterType = masterComp ? "Component" : masterRM ? "RawMaterial" : masterBO ? "BoughtOut" : masterFG ? "FGItem" : b.itemType;
+
+            return {
+              item: rawItemId,
+              materialName: b.itemName || b.name || resolvedMaster?.name || resolvedMaster?.componentName || "Material",
+              materialCode: itemCode,
+              description: itemDesc,
+              quantity: Number(b.quantity) || 1,
+              unit: (b.itemType === 'RawMaterial' || b.itemType === 'Material' || masterType === 'RawMaterial') ? 'KG' : (b.unit || resolvedMaster?.unit || "NOS"),
+              itemType: masterType || b.itemType || "Material",
+              fgType: masterFG?.type || b.fgType,
+              itemClassification: b.itemClassification,
+              hasSecondaryUnit: Boolean(b.hasSecondaryUnit || resolvedMaster?.hasSecondaryUnit),
+              secondaryUnit: b.secondaryUnit || resolvedMaster?.secondaryUnit || "",
+              conversionFactor: Number(b.conversionFactor || resolvedMaster?.conversionFactor) || 1,
+            };
+          }),
         };
       }
     }
@@ -2793,6 +2903,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
   };
   registerOldReqs(plan.rmRequirements);
   registerOldReqs(plan.boRequirements);
+  registerOldReqs(plan.componentRequirements);
   registerOldReqs(plan.subAssemblyRequirements);
   registerOldReqs(plan.consumableRequirements);
 
@@ -2825,36 +2936,41 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
                           (sName && boByName.get(sName.toLowerCase())) ||
                           null;
 
-        // Check if this subItem itself is an FGItem / sub-assembly via fast lookup
+        // Check if this subItem itself is a PPC Component or FGItem / Sub-Assembly
         const subItemId = subItem.item || subItem._id;
+        const matchedComp = (subItemId && compById.get(String(subItemId))) ||
+                            (sCode && compByCode.get(sCode.toLowerCase())) ||
+                            (sName && compByName.get(sName.toLowerCase())) ||
+                            null;
         const matchedFG = (subItemId && fgById.get(String(subItemId))) ||
                           (sCode && fgByCode.get(sCode.toLowerCase())) ||
                           (sName && fgByName.get(sName.toLowerCase())) ||
                           null;
         const nestedSubBOM = findBOM(sName, sCode, undefined, matchedFG?._id);
         const fgType = matchedFG?.type || subItem.fgType || subItem.itemClassification;
-        const isComponent = fgType === "Component";
-        const isAssembly = fgType === "Assembly";
-        const isSubAssembly = fgType === "Sub Assembly" || (!isComponent && !isAssembly && Boolean(nestedSubBOM));
 
-        const assignedMasterCat = rawMat?.categoryId?.name || boughtOut?.categoryId?.name || rmBo?.categoryId?.name || rawMat?.category || boughtOut?.category || rmBo?.category || "";
+        const isAssembly = fgType === "Assembly" || matchedFG?.type === "Assembly" || subItem.itemType === "Assembly";
+        const isSubAssembly = fgType === "Sub Assembly" || matchedFG?.type === "Sub Assembly" || subItem.itemType === "SubAssembly" || (!isAssembly && Boolean(nestedSubBOM) && !matchedComp);
+        const isComponent = !isSubAssembly && !isAssembly && (Boolean(matchedComp) || fgType === "Component" || subItem.itemType === "Component" || matchedFG?.type === "Component");
+
+        const assignedMasterCat = matchedComp?.category?.name || matchedComp?.categoryId?.name || rawMat?.categoryId?.name || boughtOut?.categoryId?.name || rmBo?.categoryId?.name || rawMat?.category || boughtOut?.category || rmBo?.category || "";
         const catName = (assignedMasterCat || rmBo?.categoryId?.name || rmBo?.category || "").toLowerCase();
         const rawItemType = (rawMat?.itemType || boughtOut?.itemType || rmBo?.itemType || "").toLowerCase();
-        const isBO = Boolean(boughtOut) || rawItemType === "bought out" || rawItemType === "bo" || catName.includes("bought") || catName.includes("hardware") || catName.includes("fastener");
-        const isConsumable = rawItemType === "consumable" || catName.includes("consumable");
+        const isBO = !isComponent && !isSubAssembly && !isAssembly && (Boolean(boughtOut) || rawItemType === "bought out" || rawItemType === "bo" || catName.includes("bought") || catName.includes("hardware") || catName.includes("fastener") || sCode.toLowerCase().startsWith("bo-"));
+        const isConsumable = !isComponent && !isSubAssembly && !isAssembly && !isBO && (rawItemType === "consumable" || catName.includes("consumable"));
 
         let resolvedItemType = "RM";
         let categoryLabel = assignedMasterCat || "Raw Material";
 
-        if (isComponent) {
-          resolvedItemType = "Component";
-          categoryLabel = "In-House Component";
+        if (isAssembly) {
+          resolvedItemType = "Assembly";
+          categoryLabel = "Finished Good / Assembly";
         } else if (isSubAssembly) {
           resolvedItemType = "SubAssembly";
           categoryLabel = "Sub Assembly";
-        } else if (isAssembly) {
-          resolvedItemType = "Assembly";
-          categoryLabel = "Finished Good / Assembly";
+        } else if (isComponent) {
+          resolvedItemType = "Component";
+          categoryLabel = "In-House Component";
         } else if (isBO) {
           resolvedItemType = "BO";
           categoryLabel = assignedMasterCat || "Bought Out";
@@ -2863,13 +2979,15 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
           categoryLabel = assignedMasterCat || "Consumable";
         }
 
-        const sDesc = subItem.description || matchedFG?.description || matchedFG?.descriptions || rmBo?.description || rmBo?.descriptions || rawMat?.descriptions || rawMat?.description || boughtOut?.descriptions || boughtOut?.description || "";
+        const sDesc = subItem.description || matchedComp?.description || matchedComp?.descriptions || matchedFG?.description || matchedFG?.descriptions || rmBo?.description || rmBo?.descriptions || rawMat?.descriptions || rawMat?.description || boughtOut?.descriptions || boughtOut?.description || "";
 
-        const resolvedMat = rmBo || rawMat || boughtOut || matchedFG;
+        const resolvedMat = matchedComp || rmBo || rawMat || boughtOut || matchedFG;
         const resolvedMatId = resolvedMat?._id || inv?.materialId || inv?._id;
         const canonicalUnit = (isBO || resolvedItemType === 'BO')
           ? (boughtOut?.unit || 'NOS')
-          : (resolvedItemType === 'RM' ? (rawMat?.unit || 'KG') : (matchedFG?.unit || 'NOS'));
+          : (isComponent || resolvedItemType === 'Component')
+            ? (matchedComp?.unit || matchedFG?.unit || 'NOS')
+            : (resolvedItemType === 'RM' ? (rawMat?.unit || 'KG') : (matchedFG?.unit || 'NOS'));
 
         const hasSec = Boolean(
           subItem.hasSecondaryUnit ||
@@ -2913,13 +3031,14 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
           : (cleanStr(sCode) ? `code_${cleanStr(sCode)}` : `name_${cleanKey(sName)}`);
 
         let targetMap = rmMap;
-        if (isSubAssembly) targetMap = subAssemblyMap;
+        if (isAssembly || isSubAssembly) targetMap = subAssemblyMap;
+        else if (isComponent) targetMap = componentMap;
         else if (isBO) targetMap = boMap;
         else if (isConsumable) targetMap = consumableMap;
 
         if (!targetMap.has(itemKey)) {
           targetMap.set(itemKey, {
-            material: resolvedMatId || rmBo?._id || rawMat?._id || boughtOut?._id,
+            material: resolvedMatId || rmBo?._id || rawMat?._id || boughtOut?._id || matchedComp?._id,
             materialName: sName,
             materialCode: sCode,
             description: sDesc,
@@ -2970,7 +3089,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
           existing.sourceFGNames.push(fgLabel);
         }
 
-        if (isSubAssembly) {
+        if (isSubAssembly || isAssembly || (nestedSubBOM && !isBO && !isConsumable)) {
           explodeItemTree(sName, sCode, grossQty, sName, level + 1, nestedList, matchedFG?._id, nestedSubBOM?._id, sourcePoNumber);
         }
       }
@@ -3500,6 +3619,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
 
   reconcileReqList(rmMap);
   reconcileReqList(boMap);
+  reconcileReqList(componentMap);
   reconcileReqList(subAssemblyMap);
   reconcileReqList(consumableMap);
 
@@ -3535,9 +3655,12 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
 
   preserveRemovedWithPOs(plan.rmRequirements, rmMap, "RM");
   preserveRemovedWithPOs(plan.boRequirements, boMap, "BO");
+  preserveRemovedWithPOs(plan.componentRequirements, componentMap, "Component");
+  preserveRemovedWithPOs(plan.subAssemblyRequirements, subAssemblyMap, "SubAssembly");
 
   const rmRequirements = Array.from(rmMap.values());
   const boRequirements = Array.from(boMap.values());
+  const componentRequirements = Array.from(componentMap.values());
   const subAssemblyRequirements = Array.from(subAssemblyMap.values());
   const consumableRequirements = Array.from(consumableMap.values());
 
@@ -3574,6 +3697,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
 
   populateReqPricing(rmRequirements);
   populateReqPricing(boRequirements);
+  populateReqPricing(componentRequirements);
   populateReqPricing(consumableRequirements);
 
   enrichedFgItems.forEach((fg) => {
@@ -3624,6 +3748,7 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
   plan.fgItems = enrichedFgItems;
   plan.rmRequirements = rmRequirements;
   plan.boRequirements = boRequirements;
+  plan.componentRequirements = componentRequirements;
   plan.subAssemblyRequirements = subAssemblyRequirements;
   plan.consumableRequirements = consumableRequirements;
   plan.totalIncome = totalIncome;
@@ -3757,6 +3882,7 @@ export const syncMRPPlanFinancials = async (planDocOrId, req) => {
 
   reconcileList(plan.rmRequirements);
   reconcileList(plan.boRequirements);
+  reconcileList(plan.componentRequirements);
   reconcileList(plan.subAssemblyRequirements);
   reconcileList(plan.consumableRequirements);
 

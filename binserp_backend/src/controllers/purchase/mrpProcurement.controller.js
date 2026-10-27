@@ -567,61 +567,101 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     }
   });
 
-  // Classification Resolver using master sets
-  const resolveClassificationType = (name, code, rawType, rawCategory, level, planRmKeys, planBoKeys) => {
+  // Classification Resolver using master sets and plan requirements
+  const resolveClassificationType = (name, code, rawType, rawCategory, level, planRmKeys, planBoKeys, planCompKeys, planSubAssemblyKeys) => {
     const n = cleanStr(name);
     const c = cleanStr(code);
     const nK = cleanKey(name);
     const cK = cleanKey(code);
-    const t = (rawType || "").toLowerCase();
-    const cat = (rawCategory || "").toLowerCase();
+    const t = (rawType || "").toLowerCase().trim();
+    const cat = (rawCategory || "").toLowerCase().trim();
 
-    // 1. Explicit RAW MATERIAL check (Highest Priority to avoid RM appearing in BO)
-    if (
-      planRmKeys?.has(n) || planRmKeys?.has(c) ||
-      rmSet.has(n) || rmSet.has(c) || rmSet.has(nK) || rmSet.has(cK) ||
-      t === "rm" || t === "raw material" || cat.includes("raw") || cat.includes("metal") || cat.includes("steel") ||
-      cat.includes("aluminum") || cat.includes("brass") || cat.includes("copper") || cat.includes("iron") ||
-      cat.includes("sheet") || cat.includes("rod") || cat.includes("bar") || cat.includes("pipe") || cat.includes("plate")
-    ) {
-      return { itemType: "RM", category: "Raw Material" };
+    // 1. Explicit rawType check (Authoritative classification from BOM explosion / FG type)
+    if (t === "assembly" || t === "fg" || t === "finished good" || t === "main assembly") {
+      return { itemType: "Assembly", category: rawCategory || "Finished Good / Assembly" };
+    }
+    if (t === "subassembly" || t === "sub assembly") {
+      return { itemType: "SubAssembly", category: rawCategory || "Sub Assembly" };
+    }
+    if (t === "component" || t === "in-house component") {
+      return { itemType: "Component", category: rawCategory || "In-House Component" };
+    }
+    if (t === "bo" || t === "bought out") {
+      return { itemType: "BO", category: rawCategory || "Bought Out" };
+    }
+    if (t === "consumable") {
+      return { itemType: "Consumable", category: rawCategory || "Consumable" };
+    }
+    if (t === "rm" || t === "raw material") {
+      // Guard against corrupted legacy plan requirements hijacking true components or assemblies
+      if (!compSet.has(n) && !compSet.has(c) && !subAssemblySet.has(n) && !subAssemblySet.has(c) && !assemblySet.has(n) && !assemblySet.has(c)) {
+        return { itemType: "RM", category: rawCategory || "Raw Material" };
+      }
     }
 
-    // 2. Sub-Assembly
+    // 2. High-Priority Master Sets and Explicit Plan Requirements
+    // 2A. Assembly / Finished Good
+    if (assemblySet.has(n) || assemblySet.has(c) || assemblySet.has(nK) || assemblySet.has(cK)) {
+      return { itemType: "Assembly", category: rawCategory || "Finished Good / Assembly" };
+    }
+
+    // 2B. Sub-Assembly
     if (
       subAssemblySet.has(n) || subAssemblySet.has(c) || subAssemblySet.has(nK) || subAssemblySet.has(cK) ||
-      t === "subassembly" || t === "sub assembly" || t.includes("sub") || cat.includes("sub") || cat.includes("weldment") ||
+      planSubAssemblyKeys?.has(n) || planSubAssemblyKeys?.has(c) ||
       c.startsWith("sa-") || c.startsWith("sub-")
     ) {
-      return { itemType: "SubAssembly", category: "Sub Assembly" };
+      return { itemType: "SubAssembly", category: rawCategory || "Sub Assembly" };
     }
 
-    // 3. Component
+    // 2C. Component (In-House PPC Component)
     if (
       compSet.has(n) || compSet.has(c) || compSet.has(nK) || compSet.has(cK) ||
-      t === "component" || t.includes("comp") || cat.includes("comp") || cat.includes("machined") || cat.includes("turned") || cat.includes("milled") ||
+      planCompKeys?.has(n) || planCompKeys?.has(c) ||
       c.startsWith("comp") || c.startsWith("prt") || c.startsWith("cp-")
     ) {
-      return { itemType: "Component", category: "Component Part" };
+      return { itemType: "Component", category: rawCategory || "In-House Component" };
     }
 
-    // 4. Bought Out (BO)
+    // 2D. Bought Out (BO)
     if (
-      planBoKeys?.has(n) || planBoKeys?.has(c) ||
       boSet.has(n) || boSet.has(c) || boSet.has(nK) || boSet.has(cK) ||
-      t === "bo" || t === "bought out" || cat.includes("bought") || cat.includes("hardware") || cat.includes("fastener") ||
-      cat.includes("bolt") || cat.includes("nut") || cat.includes("screw") || cat.includes("bearing") || cat.includes("motor") ||
+      planBoKeys?.has(n) || planBoKeys?.has(c) ||
       c.startsWith("bo-") || c.startsWith("hdw-") || c.startsWith("fst-") || c.startsWith("brg-")
     ) {
-      return { itemType: "BO", category: "Bought Out" };
+      return { itemType: "BO", category: rawCategory || "Bought Out" };
     }
 
-    // 5. Assembly / FG
+    // 2E. Raw Material (RM)
     if (
-      assemblySet.has(n) || assemblySet.has(c) || assemblySet.has(nK) || assemblySet.has(cK) ||
-      t === "fg" || t === "assembly" || t === "finished good" || cat.includes("finished")
+      rmSet.has(n) || rmSet.has(c) || rmSet.has(nK) || rmSet.has(cK) ||
+      planRmKeys?.has(n) || planRmKeys?.has(c)
     ) {
-      return { itemType: "Assembly", category: "Finished Good / Assembly" };
+      return { itemType: "RM", category: rawCategory || "Raw Material" };
+    }
+
+    // 3. Category & Keyword Heuristics (only when no master set or plan requirement matched)
+    if (
+      cat.includes("bought") || cat.includes("hardware") || cat.includes("fastener") ||
+      cat.includes("bolt") || cat.includes("nut") || cat.includes("screw") || cat.includes("bearing") || cat.includes("motor")
+    ) {
+      return { itemType: "BO", category: rawCategory || "Bought Out" };
+    }
+    if (cat.includes("sub assembly") || cat.includes("subassembly") || cat.includes("weldment")) {
+      return { itemType: "SubAssembly", category: rawCategory || "Sub Assembly" };
+    }
+    if (cat.includes("component") || cat.includes("machined") || cat.includes("turned") || cat.includes("milled")) {
+      return { itemType: "Component", category: rawCategory || "In-House Component" };
+    }
+    if (cat.includes("assembly") || cat.includes("finished")) {
+      return { itemType: "Assembly", category: rawCategory || "Finished Good / Assembly" };
+    }
+    if (
+      cat.includes("raw") || cat.includes("sheet") || cat.includes("plate") || cat.includes("rod") ||
+      cat.includes("bar") || cat.includes("pipe") || cat.includes("steel") || cat.includes("metal") ||
+      cat.includes("aluminum") || cat.includes("brass") || cat.includes("copper") || cat.includes("iron")
+    ) {
+      return { itemType: "RM", category: rawCategory || "Raw Material" };
     }
 
     // Default fallback: Raw Material
@@ -629,7 +669,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
   };
 
   // Helper to process material item with LIVE stock lookup
-  const processMaterialInfo = (name, code, reqQty, unit, rawItemType, rawCategory, parentMRP, level, planRmKeys, planBoKeys, existingStatus, rawDescription, poNumber = "", rfqNumber = "", planId = null, materialId = null) => {
+  const processMaterialInfo = (name, code, reqQty, unit, rawItemType, rawCategory, parentMRP, level, planRmKeys, planBoKeys, existingStatus, rawDescription, poNumber = "", rfqNumber = "", planId = null, materialId = null, planCompKeys = null, planSubAssemblyKeys = null) => {
     const nKey = cleanStr(name);
     const cKey = cleanStr(code);
     const mIdKey = materialId ? String(materialId) : null;
@@ -665,7 +705,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         }, vendorQuotes[0])
       : null;
 
-    const classification = resolveClassificationType(name, code, rawItemType, rawCategory, level, planRmKeys, planBoKeys);
+    const classification = resolveClassificationType(name, code, rawItemType, rawCategory, level, planRmKeys, planBoKeys, planCompKeys, planSubAssemblyKeys);
     const currentLiveStock = Number(stockInfo.currentStock || 0);
     const netShortage = Math.max(0, reqQty - currentLiveStock - inTransitInfo.totalInTransit);
 
@@ -912,9 +952,11 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     let planTotalShortages = 0;
     let planTotalInTransit = 0;
 
-    // Keys explicitly in this plan's RM & BO requirements
+    // Keys explicitly in this plan's requirements
     const planRmKeys = new Set((plan.rmRequirements || []).flatMap(r => [cleanStr(r.materialName), cleanStr(r.materialCode)]).filter(Boolean));
     const planBoKeys = new Set((plan.boRequirements || []).flatMap(b => [cleanStr(b.materialName), cleanStr(b.materialCode)]).filter(Boolean));
+    const planCompKeys = new Set((plan.componentRequirements || []).flatMap(c => [cleanStr(c.materialName), cleanStr(c.materialCode)]).filter(Boolean));
+    const planSubAssemblyKeys = new Set((plan.subAssemblyRequirements || []).flatMap(s => [cleanStr(s.materialName), cleanStr(s.materialCode)]).filter(Boolean));
 
     // PO numbers valid specifically for this plan
     const validPlanPoNumbers = new Set(
@@ -963,6 +1005,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
 
     registerReqTracking(plan.rmRequirements);
     registerReqTracking(plan.boRequirements);
+    registerReqTracking(plan.componentRequirements);
     registerReqTracking(plan.subAssemblyRequirements);
     registerReqTracking(plan.consumableRequirements);
 
@@ -1013,7 +1056,9 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         validFGPo,
         fg.rfqNumber || "",
         plan._id,
-        fg.fgItem?._id || fg.fgItem
+        fg.fgItem?._id || fg.fgItem,
+        planCompKeys,
+        planSubAssemblyKeys
       );
 
       let fgTargetMap = assemblyMap;
@@ -1069,18 +1114,33 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         const matStatus = (matPoNumber ? "PO Raised" : null) || rawNMatStatus || planStatusMap.get(cleanStr(nMat.materialName)) || planStatusMap.get(cleanStr(nMat.materialCode)) || "Pending";
         const matRfqNumber = nMat.rfqNumber || planRfqMap.get(cleanStr(nMat.materialName)) || planRfqMap.get(cleanStr(nMat.materialCode)) || "";
 
-        // Check if this nested material is an FGItem
+        // Check if this nested material is an FGItem or PPC Component
+        const cleanNMatName = (nMat.materialName || '').toLowerCase().trim();
+        const cleanNMatCode = (nMat.materialCode || '').toLowerCase().trim();
+
         const matchedFG = fgStock.find(f =>
-          (f.name && f.name.toLowerCase() === (nMat.materialName || '').toLowerCase()) ||
-          (f.code && f.code.toLowerCase() === (nMat.materialCode || '').toLowerCase())
+          (f.name && f.name.toLowerCase().trim() === cleanNMatName) ||
+          (f.code && f.code.toLowerCase().trim() === cleanNMatCode)
         );
-        const resolvedNMatType = matchedFG 
-          ? (matchedFG.type === 'Sub Assembly' ? 'SubAssembly' : (matchedFG.type === 'Component' ? 'Component' : 'Assembly'))
-          : nMat.itemType;
+        const matchedComp = components.find(c =>
+          ((c.name || c.componentName) && (c.name || c.componentName).toLowerCase().trim() === cleanNMatName) ||
+          ((c.code || c.componentCode) && (c.code || c.componentCode).toLowerCase().trim() === cleanNMatCode)
+        );
+
+        let resolvedNMatType = nMat.itemType;
+        if (matchedComp) {
+          resolvedNMatType = 'Component';
+        } else if (matchedFG) {
+          resolvedNMatType = matchedFG.type === 'Sub Assembly' ? 'SubAssembly' : (matchedFG.type === 'Component' ? 'Component' : 'Assembly');
+        }
+
         const matchedFGCat = matchedFG?.category?.name || matchedFG?.categoryId?.name || 
           (matchedFG?.category && categoryMap.get(String(matchedFG.category))) || 
           (matchedFG?.categoryId && categoryMap.get(String(matchedFG.categoryId))) || "";
-        const resolvedNMatCat = matchedFGCat || nMat.category || "";
+        const matchedCompCat = matchedComp?.category?.name || matchedComp?.categoryId?.name ||
+          (matchedComp?.category && categoryMap.get(String(matchedComp.category))) ||
+          (matchedComp?.categoryId && categoryMap.get(String(matchedComp.categoryId))) || "";
+        const resolvedNMatCat = matchedCompCat || matchedFGCat || nMat.category || "";
 
         const processed = processMaterialInfo(
           nMat.materialName,
@@ -1098,7 +1158,9 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
           matPoNumber,
           matRfqNumber,
           plan._id,
-          nMat.material || nMat.materialId
+          nMat.material || nMat.materialId,
+          planCompKeys,
+          planSubAssemblyKeys
         );
 
         if (processed.netShortage > 0) planTotalShortages += processed.netShortage;

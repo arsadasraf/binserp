@@ -398,7 +398,9 @@ export const createGRN = async (req, res) => {
 
     const parsedTaxRate = parseFloat(taxRate) || 0;
     const parsedTransportationCharges = Math.max(0, parseFloat(transportationCharges) || 0);
-    const isTransportationTaxable = req.body.isTransportationTaxable === true || req.body.isTransportationTaxable === 'true';
+    const isTransportationTaxable = req.body.isTransportationTaxable !== undefined
+      ? (req.body.isTransportationTaxable === true || req.body.isTransportationTaxable === 'true')
+      : true;
     const transportationTaxRate = isTransportationTaxable
       ? (req.body.transportationTaxRate !== undefined && !isNaN(parseFloat(req.body.transportationTaxRate)) ? parseFloat(req.body.transportationTaxRate) : parsedTaxRate)
       : 0;
@@ -407,7 +409,9 @@ export const createGRN = async (req, res) => {
       : 0;
 
     const parsedPackingCharges = Math.max(0, parseFloat(packingCharges) || 0);
-    const isPackingTaxable = req.body.isPackingTaxable === true || req.body.isPackingTaxable === 'true';
+    const isPackingTaxable = req.body.isPackingTaxable !== undefined
+      ? (req.body.isPackingTaxable === true || req.body.isPackingTaxable === 'true')
+      : true;
     const packingTaxRate = isPackingTaxable
       ? (req.body.packingTaxRate !== undefined && !isNaN(parseFloat(req.body.packingTaxRate)) ? parseFloat(req.body.packingTaxRate) : parsedTaxRate)
       : 0;

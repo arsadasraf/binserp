@@ -83,17 +83,34 @@ export default function FinishedGoodsPage() {
         matchedMaster?.hasSecondaryUnit ||
         (typeof b.item === 'object' && b.item?.hasSecondaryUnit)
       );
-      const secUnit = b.secondaryUnit || matchedMaster?.secondaryUnit || (typeof b.item === 'object' ? b.item?.secondaryUnit : '') || '';
+      const secUnit = (b.secondaryUnit || matchedMaster?.secondaryUnit || (typeof b.item === 'object' ? b.item?.secondaryUnit : '') || '').toString().trim();
       const convFactor = Number(b.conversionFactor || matchedMaster?.conversionFactor || (typeof b.item === 'object' ? b.item?.conversionFactor : 1)) || 1;
-      const priUnit = b.unit || matchedMaster?.unit || (typeof b.item === 'object' ? b.item?.unit : 'Nos') || 'Nos';
+      const priUnit = (b.unit || matchedMaster?.unit || (typeof b.item === 'object' ? b.item?.unit : 'Nos') || 'Nos').toString().trim();
       const priQty = Number(b.quantity) || 1;
       const secQty = b.secondaryQuantity !== undefined && b.secondaryQuantity !== null && b.secondaryQuantity !== ''
         ? Number(b.secondaryQuantity)
         : (hasSec && secUnit && convFactor > 0 ? Number((priQty * convFactor).toFixed(4)) : undefined);
-      const selUnit = b.selectedUnit || priUnit;
+
+      const isSecSelected = Boolean(
+        hasSec && 
+        secUnit && 
+        b.selectedUnit && 
+        b.selectedUnit.toString().trim().toUpperCase() === secUnit.toUpperCase()
+      );
+      const isSecByQty = Boolean(
+        !isSecSelected && 
+        hasSec && 
+        secUnit && 
+        b.inputQuantity !== undefined && 
+        secQty !== undefined && 
+        Math.abs(Number(b.inputQuantity) - secQty) < 0.0001 && 
+        Math.abs(Number(b.inputQuantity) - priQty) > 0.0001
+      );
+      const isSecActive = isSecSelected || isSecByQty;
+      const selUnit = isSecActive ? secUnit : priUnit;
       const inQty = b.inputQuantity !== undefined && b.inputQuantity !== null && b.inputQuantity !== ''
         ? Number(b.inputQuantity)
-        : (selUnit === secUnit && hasSec && secQty !== undefined ? secQty : priQty);
+        : (isSecActive && secQty !== undefined ? secQty : priQty);
 
       return {
         ...b,
@@ -251,20 +268,35 @@ export default function FinishedGoodsPage() {
       if (Array.isArray(formData.bom)) {
         const cleanedBOM = formData.bom.map((bItem: any) => {
           const itemId = typeof bItem.item === 'object' && bItem.item !== null ? bItem.item._id : bItem.item;
+          const secUnit = (bItem.secondaryUnit || '').toString().trim();
+          const priUnit = (bItem.unit || 'Nos').toString().trim();
+          const isSec = Boolean(
+            bItem.hasSecondaryUnit && 
+            secUnit && 
+            bItem.selectedUnit && 
+            bItem.selectedUnit.toString().trim().toUpperCase() === secUnit.toUpperCase()
+          );
+          const selUnit = isSec ? secUnit : priUnit;
+          const priQty = Number(bItem.quantity) || 1;
+          const secQty = bItem.secondaryQuantity !== undefined && bItem.secondaryQuantity !== null && bItem.secondaryQuantity !== '' ? Number(bItem.secondaryQuantity) : undefined;
+          const inQty = bItem.inputQuantity !== undefined && bItem.inputQuantity !== null && bItem.inputQuantity !== ''
+            ? Number(bItem.inputQuantity)
+            : (isSec && secQty !== undefined ? secQty : priQty);
+
           return {
             itemType: bItem.itemType || 'RawMaterial',
             item: itemId,
             itemName: bItem.itemName || '',
-            quantity: Number(bItem.quantity) || 1,
-            unit: bItem.unit || 'Nos',
+            quantity: priQty,
+            unit: priUnit,
             fgType: bItem.fgType || bItem.itemClassification || undefined,
             itemClassification: bItem.itemClassification || bItem.fgType || undefined,
             hasSecondaryUnit: Boolean(bItem.hasSecondaryUnit),
-            secondaryUnit: bItem.secondaryUnit || '',
+            secondaryUnit: secUnit,
             conversionFactor: bItem.conversionFactor !== undefined ? Number(bItem.conversionFactor) : 1,
-            secondaryQuantity: bItem.secondaryQuantity !== undefined && bItem.secondaryQuantity !== null && bItem.secondaryQuantity !== '' ? Number(bItem.secondaryQuantity) : undefined,
-            selectedUnit: bItem.selectedUnit || bItem.unit || 'Nos',
-            inputQuantity: bItem.inputQuantity !== undefined && bItem.inputQuantity !== null && bItem.inputQuantity !== '' ? Number(bItem.inputQuantity) : (Number(bItem.quantity) || 1)
+            secondaryQuantity: secQty,
+            selectedUnit: selUnit,
+            inputQuantity: inQty
           };
         }).filter((b: any) => b.item && b.itemName);
         submitData.append('bom', JSON.stringify(cleanedBOM));

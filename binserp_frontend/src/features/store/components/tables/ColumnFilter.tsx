@@ -11,6 +11,7 @@ interface ColumnFilterProps {
     currentFilters: string[];
     onFilterChange: (selectedValues: string[]) => void;
     getValue?: (item: any) => string;
+    getValues?: (item: any) => string[];
     sortConfig?: { key: string; direction: 'asc' | 'desc' } | null;
     onSortChange?: (key: string, direction: 'asc' | 'desc') => void;
     enableSort?: boolean;
@@ -26,6 +27,7 @@ export default function ColumnFilter({
     currentFilters,
     onFilterChange,
     getValue,
+    getValues,
     sortConfig,
     onSortChange,
     enableSort = true,
@@ -127,14 +129,23 @@ export default function ColumnFilter({
     const uniqueValuesWithCounts = useMemo(() => {
         const counts = new Map<string, number>();
         data.forEach(item => {
-            let val = '';
-            if (getValue) {
-                val = getValue(item);
+            if (getValues) {
+                const vals = getValues(item) || [];
+                const distinctInItem = new Set(vals);
+                distinctInItem.forEach(v => {
+                    const clean = (v && String(v).trim()) ? String(v).trim() : '-';
+                    counts.set(clean, (counts.get(clean) || 0) + 1);
+                });
             } else {
-                val = String(item[column] !== undefined && item[column] !== null && item[column] !== '' ? item[column] : '-');
+                let val = '';
+                if (getValue) {
+                    val = getValue(item);
+                } else {
+                    val = String(item[column] !== undefined && item[column] !== null && item[column] !== '' ? item[column] : '-');
+                }
+                if (!val) val = '-';
+                counts.set(val, (counts.get(val) || 0) + 1);
             }
-            if (!val) val = '-';
-            counts.set(val, (counts.get(val) || 0) + 1);
         });
 
         return Array.from(counts.entries()).map(([value, count]) => ({
@@ -145,7 +156,7 @@ export default function ColumnFilter({
             if (b.value === '-') return -1;
             return a.value.localeCompare(b.value, undefined, { numeric: true, sensitivity: 'base' });
         });
-    }, [data, column, getValue]);
+    }, [data, column, getValue, getValues]);
 
     // Filter values based on search term
     const filteredValues = useMemo(() => {

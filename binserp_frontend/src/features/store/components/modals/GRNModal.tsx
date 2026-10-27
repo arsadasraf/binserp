@@ -123,9 +123,9 @@ export default function GRNModal({
 
     // Additional receipt charges (Transportation & Packing) & their taxable state
     const [transportationCharges, setTransportationCharges] = useState<number>(0);
-    const [isTransportationTaxable, setIsTransportationTaxable] = useState<boolean>(false);
+    const [isTransportationTaxable, setIsTransportationTaxable] = useState<boolean>(true);
     const [packingCharges, setPackingCharges] = useState<number>(0);
-    const [isPackingTaxable, setIsPackingTaxable] = useState<boolean>(false);
+    const [isPackingTaxable, setIsPackingTaxable] = useState<boolean>(true);
     const [isRoundOffEnabled, setIsRoundOffEnabled] = useState<boolean>(true);
     const [roundingMode, setRoundingMode] = useState<RoundingMode>('nearest');
 
@@ -304,9 +304,9 @@ export default function GRNModal({
                 const headerTax = Number((initialData as any).taxRate) || 0;
                 setGlobalTaxRate(headerTax);
                 setTransportationCharges(Number((initialData as any).transportationCharges) || 0);
-                setIsTransportationTaxable(Boolean((initialData as any).isTransportationTaxable));
+                setIsTransportationTaxable((initialData as any).isTransportationTaxable !== undefined ? Boolean((initialData as any).isTransportationTaxable) : true);
                 setPackingCharges(Number((initialData as any).packingCharges) || 0);
-                setIsPackingTaxable(Boolean((initialData as any).isPackingTaxable));
+                setIsPackingTaxable((initialData as any).isPackingTaxable !== undefined ? Boolean((initialData as any).isPackingTaxable) : true);
                 if ((initialData as any).isRoundOff !== undefined) {
                     setIsRoundOffEnabled(Boolean((initialData as any).isRoundOff));
                 }
@@ -390,9 +390,9 @@ export default function GRNModal({
                 setQcRequired(false);
                 setGlobalTaxRate(0);
                 setTransportationCharges(0);
-                setIsTransportationTaxable(false);
+                setIsTransportationTaxable(true);
                 setPackingCharges(0);
-                setIsPackingTaxable(false);
+                setIsPackingTaxable(true);
                 setPdfFile(null);
                 setPhotoFiles([]);
                 setExistingPhotos([]);
@@ -760,6 +760,16 @@ export default function GRNModal({
         // Set global tax rate if present on PO
         if (foundPO.taxRate !== undefined && foundPO.taxRate !== null && !isNaN(Number(foundPO.taxRate))) {
             setGlobalTaxRate(Number(foundPO.taxRate));
+        }
+
+        // Auto-populate Freight & Packing charges from PO with GST enabled by default
+        if (foundPO.transportCharge !== undefined && Number(foundPO.transportCharge) > 0) {
+            setTransportationCharges(Number(foundPO.transportCharge));
+            setIsTransportationTaxable(foundPO.isTransportationTaxable !== undefined ? Boolean(foundPO.isTransportationTaxable) : true);
+        }
+        if (foundPO.packingCharge !== undefined && Number(foundPO.packingCharge) > 0) {
+            setPackingCharges(Number(foundPO.packingCharge));
+            setIsPackingTaxable(foundPO.isPackingTaxable !== undefined ? Boolean(foundPO.isPackingTaxable) : true);
         }
 
         const poItemsList: any[] = (Array.isArray(foundPO.items) && foundPO.items.length > 0)
@@ -1769,46 +1779,44 @@ export default function GRNModal({
 
     return (
         <>
-            <div className="fixed inset-0 z-[150] flex flex-col justify-end sm:justify-center sm:items-center p-0 sm:p-4 md:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto sm:overflow-hidden">
-            <div className="bg-white dark:bg-slate-900 rounded-t-[28px] sm:rounded-2xl shadow-2xl w-full max-w-full sm:max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border-t sm:border border-slate-200 dark:border-slate-800 flex flex-col h-[94vh] sm:h-auto sm:max-h-[92vh] animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-200">
+            <div className="fixed inset-0 z-[150] flex items-center justify-center p-2 sm:p-4 lg:p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="relative w-full max-w-full sm:max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] max-h-[94vh] flex flex-col bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-200">
                 
-                {/* Mobile Drawer Drag Handle Indicator */}
-                <div className="sm:hidden flex justify-center pt-2.5 pb-1 bg-slate-50/95 dark:bg-slate-800/95 border-b border-slate-100 dark:border-slate-700/50">
-                    <div className="w-12 h-1 bg-slate-300 dark:bg-slate-600 rounded-full" />
-                </div>
-
-                {/* Clean Light / Neutral Header (Top dark theme removed) */}
-                <div className="px-3.5 sm:px-5 py-2.5 sm:py-3 bg-slate-50/95 dark:bg-slate-800/95 text-slate-900 dark:text-slate-100 flex flex-wrap justify-between items-center gap-2 sm:gap-3 flex-shrink-0 border-b border-slate-200 dark:border-slate-700/80 backdrop-blur-md">
-                    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                        <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/80 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
-                            <Upload className="w-4 h-4" />
+                {/* Clean Modern Gradient Header */}
+                <div className="px-6 py-4 bg-gradient-to-r from-indigo-50/70 to-blue-50/70 dark:from-slate-800/80 dark:to-slate-800/40 text-slate-900 dark:text-slate-100 flex flex-wrap justify-between items-center gap-3 shrink-0 border-b border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="p-2.5 rounded-2xl bg-indigo-600 text-white shadow-md shadow-indigo-500/25 shrink-0">
+                            <Upload className="w-5 h-5" />
                         </div>
                         <div className="min-w-0">
-                            <h2 className="text-sm sm:text-base font-bold tracking-tight flex items-center gap-2 truncate">
+                            <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 truncate">
                                 <span className="truncate">{isEditing ? `Edit ${theme.title}` : `New ${theme.title}`}</span>
                                 <span className="bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-700 text-[10px] uppercase font-black px-2 py-0.5 rounded-md shrink-0">
                                     {grnType.toUpperCase()}
                                 </span>
                             </h2>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                Inward goods receipt note, QC inspection tracking, and stock updates
+                            </p>
                         </div>
                     </div>
 
                     {!isEditing && (
-                        <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-slate-700/60 p-1 rounded-xl border border-slate-300/60 dark:border-slate-600/60 overflow-x-auto max-w-full custom-scrollbar">
+                        <div className="flex items-center gap-1 bg-white/80 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/80 dark:border-slate-700 shadow-2xs overflow-x-auto max-w-full custom-scrollbar">
                             {[
-                                { id: 'rm', label: 'RM', fullLabel: 'Raw Material (RM)', activeClass: 'bg-blue-600 text-white shadow-xs' },
-                                { id: 'bo', label: 'BO', fullLabel: 'Bought Out (BO)', activeClass: 'bg-emerald-600 text-white shadow-xs' },
-                                { id: 'consumable', label: 'Consumable', fullLabel: 'Consumable', activeClass: 'bg-amber-600 text-white shadow-xs' },
-                                { id: 'inhouse', label: 'FG', fullLabel: 'Finished Goods (FG)', activeClass: 'bg-purple-600 text-white shadow-xs' },
+                                { id: 'rm', label: 'RM', fullLabel: 'Raw Material (RM)', activeClass: 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-xs' },
+                                { id: 'bo', label: 'BO', fullLabel: 'Bought Out (BO)', activeClass: 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-xs' },
+                                { id: 'consumable', label: 'Consumable', fullLabel: 'Consumable', activeClass: 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-xs' },
+                                { id: 'inhouse', label: 'FG', fullLabel: 'Finished Goods (FG)', activeClass: 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-xs' },
                             ].map((t) => (
                                 <button
                                     key={t.id}
                                     type="button"
                                     onClick={() => handleSwitchType(t.id)}
-                                    className={`px-2 sm:px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
                                         grnType === t.id
                                             ? t.activeClass
-                                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-600/60'
+                                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700/60'
                                     }`}
                                 >
                                     <span className="hidden sm:inline">{t.fullLabel}</span>
@@ -1820,10 +1828,10 @@ export default function GRNModal({
 
                     <button
                         onClick={onClose}
-                        className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700/70 dark:hover:bg-slate-600/70 border border-slate-200 dark:border-slate-600 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 transition-all flex items-center justify-center cursor-pointer ml-auto sm:ml-0"
+                        className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-white dark:hover:bg-slate-800 transition-colors cursor-pointer active:scale-95 ml-auto sm:ml-0"
                         title="Close"
                     >
-                        <X size={15} />
+                        <X size={18} />
                     </button>
                 </div>
 
@@ -3171,16 +3179,14 @@ export default function GRNModal({
                         <button
                             type="button"
                             onClick={onClose}
-                            className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer text-center"
+                            className="w-full sm:w-auto px-4.5 py-2.5 rounded-xl text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold transition-all cursor-pointer text-center active:scale-95"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
                             disabled={loading || isCompressing}
-                            className={`w-full sm:w-auto px-6 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 ${
-                                theme.buttonBg
-                            } ${(loading || isCompressing) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`w-full sm:w-auto px-6 py-2.5 rounded-xl text-white text-xs sm:text-sm font-bold bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 shadow-md shadow-indigo-500/25 hover:shadow-lg hover:shadow-indigo-500/35 transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-95 ${(loading || isCompressing) ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                             {loading ? (
                                 <>
@@ -3189,7 +3195,7 @@ export default function GRNModal({
                                 </>
                             ) : (
                                 <>
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <CheckCircle2 className="w-4 h-4" />
                                     <span>{isEditing ? 'Update GRN' : 'Submit GRN'}</span>
                                 </>
                             )}

@@ -264,7 +264,7 @@ export const mrpPlanSchema = new mongoose.Schema(
         poNumber: { type: String, default: "" },
       },
     ],
-    // Calculated In-House Sub-Assemblies & Components
+    // Calculated In-House Sub-Assemblies
     subAssemblyRequirements: [
       {
         materialName: { type: String, required: true },
@@ -286,6 +286,36 @@ export const mrpPlanSchema = new mongoose.Schema(
         sourceFGNames: [{ type: String }],
         sourceCustomerPOs: [{ type: String }],
         status: { type: String, default: "Pending" },
+      },
+    ],
+    // Calculated In-House Components
+    componentRequirements: [
+      {
+        material: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Component",
+        },
+        materialName: { type: String, required: true },
+        materialCode: { type: String, default: "" },
+        description: { type: String, default: "" },
+        category: { type: String, default: "In-House Component" },
+        itemType: { type: String, default: "Component" },
+        requiredQuantity: { type: Number, default: 0 },
+        currentStock: { type: Number, default: 0 },
+        shortage: { type: Number, default: 0 },
+        unit: { type: String, default: "PCS" },
+        hasSecondaryUnit: { type: Boolean, default: false },
+        secondaryUnit: { type: String, default: "" },
+        conversionFactor: { type: Number, default: 1 },
+        secondaryRequiredQuantity: { type: Number, default: 0 },
+        secondaryCurrentStock: { type: Number, default: 0 },
+        secondaryShortage: { type: Number, default: 0 },
+        sourceFGName: { type: String, default: "" },
+        sourceFGNames: [{ type: String }],
+        sourceCustomerPOs: [{ type: String }],
+        status: { type: String, default: "Pending" },
+        rfqNumber: { type: String, default: "" },
+        poNumber: { type: String, default: "" },
       },
     ],
     // Financial Intelligence & Budget Tracking

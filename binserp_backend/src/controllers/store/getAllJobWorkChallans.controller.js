@@ -3,6 +3,7 @@ import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialReq
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
+import { userSchema } from "../../models/user/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import fs from 'fs';
 import path from 'path';
@@ -53,11 +54,14 @@ export const getAllJobWorkChallans = async (req, res) => {
     req.getModel("Vendor", vendorSchema);
     req.getModel("Location", locationSchema);
     req.getModel("Process", processSchema);
+    req.getModel("User", userSchema);
 
     const companyId = getCompanyId(req);
 
     const challans = await JobWorkChallan.find({ company: companyId })
       .populate("vendor")
+      .populate("createdBy", "name userId email username")
+      .populate("updatedBy", "name userId email username")
       .sort({ date: -1 });
 
     res.status(200).json({ challans });

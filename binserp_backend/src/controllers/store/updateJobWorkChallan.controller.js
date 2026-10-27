@@ -7,6 +7,7 @@ import {
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { componentSchema, jobSchema } from "../../models/ppc/index.js";
+import { userSchema } from "../../models/user/index.js";
 import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 
 const getCompanyId = (req) => {
@@ -21,6 +22,7 @@ export const updateJobWorkChallan = async (req, res) => {
     const Inventory = req.getModel("Inventory", inventorySchema);
     const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
     const Vendor = req.getModel("Vendor", vendorSchema);
+    req.getModel("User", userSchema);
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
@@ -351,11 +353,24 @@ export const updateJobWorkChallan = async (req, res) => {
       }
     }
 
+    const updatePayload = {
+      ...req.body,
+      updatedBy: req.user?.id || req.user?._id
+    };
+    if (!existingChallan.createdBy) {
+      updatePayload.createdBy = req.user?.id || req.user?._id;
+    } else {
+      delete updatePayload.createdBy;
+    }
+
     const challan = await JobWorkChallan.findOneAndUpdate(
       { _id: id, company: companyId },
-      req.body,
+      updatePayload,
       { new: true }
-    ).populate("vendor");
+    )
+      .populate("vendor")
+      .populate("createdBy", "name userId email username")
+      .populate("updatedBy", "name userId email username");
 
     res.status(200).json({ message: "Job Work Challan updated and stock synchronized successfully", challan });
   } catch (error) {

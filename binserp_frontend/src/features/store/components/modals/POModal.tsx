@@ -104,8 +104,10 @@ export default function POModal({
     // Logistics & Packaging state
     const [transportType, setTransportType] = useState('Road Freight');
     const [transportCharge, setTransportCharge] = useState<number>(0);
+    const [isTransportationTaxable, setIsTransportationTaxable] = useState<boolean>(true);
     const [packingType, setPackingType] = useState('Standard Packaging');
     const [packingCharge, setPackingCharge] = useState<number>(0);
+    const [isPackingTaxable, setIsPackingTaxable] = useState<boolean>(true);
 
     // Filter/Search within Line Items for 100+ items performance & ease
     const [itemSearchQuery, setItemSearchQuery] = useState('');
@@ -234,8 +236,10 @@ export default function POModal({
                 }
                 setTransportType(initialData.transportType || 'Road Freight');
                 setTransportCharge(initialData.transportCharge || 0);
+                setIsTransportationTaxable(initialData.isTransportationTaxable !== undefined ? Boolean(initialData.isTransportationTaxable) : true);
                 setPackingType(initialData.packingType || 'Standard Packaging');
                 setPackingCharge(initialData.packingCharge || 0);
+                setIsPackingTaxable(initialData.isPackingTaxable !== undefined ? Boolean(initialData.isPackingTaxable) : true);
                 setMrpNumber((initialData as any).mrpNumber || (initialData as any).planNumber || '');
                 setMrpPlanId((initialData as any).mrpPlanId || '');
 
@@ -345,8 +349,10 @@ export default function POModal({
                 setTaxRate(18);
                 setTransportType('Road Freight');
                 setTransportCharge(0);
+                setIsTransportationTaxable(true);
                 setPackingType('Standard Packaging');
                 setPackingCharge(0);
+                setIsPackingTaxable(true);
                 setMaterialEntries([{
                     itemType: 'rm',
                     material: '',
@@ -899,9 +905,11 @@ export default function POModal({
             Number(taxRate) || 18,
             gstType === 'inter_state',
             isRoundOffEnabled,
-            roundingMode
+            roundingMode,
+            isTransportationTaxable,
+            isPackingTaxable
         );
-    }, [materialEntries, transportCharge, packingCharge, taxRate, gstType, isRoundOffEnabled, roundingMode]);
+    }, [materialEntries, transportCharge, packingCharge, taxRate, gstType, isRoundOffEnabled, roundingMode, isTransportationTaxable, isPackingTaxable]);
 
     const subtotal = totals.subtotal;
     const totalLogistics = (Number(transportCharge) || 0) + (Number(packingCharge) || 0);
@@ -1049,8 +1057,14 @@ export default function POModal({
             igstAmount,
             transportType,
             transportCharge: Number(transportCharge) || 0,
+            isTransportationTaxable,
+            transportationTaxRate: isTransportationTaxable ? Number(taxRate) : 0,
+            transportationTaxAmount: totals.transportationTaxAmount,
             packingType,
             packingCharge: Number(packingCharge) || 0,
+            isPackingTaxable,
+            packingTaxRate: isPackingTaxable ? Number(taxRate) : 0,
+            packingTaxAmount: totals.packingTaxAmount,
             subtotal,
             totalTax,
             preRoundTotal: totals.preRoundTotal,
@@ -2100,7 +2114,26 @@ export default function POModal({
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Freight Charges (₹)</label>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">Freight Charges (₹)</label>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsTransportationTaxable(prev => !prev)}
+                                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer border ${
+                                                isTransportationTaxable
+                                                    ? 'bg-cyan-50 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-700 shadow-2xs ring-1 ring-cyan-500/20'
+                                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200/80 dark:hover:bg-slate-700'
+                                            }`}
+                                            title={isTransportationTaxable ? 'Freight is included in GST. Click to make Non-Taxable.' : 'Freight is exempt from GST. Click to include in GST.'}
+                                        >
+                                            <span className={`w-1.5 h-1.5 rounded-full ${isTransportationTaxable ? 'bg-cyan-600 dark:bg-cyan-400' : 'bg-slate-400'}`} />
+                                            <span>
+                                                {isTransportationTaxable
+                                                    ? `Taxable (+${taxRate}% GST${totals.transportationTaxAmount > 0 ? `: ₹${totals.transportationTaxAmount.toFixed(2)}` : ''})`
+                                                    : 'Non-Taxable'}
+                                            </span>
+                                        </button>
+                                    </div>
                                     <input
                                         type="number"
                                         min="0"
@@ -2122,7 +2155,26 @@ export default function POModal({
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Packaging Charges (₹)</label>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">Packaging Charges (₹)</label>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsPackingTaxable(prev => !prev)}
+                                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer border ${
+                                                isPackingTaxable
+                                                    ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 shadow-2xs ring-1 ring-amber-500/20'
+                                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200/80 dark:hover:bg-slate-700'
+                                            }`}
+                                            title={isPackingTaxable ? 'Packaging is included in GST. Click to make Non-Taxable.' : 'Packaging is exempt from GST. Click to include in GST.'}
+                                        >
+                                            <span className={`w-1.5 h-1.5 rounded-full ${isPackingTaxable ? 'bg-amber-600 dark:bg-amber-400' : 'bg-slate-400'}`} />
+                                            <span>
+                                                {isPackingTaxable
+                                                    ? `Taxable (+${taxRate}% GST${totals.packingTaxAmount > 0 ? `: ₹${totals.packingTaxAmount.toFixed(2)}` : ''})`
+                                                    : 'Non-Taxable'}
+                                            </span>
+                                        </button>
+                                    </div>
                                     <input
                                         type="number"
                                         min="0"
@@ -2204,7 +2256,14 @@ export default function POModal({
                                 {totalLogistics > 0 && (
                                     <div className="flex justify-between text-slate-500 dark:text-slate-400 text-[11px]">
                                         <span>Freight & Packaging:</span>
-                                        <span className="font-mono font-medium text-slate-700 dark:text-slate-300">₹{totalLogistics.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        <span className="font-mono font-medium text-slate-700 dark:text-slate-300">
+                                            ₹{totalLogistics.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            {totals.nonTaxableLogistics > 0 && (
+                                                <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1">
+                                                    (Exempt: ₹{totals.nonTaxableLogistics.toFixed(2)})
+                                                </span>
+                                            )}
+                                        </span>
                                     </div>
                                 )}
 

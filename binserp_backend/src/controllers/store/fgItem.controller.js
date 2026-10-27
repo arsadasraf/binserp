@@ -46,21 +46,37 @@ const resolveBomComponentUnits = async (req, bomList) => {
     const defaultUom = isRM ? 'KG' : 'NOS';
     const masterComp = compMap.get(b.item.toString());
     const canonicalUom = (masterComp?.unit || b.unit || defaultUom).toString().trim();
+    const hasSec = Boolean(masterComp?.hasSecondaryUnit ?? b.hasSecondaryUnit);
+    const secUnit = (masterComp?.secondaryUnit ?? b.secondaryUnit ?? '').toString().trim();
+    const factor = Number(masterComp?.conversionFactor ?? b.conversionFactor) || 1;
+    const priQty = Number(b.quantity) || 1;
+    const secQty = b.secondaryQuantity !== undefined && b.secondaryQuantity !== null && b.secondaryQuantity !== ''
+      ? Number(b.secondaryQuantity)
+      : (hasSec && secUnit && factor > 0 ? Number((priQty * factor).toFixed(4)) : undefined);
+
+    const isSecSelected = Boolean(hasSec && secUnit && b.selectedUnit && b.selectedUnit.toString().trim().toUpperCase() === secUnit.toUpperCase());
+    const isSecByQty = Boolean(!isSecSelected && hasSec && secUnit && b.inputQuantity !== undefined && secQty !== undefined && Math.abs(Number(b.inputQuantity) - secQty) < 0.0001 && Math.abs(Number(b.inputQuantity) - priQty) > 0.0001);
+    const resolvedSelectedUnit = (isSecSelected || isSecByQty)
+      ? secUnit
+      : (b.selectedUnit && b.selectedUnit.toString().trim().toUpperCase() === canonicalUom.toUpperCase() ? canonicalUom : (b.selectedUnit ? b.selectedUnit.toString().trim() : canonicalUom));
+    const resolvedInputQty = b.inputQuantity !== undefined && b.inputQuantity !== null && b.inputQuantity !== ''
+      ? Number(b.inputQuantity)
+      : ((isSecSelected || isSecByQty) && secQty !== undefined ? secQty : priQty);
 
     return {
       itemType: normType,
       item: b.item,
       itemName: b.itemName || '',
-      quantity: Number(b.quantity) || 1,
+      quantity: priQty,
       unit: canonicalUom,
-      hasSecondaryUnit: Boolean(masterComp?.hasSecondaryUnit ?? b.hasSecondaryUnit),
-      secondaryUnit: (masterComp?.secondaryUnit ?? b.secondaryUnit ?? '').toString().trim(),
-      conversionFactor: Number(masterComp?.conversionFactor ?? b.conversionFactor) || 1,
+      hasSecondaryUnit: hasSec,
+      secondaryUnit: secUnit,
+      conversionFactor: factor,
       primaryRatio: Number(masterComp?.primaryRatio ?? b.primaryRatio) || 1,
       secondaryRatio: Number(masterComp?.secondaryRatio ?? b.secondaryRatio) || 1,
-      secondaryQuantity: b.secondaryQuantity !== undefined ? Number(b.secondaryQuantity) : undefined,
-      selectedUnit: b.selectedUnit || canonicalUom,
-      inputQuantity: b.inputQuantity !== undefined ? Number(b.inputQuantity) : (Number(b.quantity) || 1),
+      secondaryQuantity: secQty,
+      selectedUnit: resolvedSelectedUnit,
+      inputQuantity: resolvedInputQty,
       fgType: b.fgType,
       itemClassification: b.itemClassification
     };
@@ -316,11 +332,27 @@ export const getAllFGItems = async (req, res) => {
             const isRM = b.itemType === 'RawMaterial' || b.itemType === 'Material';
             const canonicalUnit = isRM ? 'KG' : 'NOS';
             const masterUnit = (typeof b.item === 'object' && b.item !== null) ? b.item.unit : null;
-            const finalUnit = masterUnit || canonicalUnit;
+            const finalUnit = (masterUnit || b.unit || canonicalUnit).toString().trim();
+            const secUnit = ((typeof b.item === 'object' && b.item !== null ? b.item.secondaryUnit : '') || b.secondaryUnit || '').toString().trim();
+            const hasSec = Boolean((typeof b.item === 'object' && b.item !== null ? b.item.hasSecondaryUnit : false) || b.hasSecondaryUnit);
+            const priQty = Number(b.quantity) || 1;
+            const secQty = b.secondaryQuantity !== undefined && b.secondaryQuantity !== null && b.secondaryQuantity !== '' ? Number(b.secondaryQuantity) : undefined;
+
+            // Preserve secondary unit if selectedUnit matches secUnit (case-insensitive & trimmed)
+            const isSecSelected = Boolean(hasSec && secUnit && b.selectedUnit && b.selectedUnit.toString().trim().toUpperCase() === secUnit.toUpperCase());
+            // Smart recovery for legacy records where selectedUnit was corrupted but inputQuantity matches secondaryQuantity
+            const isSecByQty = Boolean(!isSecSelected && hasSec && secUnit && b.inputQuantity !== undefined && secQty !== undefined && Math.abs(Number(b.inputQuantity) - secQty) < 0.0001 && Math.abs(Number(b.inputQuantity) - priQty) > 0.0001);
+
+            const resolvedSelUnit = (isSecSelected || isSecByQty)
+                ? secUnit
+                : (b.selectedUnit && b.selectedUnit.toString().trim().toUpperCase() === finalUnit.toUpperCase() ? finalUnit : (b.selectedUnit ? b.selectedUnit.toString().trim() : finalUnit));
+
             return {
                 ...b,
                 unit: finalUnit,
-                selectedUnit: b.selectedUnit === 'KG' || b.selectedUnit === 'NOS' ? finalUnit : (b.selectedUnit || finalUnit)
+                secondaryUnit: secUnit,
+                hasSecondaryUnit: hasSec,
+                selectedUnit: resolvedSelUnit
             };
         }) : [];
 

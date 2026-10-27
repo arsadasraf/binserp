@@ -30,7 +30,7 @@ interface JobWorkLineItem {
   materialName: string;
   description: string;
   processType: string;
-  processNote: string;
+  processNote?: string;
   quantity: number;
   unit: string;
   rate: number;
@@ -73,8 +73,10 @@ export default function JobWorkPOModal({
   const [gstType, setGstType] = useState<'intra_state' | 'inter_state'>('intra_state');
   const [transportType, setTransportType] = useState<string>('Road Freight');
   const [transportCharge, setTransportCharge] = useState<number>(0);
+  const [isTransportationTaxable, setIsTransportationTaxable] = useState<boolean>(true);
   const [packingType, setPackingType] = useState<string>('Standard Packaging');
   const [packingCharge, setPackingCharge] = useState<number>(0);
+  const [isPackingTaxable, setIsPackingTaxable] = useState<boolean>(true);
   const [remarks, setRemarks] = useState<string>('');
 
   // Line Items
@@ -154,7 +156,9 @@ export default function JobWorkPOModal({
       setSacCode(initialData.sacCode || '9988');
       setGstType(initialData.gstType || 'intra_state');
       setTransportCharge(Number(initialData.transportCharge) || 0);
+      setIsTransportationTaxable(initialData.isTransportationTaxable !== undefined ? Boolean(initialData.isTransportationTaxable) : true);
       setPackingCharge(Number(initialData.packingCharge) || 0);
+      setIsPackingTaxable(initialData.isPackingTaxable !== undefined ? Boolean(initialData.isPackingTaxable) : true);
       setRemarks(initialData.remarks || initialData.description || '');
 
       if (Array.isArray(initialData.items) && initialData.items.length > 0) {
@@ -188,7 +192,9 @@ export default function JobWorkPOModal({
       setSacCode('9988');
       setGstType('intra_state');
       setTransportCharge(0);
+      setIsTransportationTaxable(true);
       setPackingCharge(0);
+      setIsPackingTaxable(true);
       setRemarks('');
       setItems([
         {
@@ -309,16 +315,18 @@ export default function JobWorkPOModal({
 
   const taxAmount = useMemo(() => {
     // 18% standard GST on Job Work (SAC 9988)
-    const base = subtotal + transportCharge + packingCharge;
+    const taxableTransport = isTransportationTaxable ? Number(transportCharge || 0) : 0;
+    const taxablePacking = isPackingTaxable ? Number(packingCharge || 0) : 0;
+    const base = subtotal + taxableTransport + taxablePacking;
     return Number((base * 0.18).toFixed(2));
-  }, [subtotal, transportCharge, packingCharge]);
+  }, [subtotal, transportCharge, packingCharge, isTransportationTaxable, isPackingTaxable]);
 
   const cgstAmount = gstType === 'intra_state' ? Number((taxAmount / 2).toFixed(2)) : 0;
   const sgstAmount = gstType === 'intra_state' ? Number((taxAmount / 2).toFixed(2)) : 0;
   const igstAmount = gstType === 'inter_state' ? taxAmount : 0;
 
   const grandTotal = useMemo(() => {
-    return Number((subtotal + transportCharge + packingCharge + taxAmount).toFixed(2));
+    return Number((subtotal + Number(transportCharge || 0) + Number(packingCharge || 0) + taxAmount).toFixed(2));
   }, [subtotal, transportCharge, packingCharge, taxAmount]);
 
   // Submit Handler
@@ -363,8 +371,14 @@ export default function JobWorkPOModal({
       igstAmount,
       transportType,
       transportCharge,
+      isTransportationTaxable,
+      transportationTaxRate: isTransportationTaxable ? 18 : 0,
+      transportationTaxAmount: isTransportationTaxable ? Number(((Number(transportCharge || 0) * 0.18)).toFixed(2)) : 0,
       packingType,
       packingCharge,
+      isPackingTaxable,
+      packingTaxRate: isPackingTaxable ? 18 : 0,
+      packingTaxAmount: isPackingTaxable ? Number(((Number(packingCharge || 0) * 0.18)).toFixed(2)) : 0,
       subtotal,
       totalTax: taxAmount,
       grandTotal,
@@ -579,47 +593,56 @@ export default function JobWorkPOModal({
               </button>
             </div>
 
-            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-2xs">
-              <table className="w-full text-left text-xs border-collapse">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto shadow-2xs">
+              <table className="w-full min-w-[820px] text-left text-xs border-collapse">
                 <thead className="bg-slate-50 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
                   <tr>
-                    <th className="py-2.5 px-3 w-8 text-center">#</th>
-                    <th className="py-2.5 px-3 min-w-[220px]">Item Name & Technical Description</th>
-                    <th className="py-2.5 px-3 min-w-[210px]">Process / Operation Type</th>
-                    <th className="py-2.5 px-3 min-w-[140px]">Process Spec / Drawing No</th>
+                    <th className="py-2.5 px-3 w-10 text-center">#</th>
+                    <th className="py-2.5 px-3 w-[340px] min-w-[280px] max-w-[360px]">Item Name & Technical Description</th>
+                    <th className="py-2.5 px-3 w-[260px] min-w-[220px]">Process / Operation Type</th>
                     <th className="py-2.5 px-3 w-28">Quantity</th>
                     <th className="py-2.5 px-3 w-24">Unit</th>
                     <th className="py-2.5 px-3 w-28">Process Rate (₹)</th>
                     <th className="py-2.5 px-3 w-28 text-right">Amount (₹)</th>
-                    <th className="py-2.5 px-2 w-16 text-center">Actions</th>
+                    <th className="py-2.5 px-2 w-14 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                   {items.map((item, index) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                      <td className="py-2.5 px-3 text-center text-slate-400 font-bold">{index + 1}</td>
+                      <td className="py-2.5 px-3 text-center text-slate-400 font-bold align-top pt-3">{index + 1}</td>
                       
                       {/* Item Selector & Name */}
-                      <td className="py-2.5 px-3">
-                        <div className="space-y-1">
+                      <td className="py-2.5 px-3 w-[340px] min-w-[280px] max-w-[360px] align-top">
+                        <div className="w-full max-w-[340px] min-w-0 space-y-1.5">
                           <SearchableSelect
                             options={itemOptions}
                             value={item.material || ''}
                             onChange={val => handleSelectItem(index, val)}
                             placeholder="Select material / component..."
-                            className="text-xs"
+                            className="text-xs w-full min-w-0"
+                            innerClassName="truncate"
                           />
                           {item.materialName && (
-                            <ItemNameAndDescription
-                              name={item.materialName}
-                              description={item.description}
-                            />
+                            <div 
+                              className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 min-w-0 max-w-full space-y-0.5"
+                              title={`${item.materialName}${item.description ? `\n\nTechnical Description:\n${item.description}` : ''}`}
+                            >
+                              <div className="font-bold text-xs text-slate-900 dark:text-white truncate block min-w-0" title={item.materialName}>
+                                {item.materialName}
+                              </div>
+                              {item.description && (
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400 italic line-clamp-2 break-words min-w-0" title={item.description}>
+                                  {item.description}
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       </td>
 
                       {/* Process / Operation Type (Searchable) */}
-                      <td className="py-2.5 px-3 min-w-[210px]">
+                      <td className="py-2.5 px-3 w-[260px] min-w-[220px] align-top">
                         <SearchableSelect
                           options={processOptions}
                           value={item.processType || processType || COMMON_PROCESSES[0]}
@@ -627,23 +650,13 @@ export default function JobWorkPOModal({
                           allowCustom={true}
                           customActionLabel={(q) => `Use "${q}" as process`}
                           placeholder="Search or type process..."
-                          className="text-xs"
-                        />
-                      </td>
-
-                      {/* Process Note / Drawing No */}
-                      <td className="py-2.5 px-3">
-                        <input
-                          type="text"
-                          value={item.processNote}
-                          onChange={e => handleUpdateItem(index, 'processNote', e.target.value)}
-                          placeholder="e.g. DWG-042 / 55 HRC"
-                          className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                          className="text-xs w-full min-w-0"
+                          innerClassName="truncate"
                         />
                       </td>
 
                       {/* Quantity */}
-                      <td className="py-2.5 px-3">
+                      <td className="py-2.5 px-3 align-top">
                         <input
                           type="number"
                           min="0.001"
@@ -655,7 +668,7 @@ export default function JobWorkPOModal({
                       </td>
 
                       {/* Unit */}
-                      <td className="py-2.5 px-3">
+                      <td className="py-2.5 px-3 align-top">
                         <select
                           value={item.unit}
                           onChange={e => handleUpdateItem(index, 'unit', e.target.value)}
@@ -671,7 +684,7 @@ export default function JobWorkPOModal({
                       </td>
 
                       {/* Rate */}
-                      <td className="py-2.5 px-3">
+                      <td className="py-2.5 px-3 align-top">
                         <input
                           type="number"
                           min="0"
@@ -683,12 +696,12 @@ export default function JobWorkPOModal({
                       </td>
 
                       {/* Amount */}
-                      <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white">
+                      <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white align-top pt-3">
                         ₹{item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
 
                       {/* Actions: Add Line Below & Delete */}
-                      <td className="py-2.5 px-2 text-center">
+                      <td className="py-2.5 px-2 text-center align-top pt-2">
                         <div className="flex items-center justify-center gap-1">
                           <button
                             type="button"
@@ -771,7 +784,22 @@ export default function JobWorkPOModal({
 
               {/* Transport & Packing Charges */}
               <div className="flex justify-between items-center text-xs text-slate-600 dark:text-slate-400">
-                <span>Transport Charges:</span>
+                <div className="flex items-center gap-1.5">
+                  <span>Transport Charges:</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsTransportationTaxable(prev => !prev)}
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                      isTransportationTaxable
+                        ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
+                    }`}
+                    title={isTransportationTaxable ? 'Transport is included in GST. Click to make Non-Taxable.' : 'Transport is exempt from GST. Click to include in GST.'}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${isTransportationTaxable ? 'bg-blue-600 dark:bg-blue-400' : 'bg-slate-400'}`} />
+                    <span>{isTransportationTaxable ? 'Taxable (+18%)' : 'Exempt'}</span>
+                  </button>
+                </div>
                 <input
                   type="number"
                   min="0"
@@ -783,7 +811,22 @@ export default function JobWorkPOModal({
               </div>
 
               <div className="flex justify-between items-center text-xs text-slate-600 dark:text-slate-400">
-                <span>Packaging Charges:</span>
+                <div className="flex items-center gap-1.5">
+                  <span>Packaging Charges:</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsPackingTaxable(prev => !prev)}
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                      isPackingTaxable
+                        ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
+                    }`}
+                    title={isPackingTaxable ? 'Packaging is included in GST. Click to make Non-Taxable.' : 'Packaging is exempt from GST. Click to include in GST.'}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${isPackingTaxable ? 'bg-amber-600 dark:bg-amber-400' : 'bg-slate-400'}`} />
+                    <span>{isPackingTaxable ? 'Taxable (+18%)' : 'Exempt'}</span>
+                  </button>
+                </div>
                 <input
                   type="number"
                   min="0"

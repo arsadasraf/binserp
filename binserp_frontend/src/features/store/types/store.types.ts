@@ -418,8 +418,14 @@ export interface POFormData {
     totalTax?: number;
     transportType?: string;
     transportCharge?: number;
+    isTransportationTaxable?: boolean;
+    transportationTaxRate?: number;
+    transportationTaxAmount?: number;
     packingType?: string;
     packingCharge?: number;
+    isPackingTaxable?: boolean;
+    packingTaxRate?: number;
+    packingTaxAmount?: number;
     totalAmount?: number;  // Total of all items
     grandTotal?: number;
 }
@@ -689,6 +695,20 @@ export interface JobWorkChallan {
         }>;
         remarks?: string;
     }>;
+    createdBy?: {
+        _id?: string;
+        name?: string;
+        userId?: string;
+        email?: string;
+        username?: string;
+    } | string;
+    updatedBy?: {
+        _id?: string;
+        name?: string;
+        userId?: string;
+        email?: string;
+        username?: string;
+    } | string;
     createdAt: string;
 }
 
