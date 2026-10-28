@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, rmInventoryMonthlySchema, stockTransactionSchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, rmInventoryMonthlySchema, stockTransactionSchema, consumableItemSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
@@ -135,6 +135,11 @@ export const createJobWorkChallan = async (req, res) => {
       if ((itemType === "bo" || itemType === "rm") && validItemId) {
         const materialDoc = await Material.findById(validItemId);
         if (materialDoc) itemName = materialDoc.name;
+      } else if ((itemType === "consumable" || itemType === "Consumable") && validItemId) {
+        const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+        let consDoc = await ConsumableItem.findById(validItemId);
+        if (!consDoc) consDoc = await Material.findById(validItemId);
+        if (consDoc) itemName = consDoc.name;
       } else if (itemType === "custom") {
         itemName = item.itemName || "Custom Item";
         validItemId = null;
@@ -151,9 +156,9 @@ export const createJobWorkChallan = async (req, res) => {
         itemName = item.itemName || "Sent Item";
       }
 
-      // Stock Check for Store Conversion & Store-to-WIP (Main Store RM/BO)
+      // Stock Check for Store Conversion & Store-to-WIP (Main Store RM/BO/Consumable/FG)
       if (jobWorkType !== "wip-to-wip" && jobWorkType !== "route-card") {
-        if ((itemType === "rm" || itemType === "bo") && validItemId) {
+        if ((itemType === "rm" || itemType === "bo" || itemType === "consumable" || itemType === "Consumable") && validItemId) {
           const invDoc = await Inventory.findOne({
             company: companyId,
             $or: [
@@ -166,9 +171,11 @@ export const createJobWorkChallan = async (req, res) => {
           if (invDoc) {
             availStock = Number(invDoc.currentStock !== undefined ? invDoc.currentStock : invDoc.quantity) || 0;
           } else {
-            const matDoc = await Material.findById(validItemId);
-            if (matDoc) {
-              availStock = Number(matDoc.quantity !== undefined ? matDoc.quantity : matDoc.currentStock) || 0;
+            const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+            let itemDoc = await Material.findById(validItemId);
+            if (!itemDoc) itemDoc = await ConsumableItem.findById(validItemId);
+            if (itemDoc) {
+              availStock = Number(itemDoc.quantity !== undefined ? itemDoc.quantity : itemDoc.currentStock) || 0;
             }
           }
 
@@ -182,6 +189,25 @@ export const createJobWorkChallan = async (req, res) => {
           if (reqQty > availStock) {
             return res.status(400).json({
               message: `Cannot dispatch "${itemName}": Requested quantity (${reqQty}) exceeds available Main Store stock (${availStock} ${unit || 'PCS'}). Returnable DC cannot be created.`
+            });
+          }
+        } else if ((itemType === "inhouse" || itemType === "fg" || itemType === "component" || itemType === "subassembly" || itemType === "assembly") && validItemId) {
+          let availStock = 0;
+          const Component = req.getModel("Component", componentSchema);
+          let fgDoc = await FGItem.findById(validItemId);
+          if (!fgDoc) fgDoc = await Component.findById(validItemId);
+          if (fgDoc) {
+            availStock = Number(fgDoc.quantity !== undefined ? fgDoc.quantity : fgDoc.currentStock) || 0;
+          }
+          const reqQty = Number(quantitySent) || 0;
+          if (availStock <= 0) {
+            return res.status(400).json({
+              message: `Cannot dispatch "${itemName}": Item is OUT OF STOCK in Store (Available: 0 ${unit || 'PCS'}). Returnable DC cannot be created.`
+            });
+          }
+          if (reqQty > availStock) {
+            return res.status(400).json({
+              message: `Cannot dispatch "${itemName}": Requested quantity (${reqQty}) exceeds available stock (${availStock} ${unit || 'PCS'}). Returnable DC cannot be created.`
             });
           }
         }
@@ -714,8 +740,13 @@ export const createJobWorkChallan = async (req, res) => {
     const Component = req.getModel("Component", componentSchema);
 
     for (const item of processedItems) {
-      if (jobWorkType !== "route-card" && jobWorkType !== "wip-to-wip" && (item.itemType === "bo" || item.itemType === "rm") && item.item) {
-        // Decrease current stock & log returnable DC transaction from Main Store RM/BO
+      const isStoreMaterial = item.itemType === "bo" || item.itemType === "rm" || item.itemType === "consumable" || item.itemType === "Consumable" || item.itemType === "fg" || item.itemType === "inhouse" || item.itemType === "Component" || item.itemType === "component";
+      if (jobWorkType !== "route-card" && jobWorkType !== "wip-to-wip" && isStoreMaterial && item.item) {
+        // Decrease current stock & log returnable DC transaction from Main Store
+        const stockType = (item.itemType === "consumable" || item.itemType === "Consumable") 
+          ? "Consumable" 
+          : (item.itemType === "bo" ? "BoughtOut" : ((item.itemType === "fg" || item.itemType === "inhouse" || item.itemType === "Component" || item.itemType === "component") ? "FinishedGoods" : "RawMaterial"));
+
         await updateInventoryStock(
           req,
           item.item, // material ID
@@ -723,12 +754,13 @@ export const createJobWorkChallan = async (req, res) => {
           item.unit || "PCS",
           undefined,
           {
+            itemType: stockType,
             transactionCategory: jobWorkType === "store-conversion" ? "RM_CONVERSION_OUTWARD" : "RETURNABLE_DC_JOB_WORK_OUTWARD",
             referenceDocType: "JobWorkChallan",
             referenceDocId: jobWork._id,
             referenceDocNumber: challanNumber,
             recipientOrSource: vendorName,
-            purpose: jobWorkType === "store-conversion" ? `RM Conversion Outward Dispatch to ${vendorName} (Challan #${challanNumber})` : (item.processType || `Subcontractor Outward Dispatch (${jobWorkType})`),
+            purpose: jobWorkType === "store-conversion" ? `Conversion Outward Dispatch to ${vendorName} (Challan #${challanNumber})` : (item.processType || `Subcontractor Outward Dispatch (${jobWorkType})`),
             performedBy: req.user?.id || req.user?._id,
             hasSecondaryUnit: item.hasSecondaryUnit || false,
             secondaryUnit: item.secondaryUnit || "",
@@ -737,15 +769,17 @@ export const createJobWorkChallan = async (req, res) => {
           }
         );
         
-        // Update Monthly Outward Flow
-        try {
-          await RMInventoryMonthly.findOneAndUpdate(
-            { company: companyId, material: item.item, month: currentMonthStr },
-            { $inc: { totalOutwardQuantity: Number(item.quantitySent) } },
-            { new: true, upsert: true }
-          );
-        } catch (monthlyErr) {
-          console.error("Error updating RM monthly outward quantity for Job Work:", monthlyErr);
+        // Update Monthly Outward Flow for RM/BO
+        if (item.itemType === "rm" || item.itemType === "bo") {
+          try {
+            await RMInventoryMonthly.findOneAndUpdate(
+              { company: companyId, material: item.item, month: currentMonthStr },
+              { $inc: { totalOutwardQuantity: Number(item.quantitySent) } },
+              { new: true, upsert: true }
+            );
+          } catch (monthlyErr) {
+            console.error("Error updating RM monthly outward quantity for Job Work:", monthlyErr);
+          }
         }
       } else if (jobWorkType === "wip-to-wip") {
         // Record WIP outward stock transaction for Shopfloor WIP deduction audit

@@ -537,7 +537,7 @@ export interface JobWorkReturningItem {
     _id?: string;
     receivedItem?: string;
     receivedItemName: string;
-    receivedItemType: 'rm' | 'bo' | 'inhouse' | 'fg' | 'custom';
+    receivedItemType: 'rm' | 'bo' | 'inhouse' | 'fg' | 'consumable' | 'custom';
     quantityToBeReceived: number;
     quantityReceived?: number;
     receivingUnit: string;
@@ -558,7 +558,7 @@ export interface JobWorkItem {
     _id?: string;
     item?: string; // ID of Material or Component
     itemName: string;
-    itemType: 'rm' | 'bo' | 'inhouse' | 'fg' | 'custom';
+    itemType: 'rm' | 'bo' | 'inhouse' | 'fg' | 'consumable' | 'custom';
     processType: string;
     purpose?: string;
     processRate?: number;
@@ -581,7 +581,7 @@ export interface JobWorkItem {
     itemToBeReceived?: string;
     receivedItem?: string;
     receivedItemName?: string;
-    receivedItemType?: 'rm' | 'bo' | 'inhouse' | 'fg' | 'custom';
+    receivedItemType?: 'rm' | 'bo' | 'inhouse' | 'fg' | 'consumable' | 'custom';
     quantityToBeReceived?: number;
     secondaryQuantityToBeReceived?: number;
     receivingUnit?: string;
@@ -592,7 +592,7 @@ export interface JobWorkAssemblyOutputItem {
     id?: string;
     item?: string;
     itemName: string;
-    itemType: 'rm' | 'bo' | 'inhouse' | 'fg' | 'custom' | 'Component' | 'SubAssembly' | 'Assembly';
+    itemType: 'rm' | 'bo' | 'inhouse' | 'fg' | 'consumable' | 'custom' | 'Component' | 'SubAssembly' | 'Assembly';
     quantityToBeReceived: number;
     quantityReceived?: number;
     receivingUnit: string;
@@ -741,7 +741,7 @@ export interface JobWorkFormData {
     items: {
         item?: string;
         itemName?: string;
-        itemType: 'rm' | 'bo' | 'fg' | 'inhouse';
+        itemType: 'rm' | 'bo' | 'fg' | 'inhouse' | 'consumable' | 'custom';
         processType: string;
         purpose?: string;
         customProcess?: string;

@@ -33,6 +33,7 @@ interface JobWorkPOTableProps {
   inHouseItems?: any[];
   rawMaterials?: any[];
   boughtOuts?: any[];
+  consumables?: any[];
   inventoryList?: any[];
   mrpPlans?: any[];
   companyInfo?: any;
@@ -47,6 +48,7 @@ export default function JobWorkPOTable({
   inHouseItems = [],
   rawMaterials = [],
   boughtOuts = [],
+  consumables = [],
   inventoryList = [],
   mrpPlans = [],
   companyInfo,
@@ -601,6 +603,7 @@ export default function JobWorkPOTable({
           vendors={vendors}
           rawMaterials={rawMaterials}
           boughtOuts={boughtOuts}
+          consumables={consumables}
           materials={materials}
           inventoryList={inventoryList}
           inHouseItems={inHouseItems}

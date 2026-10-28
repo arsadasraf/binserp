@@ -1,17 +1,21 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { 
     X, Download, Edit3, Trash2, Building2, User, Phone, Mail, Globe, 
     MapPin, CreditCard, ShieldCheck, Tag, Layers, Box, Package, 
     Calendar, CheckCircle2, AlertCircle, FileText, Printer, FileSpreadsheet,
     Eye, ExternalLink, Hash, Info, Layers3, ChevronRight, ChevronDown, ChevronsUpDown, Sparkles,
-    GitFork, List, ListFilter, ArrowDownToLine, Check, FilterX
+    GitFork, List, ListFilter, ArrowDownToLine, Check, FilterX, Coins, Plus, Search, Star, AlertTriangle,
+    IndianRupee, Boxes
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ColumnFilter from '../tables/ColumnFilter';
 import { generateMasterRecordPDF } from '@/src/utils/masterPdfHelper';
-import { useGetStoreDataQuery } from '@/src/store/services/storeService';
+import { useGetStoreDataQuery, useCreateStoreRecordMutation, useUpdateStoreRecordMutation } from '@/src/store/services/storeService';
+import { usePermission } from '@/src/hooks/usePermission';
+import VendorPriceListModal from './VendorPriceListModal';
+import PriceListModal from './PriceListModal';
 import { 
     explodeFGBOMHierarchy, 
     ExplodedBOMNode, 
@@ -19,8 +23,19 @@ import {
     BOMFilterType,
     consolidateBOMItems,
     ConsolidatedBOMItem,
-    filterNestedBOMTree
+    filterNestedBOMTree,
+    matchesBOMFilter
 } from '@/src/utils/bomHierarchyHelper';
+import {
+    enrichTreeWithPricing,
+    enrichConsolidatedItemsWithPricing,
+    calculateBOMCostingSummary,
+    filterEnrichedTree,
+    filterEnrichedConsolidated,
+    PriceFilterMode,
+    EnrichedExplodedBOMNode,
+    EnrichedConsolidatedBOMItem
+} from '@/src/utils/bomCostingHelper';
 
 export interface MasterDetailPreviewModalProps {
     isOpen: boolean;
@@ -55,10 +70,52 @@ export default function MasterDetailPreviewModal({
     const tabKey = (masterTab || '').toLowerCase();
     const isFG = tabKey === 'fg-items' || tabKey === 'fg-item' || tabKey === 'finished-goods';
 
+    // FG Sub-tab state: 'overview' (default) or 'bom'
+    const [activeFgTab, setActiveFgTab] = useState<'overview' | 'bom'>('overview');
+
+    // BOM Filter state and dual view mode
+    const [activeBOMFilter, setActiveBOMFilter] = useState<BOMFilterType>('ALL');
+    const [bomViewMode, setBomViewMode] = useState<'tree' | 'table'>('tree');
+    const [priceFilterMode, setPriceFilterMode] = useState<PriceFilterMode>('ALL');
+    const [isPdfDropdownOpen, setIsPdfDropdownOpen] = useState(false);
+
+    // Reset sub-tab and filters on open / item switch
+    useEffect(() => {
+        if (isOpen) {
+            setActiveFgTab('overview');
+            setPriceFilterMode('ALL');
+            setActiveBOMFilter('ALL');
+        }
+    }, [isOpen, item?._id]);
+
+    // Permissions check: User must have BOTH master and purchase access to add/edit price lists
+    const { userType, hasTabAccess, isModuleAllowed } = usePermission();
+    const canManagePrice = useMemo(() => {
+        if (userType === 'company' || userType === 'saasadmin') return true;
+        const hasMaster = hasTabAccess('store', 'masters') || hasTabAccess('store', 'fg-items') || isModuleAllowed('store');
+        const hasPurchase = hasTabAccess('store', 'purchase') || hasTabAccess('store', 'vendor-price-list') || hasTabAccess('purchase', 'price-list') || isModuleAllowed('purchase');
+        return Boolean(hasMaster && hasPurchase);
+    }, [userType, hasTabAccess, isModuleAllowed]);
+
     // Fetch master item pools for BOM hierarchy explosion if FG
     const { data: fetchedFG = [] } = useGetStoreDataQuery("fg-item", { skip: !isOpen || !isFG });
     const { data: fetchedRM = [] } = useGetStoreDataQuery("raw-material", { skip: !isOpen || !isFG });
     const { data: fetchedBO = [] } = useGetStoreDataQuery("bought-out", { skip: !isOpen || !isFG });
+
+    // Fetch vendor price lists & sales price lists for BOM costing
+    const { data: fetchedVendorPriceLists = [], refetch: refetchVendorPrices } = useGetStoreDataQuery("vendor-price-list", { skip: !isOpen || !isFG });
+    const { data: fetchedSalesPriceLists = [], refetch: refetchSalesPrices } = useGetStoreDataQuery("price-list", { skip: !isOpen || !isFG });
+    const { data: fetchedVendors = [] } = useGetStoreDataQuery("vendor", { skip: !isOpen || !isFG });
+
+    const [createStoreRecord] = useCreateStoreRecordMutation();
+    const [updateStoreRecord] = useUpdateStoreRecordMutation();
+
+    // Inline price creation modal states
+    const [showVendorPriceModal, setShowVendorPriceModal] = useState(false);
+    const [vendorPriceInitialData, setVendorPriceInitialData] = useState<any>(null);
+    const [showSalesPriceModal, setShowSalesPriceModal] = useState(false);
+    const [salesPriceInitialData, setSalesPriceInitialData] = useState<any>(null);
+    const [priceSaveNotice, setPriceSaveNotice] = useState<string | null>(null);
 
     const fgList = initialAllFGItems || fetchedFG || [];
     const rmList = initialAllRMItems || fetchedRM || [];
@@ -70,22 +127,42 @@ export default function MasterDetailPreviewModal({
         return explodeFGBOMHierarchy(item, fgList, rmList, boList);
     }, [isFG, item, fgList, rmList, boList]);
 
-    // BOM Filter state and dual view mode
-    const [activeBOMFilter, setActiveBOMFilter] = useState<BOMFilterType>('ALL');
-    const [bomViewMode, setBomViewMode] = useState<'tree' | 'table'>('tree');
-    const [isPdfDropdownOpen, setIsPdfDropdownOpen] = useState(false);
-
-    // Consolidated items for the active filter (for Consolidated Summary Table)
-    const consolidatedItems = useMemo(() => {
+    // 1. Enrich raw tree and consolidated items with Vendor & Sales price lists
+    const enrichedConsolidated = useMemo(() => {
         if (!explodedBOM) return [];
-        return consolidateBOMItems(explodedBOM.flatTree, activeBOMFilter);
-    }, [explodedBOM, activeBOMFilter]);
+        const base = consolidateBOMItems(explodedBOM.flatTree, activeBOMFilter);
+        return enrichConsolidatedItemsWithPricing(base, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList);
+    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList]);
 
-    // Filtered nested tree for Tree view
-    const filteredNestedTree = useMemo(() => {
+    const enrichedNestedTree = useMemo(() => {
         if (!explodedBOM) return [];
-        return filterNestedBOMTree(explodedBOM.nestedTree, activeBOMFilter);
-    }, [explodedBOM, activeBOMFilter]);
+        const base = filterNestedBOMTree(explodedBOM.nestedTree, activeBOMFilter);
+        return enrichTreeWithPricing(base, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList);
+    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList]);
+
+    const enrichedFlatTree = useMemo(() => {
+        if (!explodedBOM) return [];
+        const filteredFlat = explodedBOM.flatTree.filter(n => matchesBOMFilter(n, activeBOMFilter));
+        return enrichTreeWithPricing(filteredFlat, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList);
+    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList]);
+
+    // 2. Apply Price Filter Mode (All / Priced Only / Missing Price Only)
+    const priceFilteredConsolidated = useMemo(() => {
+        return filterEnrichedConsolidated(enrichedConsolidated, priceFilterMode);
+    }, [enrichedConsolidated, priceFilterMode]);
+
+    const priceFilteredNestedTree = useMemo(() => {
+        return filterEnrichedTree(enrichedNestedTree, priceFilterMode);
+    }, [enrichedNestedTree, priceFilterMode]);
+
+    const priceFilteredFlatTree = useMemo(() => {
+        return filterEnrichedTree(enrichedFlatTree, priceFilterMode);
+    }, [enrichedFlatTree, priceFilterMode]);
+
+    // 3. Dynamic Costing & Quantity Dashboard Summary
+    const costingSummary = useMemo(() => {
+        return calculateBOMCostingSummary(priceFilteredFlatTree, priceFilteredConsolidated);
+    }, [priceFilteredFlatTree, priceFilteredConsolidated]);
 
     // Excel-style column filters state for BOM Workbench
     const [colFilterMaterialName, setColFilterMaterialName] = useState<string[]>([]);
@@ -104,9 +181,10 @@ export default function MasterDetailPreviewModal({
         setColFilterClassification([]);
         setColFilterLevel([]);
         setTableSortConfig(null);
+        setPriceFilterMode('ALL');
     };
 
-    const hasActiveFilters = colFilterMaterialName.length > 0 || colFilterSubCategory.length > 0 || colFilterClassification.length > 0 || colFilterLevel.length > 0;
+    const hasActiveFilters = colFilterMaterialName.length > 0 || colFilterSubCategory.length > 0 || colFilterClassification.length > 0 || colFilterLevel.length > 0 || priceFilterMode !== 'ALL';
 
     const getNormalizedClassification = useCallback((itemType: string): string => {
         if (itemType === 'SubAssembly') return 'Sub-Assembly';
@@ -118,7 +196,7 @@ export default function MasterDetailPreviewModal({
 
     // Filter and sort for Consolidated View
     const finalDisplayConsolidated = useMemo(() => {
-        let items = consolidatedItems.filter((cItem) => {
+        let items = priceFilteredConsolidated.filter((cItem) => {
             if (colFilterMaterialName.length > 0 && !colFilterMaterialName.includes(cItem.materialName)) return false;
             if (colFilterSubCategory.length > 0 && !colFilterSubCategory.includes(cItem.subCategory || '-')) return false;
             if (colFilterClassification.length > 0) {
@@ -137,6 +215,8 @@ export default function MasterDetailPreviewModal({
                 else if (key === 'subCategory') { valA = a.subCategory || '-'; valB = b.subCategory || '-'; }
                 else if (key === 'classification') { valA = getNormalizedClassification(a.itemType); valB = getNormalizedClassification(b.itemType); }
                 else if (key === 'totalQty') { valA = a.totalCumulativeQuantity; valB = b.totalCumulativeQuantity; }
+                else if (key === 'unitPrice') { valA = a.priceInfo?.unitPrice || 0; valB = b.priceInfo?.unitPrice || 0; }
+                else if (key === 'extendedCost') { valA = a.priceInfo?.extendedCost || 0; valB = b.priceInfo?.extendedCost || 0; }
                 if (typeof valA === 'number' && typeof valB === 'number') {
                     return direction === 'asc' ? valA - valB : valB - valA;
                 }
@@ -144,10 +224,10 @@ export default function MasterDetailPreviewModal({
             });
         }
         return items;
-    }, [consolidatedItems, colFilterMaterialName, colFilterSubCategory, colFilterClassification, tableSortConfig, getNormalizedClassification]);
+    }, [priceFilteredConsolidated, colFilterMaterialName, colFilterSubCategory, colFilterClassification, tableSortConfig, getNormalizedClassification]);
 
     // Filter and sort for Multi-Level Nested Tree View
-    const matchesExcelFiltersForNode = useCallback((node: ExplodedBOMNode): boolean => {
+    const matchesExcelFiltersForNode = useCallback((node: EnrichedExplodedBOMNode): boolean => {
         if (colFilterMaterialName.length > 0 && !colFilterMaterialName.includes(node.materialName)) return false;
         if (colFilterSubCategory.length > 0 && !colFilterSubCategory.includes(node.subCategory || '-')) return false;
         if (colFilterClassification.length > 0) {
@@ -158,9 +238,9 @@ export default function MasterDetailPreviewModal({
         return true;
     }, [colFilterMaterialName, colFilterSubCategory, colFilterClassification, colFilterLevel, getNormalizedClassification]);
 
-    const filterTreeByExcel = useCallback((nodes: ExplodedBOMNode[]): ExplodedBOMNode[] => {
-        if (!hasActiveFilters) return nodes;
-        const result: ExplodedBOMNode[] = [];
+    const filterTreeByExcel = useCallback((nodes: EnrichedExplodedBOMNode[]): EnrichedExplodedBOMNode[] => {
+        if (!hasActiveFilters && priceFilterMode === 'ALL') return nodes;
+        const result: EnrichedExplodedBOMNode[] = [];
         nodes.forEach(node => {
             const isSelfMatch = matchesExcelFiltersForNode(node);
             const filteredChildren = filterTreeByExcel(node.children || []);
@@ -173,11 +253,11 @@ export default function MasterDetailPreviewModal({
             }
         });
         return result;
-    }, [hasActiveFilters, matchesExcelFiltersForNode]);
+    }, [hasActiveFilters, priceFilterMode, matchesExcelFiltersForNode]);
 
     const finalDisplayTree = useMemo(() => {
-        return filterTreeByExcel(filteredNestedTree);
-    }, [filteredNestedTree, filterTreeByExcel]);
+        return filterTreeByExcel(priceFilteredNestedTree);
+    }, [priceFilteredNestedTree, filterTreeByExcel]);
 
     // Tree collapse state for parent sub-assemblies
     const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
@@ -205,6 +285,58 @@ export default function MasterDetailPreviewModal({
             if (node.hasChildren) parentKeys.add(node.key);
         });
         setCollapsedKeys(parentKeys);
+    };
+
+    // Open add price modal
+    const handleOpenAddPrice = useCallback((nodeOrItem: any) => {
+        const isFGType = nodeOrItem.itemType === 'SubAssembly' || nodeOrItem.itemType === 'Assembly' || nodeOrItem.itemType === 'Component';
+        if (isFGType) {
+            setSalesPriceInitialData({
+                fgItem: nodeOrItem.id,
+                price: nodeOrItem.priceInfo?.unitPrice || '',
+                _id: nodeOrItem.priceInfo?.priceListId
+            });
+            setShowSalesPriceModal(true);
+        } else {
+            setVendorPriceInitialData({
+                material: nodeOrItem.id,
+                itemCategory: nodeOrItem.itemType === 'BO' ? 'bo' : 'rm',
+                price: nodeOrItem.priceInfo?.unitPrice || '',
+                isPreferred: Boolean(nodeOrItem.priceInfo?.isPreferredVendor),
+                _id: nodeOrItem.priceInfo?.priceListId
+            });
+            setShowVendorPriceModal(true);
+        }
+    }, []);
+
+    const handleSaveVendorPrice = async (formData: any) => {
+        try {
+            if (vendorPriceInitialData?._id) {
+                await updateStoreRecord({ tab: "vendor-price-list", id: vendorPriceInitialData._id, body: formData }).unwrap();
+            } else {
+                await createStoreRecord({ tab: "vendor-price-list", body: formData }).unwrap();
+            }
+            setShowVendorPriceModal(false);
+            setVendorPriceInitialData(null);
+            refetchVendorPrices();
+            setPriceSaveNotice("Vendor price list saved successfully.");
+            setTimeout(() => setPriceSaveNotice(null), 4000);
+        } catch (err: any) {
+            throw err;
+        }
+    };
+
+    const handleSaveSalesPrice = async (formData: any) => {
+        try {
+            await createStoreRecord({ tab: "price-list", body: formData }).unwrap();
+            setShowSalesPriceModal(false);
+            setSalesPriceInitialData(null);
+            refetchSalesPrices();
+            setPriceSaveNotice("Sales price list entry updated successfully.");
+            setTimeout(() => setPriceSaveNotice(null), 4000);
+        } catch (err: any) {
+            throw err;
+        }
     };
 
     if (!isOpen || !item) return null;
@@ -337,8 +469,8 @@ export default function MasterDetailPreviewModal({
             allBOItems: boList,
             explodedBOM: explodedBOM || undefined,
             bomFilterType: filterType,
-            customConsolidatedItems: hasActiveFilters ? finalDisplayConsolidated : undefined,
-            customExplodedNodes: hasActiveFilters ? finalDisplayTree : undefined
+            customConsolidatedItems: finalDisplayConsolidated,
+            customExplodedNodes: finalDisplayTree
         });
     };
 
@@ -349,9 +481,16 @@ export default function MasterDetailPreviewModal({
 
         // Sheet 1: Active Multi-Level BOM Tree
         const treeData: any[] = [];
-        const traverseForExcel = (nodes: ExplodedBOMNode[]) => {
+        const traverseForExcel = (nodes: EnrichedExplodedBOMNode[]) => {
             nodes.forEach(n => {
                 const indent = n.level > 2 ? '  '.repeat(n.level - 2) + '↳ ' : '';
+                const hasPr = n.priceInfo?.hasPrice;
+                const isUnderPriced = n.priceInfo?.underPricedSubAssembly;
+
+                let costingStatus = 'Missing Rate';
+                if (isUnderPriced) costingStatus = 'Included in Parent Sub-Assy';
+                else if (hasPr) costingStatus = 'Configured';
+
                 treeData.push({
                     'Level': `L${n.level}`,
                     'Parent FG / Assy': n.parentName || cleanFgName,
@@ -362,6 +501,10 @@ export default function MasterDetailPreviewModal({
                     'Unit': n.unit || 'Nos',
                     'Qty / Parent': n.quantityPerParent,
                     'Cumulative Qty': n.cumulativeQuantity,
+                    'Unit Rate (INR)': hasPr ? n.priceInfo.unitPrice : '-',
+                    'Vendor / Source': n.priceInfo?.vendorName || '-',
+                    'Extended Cost (INR)': hasPr ? n.priceInfo.extendedCost : 0,
+                    'Costing Status': costingStatus,
                     'Sec Qty / Parent': n.secondaryQuantityPerParent || '-',
                     'Sec Cumulative Qty': n.secondaryCumulativeQuantity || '-',
                     'Sec Unit': n.secondaryUnit || '-'
@@ -383,13 +526,17 @@ export default function MasterDetailPreviewModal({
             'Subcategory': c.subCategory || '-',
             'Classification': getNormalizedClassification(c.itemType),
             'Total Required Qty (1 FG)': `${c.totalCumulativeQuantity} ${c.unit}`,
+            'Unit Rate (INR)': c.priceInfo?.hasPrice ? c.priceInfo.unitPrice : '-',
+            'Vendor / Source': c.priceInfo?.vendorName || '-',
+            'Total Extended Cost (INR)': c.priceInfo?.hasPrice ? c.priceInfo.extendedCost : 0,
+            'Price Status': c.priceInfo?.hasPrice ? 'Configured' : 'Missing Rate',
             'Secondary Total Qty': c.totalSecondaryCumulativeQuantity ? `${c.totalSecondaryCumulativeQuantity} ${c.secondaryUnit || ''}` : '-',
             'Parent Usages': (c.usages || []).map(u => `${u.parentName}: ${u.quantityPerParent} ${u.unit}`).join('; ')
         }));
         const wsSummary = XLSX.utils.json_to_sheet(summaryData);
         XLSX.utils.book_append_sheet(wb, wsSummary, 'Consolidated Requirements');
 
-        const filename = `${cleanFgName.replace(/[^a-zA-Z0-9_-]/g, '_')}_BOM_${activeBOMFilter}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        const filename = `${cleanFgName.replace(/[^a-zA-Z0-9_-]/g, '_')}_BOM_${activeBOMFilter}_${priceFilterMode}_${new Date().toISOString().slice(0, 10)}.xlsx`;
         XLSX.writeFile(wb, filename);
     };
 
@@ -829,660 +976,1129 @@ export default function MasterDetailPreviewModal({
                     {/* FINISHED GOODS (FG ITEM) VIEW */}
                     {(tabKey === 'fg-items' || tabKey === 'fg-item' || tabKey === 'finished-goods') && (
                         <div className="space-y-6">
-                            {/* Master Summary Bar */}
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
-                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Assembly Type</div>
-                                    <div className="text-sm font-extrabold font-mono text-purple-600 dark:text-purple-400 mt-1">
-                                        {item.type || item.category || 'Component'}
-                                    </div>
-                                </div>
-
-                                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
-                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Units of Measure</div>
-                                    <div className="text-sm font-extrabold font-mono text-slate-900 dark:text-white mt-1">
-                                        {item.unit || 'Nos'}
-                                    </div>
-                                    {item.hasSecondaryUnit && item.secondaryUnit && (
-                                        <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 mt-0.5">
-                                            1 {item.unit || 'Unit'} = {item.conversionFactor ?? 1} {item.secondaryUnit}
-                                        </div>
+                            {/* Segmented Floating Pill Sub-Tab Navigation (Rule 7 Standard) */}
+                            <div className="flex overflow-x-auto max-w-full no-scrollbar bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs gap-1.5 scroll-smooth shrink-0 w-fit">
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveFgTab('overview')}
+                                    className={`flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all duration-150 whitespace-nowrap shrink-0 active:scale-95 cursor-pointer ${
+                                        activeFgTab === 'overview'
+                                            ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm shadow-indigo-500/25'
+                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                                    }`}
+                                >
+                                    <Info size={15} className={activeFgTab === 'overview' ? 'text-white' : 'text-slate-500 dark:text-slate-400'} />
+                                    <span>Basic Details</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveFgTab('bom')}
+                                    className={`flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all duration-150 whitespace-nowrap shrink-0 active:scale-95 cursor-pointer ${
+                                        activeFgTab === 'bom'
+                                            ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm shadow-indigo-500/25'
+                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                                    }`}
+                                >
+                                    <Layers3 size={15} className={activeFgTab === 'bom' ? 'text-white' : 'text-slate-500 dark:text-slate-400'} />
+                                    <span>BOM Breakdown & Costing</span>
+                                    {explodedBOM && (
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
+                                            activeFgTab === 'bom' ? 'bg-white/20 text-white font-extrabold' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                        }`}>
+                                            {explodedBOM.summary.totalItemCount} Items
+                                        </span>
                                     )}
-                                </div>
-
-                                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
-                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Storage Location</div>
-                                    <div className="text-sm font-extrabold text-slate-800 dark:text-slate-200 mt-1 truncate">
-                                        {typeof item.location === 'object' ? item.location?.name : (typeof item.locationId === 'object' ? item.locationId?.name : (item.location || '-'))}
-                                    </div>
-                                </div>
-
-                                <div className="p-4 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-900/50 text-center">
-                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-400">BOM Hierarchy</div>
-                                    <div className="text-sm font-extrabold font-mono text-amber-800 dark:text-amber-300 mt-1">
-                                        {explodedBOM?.summary.totalItemCount ?? (Array.isArray(item.bom) ? item.bom.length : 0)} Items
-                                    </div>
-                                    <div className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 font-medium">
-                                        {explodedBOM?.summary.totalLevels ? `${explodedBOM.summary.totalLevels} Level Tree` : '1 Level Direct'}
-                                    </div>
-                                </div>
+                                </button>
                             </div>
 
-                            {/* Core Specs */}
-                            <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-3">
-                                <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                    <Layers size={14} className={theme.accentColor} /> Product Specifications
-                                </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-xs">
-                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">Product Name:</span>
-                                        <span className="font-extrabold text-slate-900 dark:text-white">{item.name || item.productName || '-'}</span>
-                                    </div>
-                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">Product Code / Part No:</span>
-                                        <span className="font-mono font-bold text-purple-600 dark:text-purple-400">{item.code || item.productCode || '-'}</span>
-                                    </div>
-                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">Type / Classification:</span>
-                                        <span className="font-bold text-slate-800 dark:text-slate-200">{item.type || 'Component'}</span>
-                                    </div>
-                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">Category:</span>
-                                        <span className="font-bold text-slate-800 dark:text-slate-200">
-                                            {typeof item.category === 'object' ? item.category?.name : (typeof item.categoryId === 'object' ? item.categoryId?.name : (item.category || item.categoryId || '-'))}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">Primary Unit:</span>
-                                        <span className="font-bold text-slate-800 dark:text-slate-200">{item.unit || 'Nos'}</span>
-                                    </div>
-                                    {item.hasSecondaryUnit && item.secondaryUnit && (
-                                        <>
-                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                                <span className="text-slate-500 dark:text-slate-400">Secondary Unit:</span>
-                                                <span className="font-bold text-indigo-600 dark:text-indigo-400">{item.secondaryUnit}</span>
+                            {/* TAB 1: BASIC DETAILS OVERVIEW */}
+                            {activeFgTab === 'overview' && (
+                                <div className="space-y-6">
+                                    {/* Master Summary Bar */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
+                                            <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Assembly Type</div>
+                                            <div className="text-sm font-extrabold font-mono text-purple-600 dark:text-purple-400 mt-1">
+                                                {item.type || item.category || 'Component'}
                                             </div>
-                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                                <span className="text-slate-500 dark:text-slate-400">Conversion Ratio:</span>
-                                                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                        </div>
+
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
+                                            <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Units of Measure</div>
+                                            <div className="text-sm font-extrabold font-mono text-slate-900 dark:text-white mt-1">
+                                                {item.unit || 'Nos'}
+                                            </div>
+                                            {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 mt-0.5">
                                                     1 {item.unit || 'Unit'} = {item.conversionFactor ?? 1} {item.secondaryUnit}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
+                                            <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Storage Location</div>
+                                            <div className="text-sm font-extrabold text-slate-800 dark:text-slate-200 mt-1 truncate">
+                                                {typeof item.location === 'object' ? item.location?.name : (typeof item.locationId === 'object' ? item.locationId?.name : (item.location || '-'))}
+                                            </div>
+                                        </div>
+
+                                        <div 
+                                            onClick={() => setActiveFgTab('bom')}
+                                            className="p-4 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100/70 dark:hover:bg-amber-900/50 rounded-2xl border border-amber-200 dark:border-amber-900/50 text-center cursor-pointer transition-all group"
+                                            title="Click to view full BOM Breakdown & Costing"
+                                        >
+                                            <div className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-400 flex items-center justify-center gap-1">
+                                                <span>BOM Hierarchy</span>
+                                                <ChevronRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
+                                            </div>
+                                            <div className="text-sm font-extrabold font-mono text-amber-800 dark:text-amber-300 mt-1">
+                                                {explodedBOM?.summary.totalItemCount ?? (Array.isArray(item.bom) ? item.bom.length : 0)} Items
+                                            </div>
+                                            <div className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 font-medium">
+                                                {explodedBOM?.summary.totalLevels ? `${explodedBOM.summary.totalLevels} Level Tree • View BOM →` : '1 Level Direct'}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Core Specs */}
+                                    <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-3">
+                                        <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                            <Layers size={14} className={theme.accentColor} /> Product Specifications
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-xs">
+                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                <span className="text-slate-500 dark:text-slate-400">Product Name:</span>
+                                                <span className="font-extrabold text-slate-900 dark:text-white">{item.name || item.productName || '-'}</span>
+                                            </div>
+                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                <span className="text-slate-500 dark:text-slate-400">Product Code / Part No:</span>
+                                                <span className="font-mono font-bold text-purple-600 dark:text-purple-400">{item.code || item.productCode || '-'}</span>
+                                            </div>
+                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                <span className="text-slate-500 dark:text-slate-400">Type / Classification:</span>
+                                                <span className="font-bold text-slate-800 dark:text-slate-200">{item.type || 'Component'}</span>
+                                            </div>
+                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                <span className="text-slate-500 dark:text-slate-400">Category:</span>
+                                                <span className="font-bold text-slate-800 dark:text-slate-200">
+                                                    {typeof item.category === 'object' ? item.category?.name : (typeof item.categoryId === 'object' ? item.categoryId?.name : (item.category || item.categoryId || '-'))}
                                                 </span>
                                             </div>
-                                        </>
+                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                <span className="text-slate-500 dark:text-slate-400">Primary Unit:</span>
+                                                <span className="font-bold text-slate-800 dark:text-slate-200">{item.unit || 'Nos'}</span>
+                                            </div>
+                                            {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                <>
+                                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                        <span className="text-slate-500 dark:text-slate-400">Secondary Unit:</span>
+                                                        <span className="font-bold text-indigo-600 dark:text-indigo-400">{item.secondaryUnit}</span>
+                                                    </div>
+                                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                        <span className="text-slate-500 dark:text-slate-400">Conversion Ratio:</span>
+                                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                                            1 {item.unit || 'Unit'} = {item.conversionFactor ?? 1} {item.secondaryUnit}
+                                                        </span>
+                                                    </div>
+                                                </>
+                                            )}
+                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                <span className="text-slate-500 dark:text-slate-400">Storage Location:</span>
+                                                <span className="font-bold text-slate-800 dark:text-slate-200">
+                                                    {typeof item.location === 'object' ? item.location?.name : (typeof item.locationId === 'object' ? item.locationId?.name : (item.location || '-'))}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                <span className="text-slate-500 dark:text-slate-400">Revision Number:</span>
+                                                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.revisionNumber || '-'}</span>
+                                            </div>
+                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                <span className="text-slate-500 dark:text-slate-400">HSN Code:</span>
+                                                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.hsnCode || '-'}</span>
+                                            </div>
+                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                <span className="text-slate-500 dark:text-slate-400">Reorder Level / Min Stock:</span>
+                                                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.reorderLevel !== undefined ? `${item.reorderLevel} ${item.unit || 'Nos'}` : '-'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Photos / Attachments */}
+                                    {item.photos && item.photos.length > 0 && (
+                                        <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-3">
+                                            <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                                <Eye size={14} className={theme.accentColor} /> Attached Photos & Documents
+                                            </div>
+                                            <div className="flex flex-wrap gap-4">
+                                                {item.photos.map((photo: any, idx: number) => {
+                                                    const photoUrl = typeof photo === 'string' ? photo : '';
+                                                    const isPdf = photoUrl.toLowerCase().includes('.pdf');
+                                                    return (
+                                                        <div 
+                                                            key={idx} 
+                                                            onClick={() => window.open(photoUrl, '_blank')}
+                                                            className="w-32 h-32 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden relative cursor-pointer hover:border-indigo-500 group shadow-sm flex flex-col items-center justify-center p-2"
+                                                        >
+                                                            {isPdf ? (
+                                                                <div className="text-center">
+                                                                    <FileText size={32} className="text-red-500 mx-auto mb-1" />
+                                                                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">View PDF</span>
+                                                                </div>
+                                                            ) : (
+                                                                <img src={photoUrl} alt="Item Attachment" className="w-full h-full object-cover rounded-lg group-hover:scale-105 transition-transform" />
+                                                            )}
+                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1">
+                                                                <ExternalLink size={14} /> Open
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
                                     )}
-                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">Storage Location:</span>
-                                        <span className="font-bold text-slate-800 dark:text-slate-200">
-                                            {typeof item.location === 'object' ? item.location?.name : (typeof item.locationId === 'object' ? item.locationId?.name : (item.location || '-'))}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">Revision Number:</span>
-                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.revisionNumber || '-'}</span>
-                                    </div>
-                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">HSN Code:</span>
-                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.hsnCode || '-'}</span>
-                                    </div>
-                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">Reorder Level / Min Stock:</span>
-                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.reorderLevel !== undefined ? `${item.reorderLevel} ${item.unit || 'Nos'}` : '-'}</span>
+
+                                    {/* Description */}
+                                    <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-2">
+                                        <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Description & Technical Notes</span>
+                                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                                            {item.description || item.descriptions || 'No additional specifications provided.'}
+                                        </p>
                                     </div>
                                 </div>
-                            </div>
+                            )}
 
-                            {/* Multi-Level Nested Bill of Materials (BOM) Section */}
-                            {explodedBOM && explodedBOM.flatTree.length > 0 ? (
-                                <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-4">
-                                    {/* Section Title & Description */}
-                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
-                                        <div>
-                                            <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                                                <Layers3 size={15} className="text-purple-500" /> Multi-Level Engineering BOM Breakdown
-                                            </div>
-                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                                Filter and export by category (RM, BO, Components, Sub-Assemblies) or view the full hierarchical structure.
-                                            </p>
-                                        </div>
-
-                                        {/* View Mode Toggle (Tree View vs Consolidated Table) */}
-                                        <div className="flex items-center gap-2 self-stretch sm:self-auto justify-between sm:justify-end">
-                                            <div className="flex items-center bg-slate-200/70 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setBomViewMode('tree')}
-                                                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                                                        bomViewMode === 'tree'
-                                                            ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-2xs font-extrabold'
-                                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                                                    }`}
+                            {/* TAB 2: MULTI-LEVEL BOM BREAKDOWN & COSTING DASHBOARD */}
+                            {activeFgTab === 'bom' && (
+                                explodedBOM && explodedBOM.flatTree.length > 0 ? (
+                                    <div className="space-y-5">
+                                        {/* Price Save Success Alert */}
+                                        {priceSaveNotice && (
+                                            <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-2xl text-xs font-bold text-emerald-800 dark:text-emerald-200 flex items-center justify-between shadow-xs animate-in fade-in">
+                                                <span className="flex items-center gap-2">
+                                                    <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                                    <span>{priceSaveNotice}</span>
+                                                </span>
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => setPriceSaveNotice(null)} 
+                                                    className="text-emerald-600 hover:text-emerald-800 dark:hover:text-emerald-300 p-1 rounded-lg"
                                                 >
-                                                    <GitFork size={13} />
-                                                    <span>Tree View</span>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setBomViewMode('table')}
-                                                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                                                        bomViewMode === 'table'
-                                                            ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-2xs font-extrabold'
-                                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                                                    }`}
-                                                >
-                                                    <List size={13} />
-                                                    <span>Consolidated Table</span>
+                                                    <X size={14} />
                                                 </button>
                                             </div>
+                                        )}
 
-                                            {/* Expand/Collapse All (Only in Tree Mode) */}
-                                            {bomViewMode === 'tree' && (
-                                                <div className="flex items-center gap-1.5">
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleExpandAll}
-                                                        className="px-2 py-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors"
-                                                    >
-                                                        Expand All
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleCollapseAll}
-                                                        className="px-2 py-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
-                                                    >
-                                                        Collapse All
-                                                    </button>
+                                        {/* Sub-Assembly Sales Price Notice */}
+                                        {costingSummary.excludedChildPartsCount > 0 && (
+                                            <div className="p-3.5 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/60 rounded-2xl flex items-center gap-3 text-xs text-indigo-900 dark:text-indigo-200 shadow-2xs">
+                                                <div className="p-2 rounded-xl bg-indigo-600 text-white shadow-xs shrink-0">
+                                                    <Info size={16} />
                                                 </div>
-                                            )}
-                                        </div>
-                                    </div>
+                                                <div className="flex-1 leading-relaxed">
+                                                    <span className="font-extrabold">Sub-Assembly Sales Pricing Rule Active:</span> Sub-assemblies with an assigned price in the Sales Price List are costed at their assigned price. Their child raw materials and bought-out components are excluded from the extended BOM cost to prevent double-counting.
+                                                </div>
+                                            </div>
+                                        )}
 
-                                    {/* BOM Type Filter Chips with Real-time Count Badges and Quick Download Buttons */}
-                                    <div className="flex flex-wrap gap-2 text-xs">
-                                        {[
-                                            {
-                                                key: 'ALL' as BOMFilterType,
-                                                label: 'All Items',
-                                                count: explodedBOM.summary.totalItemCount,
-                                                icon: Layers3,
-                                                color: 'text-purple-600 dark:text-purple-400',
-                                                activeClass: 'bg-purple-600 text-white shadow-sm border-purple-600'
-                                            },
-                                            {
-                                                key: 'RM' as BOMFilterType,
-                                                label: 'Raw Materials (RM)',
-                                                count: explodedBOM.summary.rmCount,
-                                                icon: Box,
-                                                color: 'text-blue-600 dark:text-blue-400',
-                                                activeClass: 'bg-blue-600 text-white shadow-sm border-blue-600'
-                                            },
-                                            {
-                                                key: 'BO' as BOMFilterType,
-                                                label: 'Bought Out (BO)',
-                                                count: explodedBOM.summary.boCount,
-                                                icon: Package,
-                                                color: 'text-amber-600 dark:text-amber-400',
-                                                activeClass: 'bg-amber-600 text-white shadow-sm border-amber-600'
-                                            },
-                                            {
-                                                key: 'COMPONENT' as BOMFilterType,
-                                                label: 'Components',
-                                                count: explodedBOM.summary.componentCount,
-                                                icon: Layers,
-                                                color: 'text-sky-600 dark:text-sky-400',
-                                                activeClass: 'bg-sky-600 text-white shadow-sm border-sky-600'
-                                            },
-                                            {
-                                                key: 'SUBASSEMBLY' as BOMFilterType,
-                                                label: 'Sub-Assemblies',
-                                                count: explodedBOM.summary.subAssemblyCount,
-                                                icon: GitFork,
-                                                color: 'text-indigo-600 dark:text-indigo-400',
-                                                activeClass: 'bg-indigo-600 text-white shadow-sm border-indigo-600'
-                                            }
-                                        ].map((tab) => {
-                                            const isActive = activeBOMFilter === tab.key;
-                                            const TabIcon = tab.icon;
-
-                                            return (
-                                                <div
-                                                    key={tab.key}
-                                                    onClick={() => setActiveBOMFilter(tab.key)}
-                                                    className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
-                                                        isActive 
-                                                            ? tab.activeClass 
-                                                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800'
-                                                    }`}
-                                                >
-                                                    <TabIcon size={14} className={isActive ? 'text-white' : tab.color} />
-                                                    <span>{tab.label}</span>
-                                                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-                                                        isActive 
-                                                            ? 'bg-white/20 text-white font-extrabold' 
-                                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                                                    }`}>
-                                                        {tab.count}
+                                        {/* Dynamic Executive Dashboard (5 Metric Cards) */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+                                            {/* Card 1: Total Estimated Cost */}
+                                            <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent border border-indigo-200/80 dark:border-indigo-800/80 shadow-2xs">
+                                                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                                                    <span className="text-[11px] font-black uppercase tracking-wider">Est. BOM Cost</span>
+                                                    <span className="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 shadow-2xs">
+                                                        <IndianRupee size={14} />
                                                     </span>
+                                                </div>
+                                                <div className="text-xl sm:text-2xl font-black font-mono text-indigo-700 dark:text-indigo-300 mt-2 truncate">
+                                                    ₹{costingSummary.totalEstimatedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </div>
+                                                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                                                    Per 1 {item.unit || 'Unit'} of FG
+                                                </div>
+                                            </div>
 
-                                                    {/* Quick PDF Download Button on Tab */}
+                                            {/* Card 2: Price Coverage */}
+                                            <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-500/10 via-teal-500/5 to-transparent border border-emerald-200/80 dark:border-emerald-800/80 shadow-2xs">
+                                                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                                                    <span className="text-[11px] font-black uppercase tracking-wider">Price Coverage</span>
+                                                    <span className="p-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 shadow-2xs">
+                                                        <CheckCircle2 size={14} />
+                                                    </span>
+                                                </div>
+                                                <div className="text-xl sm:text-2xl font-black font-mono text-emerald-700 dark:text-emerald-300 mt-2">
+                                                    {costingSummary.coveragePercentage}%
+                                                </div>
+                                                <div className="mt-2 w-full bg-slate-200/80 dark:bg-slate-700/80 h-1.5 rounded-full overflow-hidden">
+                                                    <div 
+                                                        className="bg-emerald-500 h-full rounded-full transition-all duration-300" 
+                                                        style={{ width: `${costingSummary.coveragePercentage}%` }} 
+                                                    />
+                                                </div>
+                                                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                                                    {costingSummary.totalPricedItems} of {costingSummary.totalItems} parts priced
+                                                </div>
+                                            </div>
+
+                                            {/* Card 3: Missing Prices (Interactive Toggle) */}
+                                            <div 
+                                                onClick={() => setPriceFilterMode(priceFilterMode === 'MISSING_ONLY' ? 'ALL' : 'MISSING_ONLY')}
+                                                className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-2xs ${
+                                                    priceFilterMode === 'MISSING_ONLY'
+                                                        ? 'bg-rose-100 dark:bg-rose-950/70 border-rose-400 dark:border-rose-600 ring-2 ring-rose-500/20'
+                                                        : costingSummary.totalMissingItems > 0 
+                                                            ? 'bg-rose-50/70 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60 hover:border-rose-300'
+                                                            : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700'
+                                                }`}
+                                                title="Click to toggle filter for items missing price"
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[11px] font-black uppercase tracking-wider text-rose-700 dark:text-rose-400">Missing Prices</span>
+                                                    <span className={`p-1.5 rounded-xl ${costingSummary.totalMissingItems > 0 ? 'bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>
+                                                        <AlertTriangle size={14} />
+                                                    </span>
+                                                </div>
+                                                <div className={`text-xl sm:text-2xl font-black font-mono mt-2 ${costingSummary.totalMissingItems > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                                                    {costingSummary.totalMissingItems}
+                                                </div>
+                                                <div className="text-[10px] mt-1 flex items-center gap-1">
+                                                    {costingSummary.totalMissingItems > 0 ? (
+                                                        <span className="text-rose-600 dark:text-rose-400 font-bold underline">
+                                                            {priceFilterMode === 'MISSING_ONLY' ? 'Filtering Missing (Reset)' : 'Filter missing parts →'}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-500 dark:text-slate-400 font-medium">All items priced</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Card 4: Total Cumulative Parts Qty */}
+                                            <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-500/10 via-sky-500/5 to-transparent border border-blue-200/80 dark:border-blue-800/80 shadow-2xs">
+                                                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                                                    <span className="text-[11px] font-black uppercase tracking-wider">Total Parts Qty</span>
+                                                    <span className="p-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 shadow-2xs">
+                                                        <Boxes size={14} />
+                                                    </span>
+                                                </div>
+                                                <div className="text-xl sm:text-2xl font-black font-mono text-blue-700 dark:text-blue-300 mt-2 truncate">
+                                                    {costingSummary.totalCumulativeQty.toLocaleString()}
+                                                </div>
+                                                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                                                    Across {explodedBOM.summary.totalLevels ? `${explodedBOM.summary.totalLevels} levels` : 'all levels'}
+                                                </div>
+                                            </div>
+
+                                            {/* Card 5: Cost by Classification */}
+                                            <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-500/10 via-violet-500/5 to-transparent border border-purple-200/80 dark:border-purple-800/80 shadow-2xs">
+                                                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                                                    <span className="text-[11px] font-black uppercase tracking-wider">Cost by Type</span>
+                                                    <span className="p-1.5 rounded-xl bg-purple-50 dark:bg-purple-950/80 text-purple-600 dark:text-purple-400 shadow-2xs">
+                                                        <Tag size={14} />
+                                                    </span>
+                                                </div>
+                                                <div className="mt-1.5 space-y-1 text-[11px] font-semibold">
+                                                    <div className="flex justify-between items-center text-blue-700 dark:text-blue-300">
+                                                        <span>RM:</span>
+                                                        <span className="font-mono font-bold">₹{costingSummary.rmCost.toLocaleString('en-IN', { maximumFractionDigits: 1 })}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center text-amber-700 dark:text-amber-300">
+                                                        <span>BO:</span>
+                                                        <span className="font-mono font-bold">₹{costingSummary.boCost.toLocaleString('en-IN', { maximumFractionDigits: 1 })}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center text-purple-700 dark:text-purple-300">
+                                                        <span>Comp/Sub:</span>
+                                                        <span className="font-mono font-bold">₹{(costingSummary.componentCost + costingSummary.subAssemblyCost).toLocaleString('en-IN', { maximumFractionDigits: 1 })}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Multi-Level Engineering BOM Breakdown & Costing Section */}
+                                        <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-4">
+                                            {/* Section Title & View Mode Toggle */}
+                                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+                                                <div>
+                                                    <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                                                        <Layers3 size={15} className="text-purple-500" /> Multi-Level Engineering BOM Breakdown & Costing
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                                        Interactive BOM costing workbench with live vendor rates, consolidated quantities, and direct price configuration.
+                                                    </p>
+                                                </div>
+
+                                                {/* View Mode Toggle (Tree View vs Consolidated Table) */}
+                                                <div className="flex items-center gap-2 self-stretch sm:self-auto justify-between sm:justify-end">
+                                                    <div className="flex items-center bg-slate-200/70 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setBomViewMode('tree')}
+                                                            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                                bomViewMode === 'tree'
+                                                                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-2xs font-extrabold'
+                                                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                                            }`}
+                                                        >
+                                                            <GitFork size={13} />
+                                                            <span>Tree View</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setBomViewMode('table')}
+                                                            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                                bomViewMode === 'table'
+                                                                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-2xs font-extrabold'
+                                                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                                            }`}
+                                                        >
+                                                            <List size={13} />
+                                                            <span>Consolidated Table</span>
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Expand/Collapse All (Tree Mode only) */}
+                                                    {bomViewMode === 'tree' && (
+                                                        <div className="flex items-center gap-1.5">
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleExpandAll}
+                                                                className="px-2 py-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
+                                                            >
+                                                                Expand All
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleCollapseAll}
+                                                                className="px-2 py-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                                                            >
+                                                                Collapse All
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Filters Bar: Category Chips + Pricing Status Chips */}
+                                            <div className="space-y-2.5">
+                                                {/* Category Filter Chips */}
+                                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Category:</span>
+                                                    {[
+                                                        {
+                                                            key: 'ALL' as BOMFilterType,
+                                                            label: 'All Items',
+                                                            count: explodedBOM.summary.totalItemCount,
+                                                            icon: Layers3,
+                                                            color: 'text-purple-600 dark:text-purple-400',
+                                                            activeClass: 'bg-purple-600 text-white shadow-sm border-purple-600'
+                                                        },
+                                                        {
+                                                            key: 'RM' as BOMFilterType,
+                                                            label: 'Raw Materials (RM)',
+                                                            count: explodedBOM.summary.rmCount,
+                                                            icon: Box,
+                                                            color: 'text-blue-600 dark:text-blue-400',
+                                                            activeClass: 'bg-blue-600 text-white shadow-sm border-blue-600'
+                                                        },
+                                                        {
+                                                            key: 'BO' as BOMFilterType,
+                                                            label: 'Bought Out (BO)',
+                                                            count: explodedBOM.summary.boCount,
+                                                            icon: Package,
+                                                            color: 'text-amber-600 dark:text-amber-400',
+                                                            activeClass: 'bg-amber-600 text-white shadow-sm border-amber-600'
+                                                        },
+                                                        {
+                                                            key: 'COMPONENT' as BOMFilterType,
+                                                            label: 'Components',
+                                                            count: explodedBOM.summary.componentCount,
+                                                            icon: Layers,
+                                                            color: 'text-sky-600 dark:text-sky-400',
+                                                            activeClass: 'bg-sky-600 text-white shadow-sm border-sky-600'
+                                                        },
+                                                        {
+                                                            key: 'SUBASSEMBLY' as BOMFilterType,
+                                                            label: 'Sub-Assemblies',
+                                                            count: explodedBOM.summary.subAssemblyCount,
+                                                            icon: GitFork,
+                                                            color: 'text-indigo-600 dark:text-indigo-400',
+                                                            activeClass: 'bg-indigo-600 text-white shadow-sm border-indigo-600'
+                                                        }
+                                                    ].map((tab) => {
+                                                        const isActive = activeBOMFilter === tab.key;
+                                                        const TabIcon = tab.icon;
+
+                                                        return (
+                                                            <div
+                                                                key={tab.key}
+                                                                onClick={() => setActiveBOMFilter(tab.key)}
+                                                                className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                                                                    isActive 
+                                                                        ? tab.activeClass 
+                                                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800'
+                                                                }`}
+                                                            >
+                                                                <TabIcon size={14} className={isActive ? 'text-white' : tab.color} />
+                                                                <span>{tab.label}</span>
+                                                                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                                                                    isActive 
+                                                                        ? 'bg-white/20 text-white font-extrabold' 
+                                                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                                                                }`}>
+                                                                    {tab.count}
+                                                                </span>
+
+                                                                {/* Quick PDF Download Button on Tab */}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleDownloadPDF(tab.key);
+                                                                    }}
+                                                                    className={`ml-1 p-1 rounded-lg transition-colors ${
+                                                                        isActive 
+                                                                            ? 'hover:bg-white/20 text-white/90 hover:text-white' 
+                                                                            : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                                                    }`}
+                                                                    title={`Download ${tab.label} PDF`}
+                                                                >
+                                                                    <Download size={12} />
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+
+                                                {/* Price Filter Chips (All vs Priced Only vs Missing Prices) */}
+                                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Pricing Filter:</span>
                                                     <button
                                                         type="button"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleDownloadPDF(tab.key);
-                                                        }}
-                                                        className={`ml-1 p-1 rounded-lg transition-colors ${
-                                                            isActive 
-                                                                ? 'hover:bg-white/20 text-white/90 hover:text-white' 
-                                                                : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                                        onClick={() => setPriceFilterMode('ALL')}
+                                                        className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                                                            priceFilterMode === 'ALL'
+                                                                ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-800 dark:border-slate-100 shadow-2xs'
+                                                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-50'
                                                         }`}
-                                                        title={`Download ${tab.label} PDF`}
                                                     >
-                                                        <Download size={12} />
+                                                        <span>All Pricing Status</span>
+                                                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-slate-200/50 dark:bg-slate-800">
+                                                            {explodedBOM.summary.totalItemCount}
+                                                        </span>
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPriceFilterMode('PRICED_ONLY')}
+                                                        className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                                                            priceFilterMode === 'PRICED_ONLY'
+                                                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                                                : 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 border-slate-200 dark:border-slate-700 hover:border-emerald-300'
+                                                        }`}
+                                                    >
+                                                        <CheckCircle2 size={13} />
+                                                        <span>Priced Only</span>
+                                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${priceFilterMode === 'PRICED_ONLY' ? 'bg-white/20 text-white' : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'}`}>
+                                                            {costingSummary.totalPricedItems}
+                                                        </span>
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPriceFilterMode('MISSING_ONLY')}
+                                                        className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                                                            priceFilterMode === 'MISSING_ONLY'
+                                                                ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
+                                                                : 'bg-white dark:bg-slate-900 text-rose-600 dark:text-rose-400 border-slate-200 dark:border-slate-700 hover:border-rose-300'
+                                                        }`}
+                                                    >
+                                                        <AlertTriangle size={13} />
+                                                        <span>Missing Prices Only</span>
+                                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${priceFilterMode === 'MISSING_ONLY' ? 'bg-white/20 text-white' : 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300'}`}>
+                                                            {costingSummary.totalMissingItems}
+                                                        </span>
                                                     </button>
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
+                                            </div>
 
-                                    {/* Active Filter Chips & Reset */}
-                                    {hasActiveFilters && (
-                                        <div className="flex items-center gap-2 flex-wrap px-3 py-2 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-200/60 dark:border-indigo-800/60 text-xs">
-                                            <span className="font-extrabold text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
-                                                <ListFilter size={13} /> Active Filters:
-                                            </span>
-                                            {colFilterMaterialName.length > 0 && (
-                                                <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center gap-1 font-medium text-[11px]">
-                                                    Items: {colFilterMaterialName.length}
-                                                    <button type="button" onClick={() => setColFilterMaterialName([])} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"><X size={11} /></button>
-                                                </span>
-                                            )}
-                                            {colFilterSubCategory.length > 0 && (
-                                                <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center gap-1 font-medium text-[11px]">
-                                                    Subcategory: {colFilterSubCategory.join(', ')}
-                                                    <button type="button" onClick={() => setColFilterSubCategory([])} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"><X size={11} /></button>
-                                                </span>
-                                            )}
-                                            {colFilterClassification.length > 0 && (
-                                                <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center gap-1 font-medium text-[11px]">
-                                                    Classification: {colFilterClassification.join(', ')}
-                                                    <button type="button" onClick={() => setColFilterClassification([])} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"><X size={11} /></button>
-                                                </span>
-                                            )}
-                                            {colFilterLevel.length > 0 && (
-                                                <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center gap-1 font-medium text-[11px]">
-                                                    Level: {colFilterLevel.join(', ')}
-                                                    <button type="button" onClick={() => setColFilterLevel([])} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"><X size={11} /></button>
-                                                </span>
-                                            )}
-                                            <button
-                                                type="button"
-                                                onClick={handleClearAllFilters}
-                                                className="ml-auto text-xs text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 font-bold cursor-pointer"
-                                            >
-                                                <FilterX size={13} /> Reset Filters
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    {/* Mode 1: Consolidated Summary Table View */}
-                                    {bomViewMode === 'table' ? (
-                                        <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900/60">
-                                            <table className="w-full text-xs text-left">
-                                                <thead className="text-[10px] text-slate-500 dark:text-slate-400 uppercase bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700/80">
-                                                    <tr>
-                                                        <th className="px-3 py-2.5 text-center w-12">#</th>
-                                                        <th className="px-3 py-2.5">
-                                                            <div className="flex items-center justify-between gap-1">
-                                                                <span>Component / Item Name & Description</span>
-                                                                <ColumnFilter
-                                                                    column="materialName"
-                                                                    title="Item Name"
-                                                                    data={consolidatedItems}
-                                                                    currentFilters={colFilterMaterialName}
-                                                                    onFilterChange={setColFilterMaterialName}
-                                                                    getValue={(item) => item.materialName}
-                                                                    sortConfig={tableSortConfig}
-                                                                    onSortChange={handleSortChange}
-                                                                />
-                                                            </div>
-                                                        </th>
-                                                        <th className="px-3 py-2.5 w-36">
-                                                            <div className="flex items-center justify-between gap-1">
-                                                                <span>Subcategory</span>
-                                                                <ColumnFilter
-                                                                    column="subCategory"
-                                                                    title="Subcategory"
-                                                                    data={consolidatedItems}
-                                                                    currentFilters={colFilterSubCategory}
-                                                                    onFilterChange={setColFilterSubCategory}
-                                                                    getValue={(item) => item.subCategory || '-'}
-                                                                    sortConfig={tableSortConfig}
-                                                                    onSortChange={handleSortChange}
-                                                                />
-                                                            </div>
-                                                        </th>
-                                                        <th className="px-3 py-2.5 text-center w-36">
-                                                            <div className="flex items-center justify-center gap-1">
-                                                                <span>Classification</span>
-                                                                <ColumnFilter
-                                                                    column="classification"
-                                                                    title="Classification"
-                                                                    data={consolidatedItems}
-                                                                    currentFilters={colFilterClassification}
-                                                                    onFilterChange={setColFilterClassification}
-                                                                    getValue={(item) => getNormalizedClassification(item.itemType)}
-                                                                    sortConfig={tableSortConfig}
-                                                                    onSortChange={handleSortChange}
-                                                                />
-                                                            </div>
-                                                        </th>
-                                                        <th className="px-3 py-2.5 w-60">Parent Assemblies & Usages</th>
-                                                        <th className="px-3 py-2.5 text-right w-36">
-                                                            <div className="flex items-center justify-end gap-1">
-                                                                <span>Total Required (1 FG)</span>
-                                                                <ColumnFilter
-                                                                    column="totalQty"
-                                                                    title="Total Required"
-                                                                    data={consolidatedItems}
-                                                                    currentFilters={[]}
-                                                                    onFilterChange={() => {}}
-                                                                    enableSort={true}
-                                                                    sortConfig={tableSortConfig}
-                                                                    onSortChange={handleSortChange}
-                                                                />
-                                                            </div>
-                                                        </th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                                    {finalDisplayConsolidated.length > 0 ? (
-                                                        finalDisplayConsolidated.map((cItem, idx) => {
-                                                            let typeBadgeClass = 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60';
-                                                            let typeText = 'Raw Material (RM)';
-                                                            if (cItem.itemType === 'SubAssembly') {
-                                                                typeBadgeClass = 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60';
-                                                                typeText = '🧩 Sub-Assembly';
-                                                            } else if (cItem.itemType === 'Assembly') {
-                                                                typeBadgeClass = 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60';
-                                                                typeText = '⚙️ Assembly';
-                                                            } else if (cItem.itemType === 'Component') {
-                                                                typeBadgeClass = 'bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800/60';
-                                                                typeText = '🔧 In-House Component';
-                                                            } else if (cItem.itemType === 'BO') {
-                                                                typeBadgeClass = 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60';
-                                                                typeText = '📦 Bought Out (BO)';
-                                                            }
-
-                                                            return (
-                                                                <tr key={cItem.id || cItem.materialName} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                                                                    <td className="px-3 py-2.5 text-center font-bold text-slate-400 text-[11px]">
-                                                                        {idx + 1}
-                                                                    </td>
-                                                                    <td className="px-3 py-2.5">
-                                                                        <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
-                                                                            {cItem.materialName || 'N/A'}
-                                                                        </div>
-                                                                        {cItem.description && (
-                                                                            <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
-                                                                                {cItem.description}
-                                                                            </div>
-                                                                        )}
-                                                                    </td>
-                                                                    <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs">
-                                                                        {cItem.subCategory || '-'}
-                                                                    </td>
-                                                                    <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                                                                        <span className={`px-2 py-0.5 font-bold rounded text-[10px] border ${typeBadgeClass}`}>
-                                                                            {typeText}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td className="px-3 py-2.5">
-                                                                        <div className="flex flex-wrap gap-1">
-                                                                            {cItem.usages.map((u, uIdx) => (
-                                                                                <span 
-                                                                                    key={uIdx}
-                                                                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[10px] text-slate-700 dark:text-slate-300"
-                                                                                >
-                                                                                    <span className="font-medium">{u.parentName}:</span>
-                                                                                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{u.quantityPerParent} {u.unit}</span>
-                                                                                </span>
-                                                                            ))}
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                                                                        <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs sm:text-sm">
-                                                                            {cItem.totalCumulativeQuantity} {cItem.unit}
-                                                                        </div>
-                                                                        {cItem.hasSecondaryUnit && cItem.totalSecondaryCumulativeQuantity !== undefined && cItem.totalSecondaryCumulativeQuantity > 0 && (
-                                                                            <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 font-mono">
-                                                                                (= {cItem.totalSecondaryCumulativeQuantity} {cItem.secondaryUnit})
-                                                                            </div>
-                                                                        )}
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        })
-                                                    ) : (
-                                                        <tr>
-                                                            <td colSpan={6} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
-                                                                No items match the active filters or "{activeBOMFilter}" category filter.
-                                                            </td>
-                                                        </tr>
+                                            {/* Active Filter Chips & Reset */}
+                                            {hasActiveFilters && (
+                                                <div className="flex items-center gap-2 flex-wrap px-3 py-2 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-200/60 dark:border-indigo-800/60 text-xs">
+                                                    <span className="font-extrabold text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
+                                                        <ListFilter size={13} /> Active Column Filters:
+                                                    </span>
+                                                    {colFilterMaterialName.length > 0 && (
+                                                        <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center gap-1 font-medium text-[11px]">
+                                                            Items: {colFilterMaterialName.length}
+                                                            <button type="button" onClick={() => setColFilterMaterialName([])} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"><X size={11} /></button>
+                                                        </span>
                                                     )}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    ) : (
-                                        /* Mode 2: Multi-Level BOM Tree Table View */
-                                        <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900/60">
-                                            <table className="w-full text-xs text-left">
-                                                <thead className="text-[10px] text-slate-500 dark:text-slate-400 uppercase bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700/80">
-                                                    <tr>
-                                                        <th className="px-3 py-2.5 text-center w-16">
-                                                            <div className="flex items-center justify-center gap-1">
-                                                                <span>Level</span>
-                                                                <ColumnFilter
-                                                                    column="level"
-                                                                    title="Level"
-                                                                    data={explodedBOM.flatTree}
-                                                                    currentFilters={colFilterLevel}
-                                                                    onFilterChange={setColFilterLevel}
-                                                                    getValue={(node) => `L${node.level}`}
-                                                                />
-                                                            </div>
-                                                        </th>
-                                                        <th className="px-3 py-2.5">
-                                                            <div className="flex items-center justify-between gap-1">
-                                                                <span>Component / Item Name & Description</span>
-                                                                <ColumnFilter
-                                                                    column="materialName"
-                                                                    title="Item Name"
-                                                                    data={explodedBOM.flatTree}
-                                                                    currentFilters={colFilterMaterialName}
-                                                                    onFilterChange={setColFilterMaterialName}
-                                                                    getValue={(node) => node.materialName}
-                                                                />
-                                                            </div>
-                                                        </th>
-                                                        <th className="px-3 py-2.5 w-36">
-                                                            <div className="flex items-center justify-between gap-1">
-                                                                <span>Subcategory</span>
-                                                                <ColumnFilter
-                                                                    column="subCategory"
-                                                                    title="Subcategory"
-                                                                    data={explodedBOM.flatTree}
-                                                                    currentFilters={colFilterSubCategory}
-                                                                    onFilterChange={setColFilterSubCategory}
-                                                                    getValue={(node) => node.subCategory || '-'}
-                                                                />
-                                                            </div>
-                                                        </th>
-                                                        <th className="px-3 py-2.5 text-center w-36">
-                                                            <div className="flex items-center justify-center gap-1">
-                                                                <span>Classification</span>
-                                                                <ColumnFilter
-                                                                    column="classification"
-                                                                    title="Classification"
-                                                                    data={explodedBOM.flatTree}
-                                                                    currentFilters={colFilterClassification}
-                                                                    onFilterChange={setColFilterClassification}
-                                                                    getValue={(node) => getNormalizedClassification(node.itemType)}
-                                                                />
-                                                            </div>
-                                                        </th>
-                                                        <th className="px-3 py-2.5 text-right w-32">Qty / Parent</th>
-                                                        <th className="px-3 py-2.5 text-right w-32">Cumulative Qty</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                                    {(() => {
-                                                        const renderTreeRows = (nodes: ExplodedBOMNode[]): React.ReactNode => {
-                                                            return nodes.map((node) => {
-                                                                const isCollapsed = collapsedKeys.has(node.key);
-                                                                const hasChildren = node.hasChildren && node.children.length > 0;
-                                                                const indentPadding = Math.max(0, (node.level - 2) * 20 + 8);
+                                                    {colFilterSubCategory.length > 0 && (
+                                                        <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center gap-1 font-medium text-[11px]">
+                                                            Subcategory: {colFilterSubCategory.join(', ')}
+                                                            <button type="button" onClick={() => setColFilterSubCategory([])} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"><X size={11} /></button>
+                                                        </span>
+                                                    )}
+                                                    {colFilterClassification.length > 0 && (
+                                                        <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center gap-1 font-medium text-[11px]">
+                                                            Classification: {colFilterClassification.join(', ')}
+                                                            <button type="button" onClick={() => setColFilterClassification([])} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"><X size={11} /></button>
+                                                        </span>
+                                                    )}
+                                                    {colFilterLevel.length > 0 && (
+                                                        <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center gap-1 font-medium text-[11px]">
+                                                            Level: {colFilterLevel.join(', ')}
+                                                            <button type="button" onClick={() => setColFilterLevel([])} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer"><X size={11} /></button>
+                                                        </span>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleClearAllFilters}
+                                                        className="ml-auto text-xs text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 font-bold cursor-pointer"
+                                                    >
+                                                        <FilterX size={13} /> Reset Filters
+                                                    </button>
+                                                </div>
+                                            )}
 
-                                                                let typeBadgeClass = 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60';
-                                                                let typeText = 'Raw Material (RM)';
-                                                                if (node.itemType === 'SubAssembly') {
-                                                                    typeBadgeClass = 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60';
-                                                                    typeText = '🧩 FG Sub-Assembly';
-                                                                } else if (node.itemType === 'Assembly') {
-                                                                    typeBadgeClass = 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60';
-                                                                    typeText = '⚙️ FG Assembly';
-                                                                } else if (node.itemType === 'Component') {
-                                                                    typeBadgeClass = 'bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800/60';
-                                                                    typeText = '🔧 In-House Component';
-                                                                } else if (node.itemType === 'BO') {
-                                                                    typeBadgeClass = 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60';
-                                                                    typeText = '📦 Bought Out (BO)';
-                                                                }
+                                            {/* MODE 1: CONSOLIDATED REQUIREMENTS TABLE WITH RATES & ACTIONS */}
+                                            {bomViewMode === 'table' ? (
+                                                <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900/60">
+                                                    <table className="w-full text-xs text-left">
+                                                        <thead className="text-[10px] text-slate-500 dark:text-slate-400 uppercase bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700/80">
+                                                            <tr>
+                                                                <th className="px-3 py-2.5 text-center w-12">#</th>
+                                                                <th className="px-3 py-2.5 min-w-[260px]">
+                                                                    <div className="flex items-center justify-between gap-1">
+                                                                        <span>Component / Item Name & Description</span>
+                                                                        <ColumnFilter
+                                                                            column="materialName"
+                                                                            title="Item Name"
+                                                                            data={enrichedConsolidated}
+                                                                            currentFilters={colFilterMaterialName}
+                                                                            onFilterChange={setColFilterMaterialName}
+                                                                            getValue={(item) => item.materialName}
+                                                                            sortConfig={tableSortConfig}
+                                                                            onSortChange={handleSortChange}
+                                                                        />
+                                                                    </div>
+                                                                </th>
+                                                                <th className="px-3 py-2.5 w-32">
+                                                                    <div className="flex items-center justify-between gap-1">
+                                                                        <span>Subcategory</span>
+                                                                        <ColumnFilter
+                                                                            column="subCategory"
+                                                                            title="Subcategory"
+                                                                            data={enrichedConsolidated}
+                                                                            currentFilters={colFilterSubCategory}
+                                                                            onFilterChange={setColFilterSubCategory}
+                                                                            getValue={(item) => item.subCategory || '-'}
+                                                                            sortConfig={tableSortConfig}
+                                                                            onSortChange={handleSortChange}
+                                                                        />
+                                                                    </div>
+                                                                </th>
+                                                                <th className="px-3 py-2.5 text-center w-36">
+                                                                    <div className="flex items-center justify-center gap-1">
+                                                                        <span>Classification</span>
+                                                                        <ColumnFilter
+                                                                            column="classification"
+                                                                            title="Classification"
+                                                                            data={enrichedConsolidated}
+                                                                            currentFilters={colFilterClassification}
+                                                                            onFilterChange={setColFilterClassification}
+                                                                            getValue={(item) => getNormalizedClassification(item.itemType)}
+                                                                            sortConfig={tableSortConfig}
+                                                                            onSortChange={handleSortChange}
+                                                                        />
+                                                                    </div>
+                                                                </th>
+                                                                <th className="px-3 py-2.5 min-w-[180px]">Parent Usages</th>
+                                                                <th className="px-3 py-2.5 text-right w-36">
+                                                                    <div className="flex items-center justify-end gap-1">
+                                                                        <span>Total Qty (1 FG)</span>
+                                                                        <ColumnFilter
+                                                                            column="totalQty"
+                                                                            title="Total Required"
+                                                                            data={enrichedConsolidated}
+                                                                            currentFilters={[]}
+                                                                            onFilterChange={() => {}}
+                                                                            enableSort={true}
+                                                                            sortConfig={tableSortConfig}
+                                                                            onSortChange={handleSortChange}
+                                                                        />
+                                                                    </div>
+                                                                </th>
+                                                                <th className="px-3 py-2.5 text-right w-44">
+                                                                    <div className="flex items-center justify-end gap-1">
+                                                                        <span>Unit Rate & Vendor</span>
+                                                                        <ColumnFilter
+                                                                            column="unitPrice"
+                                                                            title="Unit Rate"
+                                                                            data={enrichedConsolidated}
+                                                                            currentFilters={[]}
+                                                                            onFilterChange={() => {}}
+                                                                            enableSort={true}
+                                                                            sortConfig={tableSortConfig}
+                                                                            onSortChange={handleSortChange}
+                                                                        />
+                                                                    </div>
+                                                                </th>
+                                                                <th className="px-3 py-2.5 text-right w-40">
+                                                                    <div className="flex items-center justify-end gap-1">
+                                                                        <span>Extended Cost (₹)</span>
+                                                                        <ColumnFilter
+                                                                            column="extendedCost"
+                                                                            title="Extended Cost"
+                                                                            data={enrichedConsolidated}
+                                                                            currentFilters={[]}
+                                                                            onFilterChange={() => {}}
+                                                                            enableSort={true}
+                                                                            sortConfig={tableSortConfig}
+                                                                            onSortChange={handleSortChange}
+                                                                        />
+                                                                    </div>
+                                                                </th>
+                                                                <th className="px-3 py-2.5 text-center w-28">Action</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                            {finalDisplayConsolidated.length > 0 ? (
+                                                                finalDisplayConsolidated.map((cItem, idx) => {
+                                                                    let typeBadgeClass = 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60';
+                                                                    let typeText = 'Raw Material (RM)';
+                                                                    if (cItem.itemType === 'SubAssembly') {
+                                                                        typeBadgeClass = 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60';
+                                                                        typeText = '🧩 Sub-Assembly';
+                                                                    } else if (cItem.itemType === 'Assembly') {
+                                                                        typeBadgeClass = 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60';
+                                                                        typeText = '⚙️ Assembly';
+                                                                    } else if (cItem.itemType === 'Component') {
+                                                                        typeBadgeClass = 'bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800/60';
+                                                                        typeText = '🔧 In-House Component';
+                                                                    } else if (cItem.itemType === 'BO') {
+                                                                        typeBadgeClass = 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60';
+                                                                        typeText = '📦 Bought Out (BO)';
+                                                                    }
 
-                                                                return (
-                                                                    <React.Fragment key={node.key}>
-                                                                        <tr className={`transition-colors ${
-                                                                            hasChildren 
-                                                                                ? 'bg-slate-50/70 dark:bg-slate-800/40 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/30 font-medium' 
-                                                                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/30'
-                                                                        }`}>
-                                                                            {/* Level Badge */}
-                                                                            <td className="px-3 py-2.5 text-center">
-                                                                                <span className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
-                                                                                    node.level === 2 
-                                                                                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700' 
-                                                                                        : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800'
-                                                                                }`}>
-                                                                                    L{node.level}
-                                                                                </span>
+                                                                    const pInfo = cItem.priceInfo;
+                                                                    const isPriced = Boolean(pInfo && pInfo.hasPrice);
+
+                                                                    return (
+                                                                        <tr key={cItem.id || cItem.materialName} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                                                            <td className="px-3 py-2.5 text-center font-bold text-slate-400 text-[11px]">
+                                                                                {idx + 1}
                                                                             </td>
-
-                                                                            {/* Item Name & Description with Tree Indentation */}
-                                                                            <td className="px-3 py-2.5" style={{ paddingLeft: `${indentPadding}px` }}>
-                                                                                <div className="flex items-start gap-2">
-                                                                                    {hasChildren ? (
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            onClick={() => toggleCollapse(node.key)}
-                                                                                            className="p-1 -ml-1 mt-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors shrink-0"
-                                                                                            title={isCollapsed ? "Expand nested BOM" : "Collapse nested BOM"}
-                                                                                        >
-                                                                                            {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
-                                                                                        </button>
-                                                                                    ) : (
-                                                                                        node.level > 2 && (
-                                                                                            <span className="text-slate-400 font-mono text-xs select-none mt-0.5 shrink-0">↳</span>
-                                                                                        )
-                                                                                    )}
-                                                                                    <div className="min-w-0 flex-1">
-                                                                                        <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
-                                                                                            <span>{node.materialName || 'N/A'}</span>
-                                                                                            {hasChildren && (
-                                                                                                <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200/60 dark:border-indigo-800/60">
-                                                                                                    {node.children.length} sub-items
-                                                                                                </span>
-                                                                                            )}
-                                                                                        </div>
-                                                                                        {node.description && (
-                                                                                            <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
-                                                                                                {node.description}
-                                                                                            </div>
-                                                                                        )}
-                                                                                    </div>
+                                                                            {/* Item Name & Description (Rule 1 Strict Standard) */}
+                                                                            <td className="px-3 py-2.5">
+                                                                                <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                                                                                    {cItem.materialName || 'N/A'}
                                                                                 </div>
+                                                                                {cItem.description && (
+                                                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
+                                                                                        {cItem.description}
+                                                                                    </div>
+                                                                                )}
                                                                             </td>
-
-                                                                            {/* Subcategory */}
                                                                             <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs">
-                                                                                {node.subCategory || '-'}
+                                                                                {cItem.subCategory || '-'}
                                                                             </td>
-
-                                                                            {/* Classification */}
                                                                             <td className="px-3 py-2.5 text-center whitespace-nowrap">
                                                                                 <span className={`px-2 py-0.5 font-bold rounded text-[10px] border ${typeBadgeClass}`}>
                                                                                     {typeText}
                                                                                 </span>
                                                                             </td>
-
-                                                                            {/* Qty Per Parent */}
-                                                                            <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                                                                                <div className="font-mono font-bold text-slate-900 dark:text-white text-xs">
-                                                                                    {node.quantityPerParent} {node.unit}
+                                                                            <td className="px-3 py-2.5">
+                                                                                <div className="flex flex-wrap gap-1">
+                                                                                    {cItem.usages.map((u, uIdx) => (
+                                                                                        <span 
+                                                                                            key={uIdx}
+                                                                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[10px] text-slate-700 dark:text-slate-300"
+                                                                                        >
+                                                                                            <span className="font-medium">{u.parentName}:</span>
+                                                                                            <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{u.quantityPerParent} {u.unit}</span>
+                                                                                        </span>
+                                                                                    ))}
                                                                                 </div>
-                                                                                {node.hasSecondaryUnit && node.secondaryQuantityPerParent !== undefined && (
-                                                                                    <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 font-mono">
-                                                                                        (= {node.secondaryQuantityPerParent} {node.secondaryUnit})
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                                                                <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs sm:text-sm">
+                                                                                    {cItem.totalCumulativeQuantity} {cItem.unit}
+                                                                                </div>
+                                                                                {cItem.hasSecondaryUnit && cItem.totalSecondaryCumulativeQuantity !== undefined && cItem.totalSecondaryCumulativeQuantity > 0 && (
+                                                                                    <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 font-mono">
+                                                                                        (= {cItem.totalSecondaryCumulativeQuantity} {cItem.secondaryUnit})
                                                                                     </div>
                                                                                 )}
                                                                             </td>
 
-                                                                            {/* Cumulative Qty */}
+                                                                            {/* Unit Rate & Vendor */}
                                                                             <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                                                                                <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs">
-                                                                                    {node.cumulativeQuantity} {node.unit}
-                                                                                </div>
-                                                                                {node.hasSecondaryUnit && node.secondaryCumulativeQuantity !== undefined && (
-                                                                                    <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 font-mono">
-                                                                                        (= {node.secondaryCumulativeQuantity} {node.secondaryUnit})
+                                                                                {isPriced ? (
+                                                                                    <div>
+                                                                                        <div className="font-mono font-bold text-slate-900 dark:text-white text-xs">
+                                                                                            ₹{pInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                                        </div>
+                                                                                        <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-end gap-1 mt-0.5">
+                                                                                            {pInfo.isPreferredVendor && <span className="text-amber-500 font-bold" title="Preferred Vendor">★</span>}
+                                                                                            <span className="truncate max-w-[130px]">{pInfo.vendorName || (pInfo.priceSource === 'sales-price-list' ? 'Sales List' : 'Master')}</span>
+                                                                                        </div>
                                                                                     </div>
+                                                                                ) : (
+                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                                                                                        <AlertTriangle size={10} /> No Rate
+                                                                                    </span>
+                                                                                )}
+                                                                            </td>
+
+                                                                            {/* Extended Cost */}
+                                                                            <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                                                                {isPriced ? (
+                                                                                    <div className="font-mono font-extrabold text-indigo-700 dark:text-indigo-300 text-xs sm:text-sm">
+                                                                                        ₹{pInfo.extendedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <span className="font-mono text-slate-400 text-xs">-</span>
+                                                                                )}
+                                                                            </td>
+
+                                                                            {/* Action: + Add Price / Edit Price */}
+                                                                            <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                                                                {canManagePrice ? (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => handleOpenAddPrice(cItem)}
+                                                                                        className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1 mx-auto cursor-pointer active:scale-95 shadow-2xs ${
+                                                                                            isPriced
+                                                                                                ? 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                                                                                : 'bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-xs'
+                                                                                        }`}
+                                                                                        title={isPriced ? "Edit rate in price list" : "Add rate in price list"}
+                                                                                    >
+                                                                                        {isPriced ? <Edit3 size={11} /> : <Plus size={11} />}
+                                                                                        <span>{isPriced ? 'Edit' : '+ Price'}</span>
+                                                                                    </button>
+                                                                                ) : (
+                                                                                    <span className="text-[10px] text-slate-400 italic">View Only</span>
                                                                                 )}
                                                                             </td>
                                                                         </tr>
+                                                                    );
+                                                                })
+                                                            ) : (
+                                                                <tr>
+                                                                    <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
+                                                                        No items match the active category, price, or column filters.
+                                                                    </td>
+                                                                </tr>
+                                                            )}
+                                                        </tbody>
 
-                                                                        {/* Recursively render child items if expanded */}
-                                                                        {!isCollapsed && hasChildren && renderTreeRows(node.children)}
-                                                                    </React.Fragment>
-                                                                );
-                                                            });
-                                                        };
-
-                                                        return finalDisplayTree.length > 0 ? (
-                                                            renderTreeRows(finalDisplayTree)
-                                                        ) : (
+                                                        {/* Table Footer: Total Cost Row */}
+                                                        {finalDisplayConsolidated.length > 0 && (
+                                                            <tfoot className="bg-slate-100/90 dark:bg-slate-800/90 border-t-2 border-slate-300 dark:border-slate-700 text-xs font-bold">
+                                                                <tr>
+                                                                    <td colSpan={5} className="px-4 py-3 text-right uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                                                                        Grand Total BOM Estimated Cost ({finalDisplayConsolidated.length} filtered items):
+                                                                    </td>
+                                                                    <td className="px-3 py-3 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                                                                        {costingSummary.totalCumulativeQty.toLocaleString()} Units
+                                                                    </td>
+                                                                    <td className="px-3 py-3 text-right text-slate-400 text-[11px] font-normal">
+                                                                        {costingSummary.totalPricedItems}/{costingSummary.totalItems} Priced
+                                                                    </td>
+                                                                    <td className="px-3 py-3 text-right font-mono font-black text-indigo-700 dark:text-indigo-300 text-sm">
+                                                                        ₹{costingSummary.totalEstimatedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </td>
+                                                                    <td className="px-3 py-3"></td>
+                                                                </tr>
+                                                            </tfoot>
+                                                        )}
+                                                    </table>
+                                                </div>
+                                            ) : (
+                                                /* MODE 2: MULTI-LEVEL BOM TREE TABLE VIEW WITH RATES & ACTIONS */
+                                                <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900/60">
+                                                    <table className="w-full text-xs text-left">
+                                                        <thead className="text-[10px] text-slate-500 dark:text-slate-400 uppercase bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700/80">
                                                             <tr>
-                                                                <td colSpan={6} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
-                                                                    No items match the active filters or "{activeBOMFilter}" category filter in the tree hierarchy.
-                                                                </td>
+                                                                <th className="px-3 py-2.5 text-center w-16">
+                                                                    <div className="flex items-center justify-center gap-1">
+                                                                        <span>Level</span>
+                                                                        <ColumnFilter
+                                                                            column="level"
+                                                                            title="Level"
+                                                                            data={explodedBOM.flatTree}
+                                                                            currentFilters={colFilterLevel}
+                                                                            onFilterChange={setColFilterLevel}
+                                                                            getValue={(node) => `L${node.level}`}
+                                                                        />
+                                                                    </div>
+                                                                </th>
+                                                                <th className="px-3 py-2.5 min-w-[280px]">
+                                                                    <div className="flex items-center justify-between gap-1">
+                                                                        <span>Component / Item Name & Description</span>
+                                                                        <ColumnFilter
+                                                                            column="materialName"
+                                                                            title="Item Name"
+                                                                            data={explodedBOM.flatTree}
+                                                                            currentFilters={colFilterMaterialName}
+                                                                            onFilterChange={setColFilterMaterialName}
+                                                                            getValue={(node) => node.materialName}
+                                                                        />
+                                                                    </div>
+                                                                </th>
+                                                                <th className="px-3 py-2.5 w-32">
+                                                                    <div className="flex items-center justify-between gap-1">
+                                                                        <span>Subcategory</span>
+                                                                        <ColumnFilter
+                                                                            column="subCategory"
+                                                                            title="Subcategory"
+                                                                            data={explodedBOM.flatTree}
+                                                                            currentFilters={colFilterSubCategory}
+                                                                            onFilterChange={setColFilterSubCategory}
+                                                                            getValue={(node) => node.subCategory || '-'}
+                                                                        />
+                                                                    </div>
+                                                                </th>
+                                                                <th className="px-3 py-2.5 text-center w-36">
+                                                                    <div className="flex items-center justify-center gap-1">
+                                                                        <span>Classification</span>
+                                                                        <ColumnFilter
+                                                                            column="classification"
+                                                                            title="Classification"
+                                                                            data={explodedBOM.flatTree}
+                                                                            currentFilters={colFilterClassification}
+                                                                            onFilterChange={setColFilterClassification}
+                                                                            getValue={(node) => getNormalizedClassification(node.itemType)}
+                                                                        />
+                                                                    </div>
+                                                                </th>
+                                                                <th className="px-3 py-2.5 text-right w-28">Qty / Parent</th>
+                                                                <th className="px-3 py-2.5 text-right w-28">Cumulative Qty</th>
+                                                                <th className="px-3 py-2.5 text-right w-44">Unit Rate & Vendor</th>
+                                                                <th className="px-3 py-2.5 text-right w-40">Extended Cost (₹)</th>
+                                                                <th className="px-3 py-2.5 text-center w-28">Action</th>
                                                             </tr>
-                                                        );
-                                                    })()}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    )}
-                                </div>
-                            ) : (
-                                <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-500 dark:text-slate-400">
-                                    No Bill of Materials (BOM) components defined for this Finished Good.
-                                </div>
-                            )}
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                            {(() => {
+                                                                const renderTreeRows = (nodes: EnrichedExplodedBOMNode[]): React.ReactNode => {
+                                                                    return nodes.map((node) => {
+                                                                        const isCollapsed = collapsedKeys.has(node.key);
+                                                                        const hasChildren = node.hasChildren && node.children.length > 0;
+                                                                        const indentPadding = Math.max(0, (node.level - 2) * 20 + 8);
 
-                            {/* Description */}
-                            <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-2">
-                                <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Description & Technical Notes</span>
-                                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
-                                    {item.description || 'No additional specifications provided.'}
-                                </p>
-                            </div>
+                                                                        let typeBadgeClass = 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60';
+                                                                        let typeText = 'Raw Material (RM)';
+                                                                        if (node.itemType === 'SubAssembly') {
+                                                                            typeBadgeClass = 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60';
+                                                                            typeText = '🧩 FG Sub-Assembly';
+                                                                        } else if (node.itemType === 'Assembly') {
+                                                                            typeBadgeClass = 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60';
+                                                                            typeText = '⚙️ FG Assembly';
+                                                                        } else if (node.itemType === 'Component') {
+                                                                            typeBadgeClass = 'bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800/60';
+                                                                            typeText = '🔧 In-House Component';
+                                                                        } else if (node.itemType === 'BO') {
+                                                                            typeBadgeClass = 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60';
+                                                                            typeText = '📦 Bought Out (BO)';
+                                                                        }
+
+                                                                        const pInfo = node.priceInfo;
+                                                                        const isPriced = Boolean(pInfo && pInfo.hasPrice);
+
+                                                                        return (
+                                                                            <React.Fragment key={node.key}>
+                                                                                <tr className={`transition-colors ${
+                                                                                    hasChildren 
+                                                                                        ? 'bg-slate-50/70 dark:bg-slate-800/40 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/30 font-medium' 
+                                                                                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/30'
+                                                                                }`}>
+                                                                                    {/* Level Badge */}
+                                                                                    <td className="px-3 py-2.5 text-center">
+                                                                                        <span className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                                                                                            node.level === 2 
+                                                                                                ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700' 
+                                                                                                : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800'
+                                                                                        }`}>
+                                                                                            L{node.level}
+                                                                                        </span>
+                                                                                    </td>
+
+                                                                                    {/* Item Name & Description with Tree Indentation (Rule 1 Standard) */}
+                                                                                    <td className="px-3 py-2.5" style={{ paddingLeft: `${indentPadding}px` }}>
+                                                                                        <div className="flex items-start gap-2">
+                                                                                            {hasChildren ? (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => toggleCollapse(node.key)}
+                                                                                                    className="p-1 -ml-1 mt-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors shrink-0 cursor-pointer"
+                                                                                                    title={isCollapsed ? "Expand nested BOM" : "Collapse nested BOM"}
+                                                                                                >
+                                                                                                    {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                                                                                                </button>
+                                                                                            ) : (
+                                                                                                node.level > 2 && (
+                                                                                                    <span className="text-slate-400 font-mono text-xs select-none mt-0.5 shrink-0">↳</span>
+                                                                                                )
+                                                                                            )}
+                                                                                            <div className="min-w-0 flex-1">
+                                                                                                <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                                                                                                    <span>{node.materialName || 'N/A'}</span>
+                                                                                                    {hasChildren && (
+                                                                                                        <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200/60 dark:border-indigo-800/60">
+                                                                                                            {node.children.length} sub-items
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                                {node.description && (
+                                                                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
+                                                                                                        {node.description}
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </td>
+
+                                                                                    {/* Subcategory */}
+                                                                                    <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs">
+                                                                                        {node.subCategory || '-'}
+                                                                                    </td>
+
+                                                                                    {/* Classification */}
+                                                                                    <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                                                                        <span className={`px-2 py-0.5 font-bold rounded text-[10px] border ${typeBadgeClass}`}>
+                                                                                            {typeText}
+                                                                                        </span>
+                                                                                    </td>
+
+                                                                                    {/* Qty Per Parent */}
+                                                                                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                                                                        <div className="font-mono font-bold text-slate-900 dark:text-white text-xs">
+                                                                                            {node.quantityPerParent} {node.unit}
+                                                                                        </div>
+                                                                                        {node.hasSecondaryUnit && node.secondaryQuantityPerParent !== undefined && (
+                                                                                            <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 font-mono">
+                                                                                                (= {node.secondaryQuantityPerParent} {node.secondaryUnit})
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </td>
+
+                                                                                    {/* Cumulative Qty */}
+                                                                                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                                                                        <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs">
+                                                                                            {node.cumulativeQuantity} {node.unit}
+                                                                                        </div>
+                                                                                        {node.hasSecondaryUnit && node.secondaryCumulativeQuantity !== undefined && (
+                                                                                            <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 font-mono">
+                                                                                                (= {node.secondaryCumulativeQuantity} {node.secondaryUnit})
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </td>
+
+                                                                                    {/* Unit Rate & Vendor */}
+                                                                                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                                                                        {isPriced ? (
+                                                                                            <div>
+                                                                                                <div className="font-mono font-bold text-slate-900 dark:text-white text-xs">
+                                                                                                    ₹{pInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                                                </div>
+                                                                                                <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-end gap-1 mt-0.5">
+                                                                                                    {pInfo.isPreferredVendor && <span className="text-amber-500 font-bold" title="Preferred Vendor">★</span>}
+                                                                                                    <span className="truncate max-w-[130px]">{pInfo.vendorName || (pInfo.priceSource === 'sales-price-list' ? 'Sales List' : 'Master')}</span>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                                                                                                <AlertTriangle size={10} /> No Rate
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </td>
+
+                                                                                    {/* Extended Cost (or covered in sub-assembly) */}
+                                                                                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                                                                        {pInfo?.underPricedSubAssembly ? (
+                                                                                            <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded" title="Covered under parent Sub-Assembly sales price">
+                                                                                                Covered in Sub-Assy
+                                                                                            </span>
+                                                                                        ) : isPriced ? (
+                                                                                            <div className="font-mono font-extrabold text-indigo-700 dark:text-indigo-300 text-xs sm:text-sm">
+                                                                                                ₹{pInfo.extendedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <span className="font-mono text-slate-400 text-xs">-</span>
+                                                                                        )}
+                                                                                    </td>
+
+                                                                                    {/* Action: + Add / Edit Rate */}
+                                                                                    <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                                                                        {canManagePrice ? (
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => handleOpenAddPrice(node)}
+                                                                                                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1 mx-auto cursor-pointer active:scale-95 shadow-2xs ${
+                                                                                                    isPriced
+                                                                                                        ? 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                                                                                        : 'bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-xs'
+                                                                                                }`}
+                                                                                                title={isPriced ? "Edit rate in price list" : "Add rate in price list"}
+                                                                                            >
+                                                                                                {isPriced ? <Edit3 size={11} /> : <Plus size={11} />}
+                                                                                                <span>{isPriced ? 'Edit' : '+ Price'}</span>
+                                                                                            </button>
+                                                                                        ) : (
+                                                                                            <span className="text-[10px] text-slate-400 italic">View Only</span>
+                                                                                        )}
+                                                                                    </td>
+                                                                                </tr>
+
+                                                                                {/* Recursively render child items if expanded */}
+                                                                                {!isCollapsed && hasChildren && renderTreeRows(node.children)}
+                                                                            </React.Fragment>
+                                                                        );
+                                                                    });
+                                                                };
+
+                                                                return finalDisplayTree.length > 0 ? (
+                                                                    renderTreeRows(finalDisplayTree)
+                                                                ) : (
+                                                                    <tr>
+                                                                        <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
+                                                                            No items match the active category, price, or column filters in the tree hierarchy.
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            })()}
+                                                        </tbody>
+
+                                                        {/* Table Footer: Total Cost Row */}
+                                                        {finalDisplayTree.length > 0 && (
+                                                            <tfoot className="bg-slate-100/90 dark:bg-slate-800/90 border-t-2 border-slate-300 dark:border-slate-700 text-xs font-bold">
+                                                                <tr>
+                                                                    <td colSpan={6} className="px-4 py-3 text-right uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                                                                        Grand Total BOM Estimated Cost:
+                                                                    </td>
+                                                                    <td className="px-3 py-3 text-right text-slate-400 text-[11px] font-normal">
+                                                                        {costingSummary.totalPricedItems}/{costingSummary.totalItems} Priced
+                                                                    </td>
+                                                                    <td className="px-3 py-3 text-right font-mono font-black text-indigo-700 dark:text-indigo-300 text-sm">
+                                                                        ₹{costingSummary.totalEstimatedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </td>
+                                                                    <td className="px-3 py-3"></td>
+                                                                </tr>
+                                                            </tfoot>
+                                                        )}
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="p-8 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-500 dark:text-slate-400">
+                                        No Bill of Materials (BOM) components defined for this Finished Good.
+                                    </div>
+                                )
+                            )}
                         </div>
                     )}
 
@@ -1574,6 +2190,36 @@ export default function MasterDetailPreviewModal({
 
                 </div>
             </div>
+
+            {/* In-place Vendor & Sales Price List Modals */}
+            {isFG && (
+                <>
+                    <VendorPriceListModal
+                        isOpen={showVendorPriceModal}
+                        onClose={() => {
+                            setShowVendorPriceModal(false);
+                            setVendorPriceInitialData(null);
+                        }}
+                        onSubmit={handleSaveVendorPrice}
+                        initialData={vendorPriceInitialData}
+                        rawMaterials={rmList}
+                        boughtOuts={boList}
+                        vendors={fetchedVendors}
+                    />
+
+                    <PriceListModal
+                        isOpen={showSalesPriceModal}
+                        onClose={() => {
+                            setShowSalesPriceModal(false);
+                            setSalesPriceInitialData(null);
+                        }}
+                        onSubmit={handleSaveSalesPrice}
+                        initialData={salesPriceInitialData}
+                        fgItems={fgList}
+                        priceLists={fetchedSalesPriceLists}
+                    />
+                </>
+            )}
         </div>
     );
 }

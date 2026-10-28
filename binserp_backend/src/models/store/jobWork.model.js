@@ -104,7 +104,7 @@ export const jobWorkSchema = new mongoose.Schema(
       itemName: String,
       itemType: {
         type: String,
-        enum: ["rm", "bo", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
+        enum: ["rm", "bo", "consumable", "Consumable", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
         default: "fg",
       },
       quantityToBeReceived: {
@@ -154,7 +154,7 @@ export const jobWorkSchema = new mongoose.Schema(
             itemName: String,
             itemType: {
               type: String,
-              enum: ["rm", "bo", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
+              enum: ["rm", "bo", "consumable", "Consumable", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
               default: "rm",
             },
             quantitySent: { type: Number, required: true },
@@ -183,7 +183,7 @@ export const jobWorkSchema = new mongoose.Schema(
           itemName: String,
           itemType: {
             type: String,
-            enum: ["rm", "bo", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
+            enum: ["rm", "bo", "consumable", "Consumable", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
             default: "fg",
           },
           quantityToBeReceived: { type: Number, default: 0 },
@@ -216,7 +216,7 @@ export const jobWorkSchema = new mongoose.Schema(
         itemName: String,
         itemType: {
           type: String,
-          enum: ["rm", "bo", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
+          enum: ["rm", "bo", "consumable", "Consumable", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
           default: "rm",
         },
         quantitySent: {
@@ -272,7 +272,7 @@ export const jobWorkSchema = new mongoose.Schema(
             receivedItemName: String,
             receivedItemType: {
               type: String,
-              enum: ["rm", "bo", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
+              enum: ["rm", "bo", "consumable", "Consumable", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
               default: "fg",
             },
             quantityToBeReceived: {

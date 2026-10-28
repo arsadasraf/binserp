@@ -438,6 +438,11 @@ export const generateMasterRecordPDF = ({
 
         const consolidatedItems = customConsolidatedItems || (isFiltered ? consolidateBOMItems(explodedNodes, bomFilterType) : []);
 
+        const hasPricing = Boolean(
+            (consolidatedItems[0] as any)?.priceInfo !== undefined ||
+            (explodedNodes[0] as any)?.priceInfo !== undefined
+        );
+
         let bomTheadHtml = '';
         let bomRowsHtml = '';
 
@@ -445,16 +450,21 @@ export const generateMasterRecordPDF = ({
             // Consolidated filtered table layout
             bomTheadHtml = `
                 <tr style="background: ${headerThBg}; color: ${headerThColor};">
-                    <th style="width: 5%; padding: 6px 4px; border: 1px solid #cbd5e1; text-align: center;">#</th>
-                    <th style="width: 31%; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left;">Component / Item Name & Description</th>
-                    <th style="width: 15%; padding: 6px 4px; border: 1px solid #cbd5e1; text-align: center;">Subcategory</th>
-                    <th style="width: 14%; padding: 6px 4px; border: 1px solid #cbd5e1; text-align: center;">Classification</th>
-                    <th style="width: 20%; padding: 6px 6px; border: 1px solid #cbd5e1; text-align: left;">Parent Assemblies & Usages</th>
-                    <th style="width: 15%; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right;">Total Required Qty (1 FG)</th>
+                    <th style="width: 4%; padding: 6px 3px; border: 1px solid #cbd5e1; text-align: center;">#</th>
+                    <th style="width: ${hasPricing ? '26%' : '31%'}; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left;">Component / Item Name & Description</th>
+                    <th style="width: ${hasPricing ? '12%' : '15%'}; padding: 6px 4px; border: 1px solid #cbd5e1; text-align: center;">Subcategory</th>
+                    <th style="width: ${hasPricing ? '12%' : '14%'}; padding: 6px 4px; border: 1px solid #cbd5e1; text-align: center;">Classification</th>
+                    <th style="width: ${hasPricing ? '16%' : '20%'}; padding: 6px 6px; border: 1px solid #cbd5e1; text-align: left;">Parent Assemblies & Usages</th>
+                    <th style="width: ${hasPricing ? '12%' : '15%'}; padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right;">Total Required Qty (1 FG)</th>
+                    ${hasPricing ? `
+                        <th style="width: 9%; padding: 6px 4px; border: 1px solid #cbd5e1; text-align: right;">Rate (₹)</th>
+                        <th style="width: 9%; padding: 6px 6px; border: 1px solid #cbd5e1; text-align: right;">Amount (₹)</th>
+                    ` : ''}
                 </tr>
             `;
 
             if (consolidatedItems.length > 0) {
+                let totalConsolidatedCost = 0;
                 consolidatedItems.forEach((cItem: ConsolidatedBOMItem, idx: number) => {
                     let typeLabel = 'Raw Material (RM)';
                     let typeBg = '#eff6ff';
@@ -488,6 +498,11 @@ export const generateMasterRecordPDF = ({
                         ? `<div style="font-size: 9px; color: #6366f1; font-family: monospace;">(= ${cItem.totalSecondaryCumulativeQuantity} ${cItem.secondaryUnit})</div>`
                         : '';
 
+                    const priceObj = (cItem as any).priceInfo;
+                    if (priceObj?.hasPrice && !priceObj?.underPricedSubAssembly) {
+                        totalConsolidatedCost += (priceObj.extendedCost || 0);
+                    }
+
                     bomRowsHtml += `
                         <tr style="${idx % 2 === 1 ? 'background: #f8fafc;' : ''}">
                             <td style="text-align: center; padding: 6px 4px; border: 1px solid #e2e8f0; font-weight: bold; color: #64748b; font-size: 10px;">
@@ -516,26 +531,52 @@ export const generateMasterRecordPDF = ({
                                 <div>${cItem.totalCumulativeQuantity} ${cItem.unit || 'Nos'}</div>
                                 ${secCumStr}
                             </td>
+                            ${hasPricing ? `
+                                <td style="text-align: right; padding: 6px 4px; border: 1px solid #e2e8f0; font-size: 10px; font-weight: bold; font-family: monospace;">
+                                    ${priceObj?.hasPrice ? '₹ ' + Number(priceObj.unitPrice).toFixed(2) : '<span style="color: #94a3b8; font-size: 9px;">-</span>'}
+                                </td>
+                                <td style="text-align: right; padding: 6px 6px; border: 1px solid #e2e8f0; font-size: 10.5px; font-weight: bold; color: #4338ca; font-family: monospace;">
+                                    ${priceObj?.hasPrice ? '₹ ' + Number(priceObj.extendedCost).toFixed(2) : '<span style="color: #94a3b8; font-size: 9px;">-</span>'}
+                                </td>
+                            ` : ''}
                         </tr>
                     `;
                 });
+
+                if (hasPricing && totalConsolidatedCost > 0) {
+                    bomRowsHtml += `
+                        <tr style="background: #f8fafc; font-weight: bold; border-top: 2px solid #cbd5e1;">
+                            <td colspan="7" style="text-align: right; padding: 8px 10px; border: 1px solid #cbd5e1; font-size: 11px; text-transform: uppercase; color: #334155;">
+                                Total Estimated BOM Cost:
+                            </td>
+                            <td style="text-align: right; padding: 8px 8px; border: 1px solid #cbd5e1; font-size: 12px; font-family: monospace; color: #4338ca;">
+                                ₹ ${totalConsolidatedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                        </tr>
+                    `;
+                }
             } else {
-                bomRowsHtml = `<tr><td colspan="6" style="text-align: center; padding: 18px; color: #64748b; border: 1px solid #e2e8f0;">No ${bomFilterType} items present in this finished product's BOM tree.</td></tr>`;
+                bomRowsHtml = `<tr><td colspan="${hasPricing ? '8' : '6'}" style="text-align: center; padding: 18px; color: #64748b; border: 1px solid #e2e8f0;">No ${bomFilterType} items present in this finished product's BOM tree.</td></tr>`;
             }
         } else {
             // Full multi-level recursive tree layout
             bomTheadHtml = `
                 <tr style="background: ${headerThBg}; color: ${headerThColor};">
-                    <th style="width: 6%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Level</th>
+                    <th style="width: 5%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Level</th>
                     <th style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: left;">Component / Item Name & Description</th>
-                    <th style="width: 15%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Subcategory</th>
-                    <th style="width: 17%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Classification</th>
-                    <th style="width: 15%; padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">Qty / Parent</th>
-                    <th style="width: 15%; padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">Cumulative Qty</th>
+                    <th style="width: ${hasPricing ? '12%' : '15%'}; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Subcategory</th>
+                    <th style="width: ${hasPricing ? '13%' : '17%'}; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: center;">Classification</th>
+                    <th style="width: ${hasPricing ? '11%' : '15%'}; padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">Qty / Parent</th>
+                    <th style="width: ${hasPricing ? '11%' : '15%'}; padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">Cumulative Qty</th>
+                    ${hasPricing ? `
+                        <th style="width: 9%; padding: 6px 4px; border: 1px solid #e2e8f0; text-align: right;">Rate (₹)</th>
+                        <th style="width: 10%; padding: 6px 6px; border: 1px solid #e2e8f0; text-align: right;">Amount (₹)</th>
+                    ` : ''}
                 </tr>
             `;
 
             if (explodedNodes.length > 0) {
+                let totalTreeCost = 0;
                 explodedNodes.forEach((node: ExplodedBOMNode) => {
                     let typeLabel = 'Raw Material (RM)';
                     let typeBg = '#eff6ff';
@@ -570,6 +611,11 @@ export const generateMasterRecordPDF = ({
                         ? `<div style="font-size: 9px; color: #6366f1; font-family: monospace;">(${node.secondaryCumulativeQuantity} ${node.secondaryUnit})</div>`
                         : '';
 
+                    const priceObj = (node as any).priceInfo;
+                    if (priceObj?.hasPrice && !priceObj?.underPricedSubAssembly) {
+                        totalTreeCost += (priceObj.extendedCost || 0);
+                    }
+
                     bomRowsHtml += `
                         <tr style="${hasIndent ? 'background: #fafafa;' : ''}">
                             <td style="text-align: center; padding: 6px 4px; border: 1px solid #e2e8f0;">
@@ -602,11 +648,32 @@ export const generateMasterRecordPDF = ({
                                 <div>${node.cumulativeQuantity} ${node.unit || 'Nos'}</div>
                                 ${secCumStr}
                             </td>
+                            ${hasPricing ? `
+                                <td style="text-align: right; padding: 6px 4px; border: 1px solid #e2e8f0; font-size: 10px; font-weight: bold; font-family: monospace;">
+                                    ${priceObj?.hasPrice ? '₹ ' + Number(priceObj.unitPrice).toFixed(2) : (priceObj?.underPricedSubAssembly ? '<span style="color: #6366f1; font-size: 8.5px;">(Sub-Assy)</span>' : '<span style="color: #94a3b8; font-size: 9px;">-</span>')}
+                                </td>
+                                <td style="text-align: right; padding: 6px 6px; border: 1px solid #e2e8f0; font-size: 10px; font-weight: bold; color: #4338ca; font-family: monospace;">
+                                    ${priceObj?.hasPrice ? '₹ ' + Number(priceObj.extendedCost).toFixed(2) : '-'}
+                                </td>
+                            ` : ''}
                         </tr>
                     `;
                 });
+
+                if (hasPricing && totalTreeCost > 0) {
+                    bomRowsHtml += `
+                        <tr style="background: #f8fafc; font-weight: bold; border-top: 2px solid #cbd5e1;">
+                            <td colspan="7" style="text-align: right; padding: 8px 10px; border: 1px solid #cbd5e1; font-size: 11px; text-transform: uppercase; color: #334155;">
+                                Total Estimated BOM Cost:
+                            </td>
+                            <td style="text-align: right; padding: 8px 8px; border: 1px solid #cbd5e1; font-size: 12px; font-family: monospace; color: #4338ca;">
+                                ₹ ${totalTreeCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                        </tr>
+                    `;
+                }
             } else {
-                bomRowsHtml = `<tr><td colspan="6" style="text-align: center; padding: 16px; color: #64748b; border: 1px solid #e2e8f0;">No BOM components configured for this finished product.</td></tr>`;
+                bomRowsHtml = `<tr><td colspan="${hasPricing ? '8' : '6'}" style="text-align: center; padding: 16px; color: #64748b; border: 1px solid #e2e8f0;">No BOM components configured for this finished product.</td></tr>`;
             }
         }
 

@@ -63,6 +63,7 @@ export default function WipJobWorkPage() {
         rawMaterials={storeData.rawMaterials}
         boughtOuts={storeData.boughtOuts}
         materials={storeData.materials}
+        consumables={storeData.consumables}
         inventoryList={storeData.inventoryList}
         inHouseItems={storeData.fgItems}
         mrpPlans={storeData.mrpPlans}

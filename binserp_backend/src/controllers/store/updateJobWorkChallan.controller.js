@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import { 
   jobWorkSchema, vendorSchema, rmBoItemSchema, 
   rmInventoryMonthlySchema, fgItemSchema, inventorySchema,
-  stockTransactionSchema
+  stockTransactionSchema, consumableItemSchema
 } from "../../models/store/index.js";
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
@@ -125,8 +125,13 @@ export const updateJobWorkChallan = async (req, res) => {
 
       // STEP A: Restore stock for all old items first (temporary reset)
       for (const oldItem of (existingChallan.items || [])) {
-        if (jobWorkType !== "route-card" && jobWorkType !== "wip-to-wip" && (oldItem.itemType === "bo" || oldItem.itemType === "rm") && oldItem.item) {
+        const isOldStoreMaterial = oldItem.itemType === "bo" || oldItem.itemType === "rm" || oldItem.itemType === "consumable" || oldItem.itemType === "Consumable" || oldItem.itemType === "fg" || oldItem.itemType === "inhouse" || oldItem.itemType === "Component" || oldItem.itemType === "component";
+        if (jobWorkType !== "route-card" && jobWorkType !== "wip-to-wip" && isOldStoreMaterial && oldItem.item) {
           try {
+            const stockType = (oldItem.itemType === "consumable" || oldItem.itemType === "Consumable") 
+              ? "Consumable" 
+              : (oldItem.itemType === "bo" ? "BoughtOut" : ((oldItem.itemType === "fg" || oldItem.itemType === "inhouse" || oldItem.itemType === "Component" || oldItem.itemType === "component") ? "FinishedGoods" : "RawMaterial"));
+
             await updateInventoryStock(
               req,
               oldItem.item,
@@ -134,6 +139,7 @@ export const updateJobWorkChallan = async (req, res) => {
               oldItem.unit || "PCS",
               undefined,
               {
+                itemType: stockType,
                 transactionCategory: "RETURNABLE_DC_EDIT_ADJUSTMENT",
                 referenceDocType: "JobWorkChallan",
                 referenceDocId: existingChallan._id,
@@ -176,7 +182,39 @@ export const updateJobWorkChallan = async (req, res) => {
             if (reqQty > availStock) {
               // Rollback: Re-apply old items stock deduction
               for (const oldItem of (existingChallan.items || [])) {
-                if ((oldItem.itemType === "bo" || oldItem.itemType === "rm") && oldItem.item) {
+                if (oldItem.item) {
+                  await updateInventoryStock(req, oldItem.item, -Number(oldItem.quantitySent), oldItem.unit || "PCS");
+                }
+              }
+              return res.status(400).json({
+                message: `Cannot dispatch "${itemName}": Requested quantity (${reqQty}) exceeds available stock (${availStock} ${item.unit || 'PCS'}).`
+              });
+            }
+          }
+        } else if ((item.itemType === "consumable" || item.itemType === "Consumable") && validItemId) {
+          const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+          let consDoc = await ConsumableItem.findById(validItemId);
+          if (!consDoc) consDoc = await Material.findById(validItemId);
+          if (consDoc) itemName = consDoc.name;
+
+          if (jobWorkType !== "wip-to-wip" && jobWorkType !== "route-card") {
+            const invDoc = await Inventory.findOne({
+              company: companyId,
+              $or: [{ materialId: validItemId }, { _id: validItemId }]
+            });
+
+            let availStock = 0;
+            if (invDoc) {
+              availStock = Number(invDoc.currentStock !== undefined ? invDoc.currentStock : invDoc.quantity) || 0;
+            } else if (consDoc) {
+              availStock = Number(consDoc.quantity !== undefined ? consDoc.quantity : consDoc.currentStock) || 0;
+            }
+
+            const reqQty = Number(item.quantitySent) || 0;
+            if (reqQty > availStock) {
+              // Rollback: Re-apply old items stock deduction
+              for (const oldItem of (existingChallan.items || [])) {
+                if (oldItem.item) {
                   await updateInventoryStock(req, oldItem.item, -Number(oldItem.quantitySent), oldItem.unit || "PCS");
                 }
               }
@@ -192,6 +230,21 @@ export const updateJobWorkChallan = async (req, res) => {
             fgDoc = await Component.findById(validItemId);
           }
           if (fgDoc) itemName = fgDoc.name || fgDoc.componentName;
+
+          if (jobWorkType !== "wip-to-wip" && jobWorkType !== "route-card") {
+            let availStock = Number(fgDoc?.quantity !== undefined ? fgDoc.quantity : fgDoc?.currentStock) || 0;
+            const reqQty = Number(item.quantitySent) || 0;
+            if (reqQty > availStock) {
+              for (const oldItem of (existingChallan.items || [])) {
+                if (oldItem.item) {
+                  await updateInventoryStock(req, oldItem.item, -Number(oldItem.quantitySent), oldItem.unit || "PCS");
+                }
+              }
+              return res.status(400).json({
+                message: `Cannot dispatch "${itemName}": Requested quantity (${reqQty}) exceeds available stock (${availStock} ${item.unit || 'PCS'}).`
+              });
+            }
+          }
         }
 
         // Process returning items
@@ -279,7 +332,12 @@ export const updateJobWorkChallan = async (req, res) => {
       const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
 
       for (const item of processedItems) {
-        if (jobWorkType !== "route-card" && jobWorkType !== "wip-to-wip" && (item.itemType === "bo" || item.itemType === "rm") && item.item) {
+        const isNewStoreMaterial = item.itemType === "bo" || item.itemType === "rm" || item.itemType === "consumable" || item.itemType === "Consumable" || item.itemType === "fg" || item.itemType === "inhouse" || item.itemType === "Component" || item.itemType === "component";
+        if (jobWorkType !== "route-card" && jobWorkType !== "wip-to-wip" && isNewStoreMaterial && item.item) {
+          const stockType = (item.itemType === "consumable" || item.itemType === "Consumable") 
+            ? "Consumable" 
+            : (item.itemType === "bo" ? "BoughtOut" : ((item.itemType === "fg" || item.itemType === "inhouse" || item.itemType === "Component" || item.itemType === "component") ? "FinishedGoods" : "RawMaterial"));
+
           await updateInventoryStock(
             req,
             item.item,
@@ -287,6 +345,7 @@ export const updateJobWorkChallan = async (req, res) => {
             item.unit || "PCS",
             undefined,
             {
+              itemType: stockType,
               transactionCategory: "RETURNABLE_DC_JOB_WORK_OUTWARD",
               referenceDocType: "JobWorkChallan",
               referenceDocId: existingChallan._id,

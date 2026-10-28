@@ -39,6 +39,7 @@ interface JobWorkFormProps {
     rawMaterials?: any[];
     boughtOuts?: any[];
     materials?: RmBoItem[];
+    consumables?: any[];
     inventoryList?: any[];
     inHouseItems?: any[];
     mrpPlans?: any[];
@@ -58,6 +59,7 @@ export default function JobWorkForm({
     rawMaterials = [],
     boughtOuts = [],
     materials = [],
+    consumables = [],
     inventoryList = [],
     inHouseItems = [],
     mrpPlans = [],
@@ -165,6 +167,7 @@ export default function JobWorkForm({
     const [wipRmItems, setWipRmItems] = useState<any[]>([]);
     const [wipBoItems, setWipBoItems] = useState<any[]>([]);
     const [wipFgItems, setWipFgItems] = useState<any[]>([]);
+    const [fetchedConsumables, setFetchedConsumables] = useState<any[]>([]);
 
     // Fetch live Shopfloor WIP Inventory for RM, BO, and FG (strictly Shopfloor WIP stock)
     useEffect(() => {
@@ -192,66 +195,83 @@ export default function JobWorkForm({
                     }
                 })
                 .catch((err: any) => console.warn("Failed to fetch WIP FG inventory in JobWorkForm:", err));
+
+            // Fallback fetch for consumables if not provided by parent
+            if (!consumables || consumables.length === 0) {
+                apiGet('/api/store/consumable-item', token)
+                    .then((res: any) => {
+                        const list = Array.isArray(res) ? res : (res?.consumableItems || res?.data || []);
+                        if (list.length > 0) setFetchedConsumables(list);
+                    })
+                    .catch((err: any) => console.warn("Failed to fetch consumables in JobWorkForm:", err));
+            }
         }
-    }, [isOpen, token]);
+    }, [isOpen, token, consumables]);
+
+    const effectiveConsumables = useMemo(() => {
+        return (consumables && consumables.length > 0) ? consumables : fetchedConsumables;
+    }, [consumables, fetchedConsumables]);
 
     // Helper to get available stock from WIP inventory (for WIP-to-WIP) or Main Store (for Store flows)
-    const getItemStock = useCallback((itemId: string, itemType: string): number => {
+    const getItemStock = useCallback((itemId: string, itemType?: string): number => {
         if (!itemId) return 0;
+        const cleanId = (val: any) => {
+            if (!val) return '';
+            const s = typeof val === 'object' && val !== null ? (val._id || val.id || '') : String(val);
+            return s.includes('_') ? s.split('_').slice(1).join('_') : s;
+        };
+        const targetClean = cleanId(itemId);
 
         // If in WIP-to-WIP workflow, all outward materials come strictly from Shopfloor WIP stock!
         if (formData.jobWorkType === 'wip-to-wip') {
             if (itemType === 'rm') {
-                const wip = wipRmItems.find((r: any) => 
-                    String(r.materialId) === String(itemId) || 
-                    String(r._id) === String(itemId) || 
-                    String(r.id) === String(itemId)
-                );
+                const wip = wipRmItems.find((r: any) => cleanId(r.materialId || r._id || r.id) === targetClean);
                 return Number(wip?.shopfloorWipQty) || 0;
             }
             if (itemType === 'bo') {
-                const wip = wipBoItems.find((b: any) => 
-                    String(b.materialId) === String(itemId) || 
-                    String(b._id) === String(itemId) || 
-                    String(b.id) === String(itemId)
-                );
+                const wip = wipBoItems.find((b: any) => cleanId(b.materialId || b._id || b.id) === targetClean);
                 return Number(wip?.shopfloorWipQty) || 0;
             }
             if (itemType === 'fg') {
-                const wip = wipFgItems.find((f: any) => 
-                    String(f.materialId) === String(itemId) || 
-                    String(f._id) === String(itemId) || 
-                    String(f.id) === String(itemId)
-                );
+                const wip = wipFgItems.find((f: any) => cleanId(f.materialId || f._id || f.id) === targetClean);
                 return Number(wip?.shopfloorWipQty) || 0;
             }
+            if (itemType === 'consumable') {
+                const inv = (inventoryList || []).find((i: any) => cleanId(i.materialId || i._id) === targetClean);
+                if (inv) return Number(inv.currentStock ?? inv.quantity ?? 0);
+                const cons = (effectiveConsumables || []).find((c: any) => cleanId(c._id || c.id) === targetClean);
+                return Number(cons?.currentStock ?? cons?.quantity ?? 0);
+            }
+            // If itemType not specified, check across WIP collections
+            const wipRm = wipRmItems.find((r: any) => cleanId(r.materialId || r._id || r.id) === targetClean);
+            if (wipRm) return Number(wipRm.shopfloorWipQty) || 0;
+            const wipBo = wipBoItems.find((b: any) => cleanId(b.materialId || b._id || b.id) === targetClean);
+            if (wipBo) return Number(wipBo.shopfloorWipQty) || 0;
+            const wipFg = wipFgItems.find((f: any) => cleanId(f.materialId || f._id || f.id) === targetClean);
+            if (wipFg) return Number(wipFg.shopfloorWipQty) || 0;
             return 0;
         }
 
         // 1. For Finished Goods (FG / WIP Components), query strictly from Shopfloor WIP stock
         if (itemType === 'fg') {
             if (wipFgItems && wipFgItems.length > 0) {
-                const wip = wipFgItems.find((f: any) => 
-                    String(f.materialId) === String(itemId) || 
-                    String(f.id) === String(itemId) || 
-                    String(f._id) === String(itemId)
-                );
+                const wip = wipFgItems.find((f: any) => cleanId(f.materialId || f.id || f._id) === targetClean);
                 if (wip) {
                     return Number(wip.shopfloorWipQty) || 0;
                 }
             }
-            const comp = (inHouseItems || []).find((f: any) => String(f._id) === String(itemId));
-            if (comp && comp.isInventoryItem === false) {
-                return Number(comp.quantity) || 0;
+            const comp = (inHouseItems || []).find((f: any) => cleanId(f._id || f.id) === targetClean);
+            if (comp) {
+                return Number(comp.quantity ?? comp.currentStock ?? 0);
             }
             return 0;
         }
 
-        // 2. Check inventoryList for RM / BO in Main Store
+        // 2. Check inventoryList for RM / BO / Consumables in Main Store
         if (inventoryList && inventoryList.length > 0) {
             const inv = inventoryList.find((i: any) => {
                 const mId = typeof i.materialId === 'object' && i.materialId ? i.materialId._id : i.materialId;
-                return String(mId) === String(itemId) || String(i._id) === String(itemId);
+                return cleanId(mId) === targetClean || cleanId(i._id) === targetClean;
             });
             if (inv) {
                 if (inv.currentStock !== undefined) return Number(inv.currentStock) || 0;
@@ -259,22 +279,28 @@ export default function JobWorkForm({
             }
         }
 
-        // 3. Fallback to master collections for RM / BO in Main Store
+        // 3. Fallback to master collections for RM / BO / Consumables in Main Store
         if (itemType === 'rm') {
-            const rm = (rawMaterials.length > 0 ? rawMaterials : materials).find((m: any) => String(m._id) === String(itemId));
+            const rm = (rawMaterials.length > 0 ? rawMaterials : materials).find((m: any) => cleanId(m._id || m.id) === targetClean);
             if (rm) {
                 if (rm.quantity !== undefined) return Number(rm.quantity) || 0;
                 if (rm.currentStock !== undefined) return Number(rm.currentStock) || 0;
             }
         } else if (itemType === 'bo') {
-            const bo = (boughtOuts.length > 0 ? boughtOuts : materials).find((m: any) => String(m._id) === String(itemId));
+            const bo = (boughtOuts.length > 0 ? boughtOuts : materials).find((m: any) => cleanId(m._id || m.id) === targetClean);
             if (bo) {
                 if (bo.quantity !== undefined) return Number(bo.quantity) || 0;
                 if (bo.currentStock !== undefined) return Number(bo.currentStock) || 0;
             }
+        } else if (itemType === 'consumable') {
+            const cons = (effectiveConsumables || []).find((c: any) => cleanId(c._id || c.id) === targetClean);
+            if (cons) {
+                if (cons.quantity !== undefined) return Number(cons.quantity) || 0;
+                if (cons.currentStock !== undefined) return Number(cons.currentStock) || 0;
+            }
         }
         return 0;
-    }, [formData.jobWorkType, inventoryList, rawMaterials, boughtOuts, materials, inHouseItems, wipRmItems, wipBoItems, wipFgItems]);
+    }, [formData.jobWorkType, inventoryList, rawMaterials, boughtOuts, materials, inHouseItems, effectiveConsumables, wipRmItems, wipBoItems, wipFgItems]);
 
     // Helper to get quantity originally sent in this DC (for initialData when editing)
     const getInitialItemQuantity = useCallback((itemId: string): number => {
@@ -337,12 +363,25 @@ export default function JobWorkForm({
             if (foundWip) return foundWip;
             return (boughtOuts.length > 0 ? boughtOuts : materials).find((m: any) => cleanId(m._id || m.id) === targetClean) || null;
         }
+        if (itemType === 'consumable') {
+            return (effectiveConsumables || []).find((c: any) => cleanId(c._id || c.id) === targetClean) || null;
+        }
         if (itemType === 'fg' || itemType === 'inhouse' || itemType === 'component' || itemType === 'subassembly' || itemType === 'assembly') {
             const sourceList = [...wipFgItems, ...(inHouseItems || [])];
             return sourceList.find((i: any) => cleanId(i.materialId || i.id || i._id) === targetClean) || null;
         }
-        return null;
-    }, [wipRmItems, wipBoItems, wipFgItems, rawMaterials, boughtOuts, materials, inHouseItems]);
+
+        // Generic fallback lookup across all collections
+        const match = (it: any) => cleanId(it._id || it.id || it.materialId) === targetClean;
+        return (rawMaterials.length > 0 ? rawMaterials : materials).find(match)
+            || (boughtOuts.length > 0 ? boughtOuts : materials).find(match)
+            || (effectiveConsumables || []).find(match)
+            || (inHouseItems || []).find(match)
+            || (wipRmItems || []).find(match)
+            || (wipBoItems || []).find(match)
+            || (wipFgItems || []).find(match)
+            || null;
+    }, [wipRmItems, wipBoItems, wipFgItems, rawMaterials, boughtOuts, materials, inHouseItems, effectiveConsumables]);
 
     // Populate suppliers combining jobWorkSuppliers and regular vendors
     const supplierOptions = useMemo(() => {
@@ -503,6 +542,103 @@ export default function JobWorkForm({
                 };
             });
     }, [wipFgItems, getInitialItemQuantity]);
+
+    // Item options for Consumables with live stock display (accounting for current DC in edit mode)
+    const consumableOptions = useMemo(() => {
+        return (effectiveConsumables || []).map((c: any) => {
+            const liveStock = getItemStock(c._id, 'consumable');
+            const inDcQty = getInitialItemQuantity(c._id);
+            const effectiveStock = liveStock + inDcQty;
+            const unit = c.unit || (c as any).categoryId?.unit || 'PCS';
+            const desc = getItemDescription(c);
+            const descSuffix = desc ? ` — ${desc}` : '';
+            const dcSuffix = inDcQty > 0 ? ` (${inDcQty} in this DC)` : '';
+            return {
+                value: c._id,
+                label: `${c.name || 'Consumable Item'}${descSuffix} • Stock: ${effectiveStock} ${unit}${dcSuffix}`
+            };
+        });
+    }, [effectiveConsumables, getItemStock, getInitialItemQuantity]);
+
+    // Unified materials dictionary for O(1) attribute lookup and auto-type detection
+    const allMaterialsMap = useMemo(() => {
+        const map = new Map<string, { item: any; itemType: 'rm' | 'bo' | 'consumable' | 'fg' }>();
+
+        const cleanId = (val: any) => {
+            if (!val) return '';
+            const s = typeof val === 'object' && val !== null ? (val._id || val.id || '') : String(val);
+            return s.includes('_') ? s.split('_').slice(1).join('_') : s;
+        };
+
+        // 1. Raw Materials
+        const rmList = rawMaterials.length > 0 ? rawMaterials : (materials || []).filter((m: any) => m.type !== 'bo' && m.itemType !== 'bo');
+        rmList.forEach((m: any) => {
+            const id = cleanId(m._id || m.id);
+            if (id) map.set(id, { item: m, itemType: 'rm' });
+        });
+
+        // 2. Bought Outs
+        const boList = boughtOuts.length > 0 ? boughtOuts : (materials || []).filter((m: any) => m.type === 'bo' || m.itemType === 'bo');
+        boList.forEach((b: any) => {
+            const id = cleanId(b._id || b.id);
+            if (id) map.set(id, { item: b, itemType: 'bo' });
+        });
+
+        // 3. Consumables
+        (effectiveConsumables || []).forEach((c: any) => {
+            const id = cleanId(c._id || c.id);
+            if (id) map.set(id, { item: c, itemType: 'consumable' });
+        });
+
+        // 4. Finished Goods & In-House Components
+        (inHouseItems || []).forEach((f: any) => {
+            const id = cleanId(f._id || f.id || f.materialId);
+            if (id) map.set(id, { item: f, itemType: 'fg' });
+        });
+
+        // 5. Shopfloor WIP Inventory Items
+        (wipRmItems || []).forEach((w: any) => {
+            const id = cleanId(w.materialId || w._id || w.id);
+            if (id && !map.has(id)) map.set(id, { item: w, itemType: 'rm' });
+        });
+        (wipBoItems || []).forEach((w: any) => {
+            const id = cleanId(w.materialId || w._id || w.id);
+            if (id && !map.has(id)) map.set(id, { item: w, itemType: 'bo' });
+        });
+        (wipFgItems || []).forEach((w: any) => {
+            const id = cleanId(w.materialId || w._id || w.id);
+            if (id && !map.has(id)) map.set(id, { item: w, itemType: 'fg' });
+        });
+
+        return map;
+    }, [rawMaterials, boughtOuts, materials, effectiveConsumables, inHouseItems, wipRmItems, wipBoItems, wipFgItems]);
+
+    // Unified Outward Material Options list for SearchableSelect across ALL categories (RM, BO, Consumables, FG)
+    const unifiedOutwardOptions = useMemo(() => {
+        const list: { value: string; label: string }[] = [];
+        const seen = new Set<string>();
+
+        const addOption = (val: string, label: string) => {
+            if (val && !seen.has(String(val))) {
+                seen.add(String(val));
+                list.push({ value: String(val), label });
+            }
+        };
+
+        if (formData.jobWorkType === 'wip-to-wip') {
+            wipRmOptions.forEach(opt => addOption(opt.value, `[RM] ${opt.label.replace(/^\[.*?\]\s*/, '')}`));
+            wipBoOptions.forEach(opt => addOption(opt.value, `[BO] ${opt.label.replace(/^\[.*?\]\s*/, '')}`));
+            wipFgOutwardOptions.forEach(opt => addOption(opt.value, `[FG] ${opt.label.replace(/^\[.*?\]\s*/, '')}`));
+            consumableOptions.forEach(opt => addOption(opt.value, `[Consumable] ${opt.label.replace(/^\[.*?\]\s*/, '')}`));
+        } else {
+            rmOptions.forEach(opt => addOption(opt.value, `[RM] ${opt.label.replace(/^\[.*?\]\s*/, '')}`));
+            boOptions.forEach(opt => addOption(opt.value, `[BO] ${opt.label.replace(/^\[.*?\]\s*/, '')}`));
+            consumableOptions.forEach(opt => addOption(opt.value, `[Consumable] ${opt.label.replace(/^\[.*?\]\s*/, '')}`));
+            fgOptions.forEach(opt => addOption(opt.value, `[FG] ${opt.label.replace(/^\[.*?\]\s*/, '')}`));
+        }
+
+        return list;
+    }, [formData.jobWorkType, rmOptions, boOptions, consumableOptions, fgOptions, wipRmOptions, wipBoOptions, wipFgOutwardOptions]);
 
     const [fetchedMrpPlans, setFetchedMrpPlans] = useState<any[]>([]);
 
@@ -1061,25 +1197,17 @@ export default function JobWorkForm({
 
         if (field === 'item') {
             const selectedId = value;
-            const type = current.itemType;
-            let foundMat: any = null;
-            if (type === 'rm') {
-                const foundWip = (wipRmItems || []).find((r: any) => String(r.materialId) === String(selectedId) || String(r._id) === String(selectedId) || String(r.id) === String(selectedId));
-                foundMat = foundWip || (rawMaterials.length > 0 ? rawMaterials : materials).find((m: any) => m._id === selectedId);
-            } else if (type === 'bo') {
-                const foundWip = (wipBoItems || []).find((b: any) => String(b.materialId) === String(selectedId) || String(b._id) === String(selectedId) || String(b.id) === String(selectedId));
-                foundMat = foundWip || (boughtOuts.length > 0 ? boughtOuts : materials).find((m: any) => m._id === selectedId);
-            } else if (type === 'fg') {
-                const sourceList = [...wipFgItems, ...(inHouseItems || [])];
-                foundMat = sourceList.find((i: any) => 
-                    String(i.materialId) === String(selectedId) || 
-                    String(i.id) === String(selectedId) || 
-                    String(i._id) === String(selectedId)
-                );
+            const resolved = allMaterialsMap.get(String(selectedId));
+            const resolvedType = resolved?.itemType || current.itemType || 'rm';
+            current.itemType = resolvedType;
+
+            let foundMat = resolved?.item || null;
+            if (!foundMat) {
+                foundMat = getMasterItem(selectedId, resolvedType);
             }
 
             if (foundMat) {
-                current.itemName = foundMat.materialName || foundMat.name || foundMat.componentName || (type === 'rm' ? 'Raw Material' : type === 'bo' ? 'Bought Out' : 'Finished Good');
+                current.itemName = foundMat.materialName || foundMat.name || foundMat.componentName || (resolvedType === 'rm' ? 'Raw Material' : resolvedType === 'bo' ? 'Bought Out' : resolvedType === 'consumable' ? 'Consumable Item' : 'Finished Good');
                 current.unit = foundMat.unit || (foundMat as any).categoryId?.unit || 'PCS';
                 current.description = foundMat.descriptions || foundMat.description || foundMat.specification || '';
                 const hasSec = Boolean(foundMat.hasSecondaryUnit || (foundMat.secondaryUnit && Number(foundMat.conversionFactor) > 0));
@@ -1089,7 +1217,7 @@ export default function JobWorkForm({
                 current.selectedUnit = current.unit;
 
                 // Auto-populate Quantity Sent with Available Stock in store/WIP (accounting for current DC in edit mode)
-                const availStock = getEffectiveAvailableStock(selectedId, type);
+                const availStock = getEffectiveAvailableStock(selectedId, resolvedType);
                 const initQty = availStock > 0 ? availStock : (Number(current.quantitySent) || 0);
                 current.quantitySent = initQty;
                 current.secondaryQuantitySent = hasSec ? parseFloat((initQty * current.conversionFactor).toFixed(4)) : 0;
@@ -1455,20 +1583,19 @@ export default function JobWorkForm({
 
         if (field === 'item') {
             const selectedId = value;
-            let foundMat: any = null;
-            if (currentItem.itemType === 'rm') {
-                const foundWip = (wipRmItems || []).find((r: any) => String(r.materialId) === String(selectedId) || String(r._id) === String(selectedId) || String(r.id) === String(selectedId));
-                foundMat = foundWip || [...rawMaterials, ...(materials || [])].find((m: any) => String(m._id) === String(selectedId));
-            } else if (currentItem.itemType === 'bo') {
-                const foundWip = (wipBoItems || []).find((b: any) => String(b.materialId) === String(selectedId) || String(b._id) === String(selectedId) || String(b.id) === String(selectedId));
-                foundMat = foundWip || [...boughtOuts, ...(materials || [])].find((m: any) => String(m._id) === String(selectedId));
-            } else {
-                foundMat = [...wipFgItems, ...(inHouseItems || [])].find((f: any) => String(f.materialId || f.id || f._id) === String(selectedId));
+            const resolved = allMaterialsMap.get(String(selectedId));
+            const resolvedType = resolved?.itemType || currentItem.itemType || 'rm';
+            currentItem.itemType = resolvedType;
+
+            let foundMat = resolved?.item || null;
+            if (!foundMat) {
+                foundMat = getMasterItem(selectedId, resolvedType);
             }
 
             if (foundMat) {
-                currentItem.itemName = foundMat.materialName || foundMat.name || foundMat.componentName || 'Material';
+                currentItem.itemName = foundMat.materialName || foundMat.name || foundMat.componentName || (resolvedType === 'rm' ? 'Raw Material' : resolvedType === 'bo' ? 'Bought Out' : resolvedType === 'consumable' ? 'Consumable Item' : 'Material');
                 currentItem.unit = foundMat.unit || (foundMat as any).categoryId?.unit || 'PCS';
+                currentItem.description = foundMat.descriptions || foundMat.description || foundMat.specification || '';
                 const hasSec = Boolean(foundMat.hasSecondaryUnit || (foundMat.secondaryUnit && Number(foundMat.conversionFactor) > 0));
                 currentItem.hasSecondaryUnit = hasSec;
                 currentItem.secondaryUnit = foundMat.secondaryUnit || '';
@@ -1476,7 +1603,7 @@ export default function JobWorkForm({
                 currentItem.selectedUnit = currentItem.unit;
 
                 // Auto-populate Quantity Sent with Available Stock in store/WIP (accounting for current DC in edit mode)
-                const availStock = getEffectiveAvailableStock(selectedId, currentItem.itemType);
+                const availStock = getEffectiveAvailableStock(selectedId, resolvedType);
                 const initQty = availStock > 0 ? availStock : (Number(currentItem.quantitySent) || 0);
                 currentItem.quantitySent = initQty;
                 currentItem.secondaryQuantitySent = hasSec ? parseFloat((initQty * currentItem.conversionFactor).toFixed(4)) : 0;
@@ -2595,84 +2722,10 @@ export default function JobWorkForm({
                                                             key={itemIdx}
                                                             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 items-end"
                                                         >
-                                                            {/* Item Type */}
-                                                            <div className="sm:col-span-1 lg:col-span-1">
-                                                                <label className="block text-[9px] font-semibold text-slate-400 uppercase tracking-tight mb-1">
-                                                                    Type
-                                                                </label>
-                                                                {isWipToWip ? (
-                                                                    <div className="flex h-9 bg-white dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleGroupOutwardItemChange(grpIdx, itemIdx, 'itemType', 'rm')}
-                                                                            className={`flex-1 py-1 rounded-lg text-[9px] font-black transition-all cursor-pointer ${
-                                                                                (sentItem.itemType || 'rm') === 'rm'
-                                                                                    ? 'bg-blue-600 text-white shadow-xs'
-                                                                                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                                                                            }`}
-                                                                            title="WIP Raw Material"
-                                                                        >
-                                                                            RM
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleGroupOutwardItemChange(grpIdx, itemIdx, 'itemType', 'bo')}
-                                                                            className={`flex-1 py-1 rounded-lg text-[9px] font-black transition-all cursor-pointer ${
-                                                                                sentItem.itemType === 'bo'
-                                                                                    ? 'bg-emerald-600 text-white shadow-xs'
-                                                                                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                                                                            }`}
-                                                                            title="WIP Bought Out"
-                                                                        >
-                                                                            BO
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleGroupOutwardItemChange(grpIdx, itemIdx, 'itemType', 'fg')}
-                                                                            className={`flex-1 py-1 rounded-lg text-[9px] font-black transition-all cursor-pointer ${
-                                                                                sentItem.itemType === 'fg'
-                                                                                    ? 'bg-purple-600 text-white shadow-xs'
-                                                                                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                                                                            }`}
-                                                                            title="WIP Finished Good / Component"
-                                                                        >
-                                                                            FG
-                                                                        </button>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="flex h-9 bg-white dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleGroupOutwardItemChange(grpIdx, itemIdx, 'itemType', 'rm')}
-                                                                            className={`flex-1 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                                                                                (sentItem.itemType || 'rm') === 'rm'
-                                                                                    ? 'bg-blue-600 text-white shadow-xs'
-                                                                                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                                                                            }`}
-                                                                            title="Raw Material (Main Store)"
-                                                                        >
-                                                                            RM
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleGroupOutwardItemChange(grpIdx, itemIdx, 'itemType', 'bo')}
-                                                                            className={`flex-1 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                                                                                sentItem.itemType === 'bo'
-                                                                                    ? 'bg-emerald-600 text-white shadow-xs'
-                                                                                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                                                                            }`}
-                                                                            title="Bought Out (Main Store)"
-                                                                        >
-                                                                            BO
-                                                                        </button>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-
                                                             {/* Outward Item Selector */}
-                                                            <div className="sm:col-span-2 lg:col-span-3" data-has-error={!!formErrors[`grp_${grpIdx}_item_${itemIdx}_item`]}>
+                                                            <div className="sm:col-span-2 lg:col-span-4" data-has-error={!!formErrors[`grp_${grpIdx}_item_${itemIdx}_item`]}>
                                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                                    <span>Outward Item <span className="text-red-500">*</span></span>
+                                                                    <span>Outward Item (RM, BO, Consumable, FG) <span className="text-red-500">*</span></span>
                                                                     {formErrors[`grp_${grpIdx}_item_${itemIdx}_item`] && (
                                                                         <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
                                                                             {formErrors[`grp_${grpIdx}_item_${itemIdx}_item`]}
@@ -2680,11 +2733,7 @@ export default function JobWorkForm({
                                                                     )}
                                                                 </label>
                                                                 <SearchableSelect
-                                                                    options={
-                                                                        formData.jobWorkType === 'wip-to-wip'
-                                                                            ? (sentItem.itemType === 'rm' ? wipRmOptions : sentItem.itemType === 'bo' ? wipBoOptions : wipFgOutwardOptions)
-                                                                            : (sentItem.itemType === 'rm' ? rmOptions : sentItem.itemType === 'bo' ? boOptions : fgOptions)
-                                                                    }
+                                                                    options={unifiedOutwardOptions}
                                                                     value={sentItem.item || ''}
                                                                     hasError={!!formErrors[`grp_${grpIdx}_item_${itemIdx}_item`]}
                                                                     onChange={(val) => {
@@ -2694,14 +2743,33 @@ export default function JobWorkForm({
                                                                     placeholder={isWipToWip ? "Select item from WIP stock..." : "Select outward material..."}
                                                                 />
                                                                 {sentItem.item && (
-                                                                    <div className="mt-1 flex items-center justify-between text-[10px] font-bold">
-                                                                        <span className={`px-1.5 py-0.5 rounded text-[9px] ${
-                                                                            stock > 0 
-                                                                                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' 
-                                                                                : 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300'
-                                                                        }`}>
-                                                                            {isWipToWip ? 'WIP Stock' : 'Stock'}: {stock} {sentItem.unit || 'PCS'}
-                                                                        </span>
+                                                                    <div className="mt-1 flex flex-wrap items-center justify-between gap-1 text-[10px] font-bold">
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase font-extrabold border ${
+                                                                                sentItem.itemType === 'bo'
+                                                                                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                                                                    : sentItem.itemType === 'consumable'
+                                                                                    ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                                                                    : sentItem.itemType === 'fg'
+                                                                                    ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                                                                                    : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                                                            }`}>
+                                                                                {sentItem.itemType === 'bo' 
+                                                                                    ? '🟢 BO' 
+                                                                                    : sentItem.itemType === 'consumable' 
+                                                                                    ? '🟡 Consumable' 
+                                                                                    : sentItem.itemType === 'fg' 
+                                                                                    ? '🟣 FG' 
+                                                                                    : '🔵 RM'}
+                                                                            </span>
+                                                                            <span className={`px-1.5 py-0.5 rounded text-[9px] ${
+                                                                                stock > 0 
+                                                                                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' 
+                                                                                    : 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300'
+                                                                            }`}>
+                                                                                {isWipToWip ? 'WIP Stock' : 'Stock'}: {stock} {sentItem.unit || 'PCS'}
+                                                                            </span>
+                                                                        </div>
                                                                         {isShortage && (
                                                                             <span className="text-rose-600 dark:text-rose-400 text-[9px]">
                                                                                 Exceeds {isWipToWip ? 'WIP stock' : 'stock'}
@@ -3033,86 +3101,10 @@ export default function JobWorkForm({
 
                                                 {/* Sent Item Inputs Grid */}
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-lg border border-slate-200/80 dark:border-slate-700/60">
-                                                    {/* Outward Material Type (RM, BO or WIP FG) */}
-                                                    <div className="sm:col-span-2 lg:col-span-2 xl:col-span-2">
-                                                        <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                            Material Type
-                                                        </label>
-                                                        <div className="flex bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold shadow-2xs">
-                                                            {isWipToWip ? (
-                                                                <>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleSentItemChange(itemIdx, 'itemType', 'rm')}
-                                                                        className={`flex-1 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
-                                                                            (sentItem.itemType || 'rm') === 'rm'
-                                                                                ? 'bg-blue-600 text-white shadow-xs'
-                                                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                                                                        }`}
-                                                                        title="Raw Material (Shopfloor WIP)"
-                                                                    >
-                                                                        🔵 RM
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleSentItemChange(itemIdx, 'itemType', 'bo')}
-                                                                        className={`flex-1 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
-                                                                            sentItem.itemType === 'bo'
-                                                                                ? 'bg-emerald-600 text-white shadow-xs'
-                                                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                                                                        }`}
-                                                                        title="Bought Out (Shopfloor WIP)"
-                                                                    >
-                                                                        🟢 BO
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleSentItemChange(itemIdx, 'itemType', 'fg')}
-                                                                        className={`flex-1 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
-                                                                            sentItem.itemType === 'fg'
-                                                                                ? 'bg-purple-600 text-white shadow-xs'
-                                                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                                                                        }`}
-                                                                        title="Finished Good / Sub-Assembly (Shopfloor WIP)"
-                                                                    >
-                                                                        🟣 FG
-                                                                    </button>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleSentItemChange(itemIdx, 'itemType', 'rm')}
-                                                                        className={`flex-1 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-                                                                            (sentItem.itemType || 'rm') === 'rm'
-                                                                                ? 'bg-blue-600 text-white shadow-xs'
-                                                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                                                                        }`}
-                                                                        title="Raw Material (Main Store)"
-                                                                    >
-                                                                        🔵 RM
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleSentItemChange(itemIdx, 'itemType', 'bo')}
-                                                                        className={`flex-1 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-                                                                            sentItem.itemType === 'bo'
-                                                                                ? 'bg-emerald-600 text-white shadow-xs'
-                                                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                                                                        }`}
-                                                                        title="Bought Out (Main Store)"
-                                                                    >
-                                                                        🟢 BO
-                                                                    </button>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    </div>
-
                                                     {/* Outward Item Selector + Live Stock Badge */}
-                                                    <div className="sm:col-span-2 lg:col-span-3 xl:col-span-3" data-has-error={!!formErrors[`item_${itemIdx}_item`]}>
+                                                    <div className="sm:col-span-2 lg:col-span-5 xl:col-span-5" data-has-error={!!formErrors[`item_${itemIdx}_item`]}>
                                                         <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                            <span>Item Name <span className="text-red-500">*</span></span>
+                                                            <span>Item Name (RM, BO, Consumable, FG) <span className="text-red-500">*</span></span>
                                                             {formErrors[`item_${itemIdx}_item`] && (
                                                                 <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
                                                                     {formErrors[`item_${itemIdx}_item`]}
@@ -3120,11 +3112,7 @@ export default function JobWorkForm({
                                                             )}
                                                         </label>
                                                         <SearchableSelect
-                                                            options={
-                                                                formData.jobWorkType === 'wip-to-wip'
-                                                                    ? (sentItem.itemType === 'rm' ? wipRmOptions : sentItem.itemType === 'bo' ? wipBoOptions : wipFgOutwardOptions)
-                                                                    : (sentItem.itemType === 'rm' ? rmOptions : sentItem.itemType === 'bo' ? boOptions : fgOptions)
-                                                            }
+                                                            options={unifiedOutwardOptions}
                                                             value={sentItem.item || ''}
                                                             hasError={!!formErrors[`item_${itemIdx}_item`]}
                                                             onChange={(val) => {
@@ -3133,25 +3121,40 @@ export default function JobWorkForm({
                                                             }}
                                                             placeholder={
                                                                 formData.jobWorkType === 'wip-to-wip'
-                                                                    ? (sentItem.itemType === 'rm'
-                                                                        ? (wipRmOptions.length === 0 ? "No RM in WIP Stock..." : "Select WIP RM...")
-                                                                        : sentItem.itemType === 'bo'
-                                                                            ? (wipBoOptions.length === 0 ? "No BO in WIP Stock..." : "Select WIP BO...")
-                                                                            : (wipFgOutwardOptions.length === 0 ? "No FG in WIP Stock..." : "Select WIP FG..."))
-                                                                    : "Select Item..."
+                                                                    ? "Search & select item from WIP stock (RM, BO, FG, Consumables)..."
+                                                                    : "Search & select item (RM, BO, Consumables, FG)..."
                                                             }
                                                         />
 
-                                                        {/* Live Stock Display Pill */}
+                                                        {/* Live Stock Display Pill & Auto-Detected Type Badge */}
                                                         {sentItem.item && (
-                                                            <div className="mt-1.5 flex flex-wrap items-center justify-between gap-1 text-[10px] font-bold">
-                                                                <span className={`px-2 py-0.5 rounded-md flex items-center gap-1 ${
-                                                                    stock > 0 
-                                                                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' 
-                                                                        : 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'
-                                                                }`}>
-                                                                    {stock > 0 ? '🟢' : '🔴'} {isWipToWip ? 'WIP Stock:' : 'Stock:'} {stock} {sentItem.unit || 'PCS'}
-                                                                </span>
+                                                            <div className="mt-1.5 flex flex-wrap items-center justify-between gap-1.5 text-[10px] font-bold">
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className={`px-2 py-0.5 rounded-md uppercase text-[10px] font-extrabold border ${
+                                                                        sentItem.itemType === 'bo'
+                                                                            ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                                                            : sentItem.itemType === 'consumable'
+                                                                            ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                                                            : sentItem.itemType === 'fg'
+                                                                            ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                                                                            : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                                                    }`}>
+                                                                        {sentItem.itemType === 'bo' 
+                                                                            ? '🟢 Bought Out' 
+                                                                            : sentItem.itemType === 'consumable' 
+                                                                            ? '🟡 Consumable' 
+                                                                            : sentItem.itemType === 'fg' 
+                                                                            ? '🟣 Finished Good' 
+                                                                            : '🔵 Raw Material'}
+                                                                    </span>
+                                                                    <span className={`px-2 py-0.5 rounded-md flex items-center gap-1 ${
+                                                                        stock > 0 
+                                                                            ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' 
+                                                                            : 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'
+                                                                    }`}>
+                                                                        {stock > 0 ? '🟢' : '🔴'} {isWipToWip ? 'WIP Stock:' : 'Stock:'} {stock} {sentItem.unit || 'PCS'}
+                                                                    </span>
+                                                                </div>
                                                                 {isShortage && (
                                                                     <span className="text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/50 px-2 py-0.5 rounded-md border border-red-200 dark:border-red-800 flex items-center gap-1">
                                                                         <AlertTriangle size={11} />

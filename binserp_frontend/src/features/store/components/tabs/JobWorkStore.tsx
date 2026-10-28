@@ -33,6 +33,7 @@ interface JobWorkStoreProps {
     rawMaterials?: any[];
     boughtOuts?: any[];
     materials?: any[];
+    consumables?: any[];
     inventoryList?: any[];
     inHouseItems?: any[];
     mrpPlans?: any[];
@@ -79,6 +80,7 @@ export default function JobWorkStore({
     rawMaterials = [], 
     boughtOuts = [], 
     materials = [], 
+    consumables = [],
     inventoryList = [], 
     inHouseItems = [], 
     mrpPlans = [], 
@@ -2454,6 +2456,7 @@ export default function JobWorkStore({
                 rawMaterials={rawMaterials}
                 boughtOuts={boughtOuts}
                 materials={materials}
+                consumables={consumables}
                 inventoryList={inventoryList}
                 inHouseItems={inHouseItems}
                 mrpPlans={mrpPlans}
