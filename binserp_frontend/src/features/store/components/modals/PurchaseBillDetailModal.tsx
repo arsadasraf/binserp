@@ -56,21 +56,21 @@ export default function PurchaseBillDetailModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh] overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh] overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-800/50">
-          <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-xl border ${
+        <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-800/50">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+            <div className={`p-2 sm:p-2.5 rounded-xl border shrink-0 ${
               bill.billType === 'job-work-service'
                 ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400'
                 : 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400'
             }`}>
-              {bill.billType === 'job-work-service' ? <IndianRupee size={20} /> : <FileText size={20} />}
+              {bill.billType === 'job-work-service' ? <IndianRupee size={18} /> : <FileText size={18} />}
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-black text-slate-900 dark:text-slate-100 font-mono">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100 font-mono">
                   {bill.billNumber}
                 </h2>
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -98,7 +98,7 @@ export default function PurchaseBillDetailModal({
                   </span>
                 )}
               </div>
-              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              <div className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                 Date: {new Date(bill.date).toLocaleDateString()} 
                 {bill.grnNumber && <span> • GRN: <strong className="font-mono text-slate-700 dark:text-slate-200">{bill.grnNumber}</strong></span>}
                 {bill.jobWorkGrnNumber && <span> • Inward GRN: <strong className="font-mono text-slate-700 dark:text-slate-200">{bill.jobWorkGrnNumber}</strong></span>}
@@ -108,10 +108,10 @@ export default function PurchaseBillDetailModal({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={handlePrint}
-              className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
+              className="p-1.5 sm:p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
               title="Print Bill"
             >
               <Printer size={15} />
@@ -119,7 +119,7 @@ export default function PurchaseBillDetailModal({
             </button>
             <button
               onClick={onClose}
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
               <X size={18} />
             </button>
@@ -127,7 +127,7 @@ export default function PurchaseBillDetailModal({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 overflow-y-auto flex-1 custom-scrollbar space-y-6">
+        <div className="p-3.5 sm:p-6 overflow-y-auto flex-1 custom-scrollbar space-y-4 sm:space-y-6">
           {/* Vendor & Invoice Metadata Box */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 text-xs">
             <div>
@@ -177,72 +177,119 @@ export default function PurchaseBillDetailModal({
             </div>
           </div>
 
-          {/* Line Items Table */}
-          <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-              Bill Items ({bill.items?.length || 0})
-            </div>
-            <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-100/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-700">
-                    <th className="py-2.5 px-3 w-10 text-center">#</th>
-                    <th className="py-2.5 px-3 min-w-[200px]">Item Name & Description</th>
-                    <th className="py-2.5 px-2.5 w-24 text-center">HSN/SAC</th>
-                    <th className="py-2.5 px-3 w-28 text-center">Quantity</th>
-                    <th className="py-2.5 px-3 w-28 text-right">Rate (₹)</th>
-                    <th className="py-2.5 px-3 w-32 text-right">Amount (₹)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {bill.items?.map((item, idx) => {
-                    const isSecSelected = Boolean(item.secondaryUnit && item.selectedUnit === item.secondaryUnit);
-                    const activeUnit = isSecSelected ? item.secondaryUnit : (item.selectedUnit || item.unit || 'PCS');
-                    const activeQty = isSecSelected ? Number(item.secondaryQuantity || 0) : Number(item.quantity || 0);
-
-                    return (
-                      <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                        <td className="py-2.5 px-3 text-center text-slate-400 font-bold">{idx + 1}</td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-bold text-slate-800 dark:text-slate-100">
-                            {item.serviceName || item.materialName || 'Service / Item'}
-                          </div>
-                          {item.processType && (
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/50 mt-0.5 mr-1.5">
-                              ⚙️ {item.processType}
-                            </span>
-                          )}
-                          {item.description && (
-                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
-                              📝 {item.description}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-2.5 text-center font-mono text-slate-600 dark:text-slate-300">
-                          {item.sacCode || item.hsnCode || '-'}
-                        </td>
-                        <td className="py-2.5 px-3 text-center font-semibold text-slate-800 dark:text-slate-200">
-                          {activeQty} {activeUnit}
-                          {item.secondaryUnit && !isSecSelected && Number(item.secondaryQuantity || 0) > 0 && (
-                            <div className="text-[10px] text-indigo-600 dark:text-indigo-400">
-                              ({item.secondaryQuantity} {item.secondaryUnit})
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-slate-700 dark:text-slate-300">
-                          ₹{Number(item.rate || 0).toFixed(2)}
-                          <div className="text-[9px] text-slate-400">/{activeUnit}</div>
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
-                          ₹{Number(item.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+        {/* Line Items Section */}
+        <div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+            Bill Items ({bill.items?.length || 0})
           </div>
+
+          {/* Desktop Items Table */}
+          <div className="hidden md:block border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-100/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-700">
+                  <th className="py-2.5 px-3 w-10 text-center">#</th>
+                  <th className="py-2.5 px-3 min-w-[200px]">Item Name & Description</th>
+                  <th className="py-2.5 px-2.5 w-24 text-center">HSN/SAC</th>
+                  <th className="py-2.5 px-3 w-28 text-center">Quantity</th>
+                  <th className="py-2.5 px-3 w-28 text-right">Rate (₹)</th>
+                  <th className="py-2.5 px-3 w-32 text-right">Amount (₹)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {bill.items?.map((item, idx) => {
+                  const isSecSelected = Boolean(item.secondaryUnit && item.selectedUnit === item.secondaryUnit);
+                  const activeUnit = isSecSelected ? item.secondaryUnit : (item.selectedUnit || item.unit || 'PCS');
+                  const activeQty = isSecSelected ? Number(item.secondaryQuantity || 0) : Number(item.quantity || 0);
+
+                  return (
+                    <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                      <td className="py-2.5 px-3 text-center text-slate-400 font-bold">{idx + 1}</td>
+                      <td className="py-2.5 px-3">
+                        <div className="font-bold text-slate-800 dark:text-slate-100">
+                          {item.serviceName || item.materialName || 'Service / Item'}
+                        </div>
+                        {item.processType && (
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/50 mt-0.5 mr-1.5">
+                            ⚙️ {item.processType}
+                          </span>
+                        )}
+                        {item.description && (
+                          <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                            📝 {item.description}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-2.5 text-center font-mono text-slate-600 dark:text-slate-300">
+                        {item.sacCode || item.hsnCode || '-'}
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-semibold text-slate-800 dark:text-slate-200">
+                        {activeQty} {activeUnit}
+                        {item.secondaryUnit && !isSecSelected && Number(item.secondaryQuantity || 0) > 0 && (
+                          <div className="text-[10px] text-indigo-600 dark:text-indigo-400">
+                            ({item.secondaryQuantity} {item.secondaryUnit})
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-slate-700 dark:text-slate-300">
+                        ₹{Number(item.rate || 0).toFixed(2)}
+                        <div className="text-[9px] text-slate-400">/{activeUnit}</div>
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
+                        ₹{Number(item.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Items Cards */}
+          <div className="space-y-2 md:hidden">
+            {bill.items?.map((item, idx) => {
+              const isSecSelected = Boolean(item.secondaryUnit && item.selectedUnit === item.secondaryUnit);
+              const activeUnit = isSecSelected ? item.secondaryUnit : (item.selectedUnit || item.unit || 'PCS');
+              const activeQty = isSecSelected ? Number(item.secondaryQuantity || 0) : Number(item.quantity || 0);
+
+              return (
+                <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-750 space-y-1.5 text-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm">
+                      {idx + 1}. {item.serviceName || item.materialName || 'Service / Item'}
+                    </div>
+                    {item.sacCode || item.hsnCode ? (
+                      <span className="font-mono text-[10px] text-slate-400 shrink-0">
+                        SAC/HSN: {item.sacCode || item.hsnCode}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {item.processType && (
+                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/50">
+                      ⚙️ {item.processType}
+                    </span>
+                  )}
+
+                  {item.description && (
+                    <div className="text-[11px] text-slate-500 italic line-clamp-2">
+                      📝 {item.description}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/70 dark:border-slate-700/70 text-xs">
+                    <span className="text-slate-600 dark:text-slate-400">
+                      {activeQty} {activeUnit} @ ₹{Number(item.rate || 0).toFixed(2)}
+                    </span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                      ₹{Number(item.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
           {/* Financial Breakdown & Charges */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

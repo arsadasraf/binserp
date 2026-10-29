@@ -2043,26 +2043,6 @@ export default function WipInventoryTab({
 
                                                 <td className="px-4 py-3.5 text-right">
                                                     <div className="flex items-center justify-end gap-1.5">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                if (isFocusedRow) {
-                                                                    setFocusedItemId(null);
-                                                                } else {
-                                                                    setFocusedItemId((item.id || item._id)?.toString());
-                                                                    setShowDashboard(true);
-                                                                }
-                                                            }}
-                                                            className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 border cursor-pointer ${
-                                                                isFocusedRow
-                                                                    ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs"
-                                                                    : "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
-                                                            }`}
-                                                            title={isFocusedRow ? "Clear single-item focus" : "Focus on this item in dashboard"}
-                                                        >
-                                                            <Crosshair size={12} />
-                                                            <span>{isFocusedRow ? "Focused" : "Focus"}</span>
-                                                        </button>
                                                         {wipType === 'fg' && item.shopfloorWipQty > 0 && (
                                                             <button
                                                                 type="button"
@@ -2074,15 +2054,6 @@ export default function WipInventoryTab({
                                                                 title="Move Finished Goods from Shopfloor WIP to Main Store Inventory"
                                                             >
                                                                 <Warehouse size={13} /> Move to FG Store
-                                                            </button>
-                                                        )}
-                                                        {item.shopfloorWipQty > 0 && (
-                                                            <button
-                                                                onClick={() => handleOpenActionModal(item, 'convert')}
-                                                                className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 border border-indigo-200 dark:border-indigo-800 cursor-pointer"
-                                                                title="Convert to In-house FG Component for WIP-to-WIP DC"
-                                                            >
-                                                                <Factory size={13} /> Convert
                                                             </button>
                                                         )}
                                                         <button
@@ -2178,44 +2149,22 @@ export default function WipInventoryTab({
                                         </div>
                                     </div>
 
-                                    {/* Rate, WIP Valuation & Focus Row */}
+                                    {/* Rate & WIP Valuation Row */}
                                     <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 text-xs">
-                                        <div className="flex flex-col">
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="text-slate-400 font-medium">Rate:</span>
-                                                <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
-                                                    {priceInfo.unitPrice > 0 ? `₹${priceInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-slate-400 font-medium">Rate:</span>
+                                            <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+                                                {priceInfo.unitPrice > 0 ? `₹${priceInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                                            </span>
+                                            {priceInfo.unitPrice > 0 && (
+                                                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${priceInfo.badgeColor}`}>
+                                                    {priceInfo.source}
                                                 </span>
-                                                {priceInfo.unitPrice > 0 && (
-                                                    <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${priceInfo.badgeColor}`}>
-                                                        {priceInfo.source}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
-                                                WIP Val: <strong className="text-emerald-600 dark:text-emerald-400">₹{itemWipValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-                                            </div>
+                                            )}
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (isFocusedRow) {
-                                                    setFocusedItemId(null);
-                                                } else {
-                                                    setFocusedItemId((item.id || item._id)?.toString());
-                                                    setShowDashboard(true);
-                                                }
-                                            }}
-                                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
-                                                isFocusedRow 
-                                                    ? "bg-indigo-600 text-white" 
-                                                    : "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800"
-                                            }`}
-                                        >
-                                            <Crosshair size={12} />
-                                            <span>{isFocusedRow ? "Focused" : "Focus"}</span>
-                                        </button>
+                                        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                                            WIP Val: <strong className="text-emerald-600 dark:text-emerald-400">₹{itemWipValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                        </div>
                                     </div>
 
                                     <div className="flex flex-wrap gap-2">
@@ -2232,18 +2181,9 @@ export default function WipInventoryTab({
                                                 <Warehouse size={13} /> Move to FG Store
                                             </button>
                                         )}
-                                        {item.shopfloorWipQty > 0 && (
-                                            <button
-                                                onClick={() => handleOpenActionModal(item, 'convert')}
-                                                className="flex-1 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 flex items-center justify-center gap-1 cursor-pointer"
-                                                title="Convert to In-house FG Component for WIP-to-WIP DC"
-                                            >
-                                                <Factory size={13} /> Convert
-                                            </button>
-                                        )}
                                         <button
                                             onClick={() => openLedger(item)}
-                                            className={`${item.shopfloorWipQty > 0 ? 'px-3' : 'w-full'} py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer`}
+                                            className={`${wipType === 'fg' && item.shopfloorWipQty > 0 ? 'flex-1' : 'w-full'} py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer`}
                                             title="View Transaction History"
                                         >
                                             <Eye size={14} /> Ledger

@@ -13,7 +13,13 @@ import {
   Package, 
   Layers,
   ChevronDown,
-  X
+  ChevronUp,
+  X,
+  Plus,
+  Briefcase,
+  Wrench,
+  BarChart3,
+  Filter
 } from 'lucide-react';
 import { PurchaseBill, PurchaseBillMetrics } from '@/src/features/purchase/types/purchaseBill.types';
 import SearchableSelect from '../SearchableSelect';
@@ -21,7 +27,6 @@ import RecordPaymentModal from '../modals/RecordPaymentModal';
 import PurchaseBillDetailModal from '../modals/PurchaseBillDetailModal';
 import CreateServiceBillModal from '../modals/CreateServiceBillModal';
 import { API_BASE_URL } from '@/src/utils/config';
-import { Plus, Briefcase, Wrench } from 'lucide-react';
 
 interface PurchaseBillTableProps {
   bills: PurchaseBill[];
@@ -50,7 +55,7 @@ export default function PurchaseBillTable({
   loading,
   onRefresh,
   vendors = [],
-  selectedBillType = 'material',
+  selectedBillType = 'all',
   onBillTypeChange,
   startDate,
   endDate,
@@ -72,6 +77,11 @@ export default function PurchaseBillTable({
   
   // Dashboard is hidden by default per user specification
   const [showDashboard, setShowDashboard] = useState<boolean>(false);
+
+  // Mobile card multi-item expansion state
+  const [expandedCardBillIds, setExpandedCardBillIds] = useState<Record<string, boolean>>({});
+  const [showMobileFilters, setShowMobileFilters] = useState<boolean>(false);
+  const toggleCardItems = (id: string) => setExpandedCardBillIds(prev => ({ ...prev, [id]: !prev[id] }));
 
   // Date Filter Popover state
   const [isDateOpen, setIsDateOpen] = useState<boolean>(false);
@@ -153,6 +163,63 @@ export default function PurchaseBillTable({
     if (endDate) return `Until ${endDate.slice(5)}`;
     return "All Dates";
   }, [startDate, endDate]);
+
+  // Active filter count for mobile badge
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (selectedVendorId && selectedVendorId !== 'all') count++;
+    if (selectedCategory && selectedCategory !== 'all') count++;
+    if (selectedStatus && selectedStatus !== 'all') count++;
+    if (startDate || endDate) count++;
+    return count;
+  }, [selectedVendorId, selectedCategory, selectedStatus, startDate, endDate]);
+
+  // Active date preset for dropdown select
+  const activeDatePreset = useMemo(() => {
+    if (!startDate && !endDate) return 'all';
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const yest = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    if (startDate === todayStr && endDate === todayStr) return 'today';
+    if (startDate === yest && endDate === yest) return 'yesterday';
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const thisMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    if (startDate === thisMonthStart && endDate === thisMonthEnd) return 'thisMonth';
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
+    if (startDate === lastMonthStart && endDate === lastMonthEnd) return 'lastMonth';
+    return 'custom';
+  }, [startDate, endDate]);
+
+  const handleDateDropdownChange = (val: string) => {
+    const now = new Date();
+    if (val === 'all') {
+      onDateChange('', '');
+    } else if (val === 'today') {
+      const todayStr = now.toISOString().slice(0, 10);
+      onDateChange(todayStr, todayStr);
+    } else if (val === 'yesterday') {
+      const yest = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      onDateChange(yest, yest);
+    } else if (val === 'thisMonth') {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+      onDateChange(firstDay, lastDay);
+    } else if (val === 'lastMonth') {
+      const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
+      const lastDay = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
+      onDateChange(firstDay, lastDay);
+    } else if (val === 'last30Days') {
+      const past = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const today = now.toISOString().slice(0, 10);
+      onDateChange(past, today);
+    } else if (val === 'custom') {
+      if (!startDate && !endDate) {
+        const today = now.toISOString().slice(0, 10);
+        onDateChange(today, today);
+      }
+    }
+  };
 
   // Check if any filters are actively applied
   const hasActiveFilters = Boolean(
@@ -319,243 +386,113 @@ export default function PurchaseBillTable({
         </div>
       )}
 
-      {/* Segmented Filter Navigation: Material GRNs (Default), Job Work, Other Services, All Bills */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 custom-scrollbar">
-        <button
-          type="button"
-          onClick={() => onBillTypeChange?.('material')}
-          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
-            selectedBillType === 'material'
-              ? 'bg-indigo-600 text-white shadow-2xs'
-              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Package size={13} />
-          <span>📦 Material GRNs (Default)</span>
-        </button>
+      {/* Search, Filter & Action Toolbar - 3-Row Mobile & Responsive Architecture */}
+      <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex flex-col gap-2.5">
+        {/* ROW 1: Search Bar & Add Service Bill Action */}
+        <div className="flex items-center gap-2 w-full">
+          <div className="relative flex-1 min-w-0">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="Search Bill #, GRN #, Inv #, Supplier, Item..."
+              className="w-full pl-8 sm:pl-9 pr-7 sm:pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => onSearchChange("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer p-0.5"
+                title="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
 
-        <button
-          type="button"
-          onClick={() => onBillTypeChange?.('job-work-service')}
-          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
-            selectedBillType === 'job-work-service'
-              ? 'bg-emerald-600 text-white shadow-2xs'
-              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Wrench size={13} />
-          <span>⚙️ Job Work Invoices</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onBillTypeChange?.('other-service')}
-          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
-            selectedBillType === 'other-service'
-              ? 'bg-amber-600 text-white shadow-2xs'
-              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Briefcase size={13} />
-          <span>🛠️ Other Service Bills</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onBillTypeChange?.('all')}
-          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
-            selectedBillType === 'all'
-              ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900 shadow-2xs'
-              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Layers size={13} />
-          <span>📑 All Bills</span>
-        </button>
-      </div>
-
-      {/* Unified Single-Line Control & Filter Toolbar */}
-      <div className="bg-white dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs flex flex-wrap lg:flex-nowrap items-center gap-2 text-xs">
-        {/* 1. Global Search Box */}
-        <div className="relative min-w-[170px] max-w-[230px] flex-1">
-          <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search Bill, GRN, Inv..."
-            className="w-full pl-8 pr-7 py-1.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 outline-none"
-          />
-          {searchTerm && (
-            <button
-              type="button"
-              onClick={() => onSearchChange("")}
-              className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-            >
-              <X size={12} />
-            </button>
-          )}
-        </div>
-
-        {/* 2. Customer / Vendor Dropdown with Type-Ahead Search Key */}
-        <div className="w-[190px] shrink-0">
-          <SearchableSelect
-            options={vendorOptions}
-            value={selectedVendorId}
-            onChange={(val) => onVendorChange(val)}
-            placeholder="All Vendors / Suppliers"
-            className="w-full text-xs"
-            innerClassName="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl outline-none cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 transition-all font-medium"
-          />
-        </div>
-
-        {/* 3. Item Category / Type Dropdown (RM, BO, Consumables, All) */}
-        <div className="w-[130px] shrink-0">
-          <select
-            value={selectedCategory}
-            onChange={(e) => onCategoryChange(e.target.value)}
-            className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 transition-all"
-            title="Filter by item material type"
-          >
-            <option value="all">📦 All Types</option>
-            <option value="rm">Raw Material (RM)</option>
-            <option value="bo">Bought-Out (BO)</option>
-            <option value="consumable">Consumables</option>
-          </select>
-        </div>
-
-        {/* 4. Payment Status Dropdown (Paid, Unpaid, Partially Paid, Overdue) */}
-        <div className="w-[135px] shrink-0">
-          <select
-            value={selectedStatus}
-            onChange={(e) => onStatusChange(e.target.value)}
-            className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 transition-all"
-            title="Filter by payment status"
-          >
-            <option value="all">💳 All Statuses</option>
-            <option value="Unpaid">⏳ Unpaid</option>
-            <option value="Partially Paid">🟡 Partially Paid</option>
-            <option value="Paid">🟢 Paid</option>
-            <option value="Overdue">🔴 Overdue</option>
-          </select>
-        </div>
-
-        {/* 5. Date Filter Dropdown / Popover */}
-        <div className="relative shrink-0" ref={datePopoverRef}>
+          {/* Add Service Bill Button (Icon on mobile, labeled on desktop) */}
           <button
             type="button"
-            onClick={() => setIsDateOpen(!isDateOpen)}
-            className={`px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800/60 border rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all ${
-              startDate || endDate
-                ? 'border-indigo-400 text-indigo-700 dark:text-indigo-300 bg-indigo-50/50'
-                : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+            onClick={() => setIsCreateServiceBillOpen(true)}
+            className="p-2 sm:px-4 sm:py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 active:from-indigo-800 active:to-blue-800 text-white rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0 active:scale-95"
+            title="Record Returnable Job Work Invoice or Other Service Bill"
+          >
+            <Plus size={16} />
+            <span className="hidden sm:inline font-bold text-xs">Add Service Bill</span>
+          </button>
+        </div>
+
+        {/* ROW 2: Bill Type Segmented Floating Pill (Default: All Bills) */}
+        <div className="w-full flex overflow-x-auto no-scrollbar bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80 sm:w-fit gap-1">
+          <button
+            type="button"
+            onClick={() => onBillTypeChange?.('all')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-1.5 sm:py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              selectedBillType === 'all'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-300 shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
-            title="Date Filter"
           >
-            <Calendar size={13} className={startDate || endDate ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400"} />
-            <span className="truncate max-w-[110px]">{dateFilterLabel}</span>
-            <ChevronDown size={12} className={`text-slate-400 transition-transform ${isDateOpen ? 'rotate-180' : ''}`} />
+            <Layers size={13} />
+            <span>All Bills</span>
           </button>
 
-          {isDateOpen && (
-            <div className="absolute left-0 mt-1.5 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-50 p-3 space-y-2.5 animate-in fade-in duration-100">
-              <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Date Presets</span>
-                {(startDate || endDate) && (
-                  <button
-                    type="button"
-                    onClick={() => handleDatePreset('all')}
-                    className="text-[10px] text-rose-600 dark:text-rose-400 font-bold hover:underline"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleDatePreset('thisMonth')}
-                  className="px-2 py-1 text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200"
-                >
-                  This Month
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDatePreset('lastMonth')}
-                  className="px-2 py-1 text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200"
-                >
-                  Last Month
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDatePreset('last30Days')}
-                  className="px-2 py-1 text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200"
-                >
-                  Last 30 Days
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDatePreset('all')}
-                  className="px-2 py-1 text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200"
-                >
-                  All Time
-                </button>
-              </div>
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Custom Range</span>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <div>
-                    <label className="text-[10px] text-slate-400 block mb-0.5">From</label>
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => onDateChange(e.target.value, endDate)}
-                      className="w-full px-1.5 py-1 text-[11px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400 block mb-0.5">To</label>
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => onDateChange(startDate, e.target.value)}
-                      className="w-full px-1.5 py-1 text-[11px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Clear Filters Button (shown only when active filters exist) */}
-        {hasActiveFilters && (
           <button
             type="button"
-            onClick={handleResetFilters}
-            className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
-            title="Reset all active filters"
+            onClick={() => onBillTypeChange?.('material')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-1.5 sm:py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              selectedBillType === 'material'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-300 shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
           >
-            <X size={12} />
-            <span>Clear</span>
+            <Package size={13} />
+            <span>Material GRNs</span>
           </button>
-        )}
 
-        {/* Action Controls Group: Right Aligned */}
-        <div className="ml-auto flex items-center gap-1.5 shrink-0">
-          {/* Show / Hide Dashboard Button */}
+          <button
+            type="button"
+            onClick={() => onBillTypeChange?.('job-work-service')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-1.5 sm:py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              selectedBillType === 'job-work-service'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-300 shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Wrench size={13} />
+            <span>Job Work</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onBillTypeChange?.('other-service')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-1.5 sm:py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              selectedBillType === 'other-service'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-300 shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Briefcase size={13} />
+            <span>Services</span>
+          </button>
+        </div>
+
+        {/* ROW 3: KPI Metrics, Date Filter Dropdown, Filters Drawer, Sync & Refresh */}
+        <div className="flex flex-wrap lg:flex-nowrap items-center gap-1.5 sm:gap-2 w-full max-w-full">
+          {/* Toggle KPI Financial Summary */}
           <button
             type="button"
             onClick={() => setShowDashboard(!showDashboard)}
-            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all cursor-pointer shrink-0 ${
+            className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border shrink-0 active:scale-95 ${
               showDashboard
-                ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 shadow-2xs'
-                : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                ? 'bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800 shadow-2xs'
+                : 'bg-slate-100 text-slate-700 border-gray-200 hover:bg-slate-200/80 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
             }`}
             title="Toggle Financial Metrics & Summary"
           >
-            <Layers size={13} />
-            <span>{showDashboard ? "Hide Metrics" : "Show Metrics"}</span>
+            <BarChart3 size={14} className={showDashboard ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500"} />
+            <span>{showDashboard ? "Hide" : "KPIs"}</span>
             {metrics && (
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-extrabold">
                 {metrics.totalBillsCount || bills.length}
@@ -563,23 +500,95 @@ export default function PurchaseBillTable({
             )}
           </button>
 
-          {/* Add Service Bill Button */}
+          {/* Date Filter Dropdown */}
+          <div className="relative flex-1 min-w-[120px] max-w-[200px]">
+            <select
+              value={activeDatePreset}
+              onChange={(e) => handleDateDropdownChange(e.target.value)}
+              className="w-full appearance-none pl-7 sm:pl-8 pr-6 sm:pr-7 py-2 text-xs font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 truncate"
+            >
+              <option value="all">📅 All Dates</option>
+              <option value="today">📅 Today</option>
+              <option value="yesterday">📅 Yesterday</option>
+              <option value="thisMonth">📅 This Month</option>
+              <option value="lastMonth">📅 Last Month</option>
+              <option value="last30Days">📅 Last 30 Days</option>
+              <option value="custom">📅 Custom Range...</option>
+            </select>
+            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 text-indigo-600 dark:text-indigo-400 pointer-events-none" size={13} />
+            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={13} />
+          </div>
+
+          {/* Mobile Filters Toggle Button */}
           <button
             type="button"
-            onClick={() => setIsCreateServiceBillOpen(true)}
-            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs hover:shadow-md transition-all cursor-pointer shrink-0"
-            title="Record Returnable Job Work Invoice or Other Service Bill"
+            onClick={() => setShowMobileFilters(prev => !prev)}
+            className={`lg:hidden px-2.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border shrink-0 active:scale-95 ${
+              showMobileFilters || activeFilterCount > 0
+                ? 'bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800 shadow-2xs'
+                : 'bg-slate-100 text-slate-700 border-gray-200 hover:bg-slate-200/80 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+            }`}
+            title="Filter by Vendor, Category, Payment Status"
           >
-            <Plus size={14} />
-            <span>+ Add Service Bill</span>
+            <Filter size={13} />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-600 text-white font-extrabold">
+                {activeFilterCount}
+              </span>
+            )}
           </button>
+
+          {/* Desktop Inline Selectors (Hidden on mobile, visible on desktop) */}
+          <div className="hidden lg:flex items-center gap-2 flex-1">
+            {/* Vendor Selector */}
+            <div className="w-[180px] shrink-0">
+              <SearchableSelect
+                options={vendorOptions}
+                value={selectedVendorId}
+                onChange={(val) => onVendorChange(val)}
+                placeholder="All Vendors"
+                className="w-full text-xs"
+                innerClassName="w-full px-2.5 py-2 text-xs bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none cursor-pointer font-bold truncate"
+              />
+            </div>
+
+            {/* Item Category */}
+            <div className="w-[125px] shrink-0">
+              <select
+                value={selectedCategory}
+                onChange={(e) => onCategoryChange(e.target.value)}
+                className="w-full px-2.5 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer"
+              >
+                <option value="all">📦 All Types</option>
+                <option value="rm">Raw Material (RM)</option>
+                <option value="bo">Bought-Out (BO)</option>
+                <option value="consumable">Consumables</option>
+              </select>
+            </div>
+
+            {/* Payment Status */}
+            <div className="w-[125px] shrink-0">
+              <select
+                value={selectedStatus}
+                onChange={(e) => onStatusChange(e.target.value)}
+                className="w-full px-2.5 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer"
+              >
+                <option value="all">💳 All Statuses</option>
+                <option value="Unpaid">⏳ Unpaid</option>
+                <option value="Partially Paid">🟡 Partially Paid</option>
+                <option value="Paid">🟢 Paid</option>
+                <option value="Overdue">🔴 Overdue</option>
+              </select>
+            </div>
+          </div>
 
           {/* Sync from GRNs Button */}
           <button
             type="button"
             onClick={handleSyncFromGRNs}
             disabled={syncing}
-            className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+            className="p-2 sm:px-3 sm:py-2 bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
             title="Scan and sync all RM, BO, and Consumables GRNs into Purchase Bills"
           >
             <RefreshCw size={13} className={syncing ? "animate-spin text-indigo-500" : ""} />
@@ -591,16 +600,348 @@ export default function PurchaseBillTable({
             type="button"
             onClick={onRefresh}
             disabled={loading}
-            className="p-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold flex items-center transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+            className="p-2 bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
             title="Refresh bills list"
           >
             <RotateCcw size={13} className={loading ? "animate-spin text-indigo-500" : ""} />
           </button>
+
+          {/* Reset active filters */}
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-all cursor-pointer shrink-0 active:scale-95"
+              title="Reset all active filters"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
+
+        {/* Auxiliary Custom Date Range Strip */}
+        {activeDatePreset === 'custom' && (
+          <div className="w-full p-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/80 dark:border-slate-700/80 flex items-center gap-1.5 max-w-full overflow-hidden animate-in fade-in duration-150">
+            <span className="text-[10px] text-slate-400 font-bold uppercase shrink-0">From</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => onDateChange(e.target.value, endDate)}
+              className="flex-1 min-w-0 h-7 px-1.5 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <span className="text-[10px] text-slate-400 font-bold uppercase shrink-0">To</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => onDateChange(startDate, e.target.value)}
+              className="flex-1 min-w-0 h-7 px-1.5 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <button
+              type="button"
+              onClick={() => onDateChange('', '')}
+              className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer active:scale-95 shrink-0"
+              title="Clear date range"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* Mobile Filter Drawer (When toggled open on mobile) */}
+        {showMobileFilters && (
+          <div className="lg:hidden w-full p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-2.5 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Quick Filters</span>
+              <button
+                type="button"
+                onClick={() => setShowMobileFilters(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            
+            {/* Vendor */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 mb-1">Supplier / Vendor</label>
+              <SearchableSelect
+                options={vendorOptions}
+                value={selectedVendorId}
+                onChange={(val) => onVendorChange(val)}
+                placeholder="All Vendors / Suppliers"
+                className="w-full text-xs"
+                innerClassName="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none cursor-pointer font-medium"
+              />
+            </div>
+
+            {/* Category & Status */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1">Category</label>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => onCategoryChange(e.target.value)}
+                  className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none"
+                >
+                  <option value="all">📦 All Types</option>
+                  <option value="rm">Raw Material (RM)</option>
+                  <option value="bo">Bought-Out (BO)</option>
+                  <option value="consumable">Consumables</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1">Payment Status</label>
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => onStatusChange(e.target.value)}
+                  className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none"
+                >
+                  <option value="all">💳 All Statuses</option>
+                  <option value="Unpaid">⏳ Unpaid</option>
+                  <option value="Partially Paid">🟡 Partially Paid</option>
+                  <option value="Paid">🟢 Paid</option>
+                  <option value="Overdue">🔴 Overdue</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Table Section: Scrollable Viewport with Sticky Header */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs overflow-hidden flex flex-col">
+      {/* Mobile Card List View (< md) */}
+      <div className="space-y-3 md:hidden">
+        {loading ? (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 border border-slate-200/80 dark:border-slate-800 text-center text-slate-400">
+            <RefreshCw size={24} className="animate-spin mx-auto mb-2 text-indigo-500" />
+            <span className="text-xs font-semibold">Loading Purchase Bills...</span>
+          </div>
+        ) : bills.length === 0 ? (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 border border-slate-200/80 dark:border-slate-800 text-center text-slate-400">
+            <Package size={32} className="mx-auto mb-2 text-slate-300 dark:text-slate-700" />
+            <div className="text-sm font-bold text-slate-600 dark:text-slate-300">No Purchase Bills found</div>
+            <div className="text-xs text-slate-400 mt-1">
+              Click <strong>"Sync GRNs"</strong> to import commercial GRNs or adjust your filter.
+            </div>
+          </div>
+        ) : (
+          bills.map((bill, index) => {
+            const isExpanded = Boolean(expandedCardBillIds[bill._id]);
+            const itemsCount = bill.items?.length || 0;
+            const firstItem = bill.items?.[0];
+
+            return (
+              <div
+                key={bill._id || index}
+                className="bg-white dark:bg-slate-900 rounded-2xl p-3.5 border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-3 transition-all"
+              >
+                {/* 1. Header Row: Bill # & Type / Payment Status */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs sm:text-sm">
+                        {bill.billNumber}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        • {new Date(bill.date).toLocaleDateString()}
+                      </span>
+                    </div>
+
+                    {/* Reference Chips */}
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                      {bill.grnNumber && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          GRN: {bill.grnNumber}
+                        </span>
+                      )}
+                      {bill.jobWorkChallanNumber && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                          DC: {bill.jobWorkChallanNumber}
+                        </span>
+                      )}
+                      {bill.supplierInvoiceNumber && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-500 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                          Inv: {bill.supplierInvoiceNumber}
+                        </span>
+                      )}
+                      {bill.poNumber && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800">
+                          PO: {bill.poNumber}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Badges on right */}
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {/* Bill Type Badge */}
+                    {bill.billType === 'job-work-service' ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                        ⚙️ Job Work
+                      </span>
+                    ) : bill.billType === 'other-service' ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                        🛠️ Service
+                      </span>
+                    ) : (
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                        📦 {bill.grnCategory?.toUpperCase() || 'RM'}
+                      </span>
+                    )}
+
+                    {/* Payment Status Pill */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBillForPayment(bill)}
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full cursor-pointer hover:opacity-85 transition-opacity ${
+                        bill.paymentStatus === 'Paid'
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300'
+                          : bill.paymentStatus === 'Partially Paid'
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300'
+                          : bill.paymentStatus === 'Overdue'
+                          ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300'
+                          : 'bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
+                      }`}
+                      title="Update payment status"
+                    >
+                      {bill.paymentStatus}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Supplier / Vendor info */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Supplier</span>
+                  <div className="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm">
+                    {bill.vendorName}
+                  </div>
+                  {bill.vendorGst && (
+                    <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                      GSTIN: {bill.vendorGst}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Items / Services Section (AGENTS.md Rule 1) */}
+                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-750 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    <span>Item Details ({itemsCount})</span>
+                    {itemsCount > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => toggleCardItems(bill._id)}
+                        className="text-indigo-600 dark:text-indigo-400 font-bold flex items-center gap-0.5 cursor-pointer lowercase"
+                      >
+                        <span>{isExpanded ? "collapse" : `+${itemsCount - 1} more`}</span>
+                        {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                      </button>
+                    )}
+                  </div>
+
+                  {firstItem ? (
+                    <div>
+                      <div className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+                        {firstItem.serviceName || firstItem.materialName || 'Service / Item'}
+                      </div>
+                      {firstItem.description && (
+                        <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                          📝 {firstItem.description}
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between mt-1 text-[11px] text-slate-600 dark:text-slate-400">
+                        <span>
+                          {firstItem.quantity} {firstItem.unit || 'PCS'} @ ₹{Number(firstItem.rate || 0).toFixed(2)}
+                        </span>
+                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                          ₹{Number(firstItem.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400 italic">No items recorded</div>
+                  )}
+
+                  {/* Accordion for additional items */}
+                  {isExpanded && itemsCount > 1 && (
+                    <div className="pt-2 border-t border-slate-200/80 dark:border-slate-700/80 space-y-2 animate-in fade-in duration-150">
+                      {bill.items.slice(1).map((item, itmIdx) => (
+                        <div key={itmIdx} className="pt-1.5 border-t border-dashed border-slate-200 dark:border-slate-700 first:border-0 first:pt-0">
+                          <div className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                            {item.serviceName || item.materialName || 'Service / Item'}
+                          </div>
+                          {item.description && (
+                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                              📝 {item.description}
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
+                            <span>
+                              {item.quantity} {item.unit || 'PCS'} @ ₹{Number(item.rate || 0).toFixed(2)}
+                            </span>
+                            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                              ₹{Number(item.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. Financial Summary Grid */}
+                <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-750 text-xs">
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Bill Amount</span>
+                    <span className="font-mono font-black text-slate-900 dark:text-slate-100 text-xs sm:text-sm">
+                      ₹{Number(bill.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Paid</span>
+                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm">
+                      ₹{Number(bill.paidAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Remaining Balance</span>
+                    <span className="font-mono font-bold text-rose-600 dark:text-rose-400 text-xs sm:text-sm">
+                      ₹{Number(bill.balanceAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Due Status</span>
+                    <div>{getDueDaysText(bill.dueDate, bill.paymentStatus) || <span className="text-slate-400 text-[10px]">-</span>}</div>
+                  </div>
+                </div>
+
+                {/* 5. Bottom Action Buttons (50/50 Split) */}
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBillForDetail(bill)}
+                    className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                  >
+                    <Eye size={14} className="text-slate-500" />
+                    <span>View Details</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBillForPayment(bill)}
+                    className="py-2 px-3 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
+                  >
+                    <CreditCard size={14} />
+                    <span>Record Payment</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Desktop Table Section: Scrollable Viewport with Sticky Header (>= md) */}
+      <div className="hidden md:flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs overflow-hidden">
         <div className="overflow-auto max-h-[calc(100vh-215px)] min-h-[380px] custom-scrollbar">
           <table className="w-full text-left border-collapse text-xs">
             <thead className="sticky top-0 z-10 bg-slate-100/95 dark:bg-slate-800/95 backdrop-blur-xs shadow-2xs border-b border-slate-200 dark:border-slate-700">

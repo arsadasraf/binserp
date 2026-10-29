@@ -13,8 +13,8 @@ export default function PurchaseBillPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [vendors, setVendors] = useState<any[]>([]);
 
-  // Filter States
-  const [selectedBillType, setSelectedBillType] = useState<string>("material");
+  // Filter States (Default: all bills)
+  const [selectedBillType, setSelectedBillType] = useState<string>("all");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [selectedVendorId, setSelectedVendorId] = useState<string>("all");

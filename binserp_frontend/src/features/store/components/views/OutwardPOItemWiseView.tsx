@@ -471,20 +471,20 @@ export default function OutwardPOItemWiseView({
             </div>
 
             {/* Mobile Cards View */}
-            <div className="md:hidden divide-y divide-gray-200 dark:divide-slate-800 overflow-y-auto max-h-[calc(100vh-240px)]">
+            <div className="md:hidden divide-y divide-gray-100 dark:divide-slate-800/80 pb-20">
               {filteredMaterials.map((item) => (
                 <div
                   key={`mob-${item.id}`}
                   onClick={() => setSelectedMaterialForPreview(item)}
-                  className="p-4 space-y-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer"
+                  className="p-3.5 sm:p-4 space-y-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer active:scale-[0.99] transition-all"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="font-bold text-sm text-slate-900 dark:text-slate-100">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100">
                         {item.name || "Unnamed Material"}
                       </div>
                       {item.description && (
-                        <div className="text-[11px] text-slate-500 italic line-clamp-2 mt-0.5">
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 italic line-clamp-2 mt-0.5">
                           {item.description}
                         </div>
                       )}
@@ -494,7 +494,7 @@ export default function OutwardPOItemWiseView({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 text-center text-xs py-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs py-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-100 dark:border-slate-800/80">
                     <div>
                       <div className="text-[9px] uppercase font-bold text-slate-400">Ordered</div>
                       <div className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.totalOrderedQty} {item.unit}</div>
@@ -519,9 +519,9 @@ export default function OutwardPOItemWiseView({
                         e.stopPropagation();
                         setSelectedMaterialForPreview(item);
                       }}
-                      className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-purple-600 text-white font-bold text-xs"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-2xs active:scale-95 transition-all cursor-pointer"
                     >
-                      <Eye size={12} /> View Details
+                      <Eye size={13} /> <span>View Details</span>
                     </button>
                   </div>
                 </div>

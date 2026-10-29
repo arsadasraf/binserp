@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck, Plus, Lock, Package, ChevronDown, Check, Layers, IndianRupee, BarChart3, MessageSquare, Send, Link2, Link2Off, Loader2, Calendar, ArrowUpDown, Filter } from 'lucide-react';
+import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck, Plus, Lock, Package, ChevronDown, ChevronUp, Check, Layers, IndianRupee, BarChart3, MessageSquare, Send, Link2, Link2Off, Loader2, Calendar, ArrowUpDown, Filter } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { generateDocument } from '@/src/utils/documentHelper';
 import { generateFrontendPoPDF } from '@/src/utils/frontendPdfHelper';
@@ -153,6 +153,12 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
     const [newCommentCategory, setNewCommentCategory] = useState('General');
     const [isSubmittingComment, setIsSubmittingComment] = useState(false);
     const [localFollowUpsMap, setLocalFollowUpsMap] = useState<Record<string, any[]>>({});
+
+    // Mobile Card expandable line items state
+    const [expandedCardPoIds, setExpandedCardPoIds] = useState<Record<string, boolean>>({});
+    const toggleCardItemsExpand = (poId: string) => {
+        setExpandedCardPoIds(prev => ({ ...prev, [poId]: !prev[poId] }));
+    };
 
     // MRP Quick Linking modal state
     const [linkingPO, setLinkingPO] = useState<any | null>(null);
@@ -796,6 +802,64 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         }
     };
 
+    const handleResetDateFilter = () => {
+        setDateMode('all');
+        setSelectedDay('');
+        setSelectedMonth('');
+        setStartDate('');
+        setEndDate('');
+    };
+
+    const activeDateDropdownValue = useMemo(() => {
+        if (dateMode === 'all') return 'all';
+        if (dateMode === 'day') {
+            if (selectedDay === getTodayStr()) return 'today';
+            if (selectedDay === getYesterdayStr()) return 'yesterday';
+            return 'custom_day';
+        }
+        if (dateMode === 'month') {
+            if (selectedMonth === getCurrentMonthStr()) return 'this_month';
+            if (selectedMonth === getLastMonthStr()) return 'last_month';
+            return 'custom_month';
+        }
+        if (dateMode === 'year') return 'year';
+        if (dateMode === 'range') return 'range';
+        return 'all';
+    }, [dateMode, selectedDay, selectedMonth]);
+
+    const handleDateFilterDropdownChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const val = e.target.value;
+        if (val === 'all') {
+            handleResetDateFilter();
+        } else if (val === 'today') {
+            setDateMode('day');
+            setSelectedDay(getTodayStr());
+        } else if (val === 'yesterday') {
+            setDateMode('day');
+            setSelectedDay(getYesterdayStr());
+        } else if (val === 'this_month') {
+            setDateMode('month');
+            setSelectedMonth(getCurrentMonthStr());
+        } else if (val === 'last_month') {
+            setDateMode('month');
+            setSelectedMonth(getLastMonthStr());
+        } else if (val === 'custom_day') {
+            setDateMode('day');
+            if (!selectedDay) setSelectedDay(getTodayStr());
+        } else if (val === 'custom_month') {
+            setDateMode('month');
+            if (!selectedMonth) setSelectedMonth(getCurrentMonthStr());
+        } else if (val === 'year') {
+            setDateMode('year');
+        } else if (val === 'range') {
+            setDateMode('range');
+            if (!startDate && !endDate) {
+                setStartDate(getTodayStr());
+                setEndDate(getTodayStr());
+            }
+        }
+    };
+
     const handleSortChange = (key: string, direction: 'asc' | 'desc') => {
         setTableSortConfig(prev => {
             if (prev?.key === key && prev?.direction === direction) {
@@ -999,7 +1063,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                         </span>
                     </div>
 
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
                         {/* Card 1: Total Outward POs */}
                         <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
                             <div className="min-w-0">
@@ -1040,6 +1104,9 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     </span>
                                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
                                         Done: {metrics.completedCount}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60">
+                                        Part: {metrics.partiallyReceivedCount}
                                     </span>
                                 </div>
                                 <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-1 truncate font-medium">
@@ -1090,86 +1157,146 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                 </div>
             )}
 
-            {/* Search, Filter & Action Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
-                <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
-                    {/* Search Bar */}
-                    <div className="relative flex-1 min-w-[180px] sm:min-w-[220px]">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+            {/* Search, Filter & Action Toolbar - 3-Row Mobile & Responsive Architecture */}
+            <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex flex-col gap-2.5">
+                {/* ROW 1: Search Bar & Create PO Icon */}
+                <div className="flex items-center gap-2 w-full">
+                    <div className="relative flex-1 min-w-0">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                         <input
                             type="text"
                             placeholder={viewMode === 'items' ? "Search Material, Description, PO #..." : "Search PO #, Vendor, or Material..."}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-9 pr-8 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white"
+                            className="w-full pl-8 sm:pl-9 pr-7 sm:pr-8 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white"
                         />
                         {searchTerm && (
                             <button
                                 type="button"
                                 onClick={() => setSearchTerm('')}
-                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer p-0.5"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer p-0.5"
+                                title="Clear search"
                             >
                                 <X size={14} />
                             </button>
                         )}
                     </div>
 
-                    {/* Small View Mode Toggle Button */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0 border border-slate-200/80 dark:border-slate-700/80">
+                    {/* Create Outward PO Button (Icon on mobile, labeled on desktop) */}
+                    {onCreatePO && (
                         <button
                             type="button"
-                            onClick={() => setViewMode('po')}
-                            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                viewMode === 'po'
-                                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-2xs'
-                                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                            title="View Outward Purchase Orders"
+                            onClick={onCreatePO}
+                            className="p-2 sm:px-4 sm:py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 active:from-cyan-800 active:to-blue-800 text-white rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0 active:scale-95"
+                            title="Create Outward PO"
                         >
-                            <ShoppingCart size={13} />
-                            <span>POs ({dateFilteredData.length})</span>
+                            <Plus size={16} />
+                            <span className="hidden sm:inline font-bold text-xs">Create Outward PO</span>
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => setViewMode('items')}
-                            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                viewMode === 'items'
-                                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-2xs'
-                                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                            title="View All Materials & Linked Outward POs"
+                    )}
+                </div>
+
+                {/* ROW 2: POs and Items View Mode Toggle */}
+                <div className="w-full flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80 sm:w-fit">
+                    <button
+                        type="button"
+                        onClick={() => setViewMode('po')}
+                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            viewMode === 'po'
+                                ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-2xs'
+                                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                        title="View Outward Purchase Orders"
+                    >
+                        <ShoppingCart size={13} />
+                        <span>POs ({dateFilteredData.length})</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setViewMode('items')}
+                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            viewMode === 'items'
+                                ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-2xs'
+                                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                        title="View All Materials & Linked Outward POs"
+                    >
+                        <Package size={13} />
+                        <span>Items ({uniqueItemCount})</span>
+                    </button>
+                </div>
+
+                {/* ROW 3: KPI Toggle, Day & Month Filter Dropdown, and Export Button */}
+                <div className="flex items-center gap-1.5 sm:gap-2 w-full max-w-full">
+                    {/* Toggle Top Dashboard / KPI cards */}
+                    <button
+                        type="button"
+                        onClick={() => setShowDashboard(prev => !prev)}
+                        className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border shrink-0 active:scale-95 ${
+                            showDashboard
+                                ? 'bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800 shadow-2xs'
+                                : 'bg-slate-100 text-slate-700 border-gray-200 hover:bg-slate-200/80 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                        }`}
+                        title={showDashboard ? "Hide KPI Dashboard" : "Show dynamic KPI metrics"}
+                    >
+                        <BarChart3 size={14} className={showDashboard ? "text-purple-600 dark:text-purple-400" : "text-slate-500"} />
+                        <span>{showDashboard ? "Hide" : "KPIs"}</span>
+                    </button>
+
+                    {/* Date Filter Mode Dropdown (Day, Month, Year, Range, All Time) */}
+                    <div className="relative flex-1 min-w-0">
+                        <select
+                            value={activeDateDropdownValue}
+                            onChange={handleDateFilterDropdownChange}
+                            className="w-full appearance-none pl-7 sm:pl-8 pr-6 sm:pr-7 py-2 text-xs font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20 truncate"
                         >
-                            <Package size={13} />
-                            <span>Items ({uniqueItemCount})</span>
-                        </button>
+                            <option value="all">📅 All Time</option>
+                            <option value="today">📅 Today</option>
+                            <option value="yesterday">📅 Yesterday</option>
+                            <option value="this_month">📅 This Month</option>
+                            <option value="last_month">📅 Last Month</option>
+                            <option value="custom_day">📅 Custom Day...</option>
+                            <option value="custom_month">📅 Custom Month...</option>
+                            <option value="year">📅 Filter by Year...</option>
+                            <option value="range">📅 Custom Range...</option>
+                        </select>
+                        <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-600 dark:text-purple-400 pointer-events-none" size={13} />
+                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={13} />
                     </div>
 
-                    {/* Dynamic Date Filter Controller (Day / Month / Year / Custom Range) */}
-                    <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/80 shrink-0">
-                        <div className="flex items-center gap-0.5">
-                            {(['all', 'day', 'month', 'year', 'range'] as const).map(mode => (
-                                <button
-                                    key={mode}
-                                    type="button"
-                                    onClick={() => handleSelectDateMode(mode)}
-                                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                        dateMode === mode
-                                            ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-2xs'
-                                            : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                                    }`}
-                                >
-                                    {mode === 'all' ? 'All Time' : mode === 'day' ? 'Day' : mode === 'month' ? 'Month' : mode === 'year' ? 'Year' : 'Range'}
-                                </button>
-                            ))}
-                        </div>
+                    {/* Export to Excel */}
+                    <button
+                        type="button"
+                        onClick={exportPOListToExcel}
+                        className="px-2.5 sm:px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs shrink-0 active:scale-95"
+                        title="Export filtered PO list to Excel"
+                    >
+                        <FileSpreadsheet size={14} className="text-emerald-600 dark:text-emerald-400" />
+                        <span>Export</span>
+                    </button>
 
-                        {/* Mode Specific Controls */}
+                    {/* Reset date filter button */}
+                    {dateMode !== 'all' && (
+                        <button
+                            type="button"
+                            onClick={handleResetDateFilter}
+                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-all cursor-pointer shrink-0 active:scale-95"
+                            title="Reset Date Filter"
+                        >
+                            <X size={14} />
+                        </button>
+                    )}
+                </div>
+
+                {/* Auxiliary Date Controls (When day, month, year, or range is selected) */}
+                {dateMode !== 'all' && (
+                    <div className="w-full p-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/80 dark:border-slate-700/80 flex items-center gap-1.5 max-w-full overflow-hidden animate-in fade-in duration-150">
                         {dateMode === 'day' && (
-                            <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-200 dark:border-slate-700">
+                            <>
                                 <button
                                     type="button"
                                     onClick={() => setSelectedDay(getTodayStr())}
-                                    className={`px-2 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
+                                    className={`px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95 shrink-0 ${
                                         selectedDay === getTodayStr()
                                             ? 'bg-purple-600 text-white shadow-2xs'
                                             : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-purple-300'
@@ -1180,7 +1307,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                 <button
                                     type="button"
                                     onClick={() => setSelectedDay(getYesterdayStr())}
-                                    className={`px-2 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
+                                    className={`px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95 shrink-0 ${
                                         selectedDay === getYesterdayStr()
                                             ? 'bg-purple-600 text-white shadow-2xs'
                                             : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-purple-300'
@@ -1192,17 +1319,17 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     type="date"
                                     value={selectedDay}
                                     onChange={(e) => setSelectedDay(e.target.value)}
-                                    className="h-7 px-2 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-purple-500"
+                                    className="flex-1 min-w-0 h-7 px-2 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-purple-500"
                                 />
-                            </div>
+                            </>
                         )}
 
                         {dateMode === 'month' && (
-                            <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-200 dark:border-slate-700">
+                            <>
                                 <button
                                     type="button"
                                     onClick={() => setSelectedMonth(getCurrentMonthStr())}
-                                    className={`px-2 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
+                                    className={`px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95 shrink-0 ${
                                         selectedMonth === getCurrentMonthStr()
                                             ? 'bg-purple-600 text-white shadow-2xs'
                                             : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-purple-300'
@@ -1213,7 +1340,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                 <button
                                     type="button"
                                     onClick={() => setSelectedMonth(getLastMonthStr())}
-                                    className={`px-2 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
+                                    className={`px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95 shrink-0 ${
                                         selectedMonth === getLastMonthStr()
                                             ? 'bg-purple-600 text-white shadow-2xs'
                                             : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-purple-300'
@@ -1225,17 +1352,18 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     type="month"
                                     value={selectedMonth}
                                     onChange={(e) => setSelectedMonth(e.target.value)}
-                                    className="h-7 px-2 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-purple-500"
+                                    className="flex-1 min-w-0 h-7 px-2 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-purple-500"
                                 />
-                            </div>
+                            </>
                         )}
 
                         {dateMode === 'year' && (
-                            <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-200 dark:border-slate-700">
+                            <div className="flex items-center gap-1.5 w-full">
+                                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 shrink-0">Year:</span>
                                 <select
                                     value={selectedYear}
                                     onChange={(e) => setSelectedYear(e.target.value)}
-                                    className="h-7 px-2 text-[11px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-1 focus:ring-purple-500"
+                                    className="flex-1 min-w-0 h-7 px-2 text-[11px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-1 focus:ring-purple-500"
                                 >
                                     <optgroup label="Financial Years (Apr - Mar)">
                                         {financialYearOptions.map(opt => (
@@ -1252,81 +1380,25 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                         )}
 
                         {dateMode === 'range' && (
-                            <div className="flex items-center gap-1.5 pl-1.5 border-l border-slate-200 dark:border-slate-700">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase">From</span>
+                            <div className="flex items-center gap-1.5 w-full">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase shrink-0">From</span>
                                 <input
                                     type="date"
                                     value={startDate}
                                     onChange={(e) => setStartDate(e.target.value)}
-                                    className="h-7 px-2 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-purple-500"
+                                    className="flex-1 min-w-0 h-7 px-1.5 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-purple-500"
                                 />
-                                <span className="text-[10px] text-slate-400 font-bold uppercase">To</span>
+                                <span className="text-[10px] text-slate-400 font-bold uppercase shrink-0">To</span>
                                 <input
                                     type="date"
                                     value={endDate}
                                     onChange={(e) => setEndDate(e.target.value)}
-                                    className="h-7 px-2 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-purple-500"
+                                    className="flex-1 min-w-0 h-7 px-1.5 text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 font-mono outline-none focus:ring-1 focus:ring-purple-500"
                                 />
                             </div>
                         )}
-
-                        {/* Reset date button */}
-                        {dateMode !== 'all' && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setDateMode('all');
-                                    setSelectedDay('');
-                                    setSelectedMonth('');
-                                    setStartDate('');
-                                    setEndDate('');
-                                }}
-                                className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
-                                title="Reset Date Filter"
-                            >
-                                <X size={13} />
-                            </button>
-                        )}
                     </div>
-                </div>
-
-                {/* Right Side: Action Buttons */}
-                <div className="flex items-center justify-end gap-2 shrink-0">
-                    {/* Toggle Top Dashboard / KPI cards */}
-                    <button
-                        type="button"
-                        onClick={() => setShowDashboard(prev => !prev)}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
-                            showDashboard
-                                ? 'bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800 shadow-2xs'
-                                : 'bg-slate-100 text-slate-700 border-gray-200 hover:bg-slate-200/80 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
-                        }`}
-                        title={showDashboard ? "Hide KPI Dashboard" : "Show dynamic KPI metrics"}
-                    >
-                        <BarChart3 size={14} className={showDashboard ? "text-purple-600 dark:text-purple-400" : "text-slate-500"} />
-                        <span>{showDashboard ? "Hide KPI" : "Show KPI"}</span>
-                    </button>
-
-                    {/* Export to Excel */}
-                    <button
-                        type="button"
-                        onClick={exportPOListToExcel}
-                        className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                        title="Export filtered PO list to Excel"
-                    >
-                        <FileSpreadsheet size={14} className="text-emerald-600 dark:text-emerald-400" />
-                        <span className="hidden sm:inline">Export Excel</span>
-                    </button>
-
-                    {onCreatePO && (
-                        <button
-                            onClick={onCreatePO}
-                            className="w-full sm:w-auto px-4 py-2 bg-cyan-600 hover:bg-cyan-700 active:bg-cyan-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-                        >
-                            <Plus size={15} /> <span>Create Outward PO</span>
-                        </button>
-                    )}
-                </div>
+                )}
             </div>
 
             {viewMode === 'items' ? (
@@ -1790,7 +1862,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                     </div>
 
                     {/* Mobile Card View */}
-                    <div className="block md:hidden space-y-3 pb-28 sm:pb-20 overflow-y-auto max-h-[calc(100vh-240px)]">
+                    <div className="block md:hidden space-y-3 pb-24 sm:pb-20">
                         {sortedData.map((item) => {
                             const vendorName = getVendorNameStr(item);
                             const materialName = getMaterialNameStr(item);
@@ -1809,105 +1881,157 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                 rowQuantity += Number(it.quantity || 0);
                             });
 
+                            const isCardExpanded = Boolean(expandedCardPoIds[item._id]);
+                            const currentMrp = getResolvedMrp(item);
+                            const hasGrn = checkPoHasGrn(item);
+                            const creatorName = item.createdByName || item.createdBy?.name || '';
+
                             return (
-                                <div key={item._id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 flex flex-col gap-3">
-                                    <div className="flex justify-between items-start border-b border-gray-100 dark:border-slate-800 pb-2.5">
-                                        <div>
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span onClick={() => setSelectedPoPreview(item)} className="text-xs font-mono font-extrabold text-purple-600 dark:text-purple-400 cursor-pointer">
-                                                    PO #{item.poNumber || '-'}
-                                                </span>
-                                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide border ${
-                                                    category === 'BO' ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800' :
-                                                    category === 'Consumable' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800' :
-                                                    'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950/60 dark:text-cyan-300 dark:border-cyan-800'
-                                                }`}>
-                                                    {category === 'BO' ? 'Bought Out' : category === 'Consumable' ? 'Consumable' : 'Raw Material'}
-                                                </span>
-                                            </div>
-                                            {(() => {
-                                                const currentMrp = getResolvedMrp(item);
-                                                return currentMrp ? (
-                                                    <div className="mt-0.5 flex items-center">
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => { e.stopPropagation(); handleOpenLinkMrp(item); }}
-                                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800 cursor-pointer"
-                                                        >
-                                                            <Link2 size={10} className="text-purple-600" />
-                                                            <span>MRP: {currentMrp}</span>
-                                                            <Edit2 size={9} className="text-purple-500 ml-0.5" />
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <div className="mt-0.5">
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => { e.stopPropagation(); handleOpenLinkMrp(item); }}
-                                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold text-slate-400 hover:text-purple-600 rounded border border-dashed border-slate-200 dark:border-slate-700 cursor-pointer"
-                                                        >
-                                                            <Plus size={10} /> Link MRP
-                                                        </button>
-                                                    </div>
-                                                );
-                                            })()}
-                                            <h4 className="font-bold text-gray-900 dark:text-white text-sm">{vendorName}</h4>
-                                            <div className="text-[11px] text-gray-500 dark:text-slate-400 font-medium">{poDate}</div>
-                                            {(item.createdByName || item.createdBy?.name) && (
-                                                <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                                                    <User size={10} className="shrink-0" />
-                                                    <span>By: <strong className="font-semibold text-slate-700 dark:text-slate-300">{item.createdByName || item.createdBy?.name}</strong></span>
-                                                    {item.createdAt && (
-                                                        <span className="text-slate-400 font-mono text-[9px]">
-                                                            ({new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
-                                                        </span>
-                                                    )}
-                                                </div>
+                                <div key={item._id} className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl shadow-xs border border-slate-200/90 dark:border-slate-800 flex flex-col gap-3 hover:border-purple-300 dark:hover:border-purple-800/60 transition-all">
+                                    {/* Top Bar: Identity & Status */}
+                                    <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 pb-2.5">
+                                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                            <span 
+                                                onClick={() => setSelectedPoPreview(item)} 
+                                                className="text-xs sm:text-sm font-mono font-black text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+                                            >
+                                                PO #{item.poNumber || '-'}
+                                            </span>
+                                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide border ${
+                                                category === 'BO' ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800' :
+                                                category === 'Consumable' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800' :
+                                                'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950/60 dark:text-cyan-300 dark:border-cyan-800'
+                                            }`}>
+                                                {category === 'BO' ? 'Bought Out' : category === 'Consumable' ? 'Consumable' : 'Raw Material'}
+                                            </span>
+                                            {currentMrp ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => { e.stopPropagation(); handleOpenLinkMrp(item); }}
+                                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800 cursor-pointer"
+                                                    title="Edit or unlink MRP Plan"
+                                                >
+                                                    <Link2 size={10} className="text-purple-600" />
+                                                    <span>MRP: {currentMrp}</span>
+                                                    <Edit2 size={8} className="text-purple-500" />
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => { e.stopPropagation(); handleOpenLinkMrp(item); }}
+                                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold text-slate-400 hover:text-purple-600 rounded border border-dashed border-slate-200 dark:border-slate-700 cursor-pointer"
+                                                >
+                                                    <Plus size={10} /> Link MRP
+                                                </button>
                                             )}
                                         </div>
-                                        <select
-                                            disabled={updatingStatusId === item._id}
-                                            value={item.status || 'Released'}
-                                            onChange={(e) => handleUpdateStatus(item._id, e.target.value)}
-                                            className={`px-2.5 py-1 rounded-full text-xs font-bold border outline-none cursor-pointer shadow-sm ${
-                                                item.status === 'Released' || item.status === 'Approved' ? 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-950 dark:text-purple-300' :
-                                                item.status === 'Completed' ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300' :
-                                                item.status === 'Partially Received' ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-300' :
-                                                item.status === 'Cancelled' ? 'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950 dark:text-rose-300' :
-                                                'bg-gray-100 text-gray-800 border-gray-200'
-                                            }`}
-                                        >
-                                            <option value="Released">Released</option>
-                                            <option value="Approved">Approved</option>
-                                            <option value="Partially Received">Partially Received</option>
-                                            <option value="Completed">Completed</option>
-                                            <option value="Cancelled">Cancelled</option>
-                                        </select>
+                                        
+                                        {/* Status Selector Pill */}
+                                        <div className="shrink-0">
+                                            <select
+                                                disabled={updatingStatusId === item._id}
+                                                value={item.status || 'Released'}
+                                                onChange={(e) => handleUpdateStatus(item._id, e.target.value)}
+                                                className={`px-2.5 py-1 rounded-full text-[11px] font-bold border outline-none cursor-pointer shadow-2xs transition-all ${
+                                                    item.status === 'Released' || item.status === 'Approved' ? 'bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/70 dark:text-purple-300 dark:border-purple-800' :
+                                                    item.status === 'Completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800' :
+                                                    item.status === 'Partially Received' ? 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/70 dark:text-blue-300 dark:border-blue-800' :
+                                                    item.status === 'Cancelled' ? 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/70 dark:text-rose-300 dark:border-rose-800' :
+                                                    'bg-gray-50 text-gray-800 border-gray-200 dark:bg-slate-800 dark:text-slate-200'
+                                                }`}
+                                            >
+                                                <option value="Released">Released</option>
+                                                <option value="Approved">Approved</option>
+                                                <option value="Partially Received">Partially Received</option>
+                                                <option value="Completed">Completed</option>
+                                                <option value="Cancelled">Cancelled</option>
+                                            </select>
+                                        </div>
                                     </div>
 
-                                    {/* Items & Amount Summary */}
-                                    <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl text-xs space-y-1.5 border border-slate-100 dark:border-slate-800">
-                                        <div className="flex justify-between items-start text-slate-600 dark:text-slate-300">
-                                            <span className="font-semibold text-slate-500 pt-0.5">Items:</span>
-                                            <div className="text-right">
-                                                <div className="font-bold truncate max-w-[200px]">
-                                                    {materialName} {itemsList.length > 1 && `(+${itemsList.length - 1} more)`}
+                                    {/* Vendor & Metadata Row */}
+                                    <div className="space-y-0.5">
+                                        <h4 className="font-extrabold text-slate-900 dark:text-white text-sm line-clamp-1">{vendorName}</h4>
+                                        <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 font-medium flex-wrap">
+                                            <span>{poDate}</span>
+                                            {creatorName && (
+                                                <span className="flex items-center gap-1">
+                                                    • By: <strong className="font-semibold text-slate-700 dark:text-slate-300">{creatorName}</strong>
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Items & Amount Summary Box (AGENTS.md Compliant) */}
+                                    <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+                                        {/* Primary Item */}
+                                        <div className="flex justify-between items-start gap-2">
+                                            <div className="min-w-0 flex-1">
+                                                <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                                                    {materialName}
                                                 </div>
                                                 {materialDesc && (
-                                                    <div className="text-[10px] text-slate-500 italic mt-0.5 line-clamp-1 truncate max-w-[200px]">
+                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
                                                         {materialDesc}
                                                     </div>
                                                 )}
-                                                <div className="text-[10.5px] text-slate-400 flex justify-end gap-1.5 mt-0.5">
-                                                    {rowPieceCount > 0 && <span className="text-amber-700 dark:text-amber-300 font-bold">{rowPieceCount} Pcs</span>}
-                                                    {rowQuantity > 0 && <span>• Qty: {rowQuantity}</span>}
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                                <div className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200">
+                                                    {rowPieceCount > 0 ? (
+                                                        <span className="text-amber-700 dark:text-amber-400 font-bold">{rowPieceCount} Pcs</span>
+                                                    ) : (
+                                                        <span>{rowQuantity > 0 ? `Qty: ${rowQuantity}` : ''}</span>
+                                                    )}
                                                 </div>
+                                                {rowPieceCount > 0 && rowQuantity > 0 && (
+                                                    <div className="text-[10px] text-slate-400 font-medium">Qty: {rowQuantity}</div>
+                                                )}
                                             </div>
                                         </div>
-                                        <div className="flex justify-between items-center pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-                                            <span className="font-bold text-slate-700 dark:text-slate-300">Total Value:</span>
-                                            <span className="font-extrabold text-purple-600 dark:text-purple-400 font-mono text-sm">
-                                                ₹ {amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+
+                                        {/* Inline Expansion for multiple line items */}
+                                        {itemsList.length > 1 && (
+                                            <div className="pt-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleCardItemsExpand(item._id)}
+                                                    className="text-[11px] font-bold text-purple-600 dark:text-purple-400 hover:text-purple-700 flex items-center gap-1 cursor-pointer transition-colors"
+                                                >
+                                                    {isCardExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                                    <span>{isCardExpanded ? 'Hide additional items' : `+${itemsList.length - 1} more items in this PO`}</span>
+                                                </button>
+
+                                                {isCardExpanded && (
+                                                    <div className="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 space-y-2 animate-in fade-in duration-150">
+                                                        {itemsList.slice(1).map((subIt: any, subIdx: number) => {
+                                                            const subName = subIt.materialName || (typeof subIt.material === 'object' ? subIt.material?.name : '') || 'Item';
+                                                            const subDesc = subIt.description || (typeof subIt.material === 'object' ? (subIt.material?.descriptions || subIt.material?.description) : '') || '';
+                                                            const subDisp = resolveLineItemDisplay(subIt);
+                                                            const subPcs = Number(subIt.pieceCount || subIt.count || 0);
+
+                                                            return (
+                                                                <div key={subIdx} className="flex justify-between items-start gap-2 text-xs py-1 border-b border-slate-200/40 dark:border-slate-800 last:border-b-0">
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <div className="font-semibold text-slate-800 dark:text-slate-200">{subName}</div>
+                                                                        {subDesc && <div className="text-[10px] text-slate-500 italic line-clamp-1">{subDesc}</div>}
+                                                                    </div>
+                                                                    <div className="text-right shrink-0 font-mono text-[11px] text-slate-700 dark:text-slate-300 font-bold">
+                                                                        {subPcs > 0 ? `${subPcs} Pcs • ` : ''}{subDisp.displayQty} {subDisp.displayUnit}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Total Value */}
+                                        <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between">
+                                            <span className="font-bold text-slate-600 dark:text-slate-300 text-xs">Total Order Value:</span>
+                                            <span className="font-extrabold text-purple-700 dark:text-purple-300 font-mono text-sm sm:text-base">
+                                                ₹{amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </span>
                                         </div>
                                     </div>
@@ -1934,7 +2058,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                         <button 
                                                             type="button"
                                                             onClick={() => setSelectedPoPreview({ ...item, followUps: sortedFollowUps })}
-                                                            className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline"
+                                                            className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
                                                         >
                                                             +{extraCount} more
                                                         </button>
@@ -1959,45 +2083,21 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                         );
                                     })()}
 
-                                    {/* Action Buttons & Countdown */}
-                                    <div className="flex items-center justify-between gap-1.5 pt-1">
-                                        <div className="flex items-center gap-1.5 flex-1">
-                                            <button onClick={() => setSelectedPoPreview({ ...item, followUps: localFollowUpsMap[item._id || item.id] || item.followUps || [] })} className="flex-1 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl flex items-center justify-center gap-1 cursor-pointer">
-                                                <Eye size={14} /> View
-                                            </button>
-                                            {isPoPdfLocked(item) ? (
-                                                <button 
-                                                    type="button"
-                                                    onClick={() => showWarningDialog("Approval Required", "Outward PO must be approved before generating PDF.")}
-                                                    className="flex-1 py-2 text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center justify-center gap-1 cursor-pointer"
-                                                    title="Approval Required before PDF download"
-                                                >
-                                                    <Lock size={13} /> PDF Locked
-                                                </button>
-                                            ) : (
-                                                <button onClick={() => downloadPOAsPDF(item)} className="flex-1 py-2 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center gap-1 shadow-sm cursor-pointer">
-                                                    <Download size={14} /> PDF
-                                                </button>
-                                            )}
-                                        </div>
-
-                                        {(() => {
-                                            const hasGrn = checkPoHasGrn(item);
-                                            if (hasGrn) {
-                                                return (
+                                    {/* Action Buttons & Timelock: Two-Tier Layout */}
+                                    <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                                        {/* Tier A: Timelock / Status badge + Edit/Delete Buttons */}
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div>
+                                                {hasGrn ? (
                                                     <span 
                                                         title="Action locked: Inward Goods Receipt Note (GRN) already created for this PO"
-                                                        className="px-2 py-1 bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl text-[10px] font-bold border border-amber-300 dark:border-amber-700/60 inline-flex items-center gap-1 shrink-0 shadow-2xs"
+                                                        className="px-2 py-1 bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl text-[10px] font-bold border border-amber-300 dark:border-amber-700/60 inline-flex items-center gap-1 shadow-2xs"
                                                     >
                                                         <Lock size={11} className="text-amber-600 dark:text-amber-400" />
                                                         GRN Created
                                                     </span>
-                                                );
-                                            }
-
-                                            return isWithinLimit ? (
-                                                <div className="flex items-center gap-1 shrink-0">
-                                                    {remainingSecs === Infinity ? (
+                                                ) : isWithinLimit ? (
+                                                    remainingSecs === Infinity ? (
                                                         <span 
                                                             className="px-2 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-xl font-mono text-[10px] font-bold border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1"
                                                         >
@@ -2011,23 +2111,63 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                             <Clock size={11} className="text-amber-600 animate-pulse" />
                                                             {formatRemainingTime(remainingSecs)}
                                                         </span>
-                                                    )}
-                                                    <button onClick={() => handleEditSafe(item)} className="p-2 text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 rounded-xl flex items-center justify-center cursor-pointer" title="Edit">
-                                                        <Edit2 size={15} />
+                                                    )
+                                                ) : (
+                                                    <span 
+                                                        title={`Editing and deleting window expired (${getPolicyHours('purchasePo')}h limit)`} 
+                                                        className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px] font-semibold rounded-xl inline-flex items-center gap-1 opacity-70"
+                                                    >
+                                                        <Lock size={11} /> Locked
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            {!hasGrn && isWithinLimit && (
+                                                <div className="flex items-center gap-1.5">
+                                                    <button 
+                                                        onClick={() => handleEditSafe(item)} 
+                                                        className="p-2 text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 rounded-xl flex items-center justify-center cursor-pointer active:scale-95 transition-all shadow-2xs" 
+                                                        title="Edit Outward PO"
+                                                    >
+                                                        <Edit2 size={14} />
                                                     </button>
-                                                    <button onClick={() => handleDeleteSafe(item)} className="p-2 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 rounded-xl flex items-center justify-center cursor-pointer" title="Delete">
-                                                        <Trash2 size={15} />
+                                                    <button 
+                                                        onClick={() => handleDeleteSafe(item)} 
+                                                        className="p-2 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 rounded-xl flex items-center justify-center cursor-pointer active:scale-95 transition-all shadow-2xs" 
+                                                        title="Delete Outward PO"
+                                                    >
+                                                        <Trash2 size={14} />
                                                     </button>
                                                 </div>
-                                            ) : (
-                                                <span 
-                                                    title={`Editing and deleting window expired (${getPolicyHours('purchasePo')}h limit)`} 
-                                                    className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px] font-semibold rounded-xl inline-flex items-center gap-1 opacity-70"
+                                            )}
+                                        </div>
+
+                                        {/* Tier B: Primary Touch Targets (40px min height, 50/50 Grid) */}
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <button 
+                                                onClick={() => setSelectedPoPreview({ ...item, followUps: localFollowUpsMap[item._id || item.id] || item.followUps || [] })} 
+                                                className="h-10 text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                                            >
+                                                <Eye size={14} /> <span>View Details</span>
+                                            </button>
+                                            {isPoPdfLocked(item) ? (
+                                                <button 
+                                                    type="button"
+                                                    onClick={() => showWarningDialog("Approval Required", "Outward PO must be approved before generating PDF.")}
+                                                    className="h-10 text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                                                    title="Approval Required before PDF download"
                                                 >
-                                                    <Lock size={11} /> Locked
-                                                </span>
-                                            );
-                                        })()}
+                                                    <Lock size={13} /> <span>PDF Locked</span>
+                                                </button>
+                                            ) : (
+                                                <button 
+                                                    onClick={() => downloadPOAsPDF(item)} 
+                                                    className="h-10 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95 transition-all"
+                                                >
+                                                    <Download size={14} /> <span>Download PDF</span>
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             );
@@ -2040,27 +2180,27 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
             {/* Clickable Outward PO Preview Modal with User History & Audit */}
             {selectedPoPreview && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[95vw] lg:max-w-6xl xl:max-w-7xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 lg:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-full sm:max-w-5xl lg:max-w-6xl xl:max-w-7xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh]">
                         
                         {/* Modal Header */}
-                        <div className="p-6 bg-purple-950 text-white flex justify-between items-center flex-shrink-0 border-b border-purple-900">
+                        <div className="px-4 py-3.5 sm:p-6 bg-purple-950 text-white flex justify-between items-center flex-shrink-0 border-b border-purple-900">
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-purple-900 rounded-xl flex items-center justify-center border border-purple-700">
-                                    <ShoppingCart size={20} className="text-purple-300" />
+                                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-900 rounded-xl flex items-center justify-center border border-purple-700 shrink-0">
+                                    <ShoppingCart size={18} className="text-purple-300 sm:w-5 sm:h-5" />
                                 </div>
                                 <div>
-                                    <h2 className="text-xl font-mono font-extrabold tracking-tight text-purple-200">{selectedPoPreview.poNumber || 'PO Preview'}</h2>
-                                    <p className="text-xs text-purple-300/80 mt-0.5">Purchase Order Details & Audit Trail</p>
+                                    <h2 className="text-lg sm:text-xl font-mono font-extrabold tracking-tight text-purple-200 truncate">{selectedPoPreview.poNumber || 'PO Preview'}</h2>
+                                    <p className="text-[11px] sm:text-xs text-purple-300/80 mt-0.5">Purchase Order Details & Audit Trail</p>
                                 </div>
                             </div>
-                            <button onClick={() => setSelectedPoPreview(null)} className="w-8 h-8 rounded-full bg-purple-900 hover:bg-purple-800 flex items-center justify-center text-white transition-colors">
+                            <button onClick={() => setSelectedPoPreview(null)} className="w-8 h-8 rounded-full bg-purple-900 hover:bg-purple-800 flex items-center justify-center text-white transition-colors cursor-pointer active:scale-95 shrink-0">
                                 <X size={18} />
                             </button>
                         </div>
 
                         {/* Modal Content */}
-                        <div className="p-6 overflow-y-auto space-y-6">
+                        <div className="p-3.5 sm:p-6 overflow-y-auto space-y-5">
                             
                             {/* Approval Status Banner if approval workflow is active */}
                             {poRequiresApproval && (
@@ -2532,11 +2672,100 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                 })()}
                             </div>
 
-                            {/* Materials Table */}
-                            <div className="space-y-2">
+                            {/* Materials Table & Mobile Cards */}
+                            <div className="space-y-2.5">
                                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Purchase Order Line Items</h4>
-                                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-                                    <table className="w-full text-xs text-left">
+
+                                {/* Mobile Card List for Preview Modal Line Items */}
+                                <div className="block md:hidden space-y-2.5">
+                                    {(Array.isArray(selectedPoPreview.items) && selectedPoPreview.items.length > 0 
+                                        ? selectedPoPreview.items 
+                                        : [{
+                                            materialName: getMaterialNameStr(selectedPoPreview),
+                                            description: selectedPoPreview.description || selectedPoPreview.remarks || selectedPoPreview.specifications || '',
+                                            hsnCode: selectedPoPreview.hsnCode || '',
+                                            pieceCount: selectedPoPreview.pieceCount || 0,
+                                            quantity: selectedPoPreview.quantity || 1,
+                                            unit: selectedPoPreview.unit || 'PCS',
+                                            rate: selectedPoPreview.rate || selectedPoPreview.amount || 0,
+                                            taxRate: selectedPoPreview.taxRate != null ? selectedPoPreview.taxRate : 18,
+                                            amount: selectedPoPreview.amount || 0
+                                        }]
+                                    ).map((it: any, idx: number) => {
+                                        const itemName = getMaterialNameStr(it);
+                                        const disp = resolveLineItemDisplay(it);
+                                        const activeUnit = disp.displayUnit;
+                                        const activeQty = disp.displayQty;
+                                        const pieceCount = Number(it.pieceCount || it.count || 0);
+                                        const rawItemDesc = it.description || it.itemDescription || it.remarks || it.specifications || it.material?.description || (idx === 0 ? (selectedPoPreview.description || selectedPoPreview.remarks) : '') || '';
+                                        let itemDesc = rawItemDesc;
+                                        const previewMrp = selectedPoPreview.mrpNumber || 
+                                                            (typeof selectedPoPreview.mrpPlanId === 'object' ? (selectedPoPreview.mrpPlanId?.mrpNumber || selectedPoPreview.mrpPlanId?.planNumber) : null) || 
+                                                            (typeof selectedPoPreview.mrpPlan === 'object' ? selectedPoPreview.mrpPlan?.mrpNumber : null) || 
+                                                            (`${selectedPoPreview.notes || ''} ${selectedPoPreview.remarks || ''} ${selectedPoPreview.description || ''}`).match(/\bMRP[-/A-Za-z0-9_]+\b/i)?.[0];
+                                        if (itemDesc && previewMrp) {
+                                            itemDesc = itemDesc.replace(new RegExp(`(?:Generated from\\s+)?MRP\\s*(?:Requirement for|Consolidated:|Plan:?)?\\s*${previewMrp}`, 'gi'), '').trim();
+                                            itemDesc = itemDesc.replace(/(?:Generated from\\s+)?MRP\s*(?:Requirement for|Consolidated:|Plan:?)\s*MRP[-A-Za-z0-9_/]*/gi, '').trim();
+                                            itemDesc = itemDesc.replace(/^[|,\s-]+|[|,\s-]+$/g, '');
+                                        }
+
+                                        const rate = disp.displayRate;
+                                        const lineNet = disp.lineAmount;
+
+                                        return (
+                                            <div key={idx} className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-2 shadow-2xs">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-1.5 mb-0.5">
+                                                            <span className="w-5 h-5 rounded-md bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300 font-bold text-[10px] flex items-center justify-center shrink-0">
+                                                                {idx + 1}
+                                                            </span>
+                                                            <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate">
+                                                                {itemName}
+                                                            </span>
+                                                        </div>
+                                                        {itemDesc && (
+                                                            <div className="text-[11px] text-slate-500 dark:text-slate-400 italic line-clamp-2 mt-0.5">
+                                                                {itemDesc}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    {it.hsnCode && (
+                                                        <span className="font-mono text-[10px] bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 shrink-0 text-slate-600 dark:text-slate-300">
+                                                            HSN: {it.hsnCode}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="grid grid-cols-3 gap-2 text-center text-xs py-1.5 bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/70 dark:border-slate-800">
+                                                    <div>
+                                                        <div className="text-[9px] uppercase font-bold text-slate-400">Qty</div>
+                                                        <div className="font-bold text-slate-800 dark:text-slate-200">{activeQty} {activeUnit}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[9px] uppercase font-bold text-amber-500">Count</div>
+                                                        <div className="font-bold text-amber-700 dark:text-amber-400">{pieceCount > 0 ? `${pieceCount} Pcs` : '-'}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[9px] uppercase font-bold text-slate-400">Unit Rate</div>
+                                                        <div className="font-mono text-slate-700 dark:text-slate-300">₹{rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex justify-between items-center pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60">
+                                                    <span className="text-[11px] font-bold text-slate-500">Line Amount:</span>
+                                                    <span className="font-mono font-extrabold text-xs sm:text-sm text-purple-700 dark:text-purple-300">
+                                                        ₹{lineNet.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Desktop Table View */}
+                                <div className="hidden md:block border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto shadow-sm">
+                                    <table className="w-full text-xs text-left min-w-[620px]">
                                         <thead className="bg-purple-50 dark:bg-slate-800 font-bold text-purple-900 dark:text-purple-300 uppercase">
                                             <tr>
                                                 <th className="p-3 text-center w-10">S.No</th>
@@ -2737,18 +2966,18 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                         </div>
 
                         {/* Modal Footer */}
-                        <div className="p-4 bg-slate-50 dark:bg-slate-800 flex justify-between items-center border-t border-slate-200 dark:border-slate-700">
-                            <button onClick={() => setSelectedPoPreview(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl">
+                        <div className="p-3 sm:p-4 bg-slate-50 dark:bg-slate-800 flex flex-col-reverse sm:flex-row justify-between items-stretch sm:items-center gap-2 border-t border-slate-200 dark:border-slate-700">
+                            <button onClick={() => setSelectedPoPreview(null)} className="w-full sm:w-auto px-4 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl cursor-pointer active:scale-95 transition-all text-center">
                                 Close
                             </button>
 
                             {isPoPdfLocked(selectedPoPreview) ? (
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                                     {canUserApprove('outwardPo', currentUser, userType) ? (
                                         <button 
                                             onClick={() => handleUpdateStatus(selectedPoPreview._id || selectedPoPreview.id, 'Approved')}
                                             disabled={updatingStatusId === (selectedPoPreview._id || selectedPoPreview.id)}
-                                            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                                            className="w-full sm:w-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
                                         >
                                             <ShieldCheck size={15} /> Approve PO
                                         </button>
@@ -2762,7 +2991,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                     `Only ${approverListStr} can approve this Outward Purchase Order. Please ask ${approverListStr} to approve it.`
                                                 );
                                             }}
-                                            className="px-4 py-2.5 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-bold text-xs rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                                            className="w-full sm:w-auto px-4 py-2.5 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-bold text-xs rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 text-center"
                                             title={`Only ${getApproverDisplay('outwardPo')} can approve. Click to view instructions.`}
                                         >
                                             <Lock size={14} className="text-amber-600 dark:text-amber-400" />
@@ -2772,7 +3001,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     <button 
                                         type="button"
                                         onClick={() => showWarningDialog("Approval Required", "This Outward PO must be marked as Approved before generating official PDF.")}
-                                        className="px-4 py-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                                        className="w-full sm:w-auto px-4 py-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
                                         title="Approval Required before generating PDF"
                                     >
                                         <Lock size={14} /> PDF Locked (Approval Required)
@@ -2781,7 +3010,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             ) : (
                                 <button 
                                     onClick={() => downloadPOAsPDF(selectedPoPreview)} 
-                                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-purple-600/20 flex items-center gap-2 cursor-pointer"
+                                    className="w-full sm:w-auto px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-purple-600/20 flex items-center justify-center gap-2 cursor-pointer active:scale-95"
                                 >
                                     <Printer size={15} /> Print / Save PO PDF (Frontend)
                                 </button>

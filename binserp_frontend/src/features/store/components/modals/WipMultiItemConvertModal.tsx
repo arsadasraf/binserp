@@ -12,7 +12,11 @@ import {
   CheckCircle2, 
   ArrowRight,
   Layers,
-  Sparkles
+  Sparkles,
+  Eye,
+  EyeOff,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { apiRequest } from "@/src/lib/api";
 import { formatItemSelectLabel, getItemDescription, ItemNameAndDescription } from "@/src/utils/itemDisplayHelper";
@@ -75,6 +79,7 @@ export default function WipMultiItemConvertModal({
   // Consumed ingredients list
   const [consumedRows, setConsumedRows] = useState<ConsumedRow[]>([]);
   const [selectedIngredientToAdd, setSelectedIngredientToAdd] = useState<string>("");
+  const [isBomPanelOpen, setIsBomPanelOpen] = useState<boolean>(false);
 
   // Audit / Linkage
   const [mrpNumber, setMrpNumber] = useState<string>("");
@@ -97,6 +102,7 @@ export default function WipMultiItemConvertModal({
       setIsCustomTarget(false);
       setConsumedRows([]);
       setSelectedIngredientToAdd("");
+      setIsBomPanelOpen(false);
       setMrpNumber("");
       setRemarks("");
 
@@ -108,14 +114,15 @@ export default function WipMultiItemConvertModal({
   const fetchCatalogsAndWip = async () => {
     try {
       setLoading(true);
-      const [fgRes, wipRmRes, wipBoRes, bomRes] = await Promise.all([
+      const [fgRes, wipRmRes, wipBoRes, wipFgRes, bomRes] = await Promise.all([
         apiRequest("/api/store/fg-item").catch(() => null),
         apiRequest("/api/store/wip/inventory?type=rm").catch(() => null),
         apiRequest("/api/store/wip/inventory?type=bo").catch(() => null),
+        apiRequest("/api/store/wip/inventory?type=fg").catch(() => null),
         apiRequest("/api/store/bom").catch(() => null),
       ]);
 
-      // 1. Process Target Catalogs (FG + Components)
+      // 1. Process Target Catalogs (FG + Components) along with attached BOMs
       const targetMap = new Map();
       if (fgRes && fgRes.ok) {
         const fgData = await fgRes.json().catch(() => null);
@@ -132,29 +139,37 @@ export default function WipMultiItemConvertModal({
               type: item.type || item.fgType || "Component",
               hasSecondaryUnit: Boolean(item.hasSecondaryUnit),
               secondaryUnit: item.secondaryUnit || "",
-              conversionFactor: Number(item.conversionFactor) || 1
+              conversionFactor: Number(item.conversionFactor) || 1,
+              bom: Array.isArray(item.bom) ? item.bom : []
             });
           }
         });
       }
       setExistingTargets(Array.from(targetMap.values()));
 
-      // 2. Process Available Shopfloor WIP Items (RM & BO with shopfloorWipQty > 0)
+      // 2. Process Available Shopfloor WIP Items (RM, BO & FG/Components with shopfloorWipQty > 0)
       const availableItems: any[] = [];
 
-      const processWipList = async (res: any, defaultType: "rm" | "bo") => {
+      const processWipList = async (res: any, defaultType: "rm" | "bo" | "component") => {
         if (!res || !res.ok) return;
         const data = await res.json().catch(() => null);
         const list = data?.items || data?.wipItems || (Array.isArray(data) ? data : []);
         list.forEach((wip: any) => {
           const sfQty = Number(wip.shopfloorWipQty || 0);
           if (sfQty > 0) {
+            const rawType = String(wip.itemType || defaultType).toLowerCase();
+            const normalizedType: "rm" | "bo" | "component" =
+              rawType.includes("bo") || rawType.includes("bought")
+                ? "bo"
+                : rawType.includes("fg") || rawType.includes("comp") || rawType.includes("assembly")
+                ? "component"
+                : "rm";
             availableItems.push({
               materialId: wip.materialId || wip._id || wip.id,
               materialName: wip.materialName || wip.name,
               materialCode: wip.materialCode || wip.code || "",
               materialDescription: wip.materialDescription || wip.description || "",
-              itemType: wip.itemType || defaultType,
+              itemType: normalizedType,
               unit: wip.unit || "PCS",
               shopfloorWipQty: sfQty,
               hasSecondaryUnit: Boolean(wip.hasSecondaryUnit),
@@ -168,11 +183,12 @@ export default function WipMultiItemConvertModal({
       await Promise.all([
         processWipList(wipRmRes, "rm"),
         processWipList(wipBoRes, "bo"),
+        processWipList(wipFgRes, "component"),
       ]);
 
       setAvailableWipStockList(availableItems);
 
-      // 3. Process BOMs
+      // 3. Process Legacy BOMs
       if (bomRes && bomRes.ok) {
         const bomData = await bomRes.json().catch(() => null);
         const bList = bomData?.boms || bomData?.items || (Array.isArray(bomData) ? bomData : []);
@@ -185,14 +201,136 @@ export default function WipMultiItemConvertModal({
     }
   };
 
-  // Find linked BOM for the currently selected target
-  const linkedBom = useMemo(() => {
-    if (!selectedTargetId && !targetItemName) return null;
-    return allBoms.find(b => 
-      (selectedTargetId && (String(b.finishedGoods) === String(selectedTargetId) || String(b.fgItem) === String(selectedTargetId))) ||
-      (targetItemName && b.productName && b.productName.trim().toLowerCase() === targetItemName.trim().toLowerCase())
+  // Helper to strip optional type prefixes (e.g. rm_65abc -> 65abc) when comparing IDs
+  const cleanMaterialId = (idVal: any): string => {
+    const str = String(idVal || "").trim();
+    return str.includes("_") ? str.split("_").slice(1).join("_") : str;
+  };
+
+  // Resolve attached BOM items for the currently selected target FG / Component
+  const attachedBomItems = useMemo(() => {
+    if (!selectedTargetId && !targetItemName) return [];
+
+    // 1. Check direct attached BOM on the selected FG Item master
+    const selectedTargetObj = existingTargets.find(
+      (t) =>
+        (selectedTargetId && String(t.id) === String(selectedTargetId)) ||
+        (targetItemName && t.name && t.name.trim().toLowerCase() === targetItemName.trim().toLowerCase())
     );
-  }, [selectedTargetId, targetItemName, allBoms]);
+
+    let rawBomArray: any[] = [];
+    if (selectedTargetObj && Array.isArray(selectedTargetObj.bom) && selectedTargetObj.bom.length > 0) {
+      rawBomArray = selectedTargetObj.bom;
+    } else {
+      // 2. Fallback to standalone BOM collection if any
+      const fallbackBom = allBoms.find(
+        (b) =>
+          (selectedTargetId &&
+            (String(b.finishedGoods) === String(selectedTargetId) || String(b.fgItem) === String(selectedTargetId))) ||
+          (targetItemName && b.productName && b.productName.trim().toLowerCase() === targetItemName.trim().toLowerCase())
+      );
+      if (fallbackBom && Array.isArray(fallbackBom.items)) {
+        rawBomArray = fallbackBom.items;
+      }
+    }
+
+    if (rawBomArray.length === 0) return [];
+
+    const rawTargetQtyNum = parseFloat(targetQuantity) || 1;
+    const targetCf = Number(targetConversionFactor) || 1;
+    const targetPrimaryQtyNum =
+      targetIsSecondaryActive && targetCf > 0
+        ? parseFloat((rawTargetQtyNum / targetCf).toFixed(4))
+        : rawTargetQtyNum;
+
+    return rawBomArray.map((bi: any, index: number) => {
+      const populatedObj = typeof bi.item === "object" && bi.item !== null ? bi.item : null;
+      const rawMatId = populatedObj
+        ? String(populatedObj._id || populatedObj.id || "")
+        : String(bi.item || bi.material || bi.materialId || bi._id || "");
+      const rawMatName = (
+        bi.itemName ||
+        bi.materialName ||
+        bi.name ||
+        populatedObj?.name ||
+        populatedObj?.componentName ||
+        ""
+      ).trim();
+
+      const rawTypeStr = String(bi.itemType || bi.type || populatedObj?.type || "rm").toLowerCase();
+      const itemType: "rm" | "bo" | "component" =
+        rawTypeStr.includes("bought") || rawTypeStr === "bo"
+          ? "bo"
+          : rawTypeStr.includes("fg") || rawTypeStr.includes("component") || rawTypeStr.includes("assembly")
+          ? "component"
+          : "rm";
+
+      const categoryLabel =
+        itemType === "bo"
+          ? "Bought Out"
+          : itemType === "component"
+          ? bi.fgType || populatedObj?.type || "Component"
+          : "Raw Material";
+
+      const biCleanId = cleanMaterialId(rawMatId);
+      const match = availableWipStockList.find((av) => {
+        const avCleanId = cleanMaterialId(av.materialId);
+        if (biCleanId && avCleanId && avCleanId === biCleanId) return true;
+        if (rawMatName && av.materialName && av.materialName.trim().toLowerCase() === rawMatName.toLowerCase()) {
+          return true;
+        }
+        return false;
+      });
+
+      const resolvedDesc =
+        getItemDescription(populatedObj) ||
+        bi.itemDescription ||
+        bi.description ||
+        bi.descriptions ||
+        match?.materialDescription ||
+        "";
+
+      const bomQtyPerUnit = Number(bi.quantity) || 1;
+      const totalRequiredQty = parseFloat((bomQtyPerUnit * targetPrimaryQtyNum).toFixed(4));
+
+      const unit = match?.unit || populatedObj?.unit || bi.unit || "PCS";
+      const hasSecondaryUnit = Boolean(
+        match?.hasSecondaryUnit ?? populatedObj?.hasSecondaryUnit ?? bi.hasSecondaryUnit
+      );
+      const secondaryUnit = match?.secondaryUnit || populatedObj?.secondaryUnit || bi.secondaryUnit || "";
+      const conversionFactor =
+        Number(match?.conversionFactor || populatedObj?.conversionFactor || bi.conversionFactor) || 1;
+
+      return {
+        materialId: match
+          ? String(match.materialId)
+          : rawMatId
+          ? rawMatId
+          : `bom_${index}_${rawMatName}`,
+        materialName: match ? match.materialName : rawMatName || "Unnamed Material",
+        materialCode: match ? match.materialCode : populatedObj?.code || bi.materialCode || "",
+        materialDescription: resolvedDesc,
+        itemType: match ? match.itemType : itemType,
+        categoryLabel,
+        unit,
+        bomQtyPerUnit,
+        totalRequiredQty,
+        availableWipQty: match ? Number(match.shopfloorWipQty || 0) : 0,
+        hasSecondaryUnit,
+        secondaryUnit,
+        conversionFactor,
+      };
+    });
+  }, [
+    selectedTargetId,
+    targetItemName,
+    existingTargets,
+    allBoms,
+    availableWipStockList,
+    targetQuantity,
+    targetConversionFactor,
+    targetIsSecondaryActive,
+  ]);
 
   // Memoized Searchable Options for Target FG / Component
   const targetOptions: SearchableOption[] = useMemo(() => {
@@ -201,6 +339,7 @@ export default function WipMultiItemConvertModal({
       label: formatItemSelectLabel(item),
       description: item.description,
       badge: item.type || "Component",
+      subBadge: Array.isArray(item.bom) && item.bom.length > 0 ? `BOM: ${item.bom.length} items` : undefined,
     }));
 
     list.push({
@@ -212,10 +351,12 @@ export default function WipMultiItemConvertModal({
     return list;
   }, [existingTargets]);
 
-  // Memoized Searchable Options for Shopfloor WIP Ingredients (RM & BO)
+  // Memoized Searchable Options for Shopfloor WIP Ingredients (RM, BO & Components)
   const wipIngredientOptions: SearchableOption[] = useMemo(() => {
     return availableWipStockList.map((item) => {
-      const isAlreadyAdded = consumedRows.some(r => String(r.materialId) === String(item.materialId));
+      const isAlreadyAdded = consumedRows.some(
+        (r) => cleanMaterialId(r.materialId) === cleanMaterialId(item.materialId)
+      );
       const secBalNote = item.hasSecondaryUnit && item.secondaryUnit && Number(item.conversionFactor) > 0
         ? ` (~${parseFloat((item.shopfloorWipQty * Number(item.conversionFactor)).toFixed(2))} ${item.secondaryUnit})`
         : "";
@@ -223,7 +364,12 @@ export default function WipMultiItemConvertModal({
         value: String(item.materialId),
         label: formatItemSelectLabel(item),
         description: item.materialDescription,
-        badge: item.itemType === "bo" ? "Bought Out" : "Raw Material",
+        badge:
+          item.itemType === "bo"
+            ? "Bought Out"
+            : item.itemType === "component"
+            ? "Component"
+            : "Raw Material",
         subBadge: `Floor: ${item.shopfloorWipQty} ${item.unit}${secBalNote}`,
         disabled: isAlreadyAdded,
         hint: isAlreadyAdded ? "Already added" : undefined,
@@ -234,6 +380,7 @@ export default function WipMultiItemConvertModal({
   // Handle Target Selection Change
   const handleSelectTarget = (targetId: string) => {
     setTargetIsSecondaryActive(false);
+    setIsBomPanelOpen(false); // Keep attached BOM hidden by default when selecting target
     if (targetId === "__custom__") {
       setIsCustomTarget(true);
       setSelectedTargetId("__custom__");
@@ -283,52 +430,76 @@ export default function WipMultiItemConvertModal({
     setTargetQuantity(newQty);
   };
 
-  // Auto-populate ingredients from BOM
+  // Add a single BOM item to Consumed Ingredients
+  const handleAddBomItemToConsumed = (bi: (typeof attachedBomItems)[number]) => {
+    const alreadyExists = consumedRows.some(
+      (r) =>
+        cleanMaterialId(r.materialId) === cleanMaterialId(bi.materialId) ||
+        (r.materialName && bi.materialName && r.materialName.trim().toLowerCase() === bi.materialName.trim().toLowerCase())
+    );
+    if (alreadyExists) {
+      onError(`"${bi.materialName}" is already added to Ingredients Consumed`);
+      return;
+    }
+
+    setConsumedRows((prev) => [
+      ...prev,
+      {
+        materialId: bi.materialId,
+        materialName: bi.materialName,
+        materialCode: bi.materialCode,
+        materialDescription: bi.materialDescription,
+        itemType: bi.itemType,
+        unit: bi.unit,
+        availableWipQty: bi.availableWipQty,
+        quantity: bi.totalRequiredQty.toString(),
+        hasSecondaryUnit: bi.hasSecondaryUnit,
+        secondaryUnit: bi.secondaryUnit,
+        conversionFactor: bi.conversionFactor,
+        selectedUnit: bi.unit,
+        isSecondaryActive: false,
+      },
+    ]);
+  };
+
+  // Auto-populate all ingredients from Attached BOM
   const handlePopulateFromBom = () => {
-    if (!linkedBom || !Array.isArray(linkedBom.items) || linkedBom.items.length === 0) {
+    if (attachedBomItems.length === 0) {
       onError("No Bill of Materials (BOM) items found for this target product");
       return;
     }
 
-    // Always compute needed ingredients against primary target produced quantity
-    const rawTargetQtyNum = parseFloat(targetQuantity) || 1;
-    const targetCf = Number(targetConversionFactor) || 1;
-    const targetPrimaryQtyNum = targetIsSecondaryActive && targetCf > 0
-      ? parseFloat((rawTargetQtyNum / targetCf).toFixed(4))
-      : rawTargetQtyNum;
-
-    const newRows: ConsumedRow[] = [];
-
-    linkedBom.items.forEach((bi: any) => {
-      const bomMatName = bi.materialName || bi.name || "";
-      const bomMatId = bi.material || bi.materialId || bi._id;
-      const ratio = Number(bi.quantity) || 1;
-      const totalNeeded = parseFloat((ratio * targetPrimaryQtyNum).toFixed(4));
-
-      // Match with available Shopfloor WIP
-      const match = availableWipStockList.find(av => 
-        (bomMatId && String(av.materialId) === String(bomMatId)) ||
-        (bomMatName && av.materialName && av.materialName.trim().toLowerCase() === bomMatName.trim().toLowerCase())
-      );
-
-      newRows.push({
-        materialId: match ? match.materialId : (bomMatId ? String(bomMatId) : `gen_${Date.now()}_${Math.random()}`),
-        materialName: match ? match.materialName : bomMatName,
-        materialCode: match ? match.materialCode : (bi.materialCode || ""),
-        materialDescription: match ? match.materialDescription : (bi.description || ""),
-        itemType: (bi.itemType || bi.type || "rm").toLowerCase().includes("bought") ? "bo" : "rm",
-        unit: match ? match.unit : (bi.unit || "PCS"),
-        availableWipQty: match ? match.shopfloorWipQty : 0,
-        quantity: totalNeeded.toString(),
-        hasSecondaryUnit: match?.hasSecondaryUnit,
-        secondaryUnit: match?.secondaryUnit,
-        conversionFactor: match?.conversionFactor,
-        selectedUnit: match ? match.unit : (bi.unit || "PCS"),
-        isSecondaryActive: false,
+    setConsumedRows((prev) => {
+      const updated = [...prev];
+      attachedBomItems.forEach((bi) => {
+        const existingIdx = updated.findIndex(
+          (r) =>
+            cleanMaterialId(r.materialId) === cleanMaterialId(bi.materialId) ||
+            (r.materialName && bi.materialName && r.materialName.trim().toLowerCase() === bi.materialName.trim().toLowerCase())
+        );
+        const newRow: ConsumedRow = {
+          materialId: bi.materialId,
+          materialName: bi.materialName,
+          materialCode: bi.materialCode,
+          materialDescription: bi.materialDescription,
+          itemType: bi.itemType,
+          unit: bi.unit,
+          availableWipQty: bi.availableWipQty,
+          quantity: bi.totalRequiredQty.toString(),
+          hasSecondaryUnit: bi.hasSecondaryUnit,
+          secondaryUnit: bi.secondaryUnit,
+          conversionFactor: bi.conversionFactor,
+          selectedUnit: bi.unit,
+          isSecondaryActive: false,
+        };
+        if (existingIdx >= 0) {
+          updated[existingIdx] = newRow;
+        } else {
+          updated.push(newRow);
+        }
       });
+      return updated;
     });
-
-    setConsumedRows(newRows);
   };
 
   // Add individual ingredient from Shopfloor WIP
@@ -560,15 +731,30 @@ export default function WipMultiItemConvertModal({
                 <Boxes size={18} />
                 <span>1. Target In-House WIP FG / Component</span>
               </div>
-              {linkedBom && (
-                <button
-                  type="button"
-                  onClick={handlePopulateFromBom}
-                  className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer animate-pulse"
-                >
-                  <Zap size={14} />
-                  <span>Auto-fill Ingredients from BOM ({linkedBom.items?.length || 0} items)</span>
-                </button>
+              {attachedBomItems.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsBomPanelOpen((prev) => !prev)}
+                    className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                  >
+                    {isBomPanelOpen ? <EyeOff size={14} /> : <Eye size={14} />}
+                    <span>
+                      {isBomPanelOpen
+                        ? `Hide Attached BOM (${attachedBomItems.length})`
+                        : `View Attached BOM (${attachedBomItems.length} items)`}
+                    </span>
+                    {isBomPanelOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePopulateFromBom}
+                    className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                  >
+                    <Zap size={14} />
+                    <span>Add All BOM Items ({attachedBomItems.length})</span>
+                  </button>
+                </div>
               )}
             </div>
 
@@ -752,6 +938,160 @@ export default function WipMultiItemConvertModal({
               </div>
             </div>
 
+            {/* Collapsible (Hidden by Default) Attached BOM Panel for Selected FG Item */}
+            {attachedBomItems.length > 0 && (
+              <div className="rounded-2xl border border-indigo-200/80 dark:border-indigo-800/70 bg-indigo-50/40 dark:bg-indigo-950/25 overflow-hidden transition-all">
+                {/* Compact Header Bar (Always visible when FG has attached BOM) */}
+                <div className="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsBomPanelOpen((prev) => !prev)}
+                    className="flex items-center gap-2 text-left cursor-pointer group"
+                  >
+                    <span className="p-1.5 rounded-lg bg-indigo-600 text-white shadow-2xs">
+                      <Layers size={13} />
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                          Attached BOM for {targetItemName || "Selected Item"}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/70 dark:text-indigo-300">
+                          {attachedBomItems.length} BOM {attachedBomItems.length === 1 ? "Item" : "Items"}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300">
+                          {attachedBomItems.filter((b) => b.availableWipQty > 0).length} in Shopfloor WIP
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {isBomPanelOpen
+                          ? "Click '+ Add' on any BOM item below to add it to Ingredients Consumed"
+                          : "Attached BOM is hidden — click to view BOM items and add them to line items"}
+                      </p>
+                    </div>
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsBomPanelOpen((prev) => !prev)}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700 hover:bg-indigo-50 dark:hover:bg-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                    >
+                      {isBomPanelOpen ? <EyeOff size={13} /> : <Eye size={13} />}
+                      <span>{isBomPanelOpen ? "Hide BOM" : "Show Attached BOM"}</span>
+                      {isBomPanelOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePopulateFromBom}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                    >
+                      <Plus size={13} />
+                      <span>Add All BOM Items</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Expanded BOM Table */}
+                {isBomPanelOpen && (
+                  <div className="border-t border-indigo-200/70 dark:border-indigo-800/60 bg-white dark:bg-slate-900 overflow-x-auto animate-in fade-in duration-150">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-slate-100/80 dark:bg-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                          <th className="px-4 py-2.5">BOM Material &amp; Technical Description</th>
+                          <th className="px-3 py-2.5 text-center w-28">Category</th>
+                          <th className="px-3 py-2.5 text-center w-36">BOM Required Qty</th>
+                          <th className="px-3 py-2.5 text-center w-36">Shopfloor WIP Stock</th>
+                          <th className="px-4 py-2.5 text-right w-28">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {attachedBomItems.map((bi, bIdx) => {
+                          const isAlreadyAdded = consumedRows.some(
+                            (r) =>
+                              cleanMaterialId(r.materialId) === cleanMaterialId(bi.materialId) ||
+                              (r.materialName &&
+                                bi.materialName &&
+                                r.materialName.trim().toLowerCase() === bi.materialName.trim().toLowerCase())
+                          );
+                          const hasEnoughWip = bi.availableWipQty >= bi.totalRequiredQty && bi.availableWipQty > 0;
+                          const hasPartialWip = bi.availableWipQty > 0 && bi.availableWipQty < bi.totalRequiredQty;
+
+                          return (
+                            <tr
+                              key={`${bi.materialId}_${bIdx}`}
+                              className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
+                            >
+                              <td className="px-4 py-2.5 min-w-[240px]">
+                                <ItemNameAndDescription
+                                  name={bi.materialName}
+                                  description={bi.materialDescription}
+                                />
+                              </td>
+                              <td className="px-3 py-2.5 text-center">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                    bi.itemType === "bo"
+                                      ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                      : bi.itemType === "component"
+                                      ? "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300"
+                                      : "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300"
+                                  }`}
+                                >
+                                  {bi.categoryLabel}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-center font-mono">
+                                <div className="font-bold text-indigo-700 dark:text-indigo-300">
+                                  {bi.totalRequiredQty} {bi.unit}
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  ({bi.bomQtyPerUnit} {bi.unit} / unit)
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5 text-center font-mono">
+                                <span
+                                  className={`font-bold ${
+                                    hasEnoughWip
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : hasPartialWip
+                                      ? "text-amber-600 dark:text-amber-400"
+                                      : "text-rose-500 dark:text-rose-400"
+                                  }`}
+                                >
+                                  {bi.availableWipQty} {bi.unit}
+                                </span>
+                                {bi.hasSecondaryUnit && bi.secondaryUnit && bi.availableWipQty > 0 && (
+                                  <div className="text-[10px] text-slate-400">
+                                    (~{parseFloat((bi.availableWipQty * bi.conversionFactor).toFixed(2))} {bi.secondaryUnit})
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-4 py-2.5 text-right">
+                                {isAlreadyAdded ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                    <CheckCircle2 size={12} /> Added
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddBomItemToConsumed(bi)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs transition-colors cursor-pointer"
+                                  >
+                                    <Plus size={12} /> Add
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Consumed Rows Table */}
             {consumedRows.length === 0 ? (
               <div className="text-center py-10 border border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-white/60 dark:bg-slate-900/40">
@@ -760,7 +1100,7 @@ export default function WipMultiItemConvertModal({
                   No ingredients added yet
                 </p>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Search &amp; pick RM / BO items from the keyword search bar above or use "Auto-fill Ingredients from BOM"
+                  Search &amp; pick RM / BO items from the keyword search bar above{attachedBomItems.length > 0 ? ' or expand "Show Attached BOM" to add items' : ''}
                 </p>
               </div>
             ) : (
@@ -799,9 +1139,11 @@ export default function WipMultiItemConvertModal({
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                               row.itemType === "bo"
                                 ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                : row.itemType === "component"
+                                ? "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300"
                                 : "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300"
                             }`}>
-                              {row.itemType === "bo" ? "Bought Out" : "Raw Material"}
+                              {row.itemType === "bo" ? "Bought Out" : row.itemType === "component" ? "Component" : "Raw Material"}
                             </span>
                           </td>
                           <td className="px-4 py-3.5 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
