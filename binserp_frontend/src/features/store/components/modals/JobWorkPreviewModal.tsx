@@ -820,16 +820,9 @@ export default function JobWorkPreviewModal({
                     <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
                         <button
                             onClick={handleDownloadPDF}
-                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center gap-2"
+                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center gap-2 cursor-pointer"
                         >
                             <FileText size={16} /> Print / Export 3-Copy PDF
-                        </button>
-
-                        <button
-                            onClick={handleDownloadExcel}
-                            className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-2"
-                        >
-                            <FileSpreadsheet size={16} /> Excel
                         </button>
 
                         {onReceive && challan.status !== 'Closed' && (

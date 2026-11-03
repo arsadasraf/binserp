@@ -372,7 +372,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
         });
         if (!confirmed) return;
         try {
-            await updateMaterialRequest(request._id, { status: 'Rejected' });
+            await updateMaterialRequest(request._id, { status: 'Rejected', bypassTimeLock: true });
             showSuccessToast("Material request rejected successfully.");
         } catch (error: any) {
             console.error("Reject failed", error);
@@ -478,8 +478,8 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                     const hasSec = Boolean(item.hasSecondaryUnit);
                     const secUnit = item.secondaryUnit || '';
                     const convFactor = Number(item.conversionFactor) || 0;
-                    const priQty = Number(item.quantity) || 1;
-                    const secQty = hasSec ? Number(item.secondaryQuantity || (priQty * convFactor)) : 0;
+                    const priQty = parseFloat((Number(item.quantity) || 1).toFixed(2));
+                    const secQty = hasSec ? Math.round(Number(item.secondaryQuantity || (priQty * convFactor))) : 0;
                     const itType = item.itemType || (isInhouse ? 'FG Item' : isConsumable ? 'Consumable' : (rType === 'bo' ? 'Bought Out' : ((item.materialCode || '').toUpperCase().startsWith('BO-') ? 'Bought Out' : 'Raw Material')));
 
                     return {
@@ -506,7 +506,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
             };
 
             await createMaterialIssue(issueData);
-            await updateMaterialRequest(request._id, { status: 'Issued', skipInventoryUpdate: true });
+            await updateMaterialRequest(request._id, { status: 'Issued', skipInventoryUpdate: true, bypassTimeLock: true });
 
             Swal.fire({
                 icon: 'success',
@@ -898,7 +898,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                 request={viewRequest}
                 storeData={storeData}
                 onApprove={async (id) => {
-                    await updateMaterialRequest(id, { status: 'Approved' });
+                    await updateMaterialRequest(id, { status: 'Approved', bypassTimeLock: true });
                 }}
                 onIssue={(req) => {
                     setViewRequest(null);

@@ -311,9 +311,9 @@ export const DualUomRatioInput: React.FC<DualUomRatioInputProps> = ({
   const pRatioNum = parseFloat(localPriRatio) > 0 ? parseFloat(localPriRatio) : 1;
   const sRatioNum = parseFloat(localSecRatio) > 0 ? parseFloat(localSecRatio) : 1;
   const activeCf = parseFloat(localCf) > 0 ? parseFloat(localCf) : sRatioNum / pRatioNum;
-  const invCf = activeCf > 0 ? parseFloat((1 / activeCf).toFixed(4)) : 0;
+  const invCf = activeCf > 0 ? parseFloat((1 / activeCf).toFixed(2)) : 0;
   const samplePriQty = 100;
-  const sampleSecQty = parseFloat((samplePriQty * activeCf).toFixed(3));
+  const sampleSecQty = Math.round(samplePriQty * activeCf);
 
   return (
     <div className="w-full">

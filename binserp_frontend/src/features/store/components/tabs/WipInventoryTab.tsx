@@ -186,6 +186,16 @@ export default function WipInventoryTab({
         }
     };
 
+    // Formatting helpers for primary (.2 max) and secondary (Math.round)
+    const formatPrimary = (v: any): number => {
+        const n = Number(v);
+        return isNaN(n) ? 0 : parseFloat(n.toFixed(2));
+    };
+    const formatSec = (v: any): number => {
+        const n = Number(v);
+        return isNaN(n) ? 0 : Math.round(n);
+    };
+
     // Count active filters
     const activeFilterCount = useMemo(() => {
         let count = Object.keys(columnFilters).length + Object.keys(numericConditions).length;
@@ -652,9 +662,9 @@ export default function WipInventoryTab({
             const itemDesc = focusedItem.materialDescription || focusedItem.descriptions || focusedItem.description || '';
             const hasSec = Boolean(focusedItem.hasSecondaryUnit && focusedItem.secondaryUnit && (focusedItem.conversionFactor || 0) > 0);
             const factor = Number(focusedItem.conversionFactor) || 1;
-            const secWipQty = hasSec ? totalWipQty * factor : 0;
-            const secShopfloorQty = hasSec ? shopfloorQty * factor : 0;
-            const secJobWorkQty = hasSec ? jobWorkQty * factor : 0;
+            const secWipQty = hasSec ? Math.round(totalWipQty * factor) : 0;
+            const secShopfloorQty = hasSec ? Math.round(shopfloorQty * factor) : 0;
+            const secJobWorkQty = hasSec ? Math.round(jobWorkQty * factor) : 0;
 
             return {
                 isFocused: true,
@@ -675,7 +685,7 @@ export default function WipInventoryTab({
                 formattedMainStoreQty: `${mainStoreQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${focusedItem.unit || 'PCS'}`,
                 hasSec,
                 secWipQty,
-                formattedSecWipQty: hasSec ? `${secWipQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${focusedItem.secondaryUnit}` : null,
+                formattedSecWipQty: hasSec ? `${secWipQty.toLocaleString('en-IN', { maximumFractionDigits: 0 })} ${focusedItem.secondaryUnit}` : null,
                 secShopfloorQty,
                 secJobWorkQty,
                 unitPrice: priceInfo.unitPrice,
@@ -997,8 +1007,10 @@ export default function WipInventoryTab({
     };
 
     return (
-        <div className="space-y-4 animate-in fade-in duration-300">
+        <div className="flex flex-col flex-1 min-h-0 gap-3 animate-in fade-in duration-300">
             
+            {/* Sticky Header Section: Valuation Dashboard + Filter & Action Toolbar + Active Filters */}
+            <div className="shrink-0 sticky top-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-md space-y-2.5">
             {/* Executive WIP Pricing & Valuation Dashboard Header & Cards (Shown only on demand) */}
             {showDashboard && (
                 <div className="border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl p-3 sm:p-4 shadow-xs">
@@ -1493,6 +1505,7 @@ export default function WipInventoryTab({
                     </button>
                 </div>
             )}
+            </div>
 
             {/* Main Content Area */}
             {loading ? (
@@ -1518,10 +1531,10 @@ export default function WipInventoryTab({
                         </p>
                     </div>
                 ) : (
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-xs text-left">
-                                <thead className="bg-slate-100/90 dark:bg-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs flex flex-col flex-1 min-h-0">
+                        <div className="overflow-x-auto overflow-y-auto flex-1 max-h-[calc(100vh-275px)] scrollbar-thin">
+                            <table className="w-full text-xs text-left border-collapse">
+                                <thead className="sticky top-0 z-20 bg-slate-100/95 dark:bg-slate-800/95 backdrop-blur-xs text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 shadow-2xs">
                                     <tr>
                                         <th className="px-4 py-3.5 whitespace-nowrap">MRP Plan #</th>
                                         <th className="px-4 py-3.5">Target Product &amp; Planned Qty</th>
@@ -1672,10 +1685,10 @@ export default function WipInventoryTab({
                         <p className="text-xs text-slate-500 mt-1">Material issues, job work shipments, and FG GRN consumption movements will record here.</p>
                     </div>
                 ) : (
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm flex flex-col flex-1 min-h-0">
+                        <div className="overflow-x-auto overflow-y-auto flex-1 max-h-[calc(100vh-275px)] scrollbar-thin">
+                            <table className="w-full text-sm text-left border-collapse">
+                                <thead className="sticky top-0 z-20 bg-slate-100/95 dark:bg-slate-800/95 backdrop-blur-xs text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 shadow-2xs">
                                     <tr>
                                         <th className="px-5 py-3.5">Date & Time</th>
                                         <th className="px-5 py-3.5">Document #</th>
@@ -1764,12 +1777,12 @@ export default function WipInventoryTab({
                         <p className="text-xs text-slate-500 mt-1">Master catalog items will track perpetual WIP balances here.</p>
                     </div>
                 ) : (
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm flex flex-col flex-1 min-h-0">
                         {/* Desktop Table View */}
-                        <div className="hidden lg:block overflow-x-auto">
-                            <table className="w-full text-sm text-left">
-                                <thead>
-                                    <tr className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                        <div className="hidden lg:block overflow-x-auto overflow-y-auto flex-1 max-h-[calc(100vh-275px)] scrollbar-thin">
+                            <table className="w-full text-sm text-left border-collapse">
+                                <thead className="sticky top-0 z-20 bg-slate-100/95 dark:bg-slate-800/95 backdrop-blur-xs shadow-2xs">
+                                    <tr className="bg-slate-100/95 dark:bg-slate-800/95 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                         <th className="px-4 py-3 text-left">
                                             <ColumnFilter
                                                 column="materialName"
@@ -1948,38 +1961,38 @@ export default function WipInventoryTab({
 
                                                 <td className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 font-mono">
                                                     <div>
-                                                        {item.mainStoreStock} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                                        {formatPrimary(item.mainStoreStock)} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
                                                     </div>
                                                     {item.hasSecondaryUnit && item.secondaryUnit && (
                                                         <div className="text-[10px] text-slate-400 dark:text-slate-500 font-normal mt-0.5">
-                                                            {item.mainStoreSecondaryStock != null ? item.mainStoreSecondaryStock : parseFloat(((item.mainStoreStock || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                            {formatSec(item.mainStoreSecondaryStock != null ? item.mainStoreSecondaryStock : (Number(item.mainStoreStock) || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
                                                         </div>
                                                     )}
                                                 </td>
 
                                                 <td className="px-4 py-3.5 text-center font-bold text-slate-900 dark:text-white font-mono">
                                                     <div>
-                                                        <span>{item.shopfloorWipQty}</span> <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                                        <span>{formatPrimary(item.shopfloorWipQty)}</span> <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
                                                     </div>
                                                     {item.pendingQcQty > 0 && (
                                                         <span className="inline-block text-[10px] font-bold text-amber-600 dark:text-amber-400 mt-0.5" title="Stock Awaiting QC Inspection">
-                                                            (+{item.pendingQcQty} in QC)
+                                                            (+{formatPrimary(item.pendingQcQty)} in QC)
                                                         </span>
                                                     )}
                                                     {item.hasSecondaryUnit && item.secondaryUnit && (
                                                         <div className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 font-normal mt-0.5">
-                                                            {item.shopfloorWipSecondaryQty != null ? item.shopfloorWipSecondaryQty : parseFloat(((item.shopfloorWipQty || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                            {formatSec(item.shopfloorWipSecondaryQty != null ? item.shopfloorWipSecondaryQty : (Number(item.shopfloorWipQty) || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
                                                         </div>
                                                     )}
                                                 </td>
 
                                                 <td className="px-4 py-3.5 text-center font-bold text-purple-600 dark:text-purple-400 font-mono">
                                                     <div>
-                                                        {item.jobWorkWipQty || 0} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                                        {formatPrimary(item.jobWorkWipQty || 0)} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
                                                     </div>
                                                     {item.hasSecondaryUnit && item.secondaryUnit && (
                                                         <div className="text-[10px] text-purple-400 dark:text-purple-400/70 font-normal mt-0.5">
-                                                            {item.jobWorkWipSecondaryQty != null ? item.jobWorkWipSecondaryQty : parseFloat(((item.jobWorkWipQty || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                            {formatSec(item.jobWorkWipSecondaryQty != null ? item.jobWorkWipSecondaryQty : (Number(item.jobWorkWipQty) || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
                                                         </div>
                                                     )}
                                                 </td>
@@ -1991,12 +2004,12 @@ export default function WipInventoryTab({
                                                                 ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800' 
                                                                 : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
                                                         }`}>
-                                                            {item.pendingWipQty} {item.unit}
+                                                            {formatPrimary(item.pendingWipQty)} {item.unit}
                                                         </span>
                                                     </div>
                                                     {item.hasSecondaryUnit && item.secondaryUnit && (
                                                         <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold font-mono mt-0.5">
-                                                            {item.pendingWipSecondaryQty != null ? item.pendingWipSecondaryQty : parseFloat(((item.pendingWipQty || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                            {formatSec(item.pendingWipSecondaryQty != null ? item.pendingWipSecondaryQty : (Number(item.pendingWipQty) || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
                                                         </div>
                                                     )}
                                                 </td>
@@ -2073,7 +2086,7 @@ export default function WipInventoryTab({
                         </div>
 
                         {/* Responsive Mobile / Tablet Card View */}
-                        <div className="lg:hidden flex flex-col divide-y divide-slate-100 dark:divide-slate-800 pb-20">
+                        <div className="lg:hidden flex flex-col divide-y divide-slate-100 dark:divide-slate-800 max-h-[calc(100vh-280px)] overflow-y-auto overscroll-contain pb-20">
                             {filteredItems.map((item) => {
                                 const isFg = wipType === 'fg';
                                 const priceInfo = getItemPriceDetails(item, isFg);
@@ -2108,42 +2121,42 @@ export default function WipInventoryTab({
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 text-center text-xs">
                                         <div>
                                             <span className="text-[10px] font-bold text-slate-400 block">Store Stock</span>
-                                            <span className="font-bold text-slate-700 dark:text-slate-300 font-mono">{item.mainStoreStock} <span className="text-[9px] font-normal text-slate-400">{item.unit}</span></span>
+                                            <span className="font-bold text-slate-700 dark:text-slate-300 font-mono">{formatPrimary(item.mainStoreStock)} <span className="text-[9px] font-normal text-slate-400">{item.unit}</span></span>
                                             {item.hasSecondaryUnit && item.secondaryUnit && (
                                                 <span className="text-[9px] text-slate-400 block font-mono">
-                                                    {item.mainStoreSecondaryStock != null ? item.mainStoreSecondaryStock : parseFloat(((item.mainStoreStock || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                    {formatSec(item.mainStoreSecondaryStock != null ? item.mainStoreSecondaryStock : (Number(item.mainStoreStock) || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
                                                 </span>
                                             )}
                                         </div>
                                         <div>
                                             <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 block">Shopfloor</span>
-                                            <span className="font-bold text-slate-900 dark:text-white font-mono">{item.shopfloorWipQty} <span className="text-[9px] font-normal text-slate-400">{item.unit}</span></span>
+                                            <span className="font-bold text-slate-900 dark:text-white font-mono">{formatPrimary(item.shopfloorWipQty)} <span className="text-[9px] font-normal text-slate-400">{item.unit}</span></span>
                                             {item.pendingQcQty > 0 && (
                                                 <span className="text-[9px] font-bold text-amber-600 block">
-                                                    (+{item.pendingQcQty} in QC)
+                                                    (+{formatPrimary(item.pendingQcQty)} in QC)
                                                 </span>
                                             )}
                                             {item.hasSecondaryUnit && item.secondaryUnit && (
                                                 <span className="text-[9px] text-indigo-500 block font-mono">
-                                                    {item.shopfloorWipSecondaryQty != null ? item.shopfloorWipSecondaryQty : parseFloat(((item.shopfloorWipQty || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                    {formatSec(item.shopfloorWipSecondaryQty != null ? item.shopfloorWipSecondaryQty : (Number(item.shopfloorWipQty) || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
                                                 </span>
                                             )}
                                         </div>
                                         <div>
                                             <span className="text-[10px] font-bold text-purple-600 block">Job Work</span>
-                                            <span className="font-bold text-purple-600 font-mono">{item.jobWorkWipQty || 0} <span className="text-[9px] font-normal text-slate-400">{item.unit}</span></span>
+                                            <span className="font-bold text-purple-600 font-mono">{formatPrimary(item.jobWorkWipQty || 0)} <span className="text-[9px] font-normal text-slate-400">{item.unit}</span></span>
                                             {item.hasSecondaryUnit && item.secondaryUnit && (
                                                 <span className="text-[9px] text-purple-400 block font-mono">
-                                                    {item.jobWorkWipSecondaryQty != null ? item.jobWorkWipSecondaryQty : parseFloat(((item.jobWorkWipQty || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                    {formatSec(item.jobWorkWipSecondaryQty != null ? item.jobWorkWipSecondaryQty : (Number(item.jobWorkWipQty) || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
                                                 </span>
                                             )}
                                         </div>
                                         <div>
                                             <span className="text-[10px] font-bold text-indigo-600 block">Total WIP</span>
-                                            <span className="font-black text-indigo-600 font-mono">{item.pendingWipQty} <span className="text-[9px] font-normal text-slate-400">{item.unit}</span></span>
+                                            <span className="font-black text-indigo-600 font-mono">{formatPrimary(item.pendingWipQty)} <span className="text-[9px] font-normal text-slate-400">{item.unit}</span></span>
                                             {item.hasSecondaryUnit && item.secondaryUnit && (
                                                 <span className="text-[9px] text-indigo-600 dark:text-indigo-400 block font-bold font-mono">
-                                                    {item.pendingWipSecondaryQty != null ? item.pendingWipSecondaryQty : parseFloat(((item.pendingWipQty || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                    {formatSec(item.pendingWipSecondaryQty != null ? item.pendingWipSecondaryQty : (Number(item.pendingWipQty) || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
                                                 </span>
                                             )}
                                         </div>

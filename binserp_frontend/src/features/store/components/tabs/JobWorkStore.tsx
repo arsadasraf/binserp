@@ -231,8 +231,10 @@ export default function JobWorkStore({
     };
 
     useEffect(() => {
-        fetchChallans();
-    }, []);
+        if (mainTab === 'challans') {
+            fetchChallans();
+        }
+    }, [token, mainTab]);
 
     const handleCreateSuccess = () => {
         setIsFormOpen(false);
@@ -348,6 +350,7 @@ export default function JobWorkStore({
             const matchesSearch =
                 !term ||
                 isSpaceFreeMatch(c.challanNumber, term) ||
+                isSpaceFreeMatch((c as any).poNumber, term) ||
                 isSpaceFreeMatch(c.vendor?.name, term) ||
                 isSpaceFreeMatch(c.mrpNumber, term) ||
                 (c.items || []).some((it: any) => 
@@ -918,8 +921,8 @@ export default function JobWorkStore({
     };
 
     return (
-        <div className="animate-in fade-in duration-300 space-y-3.5">
-            
+        <div className="animate-in fade-in duration-300 flex flex-col flex-1 min-h-0 gap-3">
+            <div className="shrink-0 sticky top-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-md space-y-2.5">
             {/* Mobile App Header (Top bar for mobile view) */}
             <div className="sm:hidden space-y-2">
                 <div className="flex items-center justify-between gap-2 bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
@@ -972,20 +975,20 @@ export default function JobWorkStore({
                 </div>
             </div>
 
-            {/* Top Row: View Switcher & Action Button (Only header switch across all screens) */}
-            <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2.5">
-                <div className="flex bg-gray-100 dark:bg-gray-800/70 p-1 rounded-2xl gap-1 w-full sm:w-auto">
+            {/* Mobile Sub-Tab Switcher (Visible on mobile only) */}
+            <div className="sm:hidden flex items-center justify-between gap-2">
+                <div className="flex bg-gray-100 dark:bg-gray-800/70 p-1 rounded-2xl gap-1 flex-1">
                     <button
                         onClick={() => setChallanViewMode('challans')}
-                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                        className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                             challanViewMode === 'challans'
                                 ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                                 : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                         }`}
                     >
-                        <Truck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                        <Truck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                         <span>Challans Register</span>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${
                             challanViewMode === 'challans'
                                 ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
                                 : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
@@ -996,37 +999,14 @@ export default function JobWorkStore({
 
                     <button
                         onClick={() => setChallanViewMode('item-stock')}
-                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                        className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                             challanViewMode === 'item-stock'
                                 ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                                 : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                         }`}
                     >
-                        <Boxes className="w-4 h-4 text-amber-500" />
+                        <Boxes className="w-3.5 h-3.5 text-amber-500" />
                         <span>Item-Wise Vendor Stock</span>
-                    </button>
-                </div>
-
-                <div className="flex items-center gap-2 self-end sm:self-auto">
-                    {challanViewMode === 'item-stock' && (
-                        <button
-                            type="button"
-                            onClick={handleExportItemStockExcel}
-                            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
-                            title="Export Item-Wise Vendor Stock to Excel"
-                        >
-                            <Download size={14} />
-                            <span>Export Excel</span>
-                        </button>
-                    )}
-
-                    {/* Primary Action Button (Desktop) */}
-                    <button
-                        onClick={() => handleCreateChallan()}
-                        className="hidden sm:flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
-                    >
-                        <Plus size={15} />
-                        <span>Create Returnable DC</span>
                     </button>
                 </div>
             </div>
@@ -1060,18 +1040,18 @@ export default function JobWorkStore({
                         </div>
                     )}
 
-                    {/* Desktop Toolbar: Search + View Toggle (Challans / Item Stock) + Status + Workflow + Date Switcher & Picker + Count */}
+                    {/* Desktop Table Header Toolbar: Search + Two Sub-Tabs (Challans Register / Item-Wise Vendor Stock) + Filters + Date Dropdown + Create Button */}
                     <div className="hidden sm:block bg-white dark:bg-gray-900 p-2.5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                             
-                            {/* Left: Search & View Toggle Switch & Filters */}
+                            {/* Left: Search + Sub-Tabs (Challans Register & Item-Wise Vendor Stock) + Status/Workflow Filters */}
                             <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
                                 {/* Search Input */}
-                                <div className="relative flex-1 min-w-[180px] max-w-xs">
+                                <div className="relative min-w-[170px] w-52 lg:w-60">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
                                     <input
                                         type="text"
-                                        placeholder={challanViewMode === 'item-stock' ? "Search Item, Description, Vendor..." : "Search Challan #, Vendor, Item, MRP #..."}
+                                        placeholder={challanViewMode === 'item-stock' ? "Search Item, Desc, Vendor..." : "Search Challan #, PO #, Vendor..."}
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                         className="w-full h-9 pl-9 pr-7 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
@@ -1084,6 +1064,42 @@ export default function JobWorkStore({
                                             ✕
                                         </button>
                                     )}
+                                </div>
+
+                                {/* Two Sub-Tabs Next to Search Bar: Challans Register & Item-Wise Vendor Stock */}
+                                <div className="flex items-center bg-gray-100 dark:bg-gray-800/80 p-1 rounded-xl border border-gray-200/70 dark:border-gray-700 gap-1 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => setChallanViewMode('challans')}
+                                        className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                                            challanViewMode === 'challans'
+                                                ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-xs'
+                                                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        <Truck size={13} className={challanViewMode === 'challans' ? 'text-white' : 'text-indigo-500'} />
+                                        <span>Challans Register</span>
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                                            challanViewMode === 'challans'
+                                                ? 'bg-white/20 text-white'
+                                                : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                                        }`}>
+                                            {challans.length}
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setChallanViewMode('item-stock')}
+                                        className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                                            challanViewMode === 'item-stock'
+                                                ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-xs'
+                                                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        <Boxes size={13} className={challanViewMode === 'item-stock' ? 'text-white' : 'text-amber-500'} />
+                                        <span>Item-Wise Vendor Stock</span>
+                                    </button>
                                 </div>
 
                                 {/* Item-Stock Quick Action Controls */}
@@ -1199,7 +1215,7 @@ export default function JobWorkStore({
                                     <select
                                         value={workflowFilter}
                                         onChange={(e) => setWorkflowFilter(e.target.value as any)}
-                                        className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[190px] truncate"
+                                        className="h-9 px-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[165px] truncate"
                                     >
                                         <option value="all">📦 All DC Types</option>
                                         <option value="store-conversion">🏭 Store Conversion</option>
@@ -1210,36 +1226,27 @@ export default function JobWorkStore({
                                 )}
                             </div>
 
-                            {/* Right: Date Mode Switcher + Dynamic Date Picker + Live Count */}
+                            {/* Right: Date Mode Dropdown + Dynamic Date Picker + Live Count + Create Returnable DC Button */}
                             <div className="flex flex-wrap items-center gap-2">
-                                {/* Day / Month / Year Mode Switcher */}
-                                <div className="flex items-center gap-0.5 bg-gray-100 dark:bg-gray-800 p-0.5 rounded-xl border border-gray-200/60 dark:border-gray-700">
-                                    {[
-                                        { id: 'daily', label: 'Day' },
-                                        { id: 'monthly', label: 'Month' },
-                                        { id: 'yearly', label: 'Year' }
-                                    ].map((type) => (
-                                        <button
-                                            key={type.id}
-                                            onClick={() => { setFilterMode(type.id as any); setFilterDate(''); }}
-                                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                                filterMode === type.id
-                                                    ? 'bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
-                                                    : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-                                            }`}
-                                        >
-                                            {type.label}
-                                        </button>
-                                    ))}
-                                </div>
+                                {/* Date-Wise Filter Mode Dropdown (Day / Month / Year) + Picker Input */}
+                                <div className="flex items-center gap-1 bg-gray-50 dark:bg-gray-800/80 px-1.5 py-0.5 rounded-xl border border-gray-200 dark:border-gray-700">
+                                    <select
+                                        value={filterMode}
+                                        onChange={(e) => { setFilterMode(e.target.value as any); setFilterDate(''); }}
+                                        className="h-8 px-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-bold text-indigo-700 dark:text-indigo-300 focus:outline-none cursor-pointer"
+                                        title="Select Date Filter Mode (Day / Month / Year)"
+                                    >
+                                        <option value="daily">📅 Day</option>
+                                        <option value="monthly">🗓️ Month</option>
+                                        <option value="yearly">📆 Year</option>
+                                    </select>
 
-                                {/* Date Picker Input */}
-                                <div className="flex items-center gap-1">
                                     {renderDateFilterInput()}
+
                                     {filterDate && (
                                         <button
                                             onClick={() => setFilterDate('')}
-                                            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors cursor-pointer text-xs font-bold"
+                                            className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors cursor-pointer text-xs font-bold"
                                             title="Clear date filter"
                                         >
                                             ✕
@@ -1253,6 +1260,15 @@ export default function JobWorkStore({
                                         {challanViewMode === 'item-stock' ? filteredItemStock.length : filteredChallans.length}
                                     </span>
                                 </div>
+
+                                {/* Primary Action Button: Create Returnable DC */}
+                                <button
+                                    onClick={() => handleCreateChallan()}
+                                    className="h-9 flex items-center justify-center gap-1.5 px-3.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                                >
+                                    <Plus size={14} />
+                                    <span>Create Returnable DC</span>
+                                </button>
                             </div>
 
                         </div>
@@ -1312,6 +1328,7 @@ export default function JobWorkStore({
                             </button>
                         </div>
                     )}
+            </div>
 
             {/* Content Logic: High-Density ERP Data Table */}
             {loading ? (
@@ -1340,10 +1357,10 @@ export default function JobWorkStore({
                 ) : (
                     <>
                         {/* Desktop ERP Data Table */}
-                        <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                            <div className="overflow-x-auto">
+                        <div className="hidden md:flex flex-col flex-1 min-h-0 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                            <div className="overflow-x-auto overflow-y-auto flex-1 max-h-[calc(100vh-275px)] scrollbar-thin">
                                 <table className="w-full text-sm text-left border-collapse">
-                                    <thead className="bg-slate-50 dark:bg-slate-800/80 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                                    <thead className="sticky top-0 z-20 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 shadow-2xs">
                                         <tr>
                                             <th className="px-3.5 py-3 text-center w-12">#</th>
                                             {renderExcelHeader('vendor', 'Subcontractor / Vendor')}
@@ -1458,7 +1475,7 @@ export default function JobWorkStore({
                                             </tr>
                                         ))}
                                     </tbody>
-                                    <tfoot className="bg-slate-50 dark:bg-slate-800/80 font-bold text-xs text-slate-700 dark:text-slate-200 border-t border-slate-200 dark:border-slate-800">
+                                    <tfoot className="sticky bottom-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs font-bold text-xs text-slate-700 dark:text-slate-200 border-t border-slate-200 dark:border-slate-800">
                                         <tr>
                                             <td colSpan={5} className="px-4 py-3 text-right uppercase tracking-wider text-[11px] font-extrabold text-slate-500">
                                                 Grand Total ({filteredItemStock.length} items):
@@ -1480,7 +1497,7 @@ export default function JobWorkStore({
                         </div>
 
                         {/* Mobile Card View for Item-Wise Stock */}
-                        <div className="md:hidden flex flex-col gap-3 pb-28 sm:pb-20">
+                        <div className="md:hidden flex-1 min-h-0 max-h-[calc(100vh-280px)] overflow-y-auto overscroll-contain flex flex-col gap-3 pb-28 sm:pb-20 pr-0.5">
                             {filteredItemStock.map((row, idx) => (
                                 <div key={`${row.vendorId}_${row.itemName}_${idx}`} className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col gap-2.5">
                                     <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-2">
@@ -1564,18 +1581,16 @@ export default function JobWorkStore({
             ) : (
                 <>
                     {/* Desktop ERP Data Table */}
-                    <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                        <div className="overflow-x-auto">
+                    <div className="hidden md:flex flex-col flex-1 min-h-0 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                        <div className="overflow-x-auto overflow-y-auto flex-1 max-h-[calc(100vh-275px)] scrollbar-thin">
                             <table className="w-full text-sm text-left border-collapse">
-                                <thead className="bg-slate-50 dark:bg-slate-800/80 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                                <thead className="sticky top-0 z-20 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 shadow-2xs">
                                     <tr>
                                         <th className="px-3.5 py-3 text-center w-12">#</th>
                                         <th className="px-4 py-3">Challan Details</th>
                                         {renderExcelHeader('vendor', 'Subcontractor / Vendor')}
-                                        <th className="px-3.5 py-3">MRP Plan Ref</th>
+                                        <th className="px-3.5 py-3">Outward PO / MRP Ref</th>
                                         {renderExcelHeader('purpose', 'Purpose of Outward')}
-                                        <th className="px-4 py-3">Outward Material Sent</th>
-                                        <th className="px-4 py-3">Expected Return Item(s)</th>
                                         <th className="px-3.5 py-3">Dates & Status</th>
                                         {renderExcelHeader('createdBy', 'Created By')}
                                         <th className="px-4 py-3 text-right">Actions</th>
@@ -1696,6 +1711,13 @@ export default function JobWorkStore({
                                                                     EW: {challan.ewayBillNo.slice(-6)}
                                                                 </span>
                                                             )}
+
+                                                            {/* Attached Outward PO Number */}
+                                                            {(challan as any).poNumber && (
+                                                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800" title={`Linked Outward PO: ${(challan as any).poNumber}`}>
+                                                                    PO: {(challan as any).poNumber}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </td>
@@ -1712,15 +1734,23 @@ export default function JobWorkStore({
                                                     )}
                                                 </td>
 
-                                                {/* 4. MRP Plan Ref */}
+                                                {/* 4. Outward PO & MRP Plan Ref */}
                                                 <td className="px-3.5 py-3 text-xs">
-                                                    {challan.mrpNumber ? (
-                                                        <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded text-[11px] font-mono font-bold">
-                                                            {challan.mrpNumber}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-slate-400 text-xs">-</span>
-                                                    )}
+                                                    <div className="flex flex-col items-start gap-1">
+                                                        {(challan as any).poNumber && (
+                                                            <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded text-[11px] font-mono font-bold">
+                                                                PO: {(challan as any).poNumber}
+                                                            </span>
+                                                        )}
+                                                        {challan.mrpNumber && (
+                                                            <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded text-[11px] font-mono font-bold">
+                                                                MRP: {challan.mrpNumber}
+                                                            </span>
+                                                        )}
+                                                        {!(challan as any).poNumber && !challan.mrpNumber && (
+                                                            <span className="text-slate-400 text-xs">-</span>
+                                                        )}
+                                                    </div>
                                                 </td>
 
                                                 {/* 5. Purpose of Outward Movement */}
@@ -1736,70 +1766,7 @@ export default function JobWorkStore({
                                                     </div>
                                                 </td>
 
-                                                {/* 6. Outward Material(s) Sent (Strict AGENTS.md compliance: Name bold, description italic) */}
-                                                <td className="px-4 py-3 max-w-xs">
-                                                    <div>
-                                                        <div className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">
-                                                            {primarySentItem?.itemName || 'Material Item'}
-                                                        </div>
-                                                        {sentDesc && (
-                                                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
-                                                                {sentDesc}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs">
-                                                        <span className="font-extrabold text-slate-800 dark:text-slate-200">
-                                                            {isAssembly ? `${totalSentQty} ${sentUnit} (Total)` : `${primarySentItem?.quantitySent || 0} ${sentUnit}`}
-                                                        </span>
-                                                        {sentItemCount > 1 && (
-                                                            <span 
-                                                                className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900 cursor-help"
-                                                                title={`Kit contains ${sentItemCount} items: ${(challan.items || []).map(it => it.itemName).join(', ')}`}
-                                                            >
-                                                                +{sentItemCount - 1} more items
-                                                            </span>
-                                                        )}
-                                                        {sentRate > 0 && (
-                                                            <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                                                @ ₹{sentRate.toFixed(2)}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </td>
-
-                                                {/* 6. Expected Converted / Return Item(s) */}
-                                                <td className="px-4 py-3 max-w-xs">
-                                                    <div>
-                                                        <div className="font-bold text-xs text-indigo-700 dark:text-indigo-300 line-clamp-1">
-                                                            {retName}
-                                                        </div>
-                                                        {retDesc && (
-                                                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
-                                                                {retDesc}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex items-center gap-2 mt-1 text-xs font-semibold flex-wrap">
-                                                        <span className="text-slate-500">Exp: <b className="text-slate-800 dark:text-slate-200">{expQty}</b></span>
-                                                        <span className="text-slate-300">•</span>
-                                                        <span className="text-emerald-600">Recv: <b>{recvQty}</b></span>
-                                                        <span className="text-slate-300">•</span>
-                                                        <span className={`font-bold ${pendingQty > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
-                                                            Pend: {pendingQty} {retUnit}
-                                                        </span>
-                                                        {challan.totalJobWorkCharges ? (
-                                                            <>
-                                                                <span className="text-slate-300">•</span>
-                                                                <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400" title="Total Job Work Charges">
-                                                                    JW: ₹{challan.totalJobWorkCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                                </span>
-                                                            </>
-                                                        ) : null}
-                                                    </div>
-                                                </td>
-
-                                                {/* 7. Dates & Status */}
+                                                {/* 6. Dates & Status */}
                                                 <td className="px-3.5 py-3 whitespace-nowrap">
                                                     <div className="text-xs font-medium text-slate-600 dark:text-slate-300">
                                                         Sent: {formatDateTime(challan.date)}
@@ -1824,7 +1791,7 @@ export default function JobWorkStore({
                                                     </div>
                                                 </td>
 
-                                                {/* 8. Created By */}
+                                                {/* 7. Created By */}
                                                 <td className="px-3.5 py-3 whitespace-nowrap">
                                                     <div className="flex items-center gap-1.5">
                                                         <User size={13} className="text-slate-400 shrink-0" />
@@ -1834,14 +1801,14 @@ export default function JobWorkStore({
                                                     </div>
                                                 </td>
 
-                                                {/* 9. Quick Actions & 24h Countdown Timer */}
+                                                {/* 8. Quick Actions & 24h Countdown Timer */}
                                                 <td className="px-4 py-3 text-right whitespace-nowrap">
                                                     <div className="flex justify-end items-center gap-1.5">
                                                         {/* Preview Action */}
                                                         <button 
                                                             onClick={() => openPreview(challan)} 
                                                             className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800" 
-                                                            title="Preview Challan (Details, PDF, Excel)"
+                                                            title="Preview Challan (Outward & Inward Items, Details, PDF)"
                                                         >
                                                             <Eye size={14} />
                                                         </button>
@@ -1865,15 +1832,6 @@ export default function JobWorkStore({
                                                             title="Download PDF"
                                                         >
                                                             <FileText size={14} />
-                                                        </button>
-
-                                                        {/* Excel Export */}
-                                                        <button 
-                                                            onClick={() => exportChallanToExcel(challan)} 
-                                                            className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors cursor-pointer border border-emerald-200 dark:border-emerald-800" 
-                                                            title="Download Excel"
-                                                        >
-                                                            <FileSpreadsheet size={14} />
                                                         </button>
 
                                                         {/* Edit/Delete Countdown Timer */}
@@ -1932,7 +1890,7 @@ export default function JobWorkStore({
                     </div>
 
                     {/* Mobile Card View (Responsive for Phone/Tablet) */}
-                    <div className="md:hidden flex flex-col gap-3 pb-28 sm:pb-20">
+                    <div className="md:hidden flex-1 min-h-0 max-h-[calc(100vh-280px)] overflow-y-auto overscroll-contain flex flex-col gap-3 pb-28 sm:pb-20 pr-0.5">
                         {filteredChallans.map((challan) => {
                             const remainingSecs = getRemainingEditSeconds(challan.createdAt || challan.date);
                             const isActionable = isEditAllowed(challan.createdAt || challan.date) && challan.status !== 'Closed';
@@ -2010,42 +1968,15 @@ export default function JobWorkStore({
                                                     MRP: {challan.mrpNumber}
                                                 </span>
                                             )}
+                                            {(challan as any).poNumber && (
+                                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
+                                                    PO: {(challan as any).poNumber}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
 
                                     <div className="text-xs space-y-1.5 text-slate-600 dark:text-slate-300">
-                                        <div className="flex justify-between items-start">
-                                            <span className="text-slate-400">Outward Item:</span>
-                                            <div className="text-right">
-                                                <div className="font-bold text-slate-800 dark:text-slate-200">
-                                                    {primarySentItem?.itemName || '-'}
-                                                    {sentItemCount > 1 && ` (+${sentItemCount - 1} more)`}
-                                                </div>
-                                                {getItemDescription(primarySentItem) && (
-                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
-                                                        {getItemDescription(primarySentItem)}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-400">Sent Qty:</span>
-                                            <span className="font-bold text-slate-700 dark:text-slate-200">
-                                                {isAssembly ? totalSentQty : (primarySentItem?.quantitySent || 0)} {sentUnit}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-400">Inward Return:</span>
-                                            <span className="font-semibold text-indigo-700 dark:text-indigo-400 text-right">
-                                                {retName}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-400">Exp / Recv / Pend:</span>
-                                            <span className="font-bold">
-                                                {expQty} / <span className="text-emerald-600">{recvQty}</span> / <span className="text-amber-600">{pendingQty}</span>
-                                            </span>
-                                        </div>
                                         <div className="flex justify-between">
                                             <span className="text-slate-400">Sent Date:</span>
                                             <span>{formatDateTime(challan.date)}</span>

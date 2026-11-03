@@ -136,7 +136,7 @@ export default function MRPDemandTab({
       setLoading(true);
       const [poRes, fgRes, custRes] = await Promise.all([
         apiGet('/api/sales/incoming-po', token).catch(() => ({ pos: [] })),
-        apiGet('/api/store/fg-item', token).catch(() => []),
+        apiGet('/api/store/fg-item?lite=true', token).catch(() => []),
         apiGet('/api/store/customer', token).catch(() => [])
       ]);
 

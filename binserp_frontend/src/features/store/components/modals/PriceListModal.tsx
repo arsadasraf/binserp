@@ -1,6 +1,7 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { X, Save, AlertCircle, Tag, Globe } from "lucide-react";
+import SearchableSelect from "../SearchableSelect";
 import { formatItemSelectLabel, getItemDescription } from "@/src/utils/itemDisplayHelper";
 import { CURRENCY_OPTIONS, getCurrencySymbol, normalizeCurrencyCode } from "@/src/utils/currencyHelper";
 
@@ -37,16 +38,34 @@ export default function PriceListModal({
   useEffect(() => {
     if (isOpen) {
       if (initialData?.fgItem) {
-        const itemObj = typeof initialData.fgItem === "object" ? initialData.fgItem : fgItems.find(f => f._id === initialData.fgItem);
-        const existingConfig = priceLists.find(p => (p.fgItem?._id || p.fgItem) === itemObj?._id);
+        const fgIdStr = typeof initialData.fgItem === "object"
+          ? String(initialData.fgItem._id || initialData.fgItem.id || "")
+          : String(initialData.fgItem || "");
+        const itemObj = typeof initialData.fgItem === "object"
+          ? initialData.fgItem
+          : fgItems.find(f => String(f._id || f.id) === fgIdStr);
+        const existingConfig = priceLists.find(p => String(p.fgItem?._id || p.fgItem) === fgIdStr);
+
+        const resolvedPricingUnit = (initialData.pricingUnit ?? existingConfig?.pricingUnit ?? "").toString().trim();
+        const resolvedSecUnit = (
+          initialData.secondaryUnit ||
+          itemObj?.secondaryUnit ||
+          ""
+        ).toString().trim();
+        const resolvedIsSec =
+          initialData.isSecondaryUnit !== undefined
+            ? Boolean(initialData.isSecondaryUnit)
+            : existingConfig?.isSecondaryUnit !== undefined
+            ? Boolean(existingConfig.isSecondaryUnit)
+            : Boolean(resolvedPricingUnit && resolvedSecUnit && resolvedPricingUnit.toUpperCase() === resolvedSecUnit.toUpperCase());
 
         setFormData({
-          fgItem: itemObj?._id || initialData.fgItem || "",
+          fgItem: itemObj?._id || fgIdStr || "",
           currency: normalizeCurrencyCode(initialData.currency ?? existingConfig?.currency ?? itemObj?.currency ?? "INR"),
-          price: (initialData.price ?? existingConfig?.price ?? itemObj?.sellingPrice ?? "")?.toString(),
+          price: (initialData.price !== undefined && initialData.price !== "" ? initialData.price : (existingConfig?.price ?? itemObj?.sellingPrice ?? ""))?.toString(),
           taxRate: (initialData.taxRate ?? existingConfig?.taxRate ?? itemObj?.taxRate ?? "18")?.toString(),
-          pricingUnit: initialData.pricingUnit ?? existingConfig?.pricingUnit ?? "",
-          isSecondaryUnit: Boolean(initialData.isSecondaryUnit ?? existingConfig?.isSecondaryUnit),
+          pricingUnit: resolvedPricingUnit,
+          isSecondaryUnit: resolvedIsSec,
           remarks: initialData.remarks || existingConfig?.remarks || "",
         });
       } else {
@@ -64,11 +83,20 @@ export default function PriceListModal({
     }
   }, [isOpen, initialData, fgItems, priceLists]);
 
+  const fgOptions = useMemo(() => {
+    return (Array.isArray(fgItems) ? fgItems : []).map((fg: any) => ({
+      value: String(fg._id || fg.id || ""),
+      label: formatItemSelectLabel(fg),
+      description: getItemDescription(fg),
+      badge: fg.type || undefined,
+    }));
+  }, [fgItems]);
+
   if (!isOpen) return null;
 
   const handleFgItemSelect = (selectedId: string) => {
-    const selectedFg = fgItems.find(f => f._id === selectedId);
-    const existingConfig = priceLists.find(p => (p.fgItem?._id || p.fgItem) === selectedId);
+    const selectedFg = fgItems.find(f => String(f._id || f.id) === String(selectedId));
+    const existingConfig = priceLists.find(p => String(p.fgItem?._id || p.fgItem) === String(selectedId));
 
     setFormData(prev => ({
       ...prev,
@@ -82,7 +110,7 @@ export default function PriceListModal({
     }));
   };
 
-  const selectedFgObj = fgItems.find(f => f._id === formData.fgItem) || (typeof initialData?.fgItem === "object" ? initialData?.fgItem : null);
+  const selectedFgObj = fgItems.find(f => String(f._id || f.id) === String(formData.fgItem)) || (typeof initialData?.fgItem === "object" ? initialData?.fgItem : initialData);
   const isPreSelected = !!initialData?.fgItem;
   const resolvedHsnCode = selectedFgObj?.hsnCode || initialData?.hsnCode || "";
 
@@ -91,9 +119,9 @@ export default function PriceListModal({
     selectedFgObj?.secondaryUnit &&
     Number(selectedFgObj?.conversionFactor) > 0
   );
-  const primaryUnit = selectedFgObj?.unit || 'Nos';
-  const secondaryUnit = selectedFgObj?.secondaryUnit || '';
-  const factor = Number(selectedFgObj?.conversionFactor) || 1;
+  const primaryUnit = selectedFgObj?.unit || initialData?.unit || 'Nos';
+  const secondaryUnit = selectedFgObj?.secondaryUnit || initialData?.secondaryUnit || '';
+  const factor = Number(selectedFgObj?.conversionFactor || initialData?.conversionFactor) || 1;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,19 +205,12 @@ export default function PriceListModal({
                   <span className="text-[10px] bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 px-2 py-0.5 rounded-full font-medium">Locked</span>
                 </div>
               ) : (
-                <select
-                  required
+                <SearchableSelect
+                  options={fgOptions}
                   value={formData.fgItem}
-                  onChange={(e) => handleFgItemSelect(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="">Select Finished Good...</option>
-                  {fgItems.map(fg => (
-                    <option key={fg._id} value={fg._id}>
-                      {formatItemSelectLabel(fg)}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val: string) => handleFgItemSelect(val)}
+                  placeholder="Select Finished Good..."
+                />
               )}
             </div>
 

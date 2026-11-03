@@ -162,8 +162,8 @@ export function explodeFGBOMHierarchy(
         ? String(bItem.item._id || bItem.item.id || '')
         : String(bItem.item || '');
 
-      const perParentQty = Number(bItem.quantity) || 1;
-      const cumulativeQty = Number((perParentQty * parentCumulativeQty).toFixed(4));
+      const perParentQty = parseFloat((Number(bItem.quantity) || 1).toFixed(2));
+      const cumulativeQty = parseFloat((perParentQty * parentCumulativeQty).toFixed(2));
       // 1. Resolve matched master record
       let matchedFG = (rawId ? fgMapById.get(rawId) : null) || (rawName ? fgMapByName.get(rawName.toLowerCase()) : null);
       let matchedRM = (rawId ? rmMapById.get(rawId) : null) || (rawName ? rmMapByName.get(rawName.toLowerCase()) : null);
@@ -177,7 +177,7 @@ export function explodeFGBOMHierarchy(
       let resolvedType: 'SubAssembly' | 'Assembly' | 'Component' | 'BO' | 'RM' = 'RM';
       let categoryLabel = 'Raw Material';
 
-      const canonicalUnit = matchedRM?.unit || matchedBO?.unit || (isBOType || isFGType ? 'NOS' : 'KG');
+      const canonicalUnit = matchedFG?.unit || matchedRM?.unit || matchedBO?.unit || bItem.unit || (isBOType || isFGType ? 'NOS' : 'KG');
       const unit = canonicalUnit;
 
       // Subcategory / Category resolution across all master collections
@@ -292,10 +292,17 @@ export function explodeFGBOMHierarchy(
         (typeof bItem.item === 'object' ? bItem.item?.conversionFactor : 1)
       ) || 1;
 
-      const secPerParent = hasSec ? Number((perParentQty * convFactor).toFixed(4)) : undefined;
-      const secCumulative = hasSec ? Number((cumulativeQty * convFactor).toFixed(4)) : undefined;
+      const secPerParent = hasSec ? Math.round(perParentQty * convFactor) : undefined;
+      const secCumulative = hasSec ? Math.round(cumulativeQty * convFactor) : undefined;
 
-      const effectiveId = rawId || `item-${level}-${index}-${rawName}`;
+      const resolvedMasterId = String(
+        matchedFG?._id || matchedFG?.id ||
+        matchedBO?._id || matchedBO?.id ||
+        matchedRM?._id || matchedRM?.id ||
+        rawId ||
+        ''
+      );
+      const effectiveId = resolvedMasterId || `item-${level}-${index}-${rawName}`;
       const uniqueKey = `${effectiveId}-${level}-${index}`;
 
       // Check for child BOM in matched FG
@@ -429,13 +436,14 @@ export function consolidateBOMItems(
     }
 
     // Add cumulative quantities
-    existing.totalCumulativeQuantity = Number(
-      (existing.totalCumulativeQuantity + (Number(node.cumulativeQuantity) || 0)).toFixed(4)
+    existing.totalCumulativeQuantity = parseFloat(
+      (existing.totalCumulativeQuantity + (Number(node.cumulativeQuantity) || 0)).toFixed(2)
     );
 
     if (node.hasSecondaryUnit && node.secondaryCumulativeQuantity !== undefined) {
-      existing.totalSecondaryCumulativeQuantity = Number(
-        (((existing.totalSecondaryCumulativeQuantity || 0) + (Number(node.secondaryCumulativeQuantity) || 0))).toFixed(4)
+      const conv = Number(node.conversionFactor) > 0 ? Number(node.conversionFactor) : 1;
+      existing.totalSecondaryCumulativeQuantity = Math.round(
+        existing.totalCumulativeQuantity * conv
       );
     }
 

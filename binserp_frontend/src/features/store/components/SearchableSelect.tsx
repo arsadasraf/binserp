@@ -380,15 +380,20 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
         }
     };
 
+    const fullDisplayText = selectedOption
+        ? (typeof selectedOption.label === 'string' ? selectedOption.label : String(selectedOption.label))
+        : (displayLabel || '');
+
     return (
-        <div ref={wrapperRef} className={`relative ${className}`}>
+        <div ref={wrapperRef} className={`relative min-w-0 max-w-full ${className}`}>
             {/* Display Trigger */}
             <div 
+                title={fullDisplayText || undefined}
                 className={`${
                     innerClassName 
                         ? innerClassName 
                         : 'w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border rounded-lg outline-none cursor-pointer transition-all'
-                } flex justify-between items-center gap-2 ${
+                } flex justify-between items-center gap-2 min-w-0 max-w-full overflow-hidden ${
                     disabled 
                         ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200 dark:bg-slate-800 dark:border-slate-700' 
                         : hasError
@@ -403,8 +408,8 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     if (!disabled) setIsOpen(!isOpen);
                 }}
             >
-                <span className={`truncate font-medium ${hasError ? 'text-rose-700 dark:text-rose-300 font-semibold' : (!selectedOption && !displayLabel) ? 'text-gray-400' : 'text-gray-800 dark:text-gray-200'}`}>
-                    {selectedOption ? (typeof selectedOption.label === 'string' ? selectedOption.label : String(selectedOption.label)) : (displayLabel || placeholder)}
+                <span className={`block flex-1 min-w-0 truncate font-medium ${hasError ? 'text-rose-700 dark:text-rose-300 font-semibold' : (!selectedOption && !displayLabel) ? 'text-gray-400' : 'text-gray-800 dark:text-gray-200'}`}>
+                    {fullDisplayText || placeholder}
                 </span>
                 <ChevronDown className={`w-3.5 h-3.5 ${hasError ? 'text-rose-500' : 'text-gray-400'} shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-600' : ''}`} />
             </div>

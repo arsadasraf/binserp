@@ -6,6 +6,7 @@ import { generateSingleMaterialRequestSlipPDF } from '@/src/utils/generateMateri
 import { API_BASE_URL } from '@/src/utils/config';
 import { evaluateItemStock } from '@/src/utils/stockValidationHelper';
 import { showWarningDialog, showErrorDialog, showSuccessToast } from '@/src/features/store/utils/storeDialogHelper';
+import { formatPrimaryQty, convertPrimaryToSecondaryQty, convertSecondaryToPrimaryQty } from '@/src/utils/dualUomHelper';
 
 interface MaterialRequestDetailsModalProps {
     isOpen: boolean;
@@ -67,7 +68,7 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`
                     },
-                    body: JSON.stringify({ status: 'Approved' })
+                    body: JSON.stringify({ status: 'Approved', bypassTimeLock: true })
                 });
                 if (!res.ok) {
                     const err = await res.json().catch(() => ({}));
@@ -251,7 +252,9 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                                                 <td className="px-4 py-3 text-center">
                                                     <div>
                                                         <span className="font-bold text-gray-900 dark:text-white text-sm">
-                                                            {item.selectedUnit === item.secondaryUnit ? item.secondaryQuantity : item.quantity}
+                                                            {item.selectedUnit === item.secondaryUnit 
+                                                                ? Math.round(Number(item.secondaryQuantity) || convertPrimaryToSecondaryQty(item.quantity, item.conversionFactor || 1))
+                                                                : formatPrimaryQty(item.quantity)}
                                                         </span>
                                                         <span className="text-xs text-gray-500 ml-1 font-semibold">
                                                             {item.selectedUnit || item.unit || 'PCS'}
@@ -263,9 +266,9 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                                                     {item.hasSecondaryUnit && item.secondaryUnit && (
                                                         <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5">
                                                             {item.selectedUnit === item.secondaryUnit ? (
-                                                                <span>↳ = {item.quantity || (item.conversionFactor ? Math.round(Number(item.secondaryQuantity || 0) / item.conversionFactor * 100) / 100 : item.secondaryQuantity)} {item.unit}</span>
+                                                                <span>↳ = {formatPrimaryQty(item.quantity || convertSecondaryToPrimaryQty(item.secondaryQuantity, item.conversionFactor || 1))} {item.unit}</span>
                                                             ) : (
-                                                                <span>↳ = {item.secondaryQuantity || Math.round(Number(item.quantity || 0) * (item.conversionFactor || 1) * 100) / 100} {item.secondaryUnit}</span>
+                                                                <span>↳ = {item.secondaryQuantity != null && !isNaN(Number(item.secondaryQuantity)) && Number(item.secondaryQuantity) > 0 ? Math.round(Number(item.secondaryQuantity)) : convertPrimaryToSecondaryQty(item.quantity, item.conversionFactor || 1)} {item.secondaryUnit}</span>
                                                             )}
                                                         </div>
                                                     )}

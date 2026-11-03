@@ -3,6 +3,8 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Filter, Check, Globe, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getCurrencySymbol } from "@/src/utils/currencyHelper";
+import { getItemDescription } from "@/src/utils/itemDisplayHelper";
+import { isSpaceFreeMatch } from "@/src/utils/spaceFreeSearchHelper";
 import ColumnFilter from "./ColumnFilter";
 
 export type FgTypeFilter = "all" | "assembly" | "subassembly" | "component";
@@ -121,26 +123,40 @@ export default function PriceListTable({
 
   const baseFilteredItems = useMemo(() => {
     return fgItems.filter((item) => {
-      const searchLower = searchTerm.toLowerCase();
-      const fgItemName = item.name?.toLowerCase() || "";
-      const fgItemDesc = (item.description || item.descriptions || "")?.toLowerCase();
-      const matchesSearch = fgItemName.includes(searchLower) || fgItemDesc.includes(searchLower);
-
-      if (!matchesSearch) return false;
-
       if (selectedType !== "all") {
         if (normalizeFgType(item.type) !== selectedType) return false;
       }
 
+      const p = priceListMap[item._id?.toString()];
       if (selectedCurrency !== "all") {
-        const p = priceListMap[item._id?.toString()];
         const itemCurrency = (p?.currency || item.currency || "INR").toUpperCase();
         if (itemCurrency !== selectedCurrency) return false;
       }
 
-      return true;
+      if (!searchTerm.trim()) return true;
+
+      const subCat = getSubCategoryName(item);
+      const normType = normalizeFgType(item.type);
+      const typeLabel =
+        normType === "assembly"
+          ? "Assembly"
+          : normType === "subassembly"
+          ? "Sub-Assembly SubAssembly"
+          : `${item.type || "Component"}`;
+      const combinedSearchText = [
+        item.name || "",
+        getItemDescription(item),
+        subCat !== "-" ? subCat : "",
+        typeLabel,
+        item.hsnCode || p?.hsnCode || "",
+        p?.currency || item.currency || "",
+        p?.price ?? "",
+        p?.remarks || "",
+      ].join(" ");
+
+      return isSpaceFreeMatch(combinedSearchText, searchTerm);
     });
-  }, [fgItems, searchTerm, selectedType, selectedCurrency, priceListMap]);
+  }, [fgItems, searchTerm, selectedType, selectedCurrency, priceListMap, getSubCategoryName]);
 
   const filteredItems = useMemo(() => {
     let result = baseFilteredItems.filter((item) => {
@@ -206,11 +222,22 @@ export default function PriceListTable({
             </div>
             <input
               type="text"
-              placeholder="Search by FG Item name or description..."
+              placeholder="Search FG item name, description, HSN, sub-category..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+              onKeyDown={(e) => e.stopPropagation()}
+              className="w-full pl-10 pr-8 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm("")}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
+                title="Clear search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
 
           <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 flex-wrap">

@@ -24,6 +24,7 @@ import Swal from 'sweetalert2';
 import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import { usePermission } from '@/src/hooks/usePermission';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
+import { formatPrimaryQty, convertPrimaryToSecondaryQty } from '@/src/utils/dualUomHelper';
 import MaterialRequestModal, { RequestInventoryType } from '../modals/MaterialRequestModal';
 import MaterialRequestDetailsModal from '../modals/MaterialRequestDetailsModal';
 import MaterialRequestLedgerTable from '../tables/MaterialRequestLedgerTable';
@@ -580,11 +581,23 @@ export default function MaterialRequestTab({
                             {/* Items Summary */}
                             <td className="py-3 px-4">
                               <div className="flex flex-wrap gap-1 max-w-sm">
-                                {(req.items || []).slice(0, 2).map((it: any, iIdx: number) => (
-                                  <span key={iIdx} className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-medium border border-slate-200 dark:border-slate-700">
-                                    {it.materialName || it.name} ({it.quantity} {it.unit || 'PCS'})
-                                  </span>
-                                ))}
+                                {(req.items || []).slice(0, 2).map((it: any, iIdx: number) => {
+                                  const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+                                  const priQty = formatPrimaryQty(it.quantity);
+                                  const secQty = hasSec
+                                    ? (it.secondaryQuantity != null && !isNaN(Number(it.secondaryQuantity)) && Number(it.secondaryQuantity) > 0
+                                      ? Math.round(Number(it.secondaryQuantity))
+                                      : convertPrimaryToSecondaryQty(priQty, it.conversionFactor || 1))
+                                    : null;
+                                  return (
+                                    <span key={iIdx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-medium border border-slate-200 dark:border-slate-700">
+                                      <span className="truncate max-w-[140px]">{it.materialName || it.name}</span>
+                                      <span className="font-bold text-slate-900 dark:text-white shrink-0">
+                                        ({priQty} {it.unit || 'PCS'}{hasSec ? ` / ${secQty} ${it.secondaryUnit}` : ''})
+                                      </span>
+                                    </span>
+                                  );
+                                })}
                                 {itemsCount > 2 && (
                                   <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 text-[10px] font-bold border border-blue-200 dark:border-blue-800">
                                     +{itemsCount - 2} more
@@ -680,16 +693,32 @@ export default function MaterialRequestTab({
 
                         {/* Items Preview List */}
                         <div className="mt-2.5 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl text-xs space-y-1.5 border border-slate-100 dark:border-slate-800">
-                          {(req.items || []).slice(0, 2).map((it: any, iIdx: number) => (
-                            <div key={iIdx} className="flex justify-between items-center text-xs">
-                              <span className="truncate max-w-[70%] font-semibold text-slate-800 dark:text-slate-200">
-                                • {it.materialName || it.name}
-                              </span>
-                              <span className="font-mono font-bold text-slate-900 dark:text-white text-[11px]">
-                                {it.quantity} {it.unit || 'PCS'}
-                              </span>
-                            </div>
-                          ))}
+                          {(req.items || []).slice(0, 2).map((it: any, iIdx: number) => {
+                            const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+                            const priQty = formatPrimaryQty(it.quantity);
+                            const secQty = hasSec
+                              ? (it.secondaryQuantity != null && !isNaN(Number(it.secondaryQuantity)) && Number(it.secondaryQuantity) > 0
+                                ? Math.round(Number(it.secondaryQuantity))
+                                : convertPrimaryToSecondaryQty(priQty, it.conversionFactor || 1))
+                              : null;
+                            return (
+                              <div key={iIdx} className="flex justify-between items-start text-xs">
+                                <span className="truncate max-w-[60%] font-semibold text-slate-800 dark:text-slate-200">
+                                  • {it.materialName || it.name}
+                                </span>
+                                <div className="text-right shrink-0">
+                                  <span className="font-mono font-bold text-slate-900 dark:text-white text-[11px]">
+                                    {priQty} {it.unit || 'PCS'}
+                                  </span>
+                                  {hasSec && (
+                                    <div className="text-[10px] text-indigo-500 font-semibold font-mono">
+                                      ↳ {secQty} {it.secondaryUnit}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
                           {itemsCount > 2 && (
                             <div className="text-[10px] text-blue-600 dark:text-blue-400 font-bold pt-0.5">
                               +{itemsCount - 2} more item(s)
@@ -784,7 +813,7 @@ export default function MaterialRequestTab({
           onClose={() => setIsDetailsModalOpen(false)}
           request={selectedRequestForDetails}
           onApprove={async (id) => {
-            await apiPut(`/api/store/material-request/${id}`, { status: 'Approved' }, token);
+            await apiPut(`/api/store/material-request/${id}`, { status: 'Approved', bypassTimeLock: true }, token);
             fetchData();
           }}
         />

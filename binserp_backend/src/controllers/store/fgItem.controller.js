@@ -213,6 +213,46 @@ export const getAllFGItems = async (req, res) => {
     req.getModel('BoughtOut', boughtOutSchema);
     req.getModel('RmBoItem', rmBoItemSchema);
     req.getModel('Material', rmBoItemSchema);
+    if (req.query?.lite === 'true' || req.query?.lite === '1') {
+      const liteCompanyId = getCompanyId(req);
+      const PriceListLite = req.getModel('PriceList', priceListSchema);
+      const [liteFgItems, litePriceLists] = await Promise.all([
+        FGItem.find({ company: liteCompanyId })
+          .select('name code type description descriptions unit hasSecondaryUnit secondaryUnit conversionFactor primaryRatio secondaryRatio hsnCode sellingPrice taxRate currency quantity allocatedQuantity status isActive revisionNumber bom')
+          .sort({ createdAt: -1 })
+          .lean(),
+        PriceListLite.find({ company: liteCompanyId }).select('fgItem price taxRate currency').lean().catch(() => [])
+      ]);
+
+      const plMap = new Map();
+      litePriceLists.forEach(pl => {
+        if (pl.fgItem) plMap.set(pl.fgItem.toString(), pl);
+      });
+
+      const liteItems = liteFgItems.map(item => {
+        const itemIdStr = item._id.toString();
+        const matchedPL = plMap.get(itemIdStr);
+        const stock = Number(item.quantity || 0);
+        const resolvedSellingPrice = Number(item.sellingPrice || matchedPL?.price || 0);
+        const resolvedTaxRate = Number(item.taxRate != null ? item.taxRate : (matchedPL?.taxRate != null ? matchedPL.taxRate : 18));
+        const resolvedCurrency = (item.currency || matchedPL?.currency || 'INR').trim().toUpperCase();
+
+        return {
+          ...item,
+          quantity: stock,
+          currentStock: stock,
+          sellingPrice: resolvedSellingPrice,
+          taxRate: resolvedTaxRate,
+          currency: resolvedCurrency,
+          salesPriceListPrice: matchedPL ? Number(matchedPL.price || 0) : undefined,
+          salesPriceListCurrency: matchedPL ? matchedPL.currency : undefined,
+          status: item.status || (item.isActive === false ? 'Inactive' : 'Active'),
+          isActive: item.isActive !== false && item.status !== 'Inactive' && item.status !== 'Deactivated'
+        };
+      });
+
+      return res.status(200).json({ fgItems: liteItems, count: liteItems.length });
+    }
     const companyId = getCompanyId(req);
 
     const fgItems = await FGItem.find({ company: companyId })

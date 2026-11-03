@@ -1,17 +1,16 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Search, Plus, Filter, Calendar, Download, Eye, Edit2, Trash2, 
   Truck, CheckCircle2, Clock, AlertCircle, Wrench, RefreshCw, 
-  ExternalLink, Layers, ArrowUpRight, IndianRupee, Printer,
-  LayoutDashboard, ChevronDown, ChevronUp
+  ExternalLink, Layers, ArrowUpRight, IndianRupee, FileText,
+  LayoutDashboard, ChevronDown, ChevronUp, RotateCcw
 } from 'lucide-react';
 import { ItemNameAndDescription } from '@/src/utils/itemDisplayHelper';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 import { generateDocument } from '@/src/utils/documentHelper';
 import JobWorkPOModal from '../modals/JobWorkPOModal';
-import JobWorkForm from '../forms/JobWorkForm';
 import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 import { apiDelete } from '@/src/lib/api';
 
@@ -25,6 +24,8 @@ const formatDateTime = (dateStr?: string | Date): string => {
     year: 'numeric'
   });
 };
+
+type ExcelColKey = 'poNumber' | 'vendor' | 'process' | 'items' | 'progress' | 'total' | 'status';
 
 interface JobWorkPOTableProps {
   data: any[];
@@ -46,11 +47,6 @@ export default function JobWorkPOTable({
   vendors = [],
   materials = [],
   inHouseItems = [],
-  rawMaterials = [],
-  boughtOuts = [],
-  consumables = [],
-  inventoryList = [],
-  mrpPlans = [],
   companyInfo,
   loading,
   onRefresh
@@ -64,39 +60,212 @@ export default function JobWorkPOTable({
   const [dateFilter, setDateFilter] = useState<string>('');
   const [showDashboard, setShowDashboard] = useState<boolean>(false);
 
+  // Excel Column Filter States (one per column)
+  const [tableDropdownCol, setTableDropdownCol] = useState<ExcelColKey | null>(null);
+  const [tableDropdownSearch, setTableDropdownSearch] = useState<string>('');
+  const tableDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  const [selectedPoNumbers, setSelectedPoNumbers] = useState<string[]>([]);
+  const [selectedExcelVendors, setSelectedExcelVendors] = useState<string[]>([]);
+  const [selectedProcesses, setSelectedProcesses] = useState<string[]>([]);
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [selectedProgress, setSelectedProgress] = useState<string[]>([]);
+  const [selectedTotals, setSelectedTotals] = useState<string[]>([]);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+
   // Modal States
   const [isPOModalOpen, setIsPOModalOpen] = useState<boolean>(false);
   const [editingPO, setEditingPO] = useState<any | null>(null);
 
-  // Linkage: Create Returnable DC from PO
-  const [isChallanFormOpen, setIsChallanFormOpen] = useState<boolean>(false);
-  const [challanPrefill, setChallanPrefill] = useState<any | null>(null);
+  // Close Excel filter dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (tableDropdownRef.current && !tableDropdownRef.current.contains(e.target as Node)) {
+        setTableDropdownCol(null);
+        setTableDropdownSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Helper to extract display values per column for a PO row
+  const getPoColValues = (po: any, colKey: ExcelColKey): string[] => {
+    switch (colKey) {
+      case 'poNumber': {
+        const vals = [po.poNumber || '-'];
+        if (po.challanNumber) vals.push(`DC: ${po.challanNumber}`);
+        return vals;
+      }
+      case 'vendor':
+        return [po.vendorName || po.vendor?.name || 'Subcontractor'];
+      case 'process':
+        return [`${po.processType || 'Standard Job Work'} (SAC: ${po.sacCode || '9988'})`];
+      case 'items': {
+        const poItems = Array.isArray(po.items) ? po.items : [];
+        if (poItems.length === 0) return ['No Items'];
+        return poItems.map((it: any) => it.materialName || it.material?.name || 'Process Item');
+      }
+      case 'progress': {
+        const poItems = Array.isArray(po.items) ? po.items : [];
+        const totalOrd = poItems.reduce((acc: number, it: any) => acc + (Number(it.quantity) || 0), 0);
+        const totalRec = poItems.reduce((acc: number, it: any) => acc + (Number(it.receivedQuantity) || 0), 0);
+        return [`${totalRec} / ${totalOrd}`];
+      }
+      case 'total': {
+        const amt = Number(po.grandTotal) || Number(po.totalAmount) || 0;
+        return [`₹${amt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`];
+      }
+      case 'status':
+        return [po.status || 'Released'];
+    }
+  };
+
+  // Unique values per column for Excel Filter
+  const uniqueColValues = useMemo(() => {
+    const map: Record<ExcelColKey, string[]> = {
+      poNumber: [],
+      vendor: [],
+      process: [],
+      items: [],
+      progress: [],
+      total: [],
+      status: []
+    };
+    const sets: Record<ExcelColKey, Set<string>> = {
+      poNumber: new Set(),
+      vendor: new Set(),
+      process: new Set(),
+      items: new Set(),
+      progress: new Set(),
+      total: new Set(),
+      status: new Set()
+    };
+
+    data.forEach(po => {
+      (Object.keys(sets) as ExcelColKey[]).forEach(col => {
+        getPoColValues(po, col).forEach(v => {
+          if (v) sets[col].add(v);
+        });
+      });
+    });
+
+    (Object.keys(sets) as ExcelColKey[]).forEach(col => {
+      map[col] = Array.from(sets[col]).sort((a, b) => a.localeCompare(b));
+    });
+    return map;
+  }, [data]);
+
+  const getSelectedForCol = (colKey: ExcelColKey): string[] => {
+    switch (colKey) {
+      case 'poNumber': return selectedPoNumbers;
+      case 'vendor': return selectedExcelVendors;
+      case 'process': return selectedProcesses;
+      case 'items': return selectedItems;
+      case 'progress': return selectedProgress;
+      case 'total': return selectedTotals;
+      case 'status': return selectedStatuses;
+    }
+  };
+
+  const setSelectedForCol = (colKey: ExcelColKey, next: string[]) => {
+    switch (colKey) {
+      case 'poNumber': setSelectedPoNumbers(next); break;
+      case 'vendor': setSelectedExcelVendors(next); break;
+      case 'process': setSelectedProcesses(next); break;
+      case 'items': setSelectedItems(next); break;
+      case 'progress': setSelectedProgress(next); break;
+      case 'total': setSelectedTotals(next); break;
+      case 'status': setSelectedStatuses(next); break;
+    }
+  };
+
+  const getValueCount = (colKey: ExcelColKey, val: string): number => {
+    return data.filter(po => getPoColValues(po, colKey).includes(val)).length;
+  };
+
+  const handleToggleExcelValue = (colKey: ExcelColKey, val: string) => {
+    const curr = getSelectedForCol(colKey);
+    const next = curr.includes(val) ? curr.filter(v => v !== val) : [...curr, val];
+    setSelectedForCol(colKey, next);
+  };
+
+  const handleSelectAllExcel = (colKey: ExcelColKey, allValues: string[]) => {
+    const curr = getSelectedForCol(colKey);
+    if (curr.length === allValues.length) {
+      setSelectedForCol(colKey, []);
+    } else {
+      setSelectedForCol(colKey, [...allValues]);
+    }
+  };
+
+  const handleClearAllExcelFilters = () => {
+    setSelectedPoNumbers([]);
+    setSelectedExcelVendors([]);
+    setSelectedProcesses([]);
+    setSelectedItems([]);
+    setSelectedProgress([]);
+    setSelectedTotals([]);
+    setSelectedStatuses([]);
+  };
+
+  const hasAnyExcelFilter =
+    selectedPoNumbers.length > 0 ||
+    selectedExcelVendors.length > 0 ||
+    selectedProcesses.length > 0 ||
+    selectedItems.length > 0 ||
+    selectedProgress.length > 0 ||
+    selectedTotals.length > 0 ||
+    selectedStatuses.length > 0;
 
   // Filtered Data
   const filteredData = useMemo(() => {
     return data.filter(po => {
-      // Status Filter
+      // Top-bar Status Filter
       if (statusFilter !== 'all' && (po.status || 'Released').toLowerCase() !== statusFilter.toLowerCase()) {
         return false;
       }
 
-      // Vendor Filter
+      // Top-bar Vendor Filter
       if (vendorFilter !== 'all') {
         const vId = po.vendor?._id || po.vendor;
         if (vId !== vendorFilter) return false;
       }
 
-      // Date Filter
+      // Top-bar Date Filter
       if (dateFilter) {
         const poDate = po.date ? new Date(po.date).toISOString().slice(0, 10) : '';
         if (poDate !== dateFilter) return false;
       }
 
-      // Search Term (Space-free across poNumber, vendorName, processType, and items)
+      // Excel Column Filters
+      if (selectedPoNumbers.length > 0 && !getPoColValues(po, 'poNumber').some(v => selectedPoNumbers.includes(v))) {
+        return false;
+      }
+      if (selectedExcelVendors.length > 0 && !getPoColValues(po, 'vendor').some(v => selectedExcelVendors.includes(v))) {
+        return false;
+      }
+      if (selectedProcesses.length > 0 && !getPoColValues(po, 'process').some(v => selectedProcesses.includes(v))) {
+        return false;
+      }
+      if (selectedItems.length > 0 && !getPoColValues(po, 'items').some(v => selectedItems.includes(v))) {
+        return false;
+      }
+      if (selectedProgress.length > 0 && !getPoColValues(po, 'progress').some(v => selectedProgress.includes(v))) {
+        return false;
+      }
+      if (selectedTotals.length > 0 && !getPoColValues(po, 'total').some(v => selectedTotals.includes(v))) {
+        return false;
+      }
+      if (selectedStatuses.length > 0 && !getPoColValues(po, 'status').some(v => selectedStatuses.includes(v))) {
+        return false;
+      }
+
+      // Search Term (Space-free across poNumber, challanNumber, vendorName, processType, and items)
       if (searchTerm.trim()) {
         const vendorName = po.vendorName || po.vendor?.name || '';
         const itemNames = (po.items || []).map((it: any) => `${it.materialName || ''} ${it.description || ''}`).join(' ');
-        const combined = `${po.poNumber || ''} ${vendorName} ${po.processType || ''} ${po.sacCode || ''} ${itemNames}`;
+        const combined = `${po.poNumber || ''} ${po.challanNumber || ''} ${vendorName} ${po.processType || ''} ${po.sacCode || ''} ${itemNames}`;
         if (!isSpaceFreeMatch(combined, searchTerm)) {
           return false;
         }
@@ -104,7 +273,20 @@ export default function JobWorkPOTable({
 
       return true;
     });
-  }, [data, statusFilter, vendorFilter, dateFilter, searchTerm]);
+  }, [
+    data,
+    statusFilter,
+    vendorFilter,
+    dateFilter,
+    searchTerm,
+    selectedPoNumbers,
+    selectedExcelVendors,
+    selectedProcesses,
+    selectedItems,
+    selectedProgress,
+    selectedTotals,
+    selectedStatuses
+  ]);
 
   // Operational Metrics
   const metrics = useMemo(() => {
@@ -173,33 +355,134 @@ export default function JobWorkPOTable({
     }
   };
 
-  // Handle Create Returnable DC from this PO
-  const handleCreateDCFromPO = (po: any) => {
-    const vId = po.vendor?._id || po.vendor;
-    const prefillItems = (po.items || []).map((it: any) => ({
-      material: it.material?._id || it.material || undefined,
-      materialName: it.materialName || it.material?.name || 'Job Work Item',
-      description: it.description || it.material?.descriptions || it.material?.description || '',
-      quantity: Number(it.pendingQuantity !== undefined ? it.pendingQuantity : it.quantity) || 1,
-      unit: it.unit || 'PCS',
-      rate: Number(it.rate) || 0,
-      processType: it.processType || po.processType || 'Job Work',
-      remarks: `Process: ${it.processType || po.processType || 'Job Work'} (Ref PO: ${po.poNumber})`
-    }));
-
-    setChallanPrefill({
-      vendor: vId,
-      vendorName: po.vendorName || po.vendor?.name || '',
-      purpose: 'Job Work',
-      remarks: `Created against Job Work Outward PO: ${po.poNumber} (${po.processType || 'Job Work Processing'})`,
-      items: prefillItems
-    });
-    setIsChallanFormOpen(true);
+  // Handle Download PDF
+  const handleDownloadPDF = (po: any) => {
+    generateDocument('pdf', 'po', { po, companyInfo });
   };
 
-  // Handle Print PDF
-  const handlePrintPDF = (po: any) => {
-    generateDocument('pdf', 'po', { po, companyInfo });
+  // Excel-Style Column Header Renderer
+  const renderExcelHeader = (
+    colKey: ExcelColKey,
+    title: string,
+    align: 'left' | 'center' | 'right' = 'left',
+    extraClass: string = ''
+  ) => {
+    const selectedValues = getSelectedForCol(colKey);
+    const isFiltered = selectedValues.length > 0;
+    const isOpen = tableDropdownCol === colKey;
+    const allValues = uniqueColValues[colKey] || [];
+    const filteredDropdownValues = allValues.filter(v =>
+      v.toLowerCase().includes(tableDropdownSearch.toLowerCase().trim())
+    );
+    const isAllSelected = selectedValues.length === allValues.length && allValues.length > 0;
+
+    const justifyClass =
+      align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-between';
+
+    return (
+      <th className={`py-3 px-3.5 text-${align} relative select-none ${extraClass}`}>
+        <div className={`flex items-center gap-1.5 ${justifyClass} group`}>
+          <span>{title}</span>
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              if (isOpen) {
+                setTableDropdownCol(null);
+                setTableDropdownSearch('');
+              } else {
+                setTableDropdownCol(colKey);
+                setTableDropdownSearch('');
+              }
+            }}
+            className={`p-1 rounded-md transition-all cursor-pointer shrink-0 ${
+              isFiltered
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+            title={`Filter by ${title} (Excel Filter)`}
+          >
+            <Filter size={11} className={isFiltered ? 'fill-current' : ''} />
+          </button>
+        </div>
+
+        {/* Excel Filter Dropdown Popover */}
+        {isOpen && (
+          <div
+            ref={tableDropdownRef}
+            onClick={e => e.stopPropagation()}
+            className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 w-64 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-2.5 z-50 normal-case font-normal text-left animate-in fade-in zoom-in-95 duration-100`}
+          >
+            {/* Search inside Dropdown */}
+            <div className="relative mb-2">
+              <Search size={12} className="absolute left-2.5 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder={`Search ${title}...`}
+                value={tableDropdownSearch}
+                onChange={e => setTableDropdownSearch(e.target.value)}
+                className="w-full pl-7 pr-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200 font-medium"
+                autoFocus
+              />
+            </div>
+
+            {/* Select All Toggle */}
+            <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-100 dark:border-slate-800 text-xs font-semibold">
+              <label className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={isAllSelected}
+                  onChange={() => handleSelectAllExcel(colKey, allValues)}
+                  className="rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                />
+                <span>(Select All)</span>
+              </label>
+              {isFiltered && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedForCol(colKey, [])}
+                  className="text-[10px] text-rose-600 dark:text-rose-400 font-bold hover:underline cursor-pointer"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {/* Value List */}
+            <div className="max-h-48 overflow-y-auto space-y-0.5 pr-1 text-xs">
+              {filteredDropdownValues.length === 0 ? (
+                <div className="p-3 text-center text-slate-400 text-xs font-medium">No matching values</div>
+              ) : (
+                filteredDropdownValues.map(val => {
+                  const isChecked = selectedValues.includes(val);
+                  const count = getValueCount(colKey, val);
+                  return (
+                    <label
+                      key={val}
+                      className="flex items-center justify-between gap-2 px-1.5 py-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-slate-800 dark:text-slate-200 text-xs"
+                      title={val}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleToggleExcelValue(colKey, val)}
+                          className="rounded text-indigo-600 focus:ring-0 shrink-0 cursor-pointer"
+                        />
+                        <span className="truncate">{val}</span>
+                      </div>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0">
+                        {count}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+      </th>
+    );
   };
 
   return (
@@ -271,7 +554,7 @@ export default function JobWorkPOTable({
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Search PO #, vendor, process..."
+              placeholder="Search PO #, DC #, vendor, process..."
               className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
@@ -360,20 +643,81 @@ export default function JobWorkPOTable({
         </button>
       </div>
 
+      {/* Active Excel Column Filters Banner */}
+      {hasAnyExcelFilter && (
+        <div className="px-3.5 py-2 bg-indigo-50/80 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between text-xs animate-in fade-in flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+              <Filter size={12} className="text-indigo-600 dark:text-indigo-400" />
+              Active Column Filters:
+            </span>
+            {selectedPoNumbers.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 font-semibold text-[11px]">
+                <span>PO/DC: {selectedPoNumbers.length}</span>
+                <button type="button" onClick={() => setSelectedPoNumbers([])} className="hover:text-rose-500 cursor-pointer ml-0.5 font-bold">✕</button>
+              </span>
+            )}
+            {selectedExcelVendors.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 font-semibold text-[11px]">
+                <span>Vendor: {selectedExcelVendors.length}</span>
+                <button type="button" onClick={() => setSelectedExcelVendors([])} className="hover:text-rose-500 cursor-pointer ml-0.5 font-bold">✕</button>
+              </span>
+            )}
+            {selectedProcesses.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 font-semibold text-[11px]">
+                <span>Process: {selectedProcesses.length}</span>
+                <button type="button" onClick={() => setSelectedProcesses([])} className="hover:text-rose-500 cursor-pointer ml-0.5 font-bold">✕</button>
+              </span>
+            )}
+            {selectedItems.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 font-semibold text-[11px]">
+                <span>Items: {selectedItems.length}</span>
+                <button type="button" onClick={() => setSelectedItems([])} className="hover:text-rose-500 cursor-pointer ml-0.5 font-bold">✕</button>
+              </span>
+            )}
+            {selectedProgress.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-100 dark:bg-cyan-900 text-cyan-800 dark:text-cyan-200 font-semibold text-[11px]">
+                <span>Progress: {selectedProgress.length}</span>
+                <button type="button" onClick={() => setSelectedProgress([])} className="hover:text-rose-500 cursor-pointer ml-0.5 font-bold">✕</button>
+              </span>
+            )}
+            {selectedTotals.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900 text-teal-800 dark:text-teal-200 font-semibold text-[11px]">
+                <span>Total: {selectedTotals.length}</span>
+                <button type="button" onClick={() => setSelectedTotals([])} className="hover:text-rose-500 cursor-pointer ml-0.5 font-bold">✕</button>
+              </span>
+            )}
+            {selectedStatuses.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 font-semibold text-[11px]">
+                <span>Status: {selectedStatuses.length}</span>
+                <button type="button" onClick={() => setSelectedStatuses([])} className="hover:text-rose-500 cursor-pointer ml-0.5 font-bold">✕</button>
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleClearAllExcelFilters}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+          >
+            <RotateCcw size={11} /> Clear Filters
+          </button>
+        </div>
+      )}
+
       {/* Main Table */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto min-h-[260px]">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-50 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
               <tr>
-                <th className="py-3 px-3.5">PO Number & Date</th>
-                <th className="py-3 px-3.5">Subcontractor / Vendor</th>
-                <th className="py-3 px-3.5">Process / SAC</th>
-                <th className="py-3 px-3.5 min-w-[220px]">Items & Specifications</th>
-                <th className="py-3 px-3.5 text-center">Progress (Rec / Ord)</th>
-                <th className="py-3 px-3.5 text-right">Grand Total (₹)</th>
-                <th className="py-3 px-3.5 text-center">Status</th>
-                <th className="py-3 px-3.5 text-right min-w-[140px]">Actions</th>
+                {renderExcelHeader('poNumber', 'PO Number & Date', 'left')}
+                {renderExcelHeader('vendor', 'Subcontractor / Vendor', 'left')}
+                {renderExcelHeader('process', 'Process / SAC', 'left')}
+                {renderExcelHeader('items', 'Items & Specifications', 'left', 'min-w-[220px]')}
+                {renderExcelHeader('progress', 'Progress (Rec / Ord)', 'center')}
+                {renderExcelHeader('total', 'Grand Total (₹)', 'right')}
+                {renderExcelHeader('status', 'Status', 'center')}
+                <th className="py-3 px-3.5 text-right min-w-[110px]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -416,6 +760,13 @@ export default function JobWorkPOTable({
                         <div className="font-black text-slate-900 dark:text-white flex items-center gap-1.5">
                           <span>{po.poNumber}</span>
                         </div>
+                        {po.challanNumber && (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
+                              <span>DC: {po.challanNumber}</span>
+                            </span>
+                          </div>
+                        )}
                         <div className="text-[11px] text-slate-500 mt-0.5">
                           {formatDateTime(po.date)}
                         </div>
@@ -452,22 +803,24 @@ export default function JobWorkPOTable({
                         <div className="space-y-1.5 max-w-sm">
                           {poItems.slice(0, 2).map((it: any, idx: number) => {
                             const desc = it.description || it.descriptions || it.material?.descriptions || it.material?.description || '';
+                            const activeUnit = it.selectedUnit || it.unit || 'PCS';
+                            const activeQty = it.rateUnit === 'secondary' && it.secondaryQuantity ? it.secondaryQuantity : it.quantity;
                             return (
                               <div key={idx} className="text-[11px]">
                                 <ItemNameAndDescription
                                   name={it.materialName || it.material?.name || 'Process Item'}
                                   description={desc}
                                 />
-                                {it.processType && (
-                                  <div className="text-[10.5px] font-semibold text-indigo-700 dark:text-indigo-300 mt-0.5">
-                                    Process: {it.processType}
-                                  </div>
-                                )}
-                                {it.processNote && (
-                                  <div className="text-[10px] text-slate-500 italic mt-0.5">
-                                    Spec: {it.processNote}
-                                  </div>
-                                )}
+                                <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                                  <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                                    Qty: {activeQty} {activeUnit}
+                                  </span>
+                                  {it.processType && (
+                                    <span className="text-[10.5px] font-semibold text-indigo-700 dark:text-indigo-300">
+                                      • {it.processType}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}
@@ -509,29 +862,17 @@ export default function JobWorkPOTable({
                         </span>
                       </td>
 
-                      {/* Actions */}
+                      {/* Actions (Download PDF, Edit, Delete) */}
                       <td className="py-3 px-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           
-                          {/* Create Returnable DC Action */}
-                          {!isCompleted && (
-                            <button
-                              onClick={() => handleCreateDCFromPO(po)}
-                              title="Create Returnable DC from this PO"
-                              className="px-2.5 py-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1 cursor-pointer active:scale-95"
-                            >
-                              <Truck size={12} />
-                              <span>Create DC</span>
-                            </button>
-                          )}
-
-                          {/* Print PDF */}
+                          {/* Download PDF */}
                           <button
-                            onClick={() => handlePrintPDF(po)}
-                            title="Print PO PDF"
-                            className="p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                            onClick={() => handleDownloadPDF(po)}
+                            title="Download PDF"
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer border border-blue-200 dark:border-blue-800"
                           >
-                            <Printer size={14} />
+                            <FileText size={14} />
                           </button>
 
                           {/* Edit PO */}
@@ -581,36 +922,6 @@ export default function JobWorkPOTable({
           inHouseItems={inHouseItems}
           initialData={editingPO}
           isEditing={Boolean(editingPO)}
-        />
-      )}
-
-      {/* Returnable DC Creation Modal Pre-filled from PO */}
-      {isChallanFormOpen && (
-        <JobWorkForm
-          isOpen={isChallanFormOpen}
-          isModal={true}
-          onClose={() => {
-            setIsChallanFormOpen(false);
-            setChallanPrefill(null);
-          }}
-          onSuccess={() => {
-            showSuccessToast("Returnable Delivery Challan created successfully from Job Work PO");
-            setIsChallanFormOpen(false);
-            setChallanPrefill(null);
-            onRefresh();
-          }}
-          onError={msg => showErrorDialog("Challan Error", msg)}
-          vendors={vendors}
-          rawMaterials={rawMaterials}
-          boughtOuts={boughtOuts}
-          consumables={consumables}
-          materials={materials}
-          inventoryList={inventoryList}
-          inHouseItems={inHouseItems}
-          mrpPlans={mrpPlans}
-          initialData={challanPrefill}
-          token={token}
-          companyInfo={companyInfo}
         />
       )}
 

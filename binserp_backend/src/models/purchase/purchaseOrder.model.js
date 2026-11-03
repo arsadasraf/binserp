@@ -63,6 +63,14 @@ export const purchaseOrderSchema = new mongoose.Schema(
       default: "standard",
       index: true,
     },
+    jobWorkChallan: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "JobWork",
+    },
+    challanNumber: {
+      type: String,
+      default: "",
+    },
     processType: {
       type: String,
       default: "",
@@ -128,6 +136,7 @@ export const purchaseOrderSchema = new mongoose.Schema(
         processType: { type: String, default: "" },
         processNote: { type: String, default: "" },
         hsnCode: { type: String, default: "" },
+        sacCode: { type: String, default: "" },
         pieceCount: { type: Number, default: 0 },
         quantity: { type: Number, required: true },
         receivedQuantity: { type: Number, default: 0 },

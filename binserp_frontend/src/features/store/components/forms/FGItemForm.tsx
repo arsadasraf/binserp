@@ -1,13 +1,14 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Category, Location } from "@/src/features/store/types/store.types";
 import { 
     X, Plus, Trash2, Box, Layers, ShoppingBag, Paperclip, FileText, 
     Upload, AlertTriangle, ChevronDown, Lock, Warehouse, MapPin, 
-    Hash, BellRing, Scale, ArrowRightLeft, Sparkles, Calculator 
+    Hash, BellRing, Scale, ArrowRightLeft, Sparkles, Calculator, Search 
 } from 'lucide-react';
 import SearchableSelect, { SearchableOption } from '../SearchableSelect';
 import DualUomRatioInput from '../DualUomRatioInput';
 import { STANDARD_UOMS } from '@/src/constants/uomConfig';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 interface FGItemFormProps {
     formData: any;
@@ -37,6 +38,9 @@ export default function FGItemForm({
     setPhotos,
     onPreviewBOM
 }: FGItemFormProps) {
+    const [bomSearchQuery, setBomSearchQuery] = useState('');
+    const [bomTypeFilter, setBomTypeFilter] = useState<'ALL' | 'RawMaterial' | 'BoughtOut' | 'FGItem'>('ALL');
+
     // Merge fallback materials if rawMaterials / boughtOuts are empty
     const effectiveRM = (rawMaterials && rawMaterials.length > 0) 
         ? rawMaterials 
@@ -155,15 +159,15 @@ export default function FGItemForm({
         const newBOM = [...(formData.bom || [])];
         const sourceQty = Number(newBOM[sourceIdx]?.quantity) || 0;
         const targetQty = Number(newBOM[targetIdx]?.quantity) || 0;
-        const combinedQty = Number((targetQty + sourceQty).toFixed(4));
+        const combinedQty = parseFloat((targetQty + sourceQty).toFixed(2));
         const targetFactor = Number(newBOM[targetIdx]?.conversionFactor) || 1;
         const hasSec = Boolean(newBOM[targetIdx]?.hasSecondaryUnit && newBOM[targetIdx]?.secondaryUnit && targetFactor > 0);
         newBOM[targetIdx] = {
             ...newBOM[targetIdx],
             quantity: combinedQty,
-            secondaryQuantity: hasSec ? Number((combinedQty * targetFactor).toFixed(4)) : undefined,
+            secondaryQuantity: hasSec ? Math.round(combinedQty * targetFactor) : undefined,
             inputQuantity: newBOM[targetIdx]?.selectedUnit === newBOM[targetIdx]?.secondaryUnit && hasSec
-                ? Number((combinedQty * targetFactor).toFixed(4))
+                ? Math.round(combinedQty * targetFactor)
                 : combinedQty
         };
         // Remove source duplicate row
@@ -254,11 +258,11 @@ export default function FGItemForm({
             
             const isTargetSec = isDual && Boolean(secUnit && target.selectedUnit && target.selectedUnit.toString().trim().toUpperCase() === secUnit.toUpperCase());
             if (isTargetSec) {
-                target.secondaryQuantity = isNaN(numVal) ? 0 : numVal;
-                target.quantity = (isNaN(numVal) || factor <= 0) ? 0 : Number((numVal / factor).toFixed(4));
+                target.secondaryQuantity = isNaN(numVal) ? 0 : Math.round(numVal);
+                target.quantity = (isNaN(numVal) || factor <= 0) ? 0 : parseFloat(((Number(target.secondaryQuantity) || 0) / factor).toFixed(2));
             } else {
-                target.quantity = isNaN(numVal) ? 0 : numVal;
-                target.secondaryQuantity = (isNaN(numVal) || !isDual) ? undefined : Number((numVal * factor).toFixed(4));
+                target.quantity = isNaN(numVal) ? 0 : parseFloat(numVal.toFixed(2));
+                target.secondaryQuantity = (isNaN(numVal) || !isDual) ? undefined : Math.round(target.quantity * factor);
             }
         }
 
@@ -298,10 +302,10 @@ export default function FGItemForm({
         target.unit = priUnit;
         target.selectedUnit = selectedUom;
 
-        const currentPriQty = Number(target.quantity) || 0;
+        const currentPriQty = parseFloat((Number(target.quantity) || 0).toFixed(2));
         const currentSecQty = target.secondaryQuantity !== undefined && target.secondaryQuantity !== ''
-            ? Number(target.secondaryQuantity)
-            : Number((currentPriQty * factor).toFixed(4));
+            ? Math.round(Number(target.secondaryQuantity))
+            : Math.round(currentPriQty * factor);
 
         if (isSwitchToSec) {
             target.inputQuantity = currentSecQty;
@@ -865,9 +869,121 @@ export default function FGItemForm({
                         </div>
                     </div>
 
+                    {/* BOM Keyword Search & Quick Type Filter Bar */}
+                    {(formData.bom || []).length > 0 && (
+                        <div className="mb-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-slate-50/80 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+                            <div className="relative flex-1">
+                                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                <input
+                                    type="text"
+                                    value={bomSearchQuery}
+                                    onChange={(e) => setBomSearchQuery(e.target.value)}
+                                    placeholder="Search BOM line item by name, description, #line, or unit..."
+                                    className="w-full pl-8 pr-7 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                                />
+                                {bomSearchQuery && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setBomSearchQuery('')}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-md cursor-pointer"
+                                        title="Clear search"
+                                    >
+                                        <X size={13} />
+                                    </button>
+                                )}
+                            </div>
+                            {/* Quick Type Filter Pills */}
+                            <div className="inline-flex items-center p-0.5 bg-slate-200/70 dark:bg-slate-700/60 rounded-lg shrink-0 self-start sm:self-auto">
+                                {([
+                                    { key: 'ALL', label: 'All' },
+                                    { key: 'RawMaterial', label: 'RM' },
+                                    { key: 'BoughtOut', label: 'BO' },
+                                    { key: 'FGItem', label: 'FG' }
+                                ] as const).map((tab) => (
+                                    <button
+                                        key={tab.key}
+                                        type="button"
+                                        onClick={() => setBomTypeFilter(tab.key)}
+                                        className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                                            bomTypeFilter === tab.key
+                                                ? 'bg-indigo-600 text-white shadow-2xs'
+                                                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        {tab.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {/* BOM Items List */}
                     <div className="space-y-3">
-                        {(formData.bom || []).map((item: any, idx: number) => {
+                        {(() => {
+                            const allBomEntries = (formData.bom || []).map((item: any, idx: number) => ({ item, idx }));
+                            const isFilteringBom = Boolean(bomSearchQuery.trim() || bomTypeFilter !== 'ALL');
+
+                            const filteredBomEntries = allBomEntries.filter(({ item, idx }: { item: any; idx: number }) => {
+                                const currentType = item.itemType || 'RawMaterial';
+                                const rawItemId = typeof item.item === 'object' && item.item !== null ? (item.item?._id || item.item?.id) : item.item;
+                                // Always keep newly added blank rows visible so "+ Add Material" works seamlessly while filtering
+                                const isBlankNewRow = !rawItemId && !item.itemName;
+                                if (isBlankNewRow) return true;
+
+                                if (bomTypeFilter !== 'ALL') {
+                                    if (bomTypeFilter === 'RawMaterial' && currentType !== 'RawMaterial' && currentType !== 'Material') return false;
+                                    if (bomTypeFilter === 'BoughtOut' && currentType !== 'BoughtOut') return false;
+                                    if (bomTypeFilter === 'FGItem' && currentType !== 'FGItem') return false;
+                                }
+
+                                if (bomSearchQuery.trim()) {
+                                    const displayLabel = getSelectedItemDisplayLabel(item) || '';
+                                    const desc = getSelectedItemDescription(item) || '';
+                                    const classification = getSelectedItemClassification(item) || '';
+                                    const revision = getSelectedItemRevision(item) || '';
+                                    const typeLabel = currentType === 'FGItem' ? 'FG Sub-Assy Sub Assembly' : currentType === 'BoughtOut' ? 'BO BoughtOut Bought Out' : 'RM RawMaterial Raw Material';
+                                    const lineNoStr = `#${idx + 1} line ${idx + 1}`;
+                                    const unitStr = `${item.unit || ''} ${item.secondaryUnit || ''} ${item.selectedUnit || ''}`;
+                                    const searchableText = `${lineNoStr} ${displayLabel} ${desc} ${item.itemName || ''} ${classification} ${revision} ${typeLabel} ${unitStr}`;
+                                    if (!isSpaceFreeMatch(searchableText, bomSearchQuery)) return false;
+                                }
+
+                                return true;
+                            });
+
+                            return (
+                                <>
+                                    {isFilteringBom && allBomEntries.length > 0 && (
+                                        <div className="flex items-center justify-between px-2.5 py-1.5 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-800/60 rounded-lg text-[11px] font-semibold text-indigo-700 dark:text-indigo-300">
+                                            <span>
+                                                Showing <strong>{filteredBomEntries.length}</strong> of <strong>{allBomEntries.length}</strong> BOM line items
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => { setBomSearchQuery(''); setBomTypeFilter('ALL'); }}
+                                                className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                            >
+                                                Reset Filter
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {filteredBomEntries.length === 0 && allBomEntries.length > 0 && (
+                                        <div className="text-center py-6 bg-slate-50/60 dark:bg-slate-800/30 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl space-y-1.5">
+                                            <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                                                No BOM line items match &ldquo;{bomSearchQuery}&rdquo;
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={() => { setBomSearchQuery(''); setBomTypeFilter('ALL'); }}
+                                                className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                            >
+                                                Clear search filter
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {filteredBomEntries.map(({ item, idx }: { item: any; idx: number }) => {
                             const currentType = item.itemType || 'RawMaterial';
                             const optionsForThisType = getOptionsForType(currentType, idx);
                             const selectedDisplayLabel = getSelectedItemDisplayLabel(item);
@@ -1115,6 +1231,9 @@ export default function FGItemForm({
                                 </div>
                             );
                         })}
+                                </>
+                            );
+                        })()}
 
                         {/* Bottom Add Button so user does not need to scroll to top */}
                         {(formData.bom || []).length > 0 && (

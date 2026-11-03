@@ -43,6 +43,36 @@ export interface DualUomCalculationResult {
 }
 
 /**
+ * Standard Primary Quantity Formatter (Caps float at max 2 decimal places, stripping trailing zeros)
+ * E.g. 12.3456 -> 12.35, 10.00 -> 10
+ */
+export function formatPrimaryQty(val: any): number {
+  const num = Number(val);
+  if (isNaN(num) || !isFinite(num)) return 0;
+  return parseFloat(num.toFixed(2));
+}
+
+/**
+ * Primary -> Secondary Unit Quantity Conversion
+ * Rounds to the nearest whole integer (e.g. 2.6 -> 3, 2.5 -> 3, 2.4 -> 2)
+ */
+export function convertPrimaryToSecondaryQty(primaryQty: any, conversionFactor: any = 1): number {
+  const factor = Number(conversionFactor) > 0 ? Number(conversionFactor) : 1;
+  const num = Number(primaryQty) || 0;
+  return Math.round(num * factor);
+}
+
+/**
+ * Secondary -> Primary Unit Quantity Conversion
+ * Caps primary quantity at max 2 decimal places (.2)
+ */
+export function convertSecondaryToPrimaryQty(secondaryQty: any, conversionFactor: any = 1): number {
+  const factor = Number(conversionFactor) > 0 ? Number(conversionFactor) : 1;
+  const num = Number(secondaryQty) || 0;
+  return parseFloat((num / factor).toFixed(2));
+}
+
+/**
  * Bidirectional Quantity Synchronization
  */
 export function syncQuantities(
@@ -54,14 +84,16 @@ export function syncQuantities(
   const numVal = Math.max(0, Number(value) || 0);
 
   if (changedField === 'quantity') {
+    const cleanPrimary = formatPrimaryQty(numVal);
     return {
-      quantity: numVal,
-      secondaryQuantity: parseFloat((numVal * factor).toFixed(3)),
+      quantity: cleanPrimary,
+      secondaryQuantity: Math.round(cleanPrimary * factor),
     };
   } else {
+    const cleanSecondary = Math.round(numVal);
     return {
-      quantity: parseFloat((numVal / factor).toFixed(3)),
-      secondaryQuantity: numVal,
+      quantity: parseFloat((cleanSecondary / factor).toFixed(2)),
+      secondaryQuantity: cleanSecondary,
     };
   }
 }
@@ -104,13 +136,13 @@ export function computeDualUomLinePricing(input: DualUomCalculationInput): DualU
   const secUnit = input.secondaryUnit || '';
 
   const enteredRate = Math.max(0, Number(input.rate) || 0);
-  const baseQty = Math.max(0, Number(input.quantity) || 0);
+  const baseQty = formatPrimaryQty(Math.max(0, Number(input.quantity) || 0));
   
   // Secondary quantity resolution:
   const secQty = hasSec
     ? (input.secondaryQuantity !== undefined && !isNaN(Number(input.secondaryQuantity)) && Number(input.secondaryQuantity) > 0
-        ? Number(input.secondaryQuantity)
-        : parseFloat((baseQty * factor).toFixed(3)))
+        ? Math.round(Number(input.secondaryQuantity))
+        : Math.round(baseQty * factor))
     : undefined;
 
   let primaryRate = 0;
@@ -120,13 +152,13 @@ export function computeDualUomLinePricing(input: DualUomCalculationInput): DualU
   if (isSec) {
     // Supplier rates quoted in Secondary Unit (e.g. ₹/KG)
     secondaryRate = enteredRate;
-    primaryRate = parseFloat((enteredRate * factor).toFixed(3)); // 1 Sheet = 25 * ₹100 = ₹2500
-    const activeQty = (secQty !== undefined && secQty > 0) ? secQty : parseFloat((baseQty * factor).toFixed(3));
+    primaryRate = parseFloat((enteredRate * factor).toFixed(2)); // 1 Sheet = 25 * ₹100 = ₹2500
+    const activeQty = (secQty !== undefined && secQty > 0) ? secQty : Math.round(baseQty * factor);
     lineAmount = parseFloat((activeQty * enteredRate).toFixed(2));
   } else {
     // Supplier rates quoted in Base Unit (e.g. ₹/Sheet)
     primaryRate = enteredRate;
-    secondaryRate = hasSec ? parseFloat((enteredRate / factor).toFixed(3)) : enteredRate; // ₹2500 / 25 = ₹100
+    secondaryRate = hasSec ? parseFloat((enteredRate / factor).toFixed(2)) : enteredRate; // ₹2500 / 25 = ₹100
     lineAmount = parseFloat((baseQty * enteredRate).toFixed(2));
   }
 
@@ -248,15 +280,15 @@ export function resolveLineItemDisplay(item: any): ResolvedLineItemDisplay {
     )
   );
 
-  const baseQty = Number(item?.quantity) || 0;
+  const baseQty = formatPrimaryQty(item?.quantity);
   const secQty = hasSec
     ? (item?.secondaryQuantity != null && !isNaN(Number(item?.secondaryQuantity))
-        ? Number(item.secondaryQuantity)
-        : parseFloat((baseQty * convFactor).toFixed(3)))
+        ? Math.round(Number(item.secondaryQuantity))
+        : Math.round(baseQty * convFactor))
     : undefined;
 
   const displayUnit = isSec ? secUnit : (item?.selectedUnit || baseUnit);
-  const displayQty = isSec ? (secQty ?? parseFloat((baseQty * convFactor).toFixed(3))) : baseQty;
+  const displayQty = isSec ? (secQty ?? Math.round(baseQty * convFactor)) : baseQty;
   const displayRate = Number(item?.rate) || 0;
   const lineAmount = typeof item?.amount === 'number' && !isNaN(item.amount)
     ? item.amount
@@ -314,34 +346,34 @@ export function resolveGrnLineItemDisplay(item: any): ResolvedGrnLineItemDisplay
     )
   );
 
-  const baseQty = Number(item?.quantity !== undefined ? item.quantity : (item?.receivedQuantity || 0)) || 0;
-  const baseAcceptedQty = Number(item?.acceptedQuantity !== undefined ? item.acceptedQuantity : baseQty) || 0;
-  const baseRejectedQty = Number(item?.rejectedQuantity || 0);
+  const baseQty = formatPrimaryQty(item?.quantity !== undefined ? item.quantity : (item?.receivedQuantity || 0));
+  const baseAcceptedQty = formatPrimaryQty(item?.acceptedQuantity !== undefined ? item.acceptedQuantity : baseQty);
+  const baseRejectedQty = formatPrimaryQty(item?.rejectedQuantity || 0);
 
   const secQty = hasSec
     ? (item?.secondaryQuantity != null && !isNaN(Number(item?.secondaryQuantity))
-        ? Number(item.secondaryQuantity)
+        ? Math.round(Number(item.secondaryQuantity))
         : (item?.secondaryReceivedQuantity != null && !isNaN(Number(item?.secondaryReceivedQuantity))
-            ? Number(item.secondaryReceivedQuantity)
-            : parseFloat((baseQty * convFactor).toFixed(3))))
+            ? Math.round(Number(item.secondaryReceivedQuantity))
+            : Math.round(baseQty * convFactor)))
     : undefined;
 
   const secAcceptedQty = hasSec
     ? (item?.secondaryAcceptedQuantity != null && !isNaN(Number(item?.secondaryAcceptedQuantity))
-        ? Number(item.secondaryAcceptedQuantity)
-        : parseFloat((baseAcceptedQty * convFactor).toFixed(3)))
+        ? Math.round(Number(item.secondaryAcceptedQuantity))
+        : Math.round(baseAcceptedQty * convFactor))
     : undefined;
 
   const secRejectedQty = hasSec
     ? (item?.secondaryRejectedQuantity != null && !isNaN(Number(item?.secondaryRejectedQuantity))
-        ? Number(item.secondaryRejectedQuantity)
-        : parseFloat((baseRejectedQty * convFactor).toFixed(3)))
+        ? Math.round(Number(item.secondaryRejectedQuantity))
+        : Math.round(baseRejectedQty * convFactor))
     : undefined;
 
   const displayUnit = isSec ? secUnit : (item?.selectedUnit || baseUnit);
-  const displayQty = isSec ? (secQty ?? parseFloat((baseQty * convFactor).toFixed(3))) : baseQty;
-  const displayAcceptedQty = isSec ? (secAcceptedQty ?? parseFloat((baseAcceptedQty * convFactor).toFixed(3))) : baseAcceptedQty;
-  const displayRejectedQty = isSec ? (secRejectedQty ?? parseFloat((baseRejectedQty * convFactor).toFixed(3))) : baseRejectedQty;
+  const displayQty = isSec ? (secQty ?? Math.round(baseQty * convFactor)) : baseQty;
+  const displayAcceptedQty = isSec ? (secAcceptedQty ?? Math.round(baseAcceptedQty * convFactor)) : baseAcceptedQty;
+  const displayRejectedQty = isSec ? (secRejectedQty ?? Math.round(baseRejectedQty * convFactor)) : baseRejectedQty;
   const displayRate = Number(item?.rate || item?.unitPrice || 0);
   const lineAmount = typeof item?.amount === 'number' && !isNaN(item.amount) && item.amount > 0
     ? item.amount

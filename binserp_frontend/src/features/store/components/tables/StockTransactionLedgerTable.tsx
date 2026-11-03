@@ -78,6 +78,15 @@ const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
 type DateFilterMode = "preset" | "day" | "month" | "range";
 
 export default function StockTransactionLedgerTable({ token }: StockTransactionLedgerTableProps) {
+  const formatPrimary = (v: any): number => {
+    const n = Number(v);
+    return isNaN(n) ? 0 : parseFloat(n.toFixed(2));
+  };
+  const formatSec = (v: any): number => {
+    const n = Number(v);
+    return isNaN(n) ? 0 : Math.round(n);
+  };
+
   const [showDashboard, setShowDashboard] = useState<boolean>(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -252,10 +261,12 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
         "Item Type": itemTypeLabel,
         "Movement": tx.movementType,
         "Transaction Type": catLabel,
-        "Quantity": tx.quantity,
+        "Quantity": formatPrimary(tx.quantity),
         "Unit": tx.unit,
-        "Previous Stock": tx.previousStock,
-        "New Stock Balance": tx.newStock,
+        "Secondary Quantity": (tx.hasSecondaryUnit || (tx.secondaryQuantity !== undefined && tx.secondaryQuantity > 0)) ? formatSec(tx.secondaryQuantity ?? (Number(tx.quantity) * (tx.conversionFactor || 1))) : "-",
+        "Secondary Unit": tx.secondaryUnit || "-",
+        "Previous Stock": formatPrimary(tx.previousStock),
+        "New Stock Balance": formatPrimary(tx.newStock),
         "Ref Document Type": tx.referenceDocType || "-",
         "Ref Document Number": tx.referenceDocNumber || "-",
         "Party / Department": tx.recipientOrSource || "-",
@@ -808,11 +819,11 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                         {/* Quantity */}
                         <td className="py-3 px-4 text-right font-mono whitespace-nowrap">
                           <div className={`font-bold ${isInward ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-                            {isInward ? "+" : "-"}{tx.quantity} {tx.unit}
+                            {isInward ? "+" : "-"}{formatPrimary(tx.quantity)} {tx.unit}
                           </div>
                           {(tx.hasSecondaryUnit || (tx.secondaryQuantity !== undefined && tx.secondaryQuantity > 0)) && (
                             <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
-                              ({isInward ? "+" : "-"}{tx.secondaryQuantity || Math.round(Number(tx.quantity) * (tx.conversionFactor || 1) * 100) / 100} {tx.secondaryUnit})
+                              ({isInward ? "+" : "-"}{formatSec(tx.secondaryQuantity ?? (Number(tx.quantity) * (tx.conversionFactor || 1)))} {tx.secondaryUnit})
                             </div>
                           )}
                         </td>
@@ -820,8 +831,8 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                         {/* Prev -> New Stock Balance */}
                         <td className="py-3 px-4 text-right whitespace-nowrap">
                           <div className="flex flex-col items-end">
-                            <span className="font-semibold text-gray-900 dark:text-gray-100 font-mono">{tx.newStock} {tx.unit}</span>
-                            <span className="text-[10px] text-gray-400 font-mono">Prev: {tx.previousStock}</span>
+                            <span className="font-semibold text-gray-900 dark:text-gray-100 font-mono">{formatPrimary(tx.newStock)} {tx.unit}</span>
+                            <span className="text-[10px] text-gray-400 font-mono">Prev: {formatPrimary(tx.previousStock)}</span>
                           </div>
                         </td>
 
@@ -918,11 +929,11 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                           }`}
                         >
                           {isInward ? <ArrowDownLeft size={13} /> : <ArrowUpRight size={13} />}
-                          {isInward ? "+" : "-"}{tx.quantity} {tx.unit}
+                          {isInward ? "+" : "-"}{formatPrimary(tx.quantity)} {tx.unit}
                         </span>
                         {(tx.hasSecondaryUnit || (tx.secondaryQuantity !== undefined && tx.secondaryQuantity > 0)) && (
                           <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
-                            ({isInward ? "+" : "-"}{tx.secondaryQuantity || Math.round(Number(tx.quantity) * (tx.conversionFactor || 1) * 100) / 100} {tx.secondaryUnit})
+                            ({isInward ? "+" : "-"}{formatSec(tx.secondaryQuantity ?? (Number(tx.quantity) * (tx.conversionFactor || 1)))} {tx.secondaryUnit})
                           </span>
                         )}
                       </div>
@@ -943,7 +954,7 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                       <div className="flex flex-col">
                         <span className="text-[10px] uppercase font-bold text-gray-400">Stock Balance</span>
                         <span className="font-mono font-bold text-gray-800 dark:text-gray-200">
-                          {tx.newStock} {tx.unit} <span className="text-[10px] font-normal text-gray-400">(Prev: {tx.previousStock})</span>
+                          {formatPrimary(tx.newStock)} {tx.unit} <span className="text-[10px] font-normal text-gray-400">(Prev: {formatPrimary(tx.previousStock)})</span>
                         </span>
                       </div>
                       <div className="flex flex-col">

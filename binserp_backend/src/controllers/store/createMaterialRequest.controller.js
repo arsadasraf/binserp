@@ -155,13 +155,14 @@ export const createMaterialRequest = async (req, res) => {
 
         if (hasSec && convFactor > 0) {
           if (selectedUnit === secUnit && (!priQty || priQty === 0) && secQty > 0) {
-            priQty = Number((secQty / convFactor).toFixed(4));
+            priQty = Number((secQty / convFactor).toFixed(2));
           } else if ((!secQty || secQty === 0) && priQty > 0) {
-            secQty = Number((priQty * convFactor).toFixed(4));
+            secQty = Math.round(priQty * convFactor);
           }
         }
         if (!priQty) priQty = 1;
-        if (!secQty && hasSec && convFactor > 0) secQty = Number((priQty * convFactor).toFixed(4));
+        priQty = Number(Number(priQty).toFixed(2));
+        if (!secQty && hasSec && convFactor > 0) secQty = Math.round(priQty * convFactor);
 
         const curStock = Number(item.currentStock ?? doc?.quantity ?? 0);
         const secCurStock = hasSec ? (curStock * convFactor) : 0;
@@ -212,13 +213,14 @@ export const createMaterialRequest = async (req, res) => {
 
         if (hasSec && convFactor > 0) {
           if (selectedUnit === secUnit && (!priQty || priQty === 0) && secQty > 0) {
-            priQty = Number((secQty / convFactor).toFixed(4));
+            priQty = Number((secQty / convFactor).toFixed(2));
           } else if ((!secQty || secQty === 0) && priQty > 0) {
-            secQty = Number((priQty * convFactor).toFixed(4));
+            secQty = Math.round(priQty * convFactor);
           }
         }
         if (!priQty) priQty = 1;
-        if (!secQty && hasSec && convFactor > 0) secQty = Number((priQty * convFactor).toFixed(4));
+        priQty = Number(Number(priQty).toFixed(2));
+        if (!secQty && hasSec && convFactor > 0) secQty = Math.round(priQty * convFactor);
 
         const curStock = Number(item.currentStock ?? doc?.quantity ?? 0);
         const secCurStock = hasSec ? (curStock * convFactor) : 0;
@@ -271,13 +273,14 @@ export const createMaterialRequest = async (req, res) => {
 
         if (hasSec && convFactor > 0) {
           if (selectedUnit === secUnit && (!priQty || priQty === 0) && secQty > 0) {
-            priQty = Number((secQty / convFactor).toFixed(4));
+            priQty = Number((secQty / convFactor).toFixed(2));
           } else if ((!secQty || secQty === 0) && priQty > 0) {
-            secQty = Number((priQty * convFactor).toFixed(4));
+            secQty = Math.round(priQty * convFactor);
           }
         }
         if (!priQty) priQty = 1;
-        if (!secQty && hasSec && convFactor > 0) secQty = Number((priQty * convFactor).toFixed(4));
+        priQty = Number(Number(priQty).toFixed(2));
+        if (!secQty && hasSec && convFactor > 0) secQty = Math.round(priQty * convFactor);
 
         const curStock = Number(item.currentStock ?? doc?.quantity ?? doc?.minimumStock ?? 0);
         const secCurStock = hasSec ? (curStock * convFactor) : 0;
@@ -328,13 +331,14 @@ export const createMaterialRequest = async (req, res) => {
 
         if (hasSec && convFactor > 0) {
           if (selectedUnit === secUnit && (!priQty || priQty === 0) && secQty > 0) {
-            priQty = Number((secQty / convFactor).toFixed(4));
+            priQty = Number((secQty / convFactor).toFixed(2));
           } else if ((!secQty || secQty === 0) && priQty > 0) {
-            secQty = Number((priQty * convFactor).toFixed(4));
+            secQty = Math.round(priQty * convFactor);
           }
         }
         if (!priQty) priQty = 1;
-        if (!secQty && hasSec && convFactor > 0) secQty = Number((priQty * convFactor).toFixed(4));
+        priQty = Number(Number(priQty).toFixed(2));
+        if (!secQty && hasSec && convFactor > 0) secQty = Math.round(priQty * convFactor);
 
         const curStock = Number(item.currentStock ?? doc?.quantity ?? doc?.minimumStock ?? 0);
         const secCurStock = hasSec ? (curStock * convFactor) : 0;

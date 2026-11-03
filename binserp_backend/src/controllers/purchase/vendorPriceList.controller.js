@@ -10,6 +10,7 @@ const getCompanyId = (req) => {
 };
 
 export const createVendorPriceList = asyncHandler(async (req, res) => {
+  req.getModel('Vendor', vendorSchema);
   const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
   const companyId = getCompanyId(req);
 
@@ -82,8 +83,8 @@ export const getVendorPriceLists = asyncHandler(async (req, res) => {
 
   // Fetch price lists with populated vendor without relying on Mongoose RmBoItem schema ref for material
   const priceLists = await VendorPriceList.find({ company: companyId })
-    .populate('vendor', 'name code')
-    .sort({ createdAt: -1 })
+    .populate('vendor', 'name code vendorCode')
+    .sort({ isPreferred: -1, updatedAt: -1, createdAt: -1 })
     .lean();
 
   // Collect all unique material IDs
@@ -148,6 +149,7 @@ export const getVendorPriceLists = asyncHandler(async (req, res) => {
 });
 
 export const updateVendorPriceList = asyncHandler(async (req, res) => {
+  req.getModel('Vendor', vendorSchema);
   const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
   const { id } = req.params;
   const companyId = getCompanyId(req);
@@ -184,7 +186,7 @@ export const updateVendorPriceList = asyncHandler(async (req, res) => {
     { _id: id, company: companyId },
     { $set: updateData },
     { new: true, runValidators: true }
-  );
+  ).populate('vendor', 'name code vendorCode');
 
   if (!updatedPriceList) {
     throw new ApiError(404, "Vendor Price List not found");

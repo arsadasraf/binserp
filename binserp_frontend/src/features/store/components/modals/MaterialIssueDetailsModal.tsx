@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Calendar, User, FileText, Package } from 'lucide-react';
 import { resolveIssueType, formatDateTime } from '../tables/MaterialIssueHistoryTable';
+import { formatPrimaryQty, convertPrimaryToSecondaryQty } from '@/src/utils/dualUomHelper';
 
 interface MaterialIssueDetailsModalProps {
     isOpen: boolean;
@@ -101,12 +102,12 @@ export default function MaterialIssueDetailsModal({ isOpen, onClose, issue }: Ma
                                             </td>
                                             <td className="px-4 py-3 text-center">
                                                 <div>
-                                                    <span className="font-semibold text-gray-900 dark:text-gray-100">{item.quantity}</span>
+                                                    <span className="font-semibold text-gray-900 dark:text-gray-100">{formatPrimaryQty(item.quantity)}</span>
                                                     <span className="text-xs text-gray-500 ml-1">{item.unit}</span>
                                                 </div>
                                                 {(item.secondaryQuantity > 0 || (item.hasSecondaryUnit && item.secondaryUnit)) && (
                                                     <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold font-mono mt-0.5">
-                                                        ({item.secondaryQuantity || Math.round(Number(item.quantity || 0) * (item.conversionFactor || 1) * 100) / 100} {item.secondaryUnit})
+                                                        (↳ {item.secondaryQuantity != null && !isNaN(Number(item.secondaryQuantity)) && Number(item.secondaryQuantity) > 0 ? Math.round(Number(item.secondaryQuantity)) : convertPrimaryToSecondaryQty(item.quantity, item.conversionFactor || 1)} {item.secondaryUnit})
                                                     </div>
                                                 )}
                                             </td>

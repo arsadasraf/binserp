@@ -63,10 +63,34 @@ export const updateMaterialRequest = async (req, res) => {
       return res.status(404).json({ message: "Material request not found" });
     }
 
-    // Dynamic time lock governance validation for editing
-    const lockCheck = await checkTimeLockGovernance(req, 'materialRequest', materialRequest.createdAt, 'edit');
-    if (!lockCheck.allowed) {
-      return res.status(403).json({ message: lockCheck.message });
+    // Differentiate between user manual specification edits and operational workflow/fulfillment transitions
+    const bodyKeys = Object.keys(req.body);
+    const isStatusOrFulfillmentOnly =
+      Boolean(req.body.bypassTimeLock) ||
+      Boolean(req.body.skipInventoryUpdate) ||
+      (status && ['Issued', 'Partially Issued', 'Approved', 'Rejected', 'Cancelled'].includes(status) && !items && department === undefined && priority === undefined && type === undefined && salesOrder === undefined && mrpPlan === undefined) ||
+      bodyKeys.every(k => [
+        'status',
+        'skipInventoryUpdate',
+        'bypassTimeLock',
+        'action',
+        'issuedBy',
+        'issuedByName',
+        'issuedAt',
+        'approvedBy',
+        'approvedByName',
+        'approvedAt',
+        'remarks'
+      ].includes(k));
+
+    // Dynamic time lock governance validation for editing:
+    // Only apply to manual user content modifications (altering requested items, department, priority, etc.)
+    // Operational fulfillment, material issuing, approvals, and status progressions on older requests MUST NOT be blocked.
+    if (!isStatusOrFulfillmentOnly && !req.body.bypassTimeLock) {
+      const lockCheck = await checkTimeLockGovernance(req, 'materialRequest', materialRequest.createdAt, 'edit');
+      if (!lockCheck.allowed) {
+        return res.status(403).json({ message: lockCheck.message });
+      }
     }
 
     // Handle line items editing if provided
@@ -100,6 +124,15 @@ export const updateMaterialRequest = async (req, res) => {
         const cleanComp = extractCleanObjectId(it.component);
         const cleanFg = extractCleanObjectId(it.fgItem);
 
+        const cleanPriQty = Number(Number(requestedQty).toFixed(2));
+        const cleanConv = Number(it.conversionFactor) || 0;
+        const cleanHasSec = Boolean(it.hasSecondaryUnit);
+        const cleanSecQty = cleanHasSec && cleanConv > 0
+          ? (it.secondaryQuantity !== undefined && !isNaN(Number(it.secondaryQuantity)) && Number(it.secondaryQuantity) > 0
+              ? Math.round(Number(it.secondaryQuantity))
+              : Math.round(cleanPriQty * cleanConv))
+          : 0;
+
         updatedItems.push({
           material: cleanMat,
           consumable: cleanCons,
@@ -109,12 +142,12 @@ export const updateMaterialRequest = async (req, res) => {
           materialCode: it.materialCode || '',
           materialName: it.materialName || '',
           materialDescription: it.materialDescription || it.description || it.descriptions || '',
-          quantity: requestedQty,
+          quantity: cleanPriQty,
           unit: it.unit || 'PCS',
-          hasSecondaryUnit: Boolean(it.hasSecondaryUnit),
+          hasSecondaryUnit: cleanHasSec,
           secondaryUnit: it.secondaryUnit || '',
-          conversionFactor: Number(it.conversionFactor) || 0,
-          secondaryQuantity: Number(it.secondaryQuantity) || 0,
+          conversionFactor: cleanConv,
+          secondaryQuantity: cleanSecQty,
           selectedUnit: it.selectedUnit || it.unit || 'PCS',
           purpose: it.purpose || '',
           issuedQuantity: issuedQty,

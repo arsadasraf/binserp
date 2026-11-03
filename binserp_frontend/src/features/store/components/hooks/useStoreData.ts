@@ -702,7 +702,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
             await createRecord({ tab: "material-issue" as any, body: data }).unwrap();
 
             if (data.requestId) {
-                await updateRecord({ tab: "material-request" as any, id: data.requestId, body: { status: 'Issued' } }).unwrap();
+                await updateRecord({ tab: "material-request" as any, id: data.requestId, body: { status: 'Issued', bypassTimeLock: true } }).unwrap();
             }
 
             setSuccess("Material issued successfully");

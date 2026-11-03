@@ -1210,10 +1210,10 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
 
                         {/* Total Quantity */}
                         <td className="py-3 px-4 text-right font-mono font-bold whitespace-nowrap text-gray-900 dark:text-gray-100">
-                          <div>{grn.totalQuantity} {grn.items?.[0]?.unit || "PCS"}</div>
+                          <div>{parseFloat((Number(grn.totalQuantity) || 0).toFixed(2))} {grn.items?.[0]?.unit || "PCS"}</div>
                           {grn.items?.[0]?.hasSecondaryUnit && grn.items?.[0]?.secondaryUnit && (
                             <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
-                              ({grn.items.reduce((s: number, it: any) => s + (Number(it.secondaryQuantity || it.secondaryReceivedQuantity) || 0), 0)} {grn.items[0].secondaryUnit})
+                              ({Math.round(grn.items.reduce((s: number, it: any) => s + (Number(it.secondaryQuantity || it.secondaryReceivedQuantity) || (Number(it.quantity || it.receivedQuantity || 0) * (it.conversionFactor || 1))), 0))} {grn.items[0].secondaryUnit})
                             </div>
                           )}
                         </td>
@@ -1366,9 +1366,11 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                   (typeof firstItem?.material === "object" ? getItemDescription(firstItem.material) : "") ||
                   (typeof firstItem?.fgItem === "object" ? getItemDescription(firstItem.fgItem) : "");
 
-                const secondaryQtyTotal = grn.items?.reduce(
-                  (s: number, it: any) => s + (Number(it.secondaryQuantity || it.secondaryReceivedQuantity) || 0),
-                  0
+                const secondaryQtyTotal = Math.round(
+                  grn.items?.reduce(
+                    (s: number, it: any) => s + (Number(it.secondaryQuantity || it.secondaryReceivedQuantity) || (Number(it.quantity || it.receivedQuantity || 0) * (it.conversionFactor || 1))),
+                    0
+                  ) || 0
                 );
 
                 return (
@@ -1482,7 +1484,7 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                         <div className="text-right shrink-0">
                           <span className="text-[10px] text-gray-400 block font-medium uppercase tracking-wider">Total Qty</span>
                           <span className="font-mono font-bold text-xs text-gray-900 dark:text-white">
-                            {grn.totalQuantity} {grn.items?.[0]?.unit || "PCS"}
+                            {parseFloat((Number(grn.totalQuantity) || 0).toFixed(2))} {grn.items?.[0]?.unit || "PCS"}
                           </span>
                           {grn.items?.[0]?.hasSecondaryUnit && grn.items?.[0]?.secondaryUnit && secondaryQtyTotal > 0 && (
                             <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold font-mono">

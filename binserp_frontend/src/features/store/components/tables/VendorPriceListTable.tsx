@@ -3,6 +3,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Layers, Package, Cog, Wrench, Filter, Check, X, Star } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getItemDescription, ItemNameAndDescription } from "@/src/utils/itemDisplayHelper";
+import { isSpaceFreeMatch } from "@/src/utils/spaceFreeSearchHelper";
 import ColumnFilter from "./ColumnFilter";
 
 interface VendorPriceListTableProps {
@@ -210,12 +211,31 @@ export default function VendorPriceListTable({
 
       if (!searchTerm.trim()) return true;
 
-      const searchLower = searchTerm.toLowerCase();
-      const materialName = item.name?.toLowerCase() || "";
-      const materialDesc = getItemDescription(item).toLowerCase();
-      return materialName.includes(searchLower) || materialDesc.includes(searchLower);
+      const configs = priceListMap[item._id?.toString()] || [];
+      const vendorNames = configs
+        .map((c: any) => `${c.vendor?.name || c.vendorName || ''} ${c.vendor?.code || ''} ${c.price ?? ''} ${c.remarks || ''}`)
+        .join(' ');
+      const catLabel =
+        item.itemCategory === 'rm'
+          ? 'RM Raw Material'
+          : item.itemCategory === 'bo'
+          ? 'BO Bought Out'
+          : 'Consumable';
+      const subCat = getSubCategoryName(item);
+      const combinedSearchText = [
+        item.name || '',
+        getItemDescription(item),
+        subCat !== '-' ? subCat : '',
+        catLabel,
+        item.hsnCode || '',
+        item.unit || '',
+        item.secondaryUnit || '',
+        vendorNames,
+      ].join(' ');
+
+      return isSpaceFreeMatch(combinedSearchText, searchTerm);
     });
-  }, [unifiedItems, selectedCategory, vendorFilter, priceListMap, searchTerm]);
+  }, [unifiedItems, selectedCategory, vendorFilter, priceListMap, searchTerm, getSubCategoryName]);
 
   // Final filtered items with subCategory filter and sortConfig applied
   const filteredItems = useMemo(() => {
@@ -374,11 +394,22 @@ export default function VendorPriceListTable({
             </div>
             <input
               type="text"
-              placeholder="Search item name or description..."
+              placeholder="Search item, description, vendor..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-1.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+              onKeyDown={(e) => e.stopPropagation()}
+              className="w-full pl-9 pr-8 py-1.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm("")}
+                className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
+                title="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
           {onAddPriceSheet && (

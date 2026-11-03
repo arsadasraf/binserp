@@ -4,6 +4,7 @@ import { formatDateTime } from './MaterialIssueHistoryTable';
 import { evaluateItemStock, evaluateRequestStock } from '@/src/utils/stockValidationHelper';
 import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
+import { formatPrimaryQty, convertPrimaryToSecondaryQty } from '@/src/utils/dualUomHelper';
 
 interface MaterialRequestTableProps {
     requests: any[];
@@ -147,13 +148,27 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                         {(request.items || []).slice(0, 2).map((item: any, i: number) => {
                                             const desc = item.materialDescription || item.description || item.descriptions;
                                             const stockEval = storeData ? evaluateItemStock(item, storeData) : null;
+                                            const hasSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
+                                            const priQty = formatPrimaryQty(item.quantity);
+                                            const secQty = hasSec
+                                                ? (item.secondaryQuantity != null && !isNaN(Number(item.secondaryQuantity)) && Number(item.secondaryQuantity) > 0
+                                                    ? Math.round(Number(item.secondaryQuantity))
+                                                    : convertPrimaryToSecondaryQty(priQty, item.conversionFactor || 1))
+                                                : null;
                                             return (
                                                 <div key={i} className="p-1.5 rounded-lg bg-gray-50 dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700/80 text-xs">
-                                                    <div className="flex items-center justify-between gap-1 font-bold text-gray-800 dark:text-gray-200">
+                                                    <div className="flex items-start justify-between gap-1 font-bold text-gray-800 dark:text-gray-200">
                                                         <span className="truncate">{item.materialName || item.name || 'Unnamed Item'}</span>
-                                                        <span className="shrink-0 text-blue-600 dark:text-blue-400 font-mono text-[11px]">
-                                                            {item.quantity} {item.unit || 'PCS'}
-                                                        </span>
+                                                        <div className="shrink-0 text-right">
+                                                            <div className="text-blue-600 dark:text-blue-400 font-mono text-[11px]">
+                                                                {priQty} {item.unit || 'PCS'}
+                                                            </div>
+                                                            {hasSec && (
+                                                                <div className="text-[10px] text-indigo-500 font-semibold font-mono">
+                                                                    ↳ {secQty} {item.secondaryUnit}
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                     {desc && (
                                                         <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
@@ -365,6 +380,13 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                             {(request.items || []).slice(0, 3).map((item: any, i: number) => {
                                 const desc = item.materialDescription || item.description || item.descriptions;
                                 const stockEval = storeData ? evaluateItemStock(item, storeData) : null;
+                                const hasSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
+                                const priQty = formatPrimaryQty(item.quantity);
+                                const secQty = hasSec
+                                    ? (item.secondaryQuantity != null && !isNaN(Number(item.secondaryQuantity)) && Number(item.secondaryQuantity) > 0
+                                        ? Math.round(Number(item.secondaryQuantity))
+                                        : convertPrimaryToSecondaryQty(priQty, item.conversionFactor || 1))
+                                    : null;
                                 return (
                                     <div key={i} className="p-2 rounded-xl bg-white dark:bg-slate-850 border border-slate-100 dark:border-slate-800 shadow-2xs">
                                         <div className="flex items-start justify-between gap-2">
@@ -380,11 +402,11 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                             </div>
                                             <div className="text-right shrink-0">
                                                 <span className="font-bold text-xs text-blue-600 dark:text-blue-400">
-                                                    {item.quantity} {item.unit || 'PCS'}
+                                                    {priQty} {item.unit || 'PCS'}
                                                 </span>
-                                                {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                {hasSec && (
                                                     <div className="text-[10px] text-indigo-500 font-semibold">
-                                                        ↳ {item.secondaryQuantity} {item.secondaryUnit}
+                                                        ↳ {secQty} {item.secondaryUnit}
                                                     </div>
                                                 )}
                                             </div>

@@ -8,6 +8,7 @@ import {
 import { apiGet, apiPost } from '@/src/lib/api';
 import { getCurrencySymbol } from '@/src/utils/currencyHelper';
 import { generateNestedBOMPDF } from '@/src/utils/generateNestedBOMPDF';
+import { ItemNameAndDescription, getItemDescription } from '@/src/utils/itemDisplayHelper';
 import LinkedCustomerPOsModal from '@/src/features/store/components/modals/LinkedCustomerPOsModal';
 import MRPBudgetModal from '@/src/features/store/components/modals/MRPBudgetModal';
 
@@ -24,6 +25,10 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
   const [syncingBOM, setSyncingBOM] = useState(false);
   const [loadingGRN, setLoadingGRN] = useState(false);
   const [fgGrnHistory, setFgGrnHistory] = useState<any[]>([]);
+  const [loadingOutwardPOs, setLoadingOutwardPOs] = useState(false);
+  const [linkedOutwardPOs, setLinkedOutwardPOs] = useState<any[]>([]);
+  const [activeOutwardPoTab, setActiveOutwardPoTab] = useState<'all' | 'standard' | 'jobwork'>('all');
+  const [expandedOutwardPOs, setExpandedOutwardPOs] = useState<Record<string, boolean>>({});
   const [activeMaterialTab, setActiveMaterialTab] = useState<'all' | 'rm' | 'bo'>('all');
   const [expandedFgBoms, setExpandedFgBoms] = useState<Record<number, boolean>>({});
 
@@ -53,6 +58,10 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
 
   const toggleFgBom = (index: number) => {
     setExpandedFgBoms(prev => ({ ...prev, [index]: !prev[index] }));
+  };
+
+  const toggleOutwardPO = (poKey: string) => {
+    setExpandedOutwardPOs(prev => ({ ...prev, [poKey]: !prev[poKey] }));
   };
 
   const handleExportNestedBOMPDF = () => {
@@ -86,8 +95,9 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
   useEffect(() => {
     if (isOpen && currentPlan) {
       fetchFGGRNHistory();
+      fetchLinkedOutwardPOs(currentPlan);
     }
-  }, [isOpen, currentPlan?.mrpNumber]);
+  }, [isOpen, currentPlan?._id, currentPlan?.mrpNumber]);
 
   const handleSyncBOM = async () => {
     if (!currentPlan?._id) return;
@@ -97,6 +107,7 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
       const res = await apiPost(`/api/purchase/mrp/plan/${currentPlan._id}/sync-bom`, {}, token);
       if (res?.success && res?.mrpPlan) {
         setCurrentPlan(res.mrpPlan);
+        fetchLinkedOutwardPOs(res.mrpPlan);
         if (onPlanUpdated) {
           onPlanUpdated(res.mrpPlan);
         }
@@ -105,6 +116,75 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
       console.error("Failed to sync BOM:", err);
     } finally {
       setSyncingBOM(false);
+    }
+  };
+
+  const fetchLinkedOutwardPOs = async (planObj: any) => {
+    if (!planObj) return;
+    setLoadingOutwardPOs(true);
+    try {
+      const token = localStorage.getItem('token') || '';
+      const res = await apiGet('/api/purchase/po', token);
+      const allPos: any[] = res?.pos || res?.purchaseOrders || [];
+
+      const planIdStr = String(planObj._id || '').trim();
+      const planMrpNum = String(planObj.mrpNumber || '').trim().toLowerCase();
+
+      // Collect all PO numbers referenced on requirement lines or nested BOM lines
+      const reqPoNumbers = new Set<string>();
+      const collectFromReqs = (list?: any[]) => {
+        (list || []).forEach((r: any) => {
+          if (r?.poNumber) {
+            String(r.poNumber)
+              .split(',')
+              .map((s) => s.trim().toLowerCase())
+              .filter(Boolean)
+              .forEach((n) => reqPoNumbers.add(n));
+          }
+        });
+      };
+      collectFromReqs(planObj.rmRequirements);
+      collectFromReqs(planObj.boRequirements);
+      collectFromReqs(planObj.componentRequirements);
+      collectFromReqs(planObj.subAssemblyRequirements);
+      collectFromReqs(planObj.consumableRequirements);
+      (planObj.fgItems || []).forEach((fg: any) => collectFromReqs(fg?.nestedMaterials));
+
+      const matchedMap = new Map<string, any>();
+
+      // Include any pre-populated linkedPOs on the plan first
+      (planObj.linkedPOs || []).forEach((po: any) => {
+        const key = String(po._id || po.poNumber || '');
+        if (key) matchedMap.set(key, po);
+      });
+
+      // Match against full PO list (includes linkedGrns from /api/purchase/po)
+      allPos.forEach((po: any) => {
+        const poIdStr = String(po.mrpPlanId?._id || po.mrpPlanId || '').trim();
+        const poNumLower = String(po.poNumber || '').trim().toLowerCase();
+        const poMrpRaw = String(po.mrpNumber || '').trim().toLowerCase();
+        const poMrpTokens = poMrpRaw.split(',').map((s) => s.trim()).filter(Boolean);
+
+        const isIdMatch = Boolean(planIdStr && poIdStr && planIdStr === poIdStr);
+        const isMrpNumMatch = Boolean(
+          planMrpNum && (poMrpRaw === planMrpNum || poMrpTokens.includes(planMrpNum))
+        );
+        const isReqPoMatch = Boolean(poNumLower && reqPoNumbers.has(poNumLower));
+
+        if (isIdMatch || isMrpNumMatch || isReqPoMatch) {
+          const key = String(po._id || po.poNumber || '');
+          if (key) matchedMap.set(key, po);
+        }
+      });
+
+      setLinkedOutwardPOs(Array.from(matchedMap.values()));
+    } catch (err) {
+      console.warn("Could not fetch linked outward POs:", err);
+      if (Array.isArray(planObj?.linkedPOs)) {
+        setLinkedOutwardPOs(planObj.linkedPOs);
+      }
+    } finally {
+      setLoadingOutwardPOs(false);
     }
   };
 
@@ -391,8 +471,13 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
             </div>
 
             <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/60">
-              <span className="text-[10px] font-extrabold uppercase text-slate-400">Procurement State</span>
-              <div className="mt-1">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-extrabold uppercase text-slate-400">Procurement & Linked POs</span>
+                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
+                  {linkedOutwardPOs.length} PO{linkedOutwardPOs.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-2 flex-wrap">
                 {isProcurementFulfilled ? (
                   <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold rounded-md text-[10px] border border-emerald-200">
                     ✅ Fulfilled
@@ -400,6 +485,16 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
                 ) : (
                   <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold rounded-md text-[10px] border border-amber-200">
                     ⏳ Shortages Pending
+                  </span>
+                )}
+                {linkedOutwardPOs.length > 0 && (
+                  <span className="text-xs font-black font-mono text-slate-800 dark:text-slate-200">
+                    ₹{Math.round(
+                      linkedOutwardPOs.reduce(
+                        (s, p) => s + (Number(p.grandTotal ?? p.totalAmount ?? 0) || 0),
+                        0
+                      )
+                    ).toLocaleString('en-IN')}
                   </span>
                 )}
               </div>
@@ -818,6 +913,405 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
                 </div>
               </div>
             )}
+          </div>
+
+          {/* 2.75 Linked Outward Purchase Orders (Material & Job Work POs) */}
+          <div className="space-y-2">
+            {(() => {
+              const materialPOs = linkedOutwardPOs.filter(
+                (p) => (p.poType || 'standard').toLowerCase() !== 'jobwork'
+              );
+              const jobworkPOs = linkedOutwardPOs.filter(
+                (p) => (p.poType || '').toLowerCase() === 'jobwork'
+              );
+              const displayedPOs =
+                activeOutwardPoTab === 'standard'
+                  ? materialPOs
+                  : activeOutwardPoTab === 'jobwork'
+                  ? jobworkPOs
+                  : linkedOutwardPOs;
+
+              const fmtPrimary = (val: any) => {
+                const n = Number(val);
+                if (!Number.isFinite(n)) return '0';
+                return Number(n.toFixed(2)).toString();
+              };
+              const fmtSecondary = (val: any) => {
+                const n = Number(val);
+                if (!Number.isFinite(n)) return '0';
+                return Math.round(n).toString();
+              };
+
+              return (
+                <>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Truck size={14} className="text-indigo-600" />
+                        Linked Outward Purchase Orders ({linkedOutwardPOs.length} POs)
+                      </h3>
+                      {loadingOutwardPOs && (
+                        <RefreshCw size={12} className="animate-spin text-indigo-600" />
+                      )}
+                    </div>
+
+                    {/* Segmented Floating Pill Filter Tabs (Rule 7) */}
+                    <div className="flex overflow-x-auto max-w-full no-scrollbar bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs gap-1.5 scroll-smooth shrink-0 w-fit">
+                      <button
+                        type="button"
+                        onClick={() => setActiveOutwardPoTab('all')}
+                        className={`flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all duration-150 whitespace-nowrap shrink-0 active:scale-95 cursor-pointer ${
+                          activeOutwardPoTab === 'all'
+                            ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm shadow-indigo-500/25'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <FileText size={15} className={activeOutwardPoTab === 'all' ? 'text-white' : 'text-slate-500 dark:text-slate-400'} />
+                        <span>All Outward POs ({linkedOutwardPOs.length})</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveOutwardPoTab('standard')}
+                        className={`flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all duration-150 whitespace-nowrap shrink-0 active:scale-95 cursor-pointer ${
+                          activeOutwardPoTab === 'standard'
+                            ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm shadow-indigo-500/25'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <Package size={15} className={activeOutwardPoTab === 'standard' ? 'text-white' : 'text-slate-500 dark:text-slate-400'} />
+                        <span>Material POs ({materialPOs.length})</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveOutwardPoTab('jobwork')}
+                        className={`flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all duration-150 whitespace-nowrap shrink-0 active:scale-95 cursor-pointer ${
+                          activeOutwardPoTab === 'jobwork'
+                            ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm shadow-indigo-500/25'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <Wrench size={15} className={activeOutwardPoTab === 'jobwork' ? 'text-white' : 'text-slate-500 dark:text-slate-400'} />
+                        <span>Job Work POs ({jobworkPOs.length})</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {displayedPOs.length === 0 ? (
+                    <div className="p-6 text-center bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-800">
+                      <Truck className="w-8 h-8 text-slate-300 mx-auto mb-1.5 opacity-60" />
+                      <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        No Linked Outward POs Found
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        When Material POs or Job Work Outward POs are raised against MRP #{currentPlan.mrpNumber}, they will appear here with ordered &amp; received quantities.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+                      <div className="max-h-80 overflow-y-auto">
+                        <table className="w-full text-xs text-left">
+                          <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 font-bold text-slate-500 border-b border-slate-200 dark:border-slate-700">
+                            <tr>
+                              <th className="p-3 whitespace-nowrap">PO Number &amp; Type</th>
+                              <th className="p-3 whitespace-nowrap">Vendor</th>
+                              <th className="p-3 min-w-[260px]">Item Name &amp; Technical Description</th>
+                              <th className="p-3 text-center whitespace-nowrap">Ordered vs Received</th>
+                              <th className="p-3 whitespace-nowrap">Store GRN Receipts</th>
+                              <th className="p-3 text-right whitespace-nowrap">PO Amount</th>
+                              <th className="p-3 text-center whitespace-nowrap">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {displayedPOs.map((po: any, poIdx: number) => {
+                              const poKey = String(po._id || po.poNumber || poIdx);
+                              const isJobWork = (po.poType || '').toLowerCase() === 'jobwork';
+                              const vendorName =
+                                (typeof po.vendor === 'object' ? po.vendor?.name : '') ||
+                                po.vendorName ||
+                                'Vendor';
+                              const vendorSub =
+                                (typeof po.vendor === 'object' ? po.vendor?.gst || po.vendor?.phone : '') || '';
+                              const poDate = po.orderDate || po.createdAt;
+                              const formattedPoDate = poDate
+                                ? new Date(poDate).toLocaleDateString('en-GB', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric',
+                                  })
+                                : '-';
+                              const items: any[] = Array.isArray(po.items) ? po.items : [];
+                              const firstItem = items[0];
+                              const firstItemName =
+                                firstItem?.material?.name ||
+                                firstItem?.materialName ||
+                                firstItem?.name ||
+                                'PO Item';
+                              const firstItemDesc =
+                                getItemDescription(firstItem?.material) ||
+                                getItemDescription(firstItem) ||
+                                '';
+                              const isExpanded = Boolean(expandedOutwardPOs[poKey]);
+
+                              const totalOrdered = items.reduce(
+                                (s, i) => s + (Number(i.quantity) || 0),
+                                0
+                              );
+                              const totalReceived = items.reduce(
+                                (s, i) => s + (Number(i.receivedQuantity) || 0),
+                                0
+                              );
+                              const primaryUnit = firstItem?.unit || 'NOS';
+                              const linkedGrns: any[] = Array.isArray(po.linkedGrns) ? po.linkedGrns : [];
+                              const grandTotal = Number(po.grandTotal ?? po.totalAmount ?? 0) || 0;
+                              const poStatus = po.status || 'Released';
+
+                              return (
+                                <React.Fragment key={poKey}>
+                                  <tr className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 align-top">
+                                    {/* PO Number & Type */}
+                                    <td className="p-3 whitespace-nowrap">
+                                      <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                        {po.poNumber || `PO-${poIdx + 1}`}
+                                      </div>
+                                      <div className="text-[10px] text-slate-500 mt-0.5">
+                                        {formattedPoDate}
+                                      </div>
+                                      <div className="mt-1 flex items-center gap-1 flex-wrap">
+                                        {isJobWork ? (
+                                          <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                            Job Work PO
+                                          </span>
+                                        ) : (
+                                          <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                            Material PO
+                                          </span>
+                                        )}
+                                        {po.challanNumber && (
+                                          <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                            Challan: {po.challanNumber}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+
+                                    {/* Vendor */}
+                                    <td className="p-3">
+                                      <div className="font-bold text-slate-800 dark:text-slate-200">
+                                        {vendorName}
+                                      </div>
+                                      {vendorSub && (
+                                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                          {vendorSub}
+                                        </div>
+                                      )}
+                                      {po.processType && (
+                                        <div className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold mt-0.5">
+                                          Process: {po.processType}
+                                        </div>
+                                      )}
+                                    </td>
+
+                                    {/* Item Name & Technical Description (Strict Rule 1 compliance) */}
+                                    <td className="p-3 min-w-[260px]">
+                                      {firstItem ? (
+                                        <div>
+                                          <ItemNameAndDescription
+                                            name={firstItemName}
+                                            description={firstItemDesc}
+                                          />
+                                          {items.length > 1 && (
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleOutwardPO(poKey)}
+                                              className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
+                                            >
+                                              {isExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                                              <span>
+                                                {isExpanded
+                                                  ? `Hide ${items.length} Line Items`
+                                                  : `+${items.length - 1} more item${items.length - 1 > 1 ? 's' : ''} (View all ${items.length})`}
+                                              </span>
+                                            </button>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-400 italic">No items listed</span>
+                                      )}
+                                    </td>
+
+                                    {/* Ordered vs Received Qty */}
+                                    <td className="p-3 text-center whitespace-nowrap">
+                                      <div className="font-bold text-slate-800 dark:text-slate-200">
+                                        Ord: {fmtPrimary(totalOrdered)} {primaryUnit}
+                                      </div>
+                                      {Boolean(
+                                        items.length === 1 &&
+                                          firstItem?.hasSecondaryUnit &&
+                                          firstItem?.secondaryUnit &&
+                                          Number(firstItem?.secondaryQuantity) > 0
+                                      ) && (
+                                        <div className="text-[10px] text-slate-500">
+                                          ({fmtSecondary(firstItem.secondaryQuantity)} {firstItem.secondaryUnit})
+                                        </div>
+                                      )}
+                                      <div
+                                        className={`text-[11px] font-bold mt-0.5 ${
+                                          totalReceived >= totalOrdered && totalOrdered > 0
+                                            ? 'text-emerald-600 dark:text-emerald-400'
+                                            : totalReceived > 0
+                                            ? 'text-teal-600 dark:text-teal-400'
+                                            : 'text-amber-600 dark:text-amber-400'
+                                        }`}
+                                      >
+                                        Rec: {fmtPrimary(totalReceived)} {primaryUnit}
+                                      </div>
+                                    </td>
+
+                                    {/* Linked Store GRN Receipts */}
+                                    <td className="p-3">
+                                      {linkedGrns.length > 0 ? (
+                                        <div className="flex flex-col gap-1">
+                                          {linkedGrns.map((g: any, gIdx: number) => (
+                                            <div
+                                              key={gIdx}
+                                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 text-[10px] font-semibold w-fit"
+                                            >
+                                              <span className="font-mono font-bold">{g.grnNumber}</span>
+                                              {g.receivedDate && (
+                                                <span className="text-slate-400">
+                                                  • {new Date(g.receivedDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                                                </span>
+                                              )}
+                                              {Number(g.totalReceivedQty) > 0 && (
+                                                <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                                                  ({fmtPrimary(g.totalReceivedQty)})
+                                                </span>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <span className="text-[11px] text-slate-400 italic">Pending GRN</span>
+                                      )}
+                                    </td>
+
+                                    {/* PO Amount */}
+                                    <td className="p-3 text-right font-mono whitespace-nowrap">
+                                      <div className="font-bold text-slate-900 dark:text-white">
+                                        ₹{grandTotal.toLocaleString('en-IN')}
+                                      </div>
+                                      {Number(po.taxAmount || 0) > 0 && (
+                                        <div className="text-[10px] text-slate-400">
+                                          Incl. Tax ₹{Number(po.taxAmount).toLocaleString('en-IN')}
+                                        </div>
+                                      )}
+                                    </td>
+
+                                    {/* Status */}
+                                    <td className="p-3 text-center whitespace-nowrap">
+                                      <span
+                                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                                          poStatus === 'Completed' || poStatus === 'Received'
+                                            ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                            : poStatus === 'Partially Received'
+                                            ? 'bg-cyan-50 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800'
+                                            : poStatus === 'Cancelled'
+                                            ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                                            : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                        }`}
+                                      >
+                                        {poStatus}
+                                      </span>
+                                    </td>
+                                  </tr>
+
+                                  {/* Expandable Multi-Item Breakdown for this Outward PO */}
+                                  {isExpanded && items.length > 1 && (
+                                    <tr className="bg-indigo-50/20 dark:bg-indigo-950/20">
+                                      <td colSpan={7} className="p-3 pl-6 pr-6">
+                                        <div className="rounded-xl border border-indigo-200/70 dark:border-indigo-800/60 bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
+                                          <div className="p-2 bg-indigo-50/70 dark:bg-indigo-950/40 border-b border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between">
+                                            <span className="font-bold text-xs text-indigo-900 dark:text-indigo-200">
+                                              Line Items in {po.poNumber} ({items.length} Items)
+                                            </span>
+                                          </div>
+                                          <table className="w-full text-xs text-left">
+                                            <thead className="bg-slate-50/80 dark:bg-slate-800/50 font-bold text-slate-500 border-b border-slate-200 dark:border-slate-800 text-[10.5px]">
+                                              <tr>
+                                                <th className="p-2">Item Name &amp; Technical Description</th>
+                                                <th className="p-2 text-center">Ordered Qty</th>
+                                                <th className="p-2 text-center">Received Qty</th>
+                                                <th className="p-2 text-center">Pending Qty</th>
+                                                <th className="p-2 text-right">Rate</th>
+                                                <th className="p-2 text-right">Line Amount</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                              {items.map((line: any, lIdx: number) => {
+                                                const lName =
+                                                  line?.material?.name ||
+                                                  line?.materialName ||
+                                                  line?.name ||
+                                                  'Item';
+                                                const lDesc =
+                                                  getItemDescription(line?.material) ||
+                                                  getItemDescription(line) ||
+                                                  '';
+                                                const ordQ = Number(line.quantity) || 0;
+                                                const recQ = Number(line.receivedQuantity) || 0;
+                                                const pendQ = Math.max(0, ordQ - recQ);
+                                                const u = line.unit || 'NOS';
+
+                                                return (
+                                                  <tr key={lIdx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                                                    <td className="p-2">
+                                                      <ItemNameAndDescription
+                                                        name={lName}
+                                                        description={lDesc}
+                                                      />
+                                                    </td>
+                                                    <td className="p-2 text-center font-bold text-slate-800 dark:text-slate-200">
+                                                      <div>{fmtPrimary(ordQ)} {u}</div>
+                                                      {Boolean(line.hasSecondaryUnit && line.secondaryUnit && Number(line.secondaryQuantity) > 0) && (
+                                                        <div className="text-[10px] text-slate-500 font-normal">
+                                                          ({fmtSecondary(line.secondaryQuantity)} {line.secondaryUnit})
+                                                        </div>
+                                                      )}
+                                                    </td>
+                                                    <td className="p-2 text-center font-bold text-teal-600">
+                                                      {fmtPrimary(recQ)} {u}
+                                                    </td>
+                                                    <td className="p-2 text-center font-bold text-amber-600">
+                                                      {fmtPrimary(pendQ)} {u}
+                                                    </td>
+                                                    <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-400">
+                                                      ₹{Number(line.rate || 0).toLocaleString('en-IN')}/{line.selectedUnit || u}
+                                                    </td>
+                                                    <td className="p-2 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
+                                                      ₹{Number(line.amount || ordQ * Number(line.rate || 0)).toLocaleString('en-IN')}
+                                                    </td>
+                                                  </tr>
+                                                );
+                                              })}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </React.Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
           {/* 3. FG GRN Receipts & Inward Dates History Table */}

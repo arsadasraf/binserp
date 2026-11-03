@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Filter, Search, X, ArrowUpAZ, ArrowDownZA, ArrowUp10, ArrowDown10 } from 'lucide-react';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 interface ColumnFilterProps {
     column: string;
@@ -160,10 +161,9 @@ export default function ColumnFilter({
 
     // Filter values based on search term
     const filteredValues = useMemo(() => {
-        if (!searchTerm) return uniqueValuesWithCounts;
-        const lower = searchTerm.toLowerCase();
+        if (!searchTerm.trim()) return uniqueValuesWithCounts;
         return uniqueValuesWithCounts.filter(item =>
-            item.value.toLowerCase().includes(lower)
+            isSpaceFreeMatch(item.value, searchTerm)
         );
     }, [uniqueValuesWithCounts, searchTerm]);
 
@@ -325,6 +325,7 @@ export default function ColumnFilter({
                             placeholder="Search values..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
+                            onKeyDown={(e) => e.stopPropagation()}
                             className="w-full pl-7 pr-2 py-1 text-xs border border-gray-200 dark:border-slate-600 rounded-lg bg-gray-50 dark:bg-slate-700/50 text-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                         />
                     </div>

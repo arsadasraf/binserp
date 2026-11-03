@@ -1348,13 +1348,47 @@ export const getAllMRPPlans = async (req, res) => {
     const planIds = mrpPlans.map(p => p._id);
     const planNumbers = mrpPlans.map(p => p.mrpNumber).filter(Boolean);
 
+    const extractPlanPoNumbers = (plan) => {
+      const poNums = new Set();
+      const addFromList = (list) => {
+        (list || []).forEach(r => {
+          if (r?.poNumber) {
+            String(r.poNumber).split(',').map(s => s.trim()).filter(Boolean).forEach(n => poNums.add(n));
+          }
+        });
+      };
+      addFromList(plan.rmRequirements);
+      addFromList(plan.boRequirements);
+      addFromList(plan.componentRequirements);
+      addFromList(plan.subAssemblyRequirements);
+      addFromList(plan.consumableRequirements);
+      (plan.fgItems || []).forEach(fg => addFromList(fg?.nestedMaterials));
+      return Array.from(poNums);
+    };
+
+    const poNumToPlanIds = new Map();
+    const allReqPoNumbers = new Set();
+    mrpPlans.forEach(p => {
+      const pIdStr = String(p._id);
+      extractPlanPoNumbers(p).forEach(poNum => {
+        allReqPoNumbers.add(poNum);
+        if (!poNumToPlanIds.has(poNum)) poNumToPlanIds.set(poNum, new Set());
+        poNumToPlanIds.get(poNum).add(pIdStr);
+      });
+    });
+
+    const poOrClauses = [
+      { mrpPlanId: { $in: planIds } },
+      { mrpNumber: { $in: planNumbers } }
+    ];
+    if (allReqPoNumbers.size > 0) {
+      poOrClauses.push({ poNumber: { $in: Array.from(allReqPoNumbers) } });
+    }
+
     // Batch query linked POs for all plans
     const linkedPOs = await PurchaseOrder.find({
       company: companyId,
-      $or: [
-        { mrpPlanId: { $in: planIds } },
-        { mrpNumber: { $in: planNumbers } }
-      ]
+      $or: poOrClauses
     }).select("mrpPlanId mrpNumber poNumber status grandTotal totalAmount").lean().catch(() => []);
 
     // Map from plan ID string -> Map<poId, amount> to strictly deduplicate POs per plan
@@ -1367,8 +1401,13 @@ export const getAllMRPPlans = async (req, res) => {
       
       const targetPlanIds = new Set();
       if (po.mrpPlanId) targetPlanIds.add(String(po.mrpPlanId));
-      if (po.mrpNumber && planNumToId.has(po.mrpNumber)) {
-        targetPlanIds.add(planNumToId.get(po.mrpNumber));
+      if (po.mrpNumber) {
+        String(po.mrpNumber).split(',').map(s => s.trim()).filter(Boolean).forEach(mNum => {
+          if (planNumToId.has(mNum)) targetPlanIds.add(planNumToId.get(mNum));
+        });
+      }
+      if (po.poNumber && poNumToPlanIds.has(po.poNumber)) {
+        poNumToPlanIds.get(po.poNumber).forEach(pId => targetPlanIds.add(pId));
       }
 
       targetPlanIds.forEach(pId => {
@@ -1481,6 +1520,7 @@ export const getMRPPlanById = async (req, res) => {
     req.getModel("RawMaterial", rawMaterialSchema);
     req.getModel("BoughtOut", boughtOutSchema);
     req.getModel("RmBoItem", rmBoItemSchema);
+    req.getModel("Vendor", vendorSchema);
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
@@ -1498,10 +1538,42 @@ export const getMRPPlanById = async (req, res) => {
       return res.status(404).json({ message: "MRP Plan not found" });
     }
 
+    const reqPoNums = new Set();
+    const collectPoNums = (list) => {
+      (list || []).forEach(r => {
+        if (r?.poNumber) {
+          String(r.poNumber).split(',').map(s => s.trim()).filter(Boolean).forEach(n => reqPoNums.add(n));
+        }
+      });
+    };
+    collectPoNums(mrpPlan.rmRequirements);
+    collectPoNums(mrpPlan.boRequirements);
+    collectPoNums(mrpPlan.componentRequirements);
+    collectPoNums(mrpPlan.subAssemblyRequirements);
+    collectPoNums(mrpPlan.consumableRequirements);
+    (mrpPlan.fgItems || []).forEach(fg => collectPoNums(fg?.nestedMaterials));
+
+    const escapedMrpNum = String(mrpPlan.mrpNumber || "").replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const singlePlanOrClauses = [
+      { mrpPlanId: id },
+      { mrpNumber: mrpPlan.mrpNumber }
+    ];
+    if (escapedMrpNum) {
+      singlePlanOrClauses.push({ mrpNumber: { $regex: `(^|,\\s*)${escapedMrpNum}(\\s*,|$)`, $options: "i" } });
+    }
+    if (reqPoNums.size > 0) {
+      singlePlanOrClauses.push({ poNumber: { $in: Array.from(reqPoNums) } });
+    }
+
     const linkedPOs = await PurchaseOrder.find({
       company: companyId,
-      $or: [{ mrpPlanId: id }, { mrpNumber: mrpPlan.mrpNumber }]
-    }).select("grandTotal totalAmount").lean().catch(() => []);
+      $or: singlePlanOrClauses
+    })
+      .populate("vendor", "name code gst phone email")
+      .populate("items.material", "name code unit category descriptions description specification")
+      .sort({ createdAt: -1 })
+      .lean()
+      .catch(() => []);
 
     const linkedPOCount = linkedPOs.length;
     const committedExpense = Math.round(
@@ -1592,6 +1664,7 @@ export const getMRPPlanById = async (req, res) => {
         committedExpense,
         budgetStatus: dynamicBudgetStatus,
         linkedPOCount,
+        linkedPOs,
         hasTransactions,
         policyHours,
         is24hExpired: isExpired,

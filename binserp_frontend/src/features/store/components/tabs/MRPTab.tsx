@@ -345,7 +345,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
         apiGet('/api/store/vendor', token).catch(() => []),
         apiGet('/api/store/raw-material', token).catch(() => []),
         apiGet('/api/store/bought-out', token).catch(() => []),
-        apiGet('/api/store/fg-item', token).catch(() => []),
+        apiGet('/api/store/fg-item?lite=true', token).catch(() => []),
         apiGet('/api/purchase/price-list', token).catch(() => ({ data: [] }))
       ]);
 
@@ -2791,6 +2791,8 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
           initialData={editingPlan}
           preselectedPoIds={preselectedPoIds}
           preselectedMonth={preselectedMonth}
+          initialFgItems={inHouseItems}
+          initialMrpPlans={mrpPlans}
         />
       )}
 

@@ -179,8 +179,8 @@ export const getWipInventory = async (req, res) => {
           hasSecondaryUnit: hasSec,
           secondaryUnit: secUnit,
           conversionFactor: convFactor,
-          mainStoreStock: storeStock,
-          mainStoreSecondaryStock: hasSec ? parseFloat((storeStock * convFactor).toFixed(4)) : 0,
+          mainStoreStock: parseFloat((Number(storeStock) || 0).toFixed(2)),
+          mainStoreSecondaryStock: hasSec ? Math.round((Number(storeStock) || 0) * convFactor) : 0,
           totalIssuedQty: 0,
           totalJobWorkSentQty: 0,
           totalJobWorkReturnedQty: 0,
@@ -1102,15 +1102,18 @@ export const getWipInventory = async (req, res) => {
 
     // 7. Format Resulting Items
     masterWipMap.forEach(item => {
-      item.shopfloorWipQty = Math.max(0, item.wipBatches.reduce((sum, b) => sum + (b.remainingQty || 0), 0));
-      item.pendingWipQty = (item.shopfloorWipQty || 0) + (item.jobWorkWipQty || 0);
+      item.mainStoreStock = parseFloat((Number(item.mainStoreStock) || 0).toFixed(2));
+      item.shopfloorWipQty = parseFloat(Math.max(0, item.wipBatches.reduce((sum, b) => sum + (b.remainingQty || 0), 0)).toFixed(2));
+      item.pendingQcQty = parseFloat((Number(item.pendingQcQty) || 0).toFixed(2));
+      item.jobWorkWipQty = parseFloat((Number(item.jobWorkWipQty) || 0).toFixed(2));
+      item.pendingWipQty = parseFloat(((item.shopfloorWipQty || 0) + (item.jobWorkWipQty || 0)).toFixed(2));
       const conv = Number(item.conversionFactor) || 1;
       if (item.hasSecondaryUnit && item.secondaryUnit) {
-        item.mainStoreSecondaryStock = parseFloat(((item.mainStoreStock || 0) * conv).toFixed(4));
-        item.shopfloorWipSecondaryQty = parseFloat(((item.shopfloorWipQty || 0) * conv).toFixed(4));
-        item.pendingQcSecondaryQty = parseFloat(((item.pendingQcQty || 0) * conv).toFixed(4));
-        item.jobWorkWipSecondaryQty = parseFloat(((item.jobWorkWipQty || 0) * conv).toFixed(4));
-        item.pendingWipSecondaryQty = parseFloat(((item.pendingWipQty || 0) * conv).toFixed(4));
+        item.mainStoreSecondaryStock = Math.round((item.mainStoreStock || 0) * conv);
+        item.shopfloorWipSecondaryQty = Math.round((item.shopfloorWipQty || 0) * conv);
+        item.pendingQcSecondaryQty = Math.round((item.pendingQcQty || 0) * conv);
+        item.jobWorkWipSecondaryQty = Math.round((item.jobWorkWipQty || 0) * conv);
+        item.pendingWipSecondaryQty = Math.round((item.pendingWipQty || 0) * conv);
       }
     });
 

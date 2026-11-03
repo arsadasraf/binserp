@@ -520,7 +520,7 @@ export default function POModal({
     const inHouseOptions = useMemo(() => {
         return (inHouseItems || []).map((item: any) => ({
             value: (item._id || item.id)?.toString(),
-            label: `${item.name || item.componentName || 'Component'}${item.code || item.componentCode ? ` (${item.code || item.componentCode})` : ''}${item.description || item.descriptions ? ` — ${item.description || item.descriptions}` : ''}`
+            label: `${item.name || item.componentName || 'Component'}${item.description || item.descriptions ? ` — ${item.description || item.descriptions}` : ''}`
         })).filter((o: any) => o.value);
     }, [inHouseItems]);
 
@@ -764,6 +764,27 @@ export default function POModal({
             category: '',
         };
         setMaterialEntries(prev => [...prev, newRow]);
+    };
+
+    const handleInsertEntryAfter = (index: number) => {
+        const newRow: POLineItemEntry = {
+            itemType: poCategory,
+            material: '',
+            materialName: '',
+            description: '',
+            hsnCode: '',
+            pieceCount: 0,
+            quantity: 0,
+            unit: poCategory === 'rm' ? 'KG' : 'PCS',
+            rate: 0,
+            amount: 0,
+            category: '',
+        };
+        setMaterialEntries(prev => {
+            const updated = [...prev];
+            updated.splice(index + 1, 0, newRow);
+            return updated;
+        });
     };
 
     const handleDuplicateEntry = (index: number) => {
@@ -1124,23 +1145,18 @@ export default function POModal({
             <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-[98vw] max-w-[1750px] max-h-[97vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
                 
                 {/* Modal Header */}
-                <div className="px-6 py-4 bg-gradient-to-r from-cyan-950 via-slate-900 to-indigo-950 text-white flex items-center justify-between shrink-0 border-b border-cyan-800/40">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2.5 bg-cyan-500/15 border border-cyan-400/30 rounded-2xl flex items-center justify-center text-cyan-400">
-                            <FileText className="w-5 h-5" />
+                <div className="px-4 sm:px-6 py-3 sm:py-4 bg-gradient-to-r from-cyan-950 via-slate-900 to-indigo-950 text-white flex items-center justify-between shrink-0 border-b border-cyan-800/40">
+                    <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-cyan-500/15 border border-cyan-400/30 rounded-xl flex items-center justify-center text-cyan-400">
+                            <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
                         </div>
-                        <div>
-                            <h2 className="text-base sm:text-lg font-extrabold tracking-tight text-white flex items-center gap-2">
-                                {isEditing ? `Edit Outward PO #${poNumber}` : 'Create Outward Purchase Order'}
-                            </h2>
-                            <p className="text-xs text-cyan-300/80 font-medium">
-                                Supplier Procurement • {poCategory === 'rm' ? 'Raw Material (RM)' : poCategory === 'bo' ? 'Bought Out (BO)' : 'Consumable Item'} PO • {materialEntries.length} Items Configured
-                            </p>
-                        </div>
+                        <h2 className="text-sm sm:text-lg font-extrabold tracking-tight text-white flex items-center gap-2">
+                            {isEditing ? `Edit Outward PO #${poNumber}` : 'Create Outward Purchase Order'}
+                        </h2>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                        className="p-1.5 sm:p-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                     >
                         <X className="w-5 h-5" />
                     </button>
@@ -1173,31 +1189,26 @@ export default function POModal({
                 )}
 
                 {/* Modal Body */}
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 bg-slate-50/70 dark:bg-slate-950/60 custom-scrollbar">
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 bg-slate-50/70 dark:bg-slate-950/60 custom-scrollbar">
                     
                     {/* Top Details Grid */}
-                    <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-4">
+                    <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-3.5">
                         
-                        {/* Primary PO Material Category Selector (Enforces 1 Material Type per PO) */}
-                        <div className="bg-slate-50 dark:bg-slate-800/70 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                            <div className="flex items-center gap-2">
+                        {/* Primary PO Material Category Selector (Single Line on Mobile & Desktop) */}
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="hidden sm:flex items-center gap-2 shrink-0">
                                 <Package className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-                                <div>
-                                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 dark:text-white">
-                                        PO Material Category <span className="text-rose-500">*</span>
-                                    </h4>
-                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                        Select the single category for all materials in this Outward PO
-                                    </p>
-                                </div>
+                                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 dark:text-white">
+                                    PO Type <span className="text-rose-500">*</span>
+                                </h4>
                             </div>
 
-                            {/* Segmented Category Selector Buttons */}
-                            <div className="flex items-center p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs w-full sm:w-auto">
+                            {/* Segmented Category Selector Buttons - Compact Single Line */}
+                            <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs w-full sm:w-auto gap-1">
                                 <button
                                     type="button"
                                     onClick={() => handlePoCategoryChange('rm')}
-                                    className={`flex-1 sm:flex-initial px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                                    className={`flex-1 sm:flex-initial px-2.5 sm:px-3.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center whitespace-nowrap ${
                                         poCategory === 'rm'
                                             ? 'bg-cyan-600 text-white shadow-sm'
                                             : 'text-slate-600 dark:text-slate-300 hover:text-cyan-600 dark:hover:text-cyan-400'
@@ -1208,7 +1219,7 @@ export default function POModal({
                                 <button
                                     type="button"
                                     onClick={() => handlePoCategoryChange('bo')}
-                                    className={`flex-1 sm:flex-initial px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                                    className={`flex-1 sm:flex-initial px-2.5 sm:px-3.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center whitespace-nowrap ${
                                         poCategory === 'bo'
                                             ? 'bg-indigo-600 text-white shadow-sm'
                                             : 'text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400'
@@ -1219,30 +1230,34 @@ export default function POModal({
                                 <button
                                     type="button"
                                     onClick={() => handlePoCategoryChange('consumable')}
-                                    className={`flex-1 sm:flex-initial px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                                    className={`flex-1 sm:flex-initial px-2.5 sm:px-3.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center whitespace-nowrap ${
                                         poCategory === 'consumable'
                                             ? 'bg-emerald-600 text-white shadow-sm'
                                             : 'text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400'
                                     }`}
                                 >
-                                    <span>Consumable Item</span>
+                                    <span>Consumable</span>
                                 </button>
                             </div>
                         </div>
 
-                        {/* Top Info Inputs Grid */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
-                                    <Hash size={13} className="text-cyan-600" />
-                                    Outward PO Number <span className="text-rose-500">*</span>
+                        {/* Top Info Inputs Single-Line Row (35ch PO No | 12ch Date | 50ch Vendor | 50ch MRP) */}
+                        <div className="flex flex-col lg:flex-row lg:items-start gap-3">
+                            {/* 1. Outward PO Number (35 digits/chars) */}
+                            <div className="w-full lg:w-[35ch] shrink-0">
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5 whitespace-nowrap">
+                                    <Hash size={13} className="text-cyan-600 shrink-0" />
+                                    <span>Outward PO Number</span>
+                                    <span className="text-rose-500">*</span>
                                 </label>
                                 <input
                                     type="text"
+                                    maxLength={35}
                                     value={poNumber}
+                                    title={poNumber}
                                     onChange={(e) => setPoNumber(e.target.value)}
                                     placeholder="e.g. PO-OUT/2026/001"
-                                    className={`w-full px-3 py-2 bg-white dark:bg-slate-800 border rounded-xl text-slate-900 dark:text-slate-100 font-mono text-xs font-bold outline-none transition-all ${
+                                    className={`w-full px-2.5 py-2 bg-white dark:bg-slate-800 border rounded-xl text-slate-900 dark:text-slate-100 font-mono text-xs font-bold truncate outline-none transition-all ${
                                         hasAttemptedSubmit && !poNumber.trim()
                                             ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 ring-2 ring-rose-400'
                                             : 'border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-cyan-500'
@@ -1253,17 +1268,20 @@ export default function POModal({
                                 )}
                             </div>
 
-                            <div>
-                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
-                                    <Calendar size={13} className="text-cyan-600" />
-                                    PO Date <span className="text-rose-500">*</span>
+                            {/* 2. PO Date (12 digits/chars width) */}
+                            <div className="w-full lg:w-[15ch] shrink-0">
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5 whitespace-nowrap">
+                                    <Calendar size={13} className="text-cyan-600 shrink-0" />
+                                    <span>PO Date</span>
+                                    <span className="text-rose-500">*</span>
                                 </label>
                                 <input
                                     type="date"
                                     required
                                     value={date}
+                                    title={date}
                                     onChange={(e) => setDate(e.target.value)}
-                                    className={`w-full px-3 py-2 bg-white dark:bg-slate-800 border rounded-xl text-xs font-bold text-slate-900 dark:text-slate-100 outline-none transition-all ${
+                                    className={`w-full px-2 py-2 bg-white dark:bg-slate-800 border rounded-xl text-xs font-bold text-slate-900 dark:text-slate-100 outline-none transition-all ${
                                         hasAttemptedSubmit && !date 
                                             ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 ring-2 ring-rose-400' 
                                             : 'border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-cyan-500'
@@ -1274,59 +1292,37 @@ export default function POModal({
                                 )}
                             </div>
 
-                            <div className="sm:col-span-2">
-                                <div className="flex items-center justify-between mb-1.5">
-                                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                                        <User size={13} className="text-cyan-600" />
-                                        <span>Vendor / Supplier</span>
-                                        <span className="text-rose-500">*</span>
-                                    </label>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleOpenQuickVendorModal()}
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-md text-[11px] font-bold shadow-xs transition-colors cursor-pointer"
-                                        title="Vendor not in master? Click to register a new vendor master on the fly"
-                                    >
-                                        <Plus className="w-3 h-3" />
-                                        <span>+ Add Vendor</span>
-                                    </button>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                    <div className="flex-1">
-                                        <SearchableSelect
-                                            options={vendorOptions}
-                                            value={vendor}
-                                            displayLabel={vendorName || undefined}
-                                            allowCustom={true}
-                                            onCreateCustom={(typedQuery) => handleOpenQuickVendorModal(typedQuery)}
-                                            onChange={(val: any) => {
-                                                setVendor(val);
-                                                const found = vendorOptions.find(o => o.value === val);
-                                                if (found) setVendorName(found.label);
-                                            }}
-                                            hasError={hasAttemptedSubmit && !vendor}
-                                            placeholder="Search and Select Vendor / Supplier..."
-                                        />
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleOpenQuickVendorModal()}
-                                        className="p-2 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 dark:hover:bg-cyan-900/60 rounded-xl border border-cyan-200 dark:border-cyan-800 transition-colors shrink-0 cursor-pointer"
-                                        title="Add new Vendor to Master"
-                                    >
-                                        <Plus size={15} />
-                                    </button>
+                            {/* 3. Vendor / Supplier (50 chars width) */}
+                            <div className="w-full lg:w-[50ch] lg:max-w-[50ch] min-w-0 flex-1">
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5 whitespace-nowrap">
+                                    <User size={13} className="text-cyan-600 shrink-0" />
+                                    <span>Vendor / Supplier</span>
+                                    <span className="text-rose-500">*</span>
+                                </label>
+                                <div className="min-w-0">
+                                    <SearchableSelect
+                                        options={vendorOptions}
+                                        value={vendor}
+                                        displayLabel={vendorName || undefined}
+                                        onChange={(val: any) => {
+                                            setVendor(val);
+                                            const found = vendorOptions.find(o => o.value === val);
+                                            if (found) setVendorName(found.label);
+                                        }}
+                                        hasError={hasAttemptedSubmit && !vendor}
+                                        placeholder="Search and Select Vendor / Supplier..."
+                                    />
                                 </div>
                                 {hasAttemptedSubmit && !vendor && (
                                     <p className="text-[11px] font-semibold text-rose-600 mt-1">Please select a vendor / supplier.</p>
                                 )}
                             </div>
 
-                            {/* Linked MRP Plan Selector */}
-                            <div className="sm:col-span-2">
-                                <div className="flex items-center justify-between mb-1.5">
-                                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                                        <Layers size={13} className="text-cyan-600" />
+                            {/* 4. Linked MRP Plan Selector (50 chars width) */}
+                            <div className="w-full lg:w-[50ch] lg:max-w-[50ch] min-w-0 flex-1">
+                                <div className="flex items-center justify-between mb-1.5 gap-1">
+                                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 whitespace-nowrap">
+                                        <Layers size={13} className="text-cyan-600 shrink-0" />
                                         <span>Linked MRP Plan (Optional)</span>
                                     </label>
                                     {mrpNumber && (
@@ -1336,9 +1332,9 @@ export default function POModal({
                                                 setMrpNumber('');
                                                 setMrpPlanId('');
                                             }}
-                                            className="text-[11px] font-semibold text-rose-600 hover:underline cursor-pointer"
+                                            className="text-[10px] font-semibold text-rose-600 hover:underline cursor-pointer shrink-0"
                                         >
-                                            Clear MRP Link
+                                            Clear
                                         </button>
                                     )}
                                 </div>
@@ -1357,244 +1353,63 @@ export default function POModal({
                                         const matched = mrpPlanList.find(p => p.mrpNumber === val || p._id === val);
                                         setMrpPlanId(matched ? (matched._id || matched.id) : '');
                                     }}
-                                    placeholder="Select active MRP Plan or type MRP Number..."
+                                    placeholder="Select active MRP Plan..."
                                 />
-                                <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1">
-                                    Linking commits this PO's amount directly into the MRP Plan's committed financials and procurement workbench.
-                                </p>
                             </div>
                         </div>
                     </div>
 
                     {/* Items Section Header & Control Toolbar */}
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                        <div className="p-4 bg-slate-50/90 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex items-center gap-2.5">
+                        <div className="p-3 sm:p-4 bg-slate-50/90 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2.5">
+                            <div className="flex items-center gap-2">
                                 <div className="p-1.5 bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded-lg">
                                     <Layers className="w-4 h-4" />
                                 </div>
                                 <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                                     {poCategory === 'rm' ? 'Raw Material (RM)' : poCategory === 'bo' ? 'Bought Out (BO)' : 'Consumable'} Line Items
                                 </h3>
-                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300">
-                                    {materialEntries.length} Item{materialEntries.length > 1 ? 's' : ''}
+                                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300">
+                                    {materialEntries.length}
                                 </span>
                             </div>
 
-                            {/* In-Modal Quick Filter for 100+ items */}
-                            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                                <div className="relative flex-1 sm:w-64">
-                                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                    <input
-                                        type="text"
-                                        placeholder="Find row, name, desc, HSN..."
-                                        value={itemSearchQuery}
-                                        onChange={(e) => setItemSearchQuery(e.target.value)}
-                                        className="w-full pl-8 pr-7 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-cyan-500"
-                                    />
-                                    {itemSearchQuery && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setItemSearchQuery('')}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                                        >
-                                            <X size={13} />
-                                        </button>
-                                    )}
-                                </div>
-
-                                {/* On-the-fly Master Item Creation Button */}
-                                <button
-                                    type="button"
-                                    onClick={() => handleOpenQuickItemMasterModal()}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
-                                    title="Item not in master? Click to register a new master item on the fly"
-                                >
-                                    <PackagePlus className="w-3.5 h-3.5" />
-                                    <span>+ Add New Master Item</span>
-                                </button>
-
-                                {poCategory === 'rm' && (
+                            {/* In-Modal Quick Filter */}
+                            <div className="relative w-full sm:w-64">
+                                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                <input
+                                    type="text"
+                                    placeholder="Find row, name, desc, HSN..."
+                                    value={itemSearchQuery}
+                                    onChange={(e) => setItemSearchQuery(e.target.value)}
+                                    className="w-full pl-8 pr-7 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-cyan-500"
+                                />
+                                {itemSearchQuery && (
                                     <button
                                         type="button"
-                                        onClick={() => setShowSteelCalc(!showSteelCalc)}
-                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
-                                            showSteelCalc 
-                                                ? 'bg-amber-500 text-white border-amber-600 shadow-sm' 
-                                                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:bg-amber-100'
-                                        }`}
+                                        onClick={() => setItemSearchQuery('')}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                                     >
-                                        <Calculator size={14} />
-                                        {showSteelCalc ? 'Hide Steel Calc' : 'Steel / RM Calc'}
+                                        <X size={13} />
                                     </button>
                                 )}
                             </div>
                         </div>
 
-                        {/* Interactive Steel Weight Calculation Panel (Active for RM) */}
-                        {showSteelCalc && poCategory === 'rm' && (
-                            <div className="p-4 sm:p-5 bg-gradient-to-br from-amber-50/90 via-orange-50/40 to-amber-50/80 dark:from-amber-950/30 dark:to-slate-900 border-b border-amber-200/80 dark:border-amber-900/60 space-y-4 animate-in slide-in-from-top-2 duration-200">
-                                <div className="flex items-center justify-between pb-2 border-b border-amber-200/60 dark:border-amber-800/40">
-                                    <div className="flex items-center gap-2">
-                                        <Sparkles className="w-4 h-4 text-amber-600" />
-                                        <h4 className="text-xs sm:text-sm font-extrabold text-amber-950 dark:text-amber-300">
-                                            Raw Material (RM) Steel Weight & Dimensions Calculator
-                                        </h4>
-                                    </div>
-                                    <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/50 px-2 py-0.5 rounded-md">
-                                        Auto-computes weight & transfers piece count
-                                    </span>
-                                </div>
-
-                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
-                                    <div className="col-span-2 sm:col-span-1">
-                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Steel Shape / Form</label>
-                                        <select
-                                            value={steelCalc.shape}
-                                            onChange={(e) => setSteelCalc({ ...steelCalc, shape: e.target.value as SteelShape })}
-                                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-800 rounded-xl font-bold text-slate-900 dark:text-slate-100"
-                                        >
-                                            <option value="plate">Plate / Sheet</option>
-                                            <option value="round_bar">Round Bar / Rod</option>
-                                            <option value="pipe">Round Pipe / Tube</option>
-                                            <option value="square_tube">Square / Rect Tube</option>
-                                            <option value="flat_bar">Flat Bar</option>
-                                            <option value="angle">Equal Angle</option>
-                                        </select>
-                                    </div>
-
-                                    <div className="col-span-2 sm:col-span-1">
-                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Material Density</label>
-                                        <select
-                                            value={steelCalc.density}
-                                            onChange={(e) => {
-                                                const d = parseFloat(e.target.value);
-                                                let matName = 'Mild Steel (MS)';
-                                                if (d === 8.0) matName = 'Stainless Steel (SS 304/316)';
-                                                else if (d === 2.7) matName = 'Aluminium';
-                                                else if (d === 8.5) matName = 'Brass / Copper';
-                                                setSteelCalc({ ...steelCalc, density: d, materialType: matName });
-                                            }}
-                                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-800 rounded-xl font-bold text-slate-900 dark:text-slate-100"
-                                        >
-                                            <option value={7.85}>Mild Steel / MS (7.85 g/cm³)</option>
-                                            <option value={8.0}>Stainless Steel / SS (8.00 g/cm³)</option>
-                                            <option value={2.7}>Aluminium (2.70 g/cm³)</option>
-                                            <option value={8.5}>Brass / Copper (8.50 g/cm³)</option>
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Length (mm)</label>
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            value={steelCalc.lengthMm || ''}
-                                            onChange={(e) => setSteelCalc({ ...steelCalc, lengthMm: parseFloat(e.target.value) || 0 })}
-                                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-800 rounded-xl font-bold"
-                                            placeholder="1000"
-                                        />
-                                    </div>
-
-                                    {(steelCalc.shape === 'plate' || steelCalc.shape === 'flat_bar' || steelCalc.shape === 'square_tube' || steelCalc.shape === 'angle') && (
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Width (mm)</label>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                value={steelCalc.widthMm || ''}
-                                                onChange={(e) => setSteelCalc({ ...steelCalc, widthMm: parseFloat(e.target.value) || 0 })}
-                                                className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-800 rounded-xl font-bold"
-                                                placeholder="1000"
-                                            />
-                                        </div>
-                                    )}
-
-                                    {(steelCalc.shape === 'round_bar' || steelCalc.shape === 'pipe') && (
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Outer Dia Ø (mm)</label>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                value={steelCalc.outerDiaMm || ''}
-                                                onChange={(e) => setSteelCalc({ ...steelCalc, outerDiaMm: parseFloat(e.target.value) || 0 })}
-                                                className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-800 rounded-xl font-bold"
-                                                placeholder="50"
-                                            />
-                                        </div>
-                                    )}
-
-                                    {(steelCalc.shape === 'plate' || steelCalc.shape === 'pipe' || steelCalc.shape === 'square_tube' || steelCalc.shape === 'flat_bar' || steelCalc.shape === 'angle') && (
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Thickness (mm)</label>
-                                            <input
-                                                type="number"
-                                                min="0.1"
-                                                step="any"
-                                                value={steelCalc.thicknessMm || ''}
-                                                onChange={(e) => setSteelCalc({ ...steelCalc, thicknessMm: parseFloat(e.target.value) || 0 })}
-                                                className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-800 rounded-xl font-bold"
-                                                placeholder="10"
-                                            />
-                                        </div>
-                                    )}
-
-                                    <div>
-                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Pieces / Count</label>
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            value={steelCalc.pieces || ''}
-                                            onChange={(e) => setSteelCalc({ ...steelCalc, pieces: parseInt(e.target.value) || 1 })}
-                                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-800 rounded-xl font-bold"
-                                            placeholder="1"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 bg-white/70 dark:bg-slate-900/70 p-3 rounded-xl border border-amber-200 dark:border-amber-900">
-                                    <div className="flex items-center gap-3">
-                                        <div className="text-xs">
-                                            <span className="text-slate-500 dark:text-slate-400 font-semibold block">Specification:</span>
-                                            <span className="font-bold text-slate-900 dark:text-white font-mono">{calculatedSteelResult.specString}</span>
-                                        </div>
-                                        <div className="h-8 w-px bg-amber-200 dark:bg-amber-800 hidden sm:block" />
-                                        <div className="text-xs">
-                                            <span className="text-slate-500 dark:text-slate-400 font-semibold block">Total Weight:</span>
-                                            <span className="font-extrabold text-amber-700 dark:text-amber-400 font-mono text-sm">
-                                                {calculatedSteelResult.totalWeightKg.toFixed(3)} Kg
-                                            </span>
-                                            <span className="text-[10px] text-slate-400 ml-1.5">
-                                                ({steelCalc.pieces} Pcs @ {calculatedSteelResult.singleWeightKg.toFixed(3)} Kg/pc)
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <button
-                                        type="button"
-                                        onClick={handleApplySteelCalculation}
-                                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
-                                    >
-                                        <Plus size={14} /> Insert as RM Item
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Desktop Line Items Table: Spacious, Persistent Names, Amount Excl. Tax */}
+                        {/* Desktop Line Items Table: Balanced Columns & Non-Overflowing Material Cell with Hover Full Text */}
                         <div className="hidden lg:block overflow-x-auto pb-4">
-                            <table className="w-full text-left border-collapse">
+                            <table className="w-full table-fixed text-left border-collapse">
                                 <thead>
                                     <tr className="bg-slate-100/75 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                                        <th className="py-3 px-3 w-12 text-center">#</th>
-                                        <th className="py-3 px-3 w-64 min-w-[220px] max-w-[280px]">Material Name & Description <span className="text-rose-500">*</span></th>
-                                        <th className="py-3 px-3 w-36 min-w-[130px] text-center">HSN / SAC</th>
-                                        <th className="py-3 px-3 w-28 min-w-[100px] text-center" title="Informational Piece/Count tracking">Count (Pcs)</th>
-                                        <th className="py-3 px-3 w-32 min-w-[125px] text-center">Unit / UOM <span className="text-rose-500">*</span></th>
-                                        <th className="py-3 px-3 w-40 min-w-[145px] text-center">Quantity <span className="text-rose-500">*</span></th>
-                                        <th className="py-3 px-3 w-48 min-w-[190px] xl:w-52 xl:min-w-[210px] text-right">Rate (₹)</th>
-                                        <th className="py-3 px-3 w-36 min-w-[140px] text-right">Amount (₹)</th>
-                                        <th className="py-3 px-3 w-20 text-center">Actions</th>
+                                        <th className="py-2.5 px-2 w-12 text-center">#</th>
+                                        <th className="py-2.5 px-2.5 w-[26%] min-w-[200px] max-w-[320px]">Material Name & Description <span className="text-rose-500">*</span></th>
+                                        <th className="py-2.5 px-2 w-32 text-center" title="8-digit HSN / SAC Code">HSN / SAC</th>
+                                        <th className="py-2.5 px-2 w-28 text-center" title="Informational Piece/Count tracking">Count</th>
+                                        <th className="py-2.5 px-2 w-28 text-center">UOM <span className="text-rose-500">*</span></th>
+                                        <th className="py-2.5 px-2 w-44 text-center">Quantity <span className="text-rose-500">*</span></th>
+                                        <th className="py-2.5 px-2 w-44 text-right">Rate (₹)</th>
+                                        <th className="py-2.5 px-2.5 w-44 text-right">Amount (₹)</th>
+                                        <th className="py-2.5 px-2 w-24 text-center">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
@@ -1603,6 +1418,10 @@ export default function POModal({
                                         const hasRowError = Boolean(rowErrors.materialName || rowErrors.quantity || rowErrors.unit);
                                         const isDuplicate = duplicateMap.has(index);
                                         const duplicateIndices = duplicateMap.get(index) || [];
+                                        const fullItemLabel = entry.materialName
+                                            ? (entry.description ? `${entry.materialName} — ${entry.description}` : entry.materialName)
+                                            : '';
+                                        const hasLongMaterialText = (entry.materialName?.length || 0) + (entry.description?.length || 0) > 25;
 
                                         return (
                                             <tr 
@@ -1616,92 +1435,100 @@ export default function POModal({
                                                             : 'hover:bg-cyan-50/30 dark:hover:bg-slate-800/50'
                                                 }`}
                                             >
-                                                <td className="py-2.5 px-3 text-center font-bold font-mono">
+                                                <td className="py-2 px-2 text-center font-bold font-mono">
                                                     <span className={isDuplicate ? 'text-amber-700 dark:text-amber-400 font-extrabold' : 'text-slate-400'}>
                                                         {index + 1}
                                                     </span>
                                                 </td>
 
-                                                {/* Material Selection / Name with Description - Always persistent and editable */}
-                                                <td className="py-2.5 px-3 w-64 min-w-[220px] max-w-[280px] space-y-1.5">
-                                                    <div className="flex gap-1.5 items-center">
-                                                        <div className="flex-1">
-                                                            <SearchableSelect
-                                                                options={currentOptionsToUse}
-                                                                value={entry.material || ''}
-                                                                displayLabel={entry.materialName ? (entry.description ? `${entry.materialName} — ${entry.description}` : entry.materialName) : undefined}
-                                                                onChange={(val: any) => handleMaterialSelect(index, val)}
-                                                                allowCustom={true}
-                                                                onCreateCustom={(typedQuery) => handleOpenQuickItemMasterModal(typedQuery, index)}
-                                                                hasError={Boolean(rowErrors.materialName || isDuplicate)}
-                                                                placeholder={`Select or search ${poCategory === 'rm' ? 'Raw Material' : poCategory === 'bo' ? 'Bought Out' : 'Consumable'}...`}
-                                                            />
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleOpenQuickItemMasterModal('', index)}
-                                                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:hover:bg-emerald-900/60 rounded-lg border border-emerald-200 dark:border-emerald-800 transition-colors shrink-0 cursor-pointer"
-                                                            title="Add new item to Master"
-                                                        >
-                                                            <PackagePlus size={14} />
-                                                        </button>
+                                                {/* Material Selection / Name with Description - Reduced by 40%, Truncated with Mouse Hover Full Text */}
+                                                <td className="py-2 px-2.5 min-w-0 max-w-0 space-y-1.5 group relative">
+                                                    <div className="min-w-0 max-w-full overflow-hidden">
+                                                        <SearchableSelect
+                                                            options={currentOptionsToUse}
+                                                            value={entry.material || ''}
+                                                            displayLabel={fullItemLabel || undefined}
+                                                            onChange={(val: any) => handleMaterialSelect(index, val)}
+                                                            hasError={Boolean(rowErrors.materialName || isDuplicate)}
+                                                            placeholder={`Select ${poCategory === 'rm' ? 'Raw Material' : poCategory === 'bo' ? 'Bought Out' : 'Consumable'}...`}
+                                                        />
                                                     </div>
 
                                                     {/* Duplicate Item Real-time Warning Badge */}
                                                     {isDuplicate && (
-                                                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-100/90 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 text-[11px] font-bold border border-amber-300 dark:border-amber-700 animate-pulse shadow-2xs">
-                                                            <AlertCircle size={13} className="text-amber-600 dark:text-amber-400 shrink-0" />
-                                                            <span>Duplicate of Row #{duplicateIndices.map(i => i + 1).join(', #')} — Please combine quantity or remove</span>
+                                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-100/90 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 text-[10.5px] font-bold border border-amber-300 dark:border-amber-700 animate-pulse shadow-2xs truncate" title={`Duplicate of Row #${duplicateIndices.map(i => i + 1).join(', #')} — Please combine quantity or remove`}>
+                                                            <AlertCircle size={12} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                                                            <span className="truncate">Duplicate of Row #{duplicateIndices.map(i => i + 1).join(', #')} — Please combine quantity</span>
                                                         </div>
                                                     )}
 
-                                                    {/* Editable Description */}
+                                                    {/* Editable Description (Single-line truncated; full text shown on hover) */}
                                                     <input
                                                         type="text"
                                                         placeholder="Description / Specification / Grade / Size..."
                                                         value={entry.description}
+                                                        title={entry.description || entry.materialName || undefined}
                                                         onChange={(e) => updateEntry(index, 'description', e.target.value)}
-                                                        className="w-full px-3 py-1 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-lg text-[11px] font-medium text-slate-600 dark:text-slate-300 focus:ring-1 focus:ring-cyan-500"
+                                                        className="w-full px-2.5 py-1 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-lg text-[11px] font-medium text-slate-600 dark:text-slate-300 truncate focus:ring-1 focus:ring-cyan-500"
                                                     />
+
+                                                    {/* Mouse-Over Full Material Name & Description Popover */}
+                                                    {hasLongMaterialText && (
+                                                        <div className="hidden group-hover:block absolute left-2.5 bottom-full mb-1 z-40 w-max max-w-[440px] p-2.5 rounded-xl bg-slate-900/95 dark:bg-slate-800 text-white shadow-xl border border-slate-700 pointer-events-none animate-in fade-in duration-150">
+                                                            {entry.materialName && (
+                                                                <div className="text-xs font-bold text-white break-words leading-snug">
+                                                                    {entry.materialName}
+                                                                </div>
+                                                            )}
+                                                            {entry.description && (
+                                                                <div className="text-[11px] text-cyan-200/90 italic mt-0.5 break-words leading-snug">
+                                                                    {entry.description}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
 
                                                     {rowErrors.materialName && (
                                                         <p className="text-[10px] font-bold text-rose-600">Material Name is compulsory.</p>
                                                     )}
                                                 </td>
 
-                                                {/* Dedicated Wider HSN / SAC Code Column */}
-                                                <td className="py-2.5 px-3">
+                                                {/* HSN / SAC Code Column */}
+                                                <td className="py-2 px-2 text-center">
                                                     <input
                                                         type="text"
-                                                        placeholder="e.g. 720838"
+                                                        maxLength={8}
+                                                        placeholder="72083800"
                                                         value={entry.hsnCode}
+                                                        title={entry.hsnCode || '8-digit HSN / SAC Code'}
                                                         onChange={(e) => updateEntry(index, 'hsnCode', e.target.value)}
-                                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-200 text-center focus:ring-2 focus:ring-cyan-500"
+                                                        className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-200 text-center focus:ring-2 focus:ring-cyan-500"
                                                     />
                                                 </td>
 
-                                                {/* Dedicated Count / Pcs Column */}
-                                                <td className="py-2.5 px-3">
+                                                {/* Count / Pcs Column */}
+                                                <td className="py-2 px-2 text-center">
                                                     <input
                                                         type="number"
                                                         min="0"
+                                                        max="99999"
                                                         value={entry.pieceCount || ''}
                                                         onChange={(e) => updateEntry(index, 'pieceCount', parseInt(e.target.value) || 0)}
                                                         placeholder="0"
-                                                        className="w-full px-2 py-1.5 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/60 rounded-xl text-xs font-bold text-amber-900 dark:text-amber-200 text-center"
-                                                        title="Informational Piece / Count tracking (e.g. 10 Pcs)"
+                                                        className="w-full px-2 py-1.5 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/60 rounded-xl text-xs font-mono font-bold text-amber-900 dark:text-amber-200 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                        title="Informational Piece / Count tracking"
                                                     />
                                                 </td>
 
                                                 {/* Unit / Billing Unit Selection Column */}
-                                                <td className="py-2.5 px-3 min-w-[125px]">
+                                                <td className="py-2 px-2 text-center">
                                                     {entry.hasSecondaryUnit && entry.secondaryUnit ? (
-                                                        <div className="space-y-1">
+                                                        <div className="space-y-0.5">
                                                             <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => handleUnitToggle(index, 'primary')}
-                                                                    className={`flex-1 py-1 px-1 rounded-lg text-[10.5px] font-extrabold transition-all cursor-pointer text-center truncate ${
+                                                                    className={`flex-1 py-1 px-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer text-center truncate ${
                                                                         entry.rateUnit !== 'secondary'
                                                                             ? 'bg-cyan-600 text-white shadow-xs'
                                                                             : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -1713,7 +1540,7 @@ export default function POModal({
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => handleUnitToggle(index, 'secondary')}
-                                                                    className={`flex-1 py-1 px-1 rounded-lg text-[10.5px] font-extrabold transition-all cursor-pointer text-center truncate ${
+                                                                    className={`flex-1 py-1 px-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer text-center truncate ${
                                                                         entry.rateUnit === 'secondary'
                                                                             ? 'bg-indigo-600 text-white shadow-xs'
                                                                             : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -1723,25 +1550,18 @@ export default function POModal({
                                                                     {entry.secondaryUnit}
                                                                 </button>
                                                             </div>
-                                                            <div className="text-[9.5px] text-center font-bold text-slate-500">
-                                                                Active: <span className={entry.rateUnit === 'secondary' ? 'text-indigo-600 dark:text-indigo-400 font-extrabold' : 'text-cyan-600 dark:text-cyan-400 font-extrabold'}>
-                                                                    {entry.rateUnit === 'secondary' ? entry.secondaryUnit : entry.unit}
-                                                                </span>
-                                                            </div>
                                                         </div>
                                                     ) : (
-                                                        <div className="text-center">
-                                                            <span className="inline-block px-2.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300">
-                                                                {entry.unit || (poCategory === 'rm' ? 'KG' : 'NOS')}
-                                                            </span>
-                                                        </div>
+                                                        <span className="inline-block px-2.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-bold text-slate-700 dark:text-slate-300 truncate max-w-full" title={entry.unit || (poCategory === 'rm' ? 'KG' : 'NOS')}>
+                                                            {entry.unit || (poCategory === 'rm' ? 'KG' : 'NOS')}
+                                                        </span>
                                                     )}
                                                 </td>
 
-                                                {/* Single Adaptive Quantity Column */}
-                                                <td className="py-2.5 px-3 min-w-[145px]">
+                                                {/* Quantity Column */}
+                                                <td className="py-2 px-2">
                                                     <div className="space-y-1">
-                                                        <div className="flex items-center gap-1.5">
+                                                        <div className="flex items-center justify-center gap-1.5">
                                                             <input
                                                                 type="number"
                                                                 min="0.0001"
@@ -1753,17 +1573,17 @@ export default function POModal({
                                                                         : entry.quantity) || ''
                                                                 }
                                                                 onChange={(e) => handleQuantityInput(index, parseFloat(e.target.value) || 0)}
-                                                                placeholder="0.00"
-                                                                className={`w-full px-2 py-1.5 bg-white dark:bg-slate-800 border rounded-xl text-xs font-bold text-slate-900 dark:text-white text-center font-mono ${
+                                                                placeholder="0"
+                                                                className={`w-full px-2 py-1.5 bg-white dark:bg-slate-800 border rounded-xl text-xs font-bold text-slate-900 dark:text-white text-center font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                                                                     rowErrors.quantity 
                                                                         ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 ring-1 ring-rose-400' 
                                                                         : (entry.rateUnit === 'secondary' && entry.hasSecondaryUnit)
                                                                             ? 'border-indigo-300 dark:border-indigo-700 focus:ring-2 focus:ring-indigo-500'
                                                                             : 'border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-cyan-500'
                                                                 }`}
-                                                                title={`Enter quantity in ${entry.rateUnit === 'secondary' && entry.hasSecondaryUnit ? entry.secondaryUnit : entry.unit}`}
+                                                                title={`Quantity: ${(entry.rateUnit === 'secondary' && entry.hasSecondaryUnit ? entry.secondaryQuantity : entry.quantity) || 0} ${entry.rateUnit === 'secondary' && entry.hasSecondaryUnit ? entry.secondaryUnit : entry.unit}`}
                                                             />
-                                                            <span className={`px-2 py-1 rounded-lg text-[10.5px] font-mono font-bold shrink-0 border ${
+                                                            <span className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold shrink-0 border ${
                                                                 (entry.rateUnit === 'secondary' && entry.hasSecondaryUnit)
                                                                     ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800'
                                                                     : 'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950/60 dark:text-cyan-300 dark:border-cyan-800'
@@ -1774,7 +1594,7 @@ export default function POModal({
 
                                                         {/* Live Auto-Conversion Reference Badge */}
                                                         {entry.hasSecondaryUnit && entry.secondaryUnit && (
-                                                            <div className="text-[10px] text-center font-mono font-medium text-slate-500 dark:text-slate-400">
+                                                            <div className="text-[9.5px] text-center font-mono font-medium text-slate-500 dark:text-slate-400 truncate" title={entry.rateUnit === 'secondary' ? `≈ ${Number(entry.quantity || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 })} ${entry.unit}` : `≈ ${Number(entry.secondaryQuantity || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 })} ${entry.secondaryUnit}`}>
                                                                 {entry.rateUnit === 'secondary' ? (
                                                                     <span>≈ <strong className="text-cyan-700 dark:text-cyan-300">{Number(entry.quantity || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 })}</strong> {entry.unit}</span>
                                                                 ) : (
@@ -1788,21 +1608,21 @@ export default function POModal({
                                                     )}
                                                 </td>
 
-
-                                                {/* Rate & Rate Unit Selector */}
-                                                <td className="py-2.5 px-3 w-48 min-w-[190px] xl:w-52 xl:min-w-[210px]">
+                                                {/* Rate / Price Column */}
+                                                <td className="py-2 px-2">
                                                     <div className="space-y-1">
-                                                        <div className="flex items-center gap-1.5">
+                                                        <div className="flex items-center justify-end gap-1.5">
                                                             <input
                                                                 type="number"
                                                                 min="0"
                                                                 step="any"
                                                                 value={entry.rate || ''}
+                                                                title={`Rate: ₹${entry.rate || 0} / ${entry.rateUnit === 'secondary' ? entry.secondaryUnit : entry.unit}`}
                                                                 onChange={(e) => updateEntry(index, 'rate', parseFloat(e.target.value) || 0)}
                                                                 placeholder="0.00"
-                                                                className="w-full min-w-[95px] px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white text-right font-mono focus:ring-2 focus:ring-cyan-500"
+                                                                className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white text-right font-mono focus:ring-2 focus:ring-cyan-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                             />
-                                                            <span className={`px-2 py-1 rounded-lg text-[10.5px] font-mono font-bold shrink-0 border ${
+                                                            <span className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold shrink-0 border ${
                                                                 entry.rateUnit === 'secondary'
                                                                     ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800'
                                                                     : 'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950/60 dark:text-cyan-300 dark:border-cyan-800'
@@ -1812,30 +1632,35 @@ export default function POModal({
                                                         </div>
 
                                                         {entry.hasSecondaryUnit && entry.secondaryUnit && entry.rate > 0 && (
-                                                            <div className="text-[10px] text-slate-400 font-mono text-right italic">
+                                                            <div className="text-[9.5px] text-slate-400 font-mono text-right italic truncate">
                                                                 {entry.rateUnit === 'secondary' 
-                                                                    ? `≈ ₹${Number(entry.primaryRate || 0).toFixed(2)} / ${entry.unit}` 
-                                                                    : `≈ ₹${Number(entry.secondaryRate || 0).toFixed(2)} / ${entry.secondaryUnit}`}
+                                                                    ? `≈ ₹${Number(entry.primaryRate || 0).toFixed(2)}/${entry.unit}` 
+                                                                    : `≈ ₹${Number(entry.secondaryRate || 0).toFixed(2)}/${entry.secondaryUnit}`}
                                                             </div>
                                                         )}
                                                     </div>
                                                 </td>
 
-                                                {/* Line Amount (Pure Actual Amount WITHOUT Tax) */}
-                                                <td className="py-2.5 px-3 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                                                    ₹{entry.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                {/* Line Amount / Total Column */}
+                                                <td className="py-2 px-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                                                    <div
+                                                        className="w-full ml-auto truncate"
+                                                        title={`₹${entry.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                                    >
+                                                        ₹{entry.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </div>
                                                 </td>
 
-                                                {/* Actions: Duplicate & Trash */}
-                                                <td className="py-2.5 px-3 text-center">
+                                                {/* Actions: Add New Line (+) & Delete (Trash) */}
+                                                <td className="py-2 px-2 text-center">
                                                     <div className="flex items-center justify-center gap-1">
                                                         <button
                                                             type="button"
-                                                            onClick={() => handleDuplicateEntry(index)}
-                                                            className="p-1.5 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 rounded-lg transition-colors cursor-pointer"
-                                                            title="Duplicate this row"
+                                                            onClick={() => handleInsertEntryAfter(index)}
+                                                            className="p-1.5 text-cyan-600 hover:text-white bg-cyan-50 hover:bg-cyan-600 dark:bg-cyan-950/50 dark:text-cyan-300 dark:hover:bg-cyan-600 rounded-lg border border-cyan-200 dark:border-cyan-800 transition-colors cursor-pointer"
+                                                            title="Add new line item"
                                                         >
-                                                            <Copy className="w-3.5 h-3.5" />
+                                                            <Plus className="w-3.5 h-3.5" />
                                                         </button>
                                                         {materialEntries.length > 1 && (
                                                             <button
@@ -1856,12 +1681,15 @@ export default function POModal({
                             </table>
                         </div>
 
-                        {/* Mobile Touch-Friendly Card View */}
+                        {/* Mobile Touch-Friendly Card View - Each Field on its Own Individual Line */}
                         <div className="block lg:hidden p-3 space-y-3 bg-slate-50 dark:bg-slate-900/60">
                             {visibleEntriesWithIndex.map(({ item: entry, index }) => {
                                 const rowErrors = hasAttemptedSubmit ? getItemErrors(entry) : {};
                                 const isDuplicate = duplicateMap.has(index);
                                 const duplicateIndices = duplicateMap.get(index) || [];
+                                const fullItemLabel = entry.materialName
+                                    ? (entry.description ? `${entry.materialName} — ${entry.description}` : entry.materialName)
+                                    : '';
 
                                 return (
                                     <div 
@@ -1882,17 +1710,17 @@ export default function POModal({
                                             <div className="flex items-center gap-1">
                                                 <button
                                                     type="button"
-                                                    onClick={() => handleDuplicateEntry(index)}
-                                                    className="p-1 text-slate-400 hover:text-cyan-600"
-                                                    title="Duplicate"
+                                                    onClick={() => handleInsertEntryAfter(index)}
+                                                    className="p-1.5 text-cyan-600 hover:text-cyan-700 bg-cyan-50 dark:bg-cyan-950/50 rounded-lg border border-cyan-200 dark:border-cyan-800"
+                                                    title="Add new line item"
                                                 >
-                                                    <Copy className="w-3.5 h-3.5" />
+                                                    <Plus className="w-3.5 h-3.5" />
                                                 </button>
                                                 {materialEntries.length > 1 && (
                                                     <button
                                                         type="button"
                                                         onClick={() => handleRemoveEntry(index)}
-                                                        className="text-rose-500 hover:text-rose-700 p-1 cursor-pointer"
+                                                        className="text-rose-500 hover:text-rose-700 p-1.5 cursor-pointer"
                                                         title="Delete"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
@@ -1901,17 +1729,16 @@ export default function POModal({
                                             </div>
                                         </div>
 
-                                        {/* Material Selection */}
+                                        {/* Line 1: Material Name */}
                                         <div>
-                                            <label className="block text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-1">
+                                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
                                                 Material Name <span className="text-rose-500">*</span>
                                             </label>
                                             <SearchableSelect
                                                 options={currentOptionsToUse}
                                                 value={entry.material || ''}
-                                                displayLabel={entry.materialName || undefined}
+                                                displayLabel={fullItemLabel || undefined}
                                                 onChange={(val: any) => handleMaterialSelect(index, val)}
-                                                allowCustom={true}
                                                 hasError={Boolean(rowErrors.materialName || isDuplicate)}
                                                 placeholder={`Select ${poCategory.toUpperCase()}...`}
                                             />
@@ -1925,86 +1752,97 @@ export default function POModal({
                                             </div>
                                         )}
 
-                                        {/* Description */}
+                                        {/* Line 2: Description */}
                                         <div>
+                                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                                Description
+                                            </label>
                                             <input
                                                 type="text"
                                                 placeholder="Description / Specification..."
                                                 value={entry.description}
+                                                title={entry.description || undefined}
                                                 onChange={(e) => updateEntry(index, 'description', e.target.value)}
-                                                className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-700 dark:text-slate-300"
+                                                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-700 dark:text-slate-300"
                                             />
                                         </div>
 
-                                        {/* HSN, Count, Unit, Qty, Rate Grid */}
-                                        <div className="grid grid-cols-5 gap-1.5">
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-slate-500 mb-1">HSN</label>
+                                        {/* Line 3: HSN / SAC Code (Single Individual Line) */}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs font-bold text-slate-600 dark:text-slate-300 shrink-0">
+                                                HSN / SAC Code
+                                            </label>
+                                            <input
+                                                type="text"
+                                                maxLength={8}
+                                                value={entry.hsnCode}
+                                                onChange={(e) => updateEntry(index, 'hsnCode', e.target.value)}
+                                                placeholder="72083800"
+                                                className="w-40 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-right font-bold"
+                                            />
+                                        </div>
+
+                                        {/* Line 4: Count (Single Individual Line) */}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs font-bold text-amber-700 dark:text-amber-400 shrink-0">
+                                                Count (Pcs)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="99999"
+                                                value={entry.pieceCount || ''}
+                                                onChange={(e) => updateEntry(index, 'pieceCount', parseInt(e.target.value) || 0)}
+                                                placeholder="0"
+                                                className="w-40 px-3 py-1.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-xl text-xs font-mono font-bold text-right text-amber-900 dark:text-amber-200"
+                                            />
+                                        </div>
+
+                                        {/* Line 5: Unit / UOM (Single Individual Line) */}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs font-bold text-slate-600 dark:text-slate-300 shrink-0">
+                                                Unit / UOM <span className="text-rose-500">*</span>
+                                            </label>
+                                            {entry.hasSecondaryUnit && entry.secondaryUnit ? (
+                                                <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 w-40">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleUnitToggle(index, 'primary')}
+                                                        className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                                            entry.rateUnit !== 'secondary'
+                                                                ? 'bg-cyan-600 text-white shadow-xs'
+                                                                : 'text-slate-600 dark:text-slate-400'
+                                                        }`}
+                                                    >
+                                                        {entry.unit}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleUnitToggle(index, 'secondary')}
+                                                        className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                                            entry.rateUnit === 'secondary'
+                                                                ? 'bg-indigo-600 text-white shadow-xs'
+                                                                : 'text-slate-600 dark:text-slate-400'
+                                                        }`}
+                                                    >
+                                                        {entry.secondaryUnit}
+                                                    </button>
+                                                </div>
+                                            ) : (
                                                 <input
                                                     type="text"
-                                                    value={entry.hsnCode}
-                                                    onChange={(e) => updateEntry(index, 'hsnCode', e.target.value)}
-                                                    placeholder="7208"
-                                                    className="w-full px-1.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono text-center font-bold"
+                                                    value={entry.unit}
+                                                    onChange={(e) => updateEntry(index, 'unit', e.target.value)}
+                                                    className="w-40 px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-right"
                                                 />
-                                            </div>
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-amber-700 dark:text-amber-400 mb-1" title="Pieces Count">Count</label>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    value={entry.pieceCount || ''}
-                                                    onChange={(e) => updateEntry(index, 'pieceCount', parseInt(e.target.value) || 0)}
-                                                    placeholder="0"
-                                                    className="w-full px-1.5 py-1 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-lg text-xs font-bold text-center text-amber-900 dark:text-amber-200"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-slate-500 mb-1">Unit *</label>
-                                                {entry.hasSecondaryUnit && entry.secondaryUnit ? (
-                                                    <div className="flex flex-col gap-1">
-                                                        <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleUnitToggle(index, 'primary')}
-                                                                className={`flex-1 py-0.5 px-0.5 rounded text-[9.5px] font-bold transition-all cursor-pointer ${
-                                                                    entry.rateUnit !== 'secondary'
-                                                                        ? 'bg-cyan-600 text-white shadow-xs'
-                                                                        : 'text-slate-600 dark:text-slate-400'
-                                                                }`}
-                                                                title={`Base: ${entry.unit}`}
-                                                            >
-                                                                {entry.unit}
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleUnitToggle(index, 'secondary')}
-                                                                className={`flex-1 py-0.5 px-0.5 rounded text-[9.5px] font-bold transition-all cursor-pointer ${
-                                                                    entry.rateUnit === 'secondary'
-                                                                        ? 'bg-indigo-600 text-white shadow-xs'
-                                                                        : 'text-slate-600 dark:text-slate-400'
-                                                                }`}
-                                                                title={`Sec: ${entry.secondaryUnit}`}
-                                                            >
-                                                                {entry.secondaryUnit}
-                                                            </button>
-                                                        </div>
-                                                        <span className="text-[9px] text-center font-bold text-slate-500 truncate">
-                                                            {entry.rateUnit === 'secondary' ? entry.secondaryUnit : entry.unit}
-                                                        </span>
-                                                    </div>
-                                                ) : (
-                                                    <input
-                                                        type="text"
-                                                        value={entry.unit}
-                                                        onChange={(e) => updateEntry(index, 'unit', e.target.value)}
-                                                        className="w-full px-1 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-center"
-                                                    />
-                                                )}
-                                            </div>
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                                                    Qty ({entry.rateUnit === 'secondary' && entry.hasSecondaryUnit ? entry.secondaryUnit : entry.unit}) *
+                                            )}
+                                        </div>
+
+                                        {/* Line 6: Quantity (Single Individual Line) */}
+                                        <div className="space-y-1">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <label className="text-xs font-bold text-slate-600 dark:text-slate-300 shrink-0">
+                                                    Quantity ({entry.rateUnit === 'secondary' && entry.hasSecondaryUnit ? entry.secondaryUnit : entry.unit}) <span className="text-rose-500">*</span>
                                                 </label>
                                                 <input
                                                     type="number"
@@ -2016,25 +1854,26 @@ export default function POModal({
                                                             : entry.quantity) || ''
                                                     }
                                                     onChange={(e) => handleQuantityInput(index, parseFloat(e.target.value) || 0)}
-                                                    className={`w-full px-1.5 py-1 bg-white dark:bg-slate-900 border rounded-lg text-xs font-bold text-center font-mono ${
-                                                        rowErrors.quantity ? 'border-rose-500 ring-1 ring-rose-400' : 'border-slate-200'
+                                                    placeholder="0"
+                                                    className={`w-40 px-3 py-1.5 bg-white dark:bg-slate-900 border rounded-xl text-xs font-bold text-right font-mono ${
+                                                        rowErrors.quantity ? 'border-rose-500 ring-1 ring-rose-400' : 'border-slate-200 dark:border-slate-700'
                                                     }`}
                                                 />
-                                                {entry.hasSecondaryUnit && entry.secondaryUnit && (
-                                                    <div className="text-[8.5px] text-center font-mono text-slate-400 mt-0.5 truncate">
-                                                        {entry.rateUnit === 'secondary'
-                                                            ? `≈ ${Number(entry.quantity || 0).toFixed(1)} ${entry.unit}`
-                                                            : `≈ ${Number(entry.secondaryQuantity || 0).toFixed(1)} ${entry.secondaryUnit}`}
-                                                    </div>
-                                                )}
                                             </div>
+                                            {entry.hasSecondaryUnit && entry.secondaryUnit && (
+                                                <div className="text-[10px] text-right font-mono text-slate-400">
+                                                    {entry.rateUnit === 'secondary'
+                                                        ? `≈ ${Number(entry.quantity || 0).toFixed(2)} ${entry.unit}`
+                                                        : `≈ ${Number(entry.secondaryQuantity || 0).toFixed(2)} ${entry.secondaryUnit}`}
+                                                </div>
+                                            )}
+                                        </div>
 
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-slate-500 mb-1 flex items-center justify-between">
-                                                    <span>Rate</span>
-                                                    <span className={`text-[9px] font-bold ${entry.rateUnit === 'secondary' ? 'text-indigo-600 dark:text-indigo-400' : 'text-cyan-600 dark:text-cyan-400'}`}>
-                                                        /{entry.rateUnit === 'secondary' && entry.secondaryUnit ? entry.secondaryUnit : entry.unit}
-                                                    </span>
+                                        {/* Line 7: Rate (Single Individual Line) */}
+                                        <div className="space-y-1">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <label className="text-xs font-bold text-slate-600 dark:text-slate-300 shrink-0">
+                                                    Rate (₹ / {entry.rateUnit === 'secondary' && entry.secondaryUnit ? entry.secondaryUnit : entry.unit})
                                                 </label>
                                                 <input
                                                     type="number"
@@ -2042,21 +1881,23 @@ export default function POModal({
                                                     step="any"
                                                     value={entry.rate || ''}
                                                     onChange={(e) => updateEntry(index, 'rate', parseFloat(e.target.value) || 0)}
-                                                    className="w-full px-1.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-right font-mono"
+                                                    placeholder="0.00"
+                                                    className="w-40 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-right font-mono"
                                                 />
-                                                {entry.hasSecondaryUnit && entry.secondaryUnit && entry.rate > 0 && (
-                                                    <div className="text-[9px] text-slate-400 font-mono text-right italic mt-0.5">
-                                                        {entry.rateUnit === 'secondary' 
-                                                            ? `≈ ₹${Number(entry.primaryRate || 0).toFixed(1)}/${entry.unit}` 
-                                                            : `≈ ₹${Number(entry.secondaryRate || 0).toFixed(1)}/${entry.secondaryUnit}`}
-                                                    </div>
-                                                )}
                                             </div>
+                                            {entry.hasSecondaryUnit && entry.secondaryUnit && entry.rate > 0 && (
+                                                <div className="text-[10px] text-slate-400 font-mono text-right italic">
+                                                    {entry.rateUnit === 'secondary' 
+                                                        ? `≈ ₹${Number(entry.primaryRate || 0).toFixed(2)}/${entry.unit}` 
+                                                        : `≈ ₹${Number(entry.secondaryRate || 0).toFixed(2)}/${entry.secondaryUnit}`}
+                                                </div>
+                                            )}
                                         </div>
 
-                                        <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700 text-xs">
-                                            <span className="text-slate-500 font-semibold">Amount (Excl. Tax):</span>
-                                            <span className="font-mono font-extrabold text-slate-900 dark:text-white">
+                                        {/* Line 8: Amount (Single Individual Line) */}
+                                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-700 text-xs">
+                                            <span className="text-slate-600 dark:text-slate-300 font-bold">Amount (₹):</span>
+                                            <span className="font-mono font-extrabold text-sm text-slate-900 dark:text-white">
                                                 ₹{entry.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </span>
                                         </div>
@@ -2209,9 +2050,6 @@ export default function POModal({
                                             Consolidated GST & Grand Total
                                         </h4>
                                     </div>
-                                    <span className="text-[10px] font-bold text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-950/60 px-2 py-0.5 rounded-md border border-cyan-200 dark:border-cyan-800">
-                                        Applied once on Subtotal
-                                    </span>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-3 pt-3 text-xs">

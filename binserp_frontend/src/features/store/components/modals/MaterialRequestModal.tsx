@@ -4,6 +4,7 @@ import { X, Plus, Trash2, Package, ShoppingCart, Boxes, Layers, Sparkles, ListFi
 import SearchableSelect from "../SearchableSelect";
 import { apiGet } from "@/src/lib/api";
 import { showWarningDialog, showWarningToast } from "@/src/features/store/utils/storeDialogHelper";
+import { formatPrimaryQty, convertPrimaryToSecondaryQty, convertSecondaryToPrimaryQty } from "@/src/utils/dualUomHelper";
 
 export type RequestInventoryType = "rm" | "bo" | "consumable" | "fg";
 
@@ -255,8 +256,8 @@ export default function MaterialRequestModal({
                 const hasSec = Boolean(comp?.hasSecondaryUnit);
                 const secUnit = comp?.secondaryUnit || "";
                 const convFactor = Number(comp?.conversionFactor) || 0;
-                const qty = f.quantity || 1;
-                const secQty = hasSec && convFactor ? parseFloat((qty * convFactor).toFixed(4)) : 0;
+                const qty = formatPrimaryQty(f.quantity || 1);
+                const secQty = hasSec && convFactor ? convertPrimaryToSecondaryQty(qty, convFactor) : 0;
                 return {
                     material: comp?._id || f.fgItem || '',
                     itemType: 'FG Item',
@@ -307,8 +308,8 @@ export default function MaterialRequestModal({
                     
                     const totalNeeded = Number(r.requiredQuantity || r.totalRequired || 1);
                     const liveStock = Number(mat?.quantity ?? mat?.currentStock ?? r.currentStock ?? 0);
-                    const qty = liveStock > 0 ? Math.min(totalNeeded, liveStock) : totalNeeded;
-                    const secQty = (hasSec && convFactor > 0) ? parseFloat((qty * convFactor).toFixed(4)) : 0;
+                    const qty = formatPrimaryQty(liveStock > 0 ? Math.min(totalNeeded, liveStock) : totalNeeded);
+                    const secQty = (hasSec && convFactor > 0) ? convertPrimaryToSecondaryQty(qty, convFactor) : 0;
 
                     const itemUnit = (mat?.unit || r.unit || (defaultItemType === 'Raw Material' ? 'KG' : 'PCS')).toString().trim();
                     return {
@@ -563,8 +564,8 @@ export default function MaterialRequestModal({
                        (selectedItem?.name ? mrpRequirementMap.get(selectedItem.name.toLowerCase().trim()) : null);
         const plannedQty = mrpReq ? mrpReq.reqQty : 1;
         const existingQty = formData.items[index]?.quantity;
-        const currentQty = (existingQty && existingQty !== 1) ? existingQty : plannedQty;
-        const secondaryQuantity = hasSecondaryUnit && conversionFactor ? parseFloat((currentQty * conversionFactor).toFixed(4)) : 0;
+        const currentQty = formatPrimaryQty((existingQty && existingQty !== 1) ? existingQty : plannedQty);
+        const secondaryQuantity = hasSecondaryUnit && conversionFactor ? convertPrimaryToSecondaryQty(currentQty, conversionFactor) : 0;
 
         const newItems = [...formData.items];
         newItems[index] = {
@@ -955,10 +956,10 @@ export default function MaterialRequestModal({
                                                         }`}>
                                                         {item.material ? (
                                                             <div>
-                                                                <div>{currentStock} {item.unit}</div>
+                                                                <div>{formatPrimaryQty(currentStock)} {item.unit}</div>
                                                                 {item.hasSecondaryUnit && item.secondaryUnit && (
                                                                     <div className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5">
-                                                                        ({secStock.toFixed(2)} {item.secondaryUnit})
+                                                                        ({Math.round(secStock)} {item.secondaryUnit})
                                                                     </div>
                                                                 )}
                                                             </div>
@@ -1019,20 +1020,20 @@ export default function MaterialRequestModal({
                                                                 const newItems = [...formData.items];
                                                                 if (isOperatingInSecondary) {
                                                                     const priVal = (!isNaN(val) && item.conversionFactor > 0)
-                                                                        ? parseFloat((val / item.conversionFactor).toFixed(4))
+                                                                        ? convertSecondaryToPrimaryQty(val, item.conversionFactor)
                                                                         : 0;
                                                                     newItems[index] = {
                                                                         ...newItems[index],
-                                                                        secondaryQuantity: val,
+                                                                        secondaryQuantity: isNaN(val) ? val : Math.round(val),
                                                                         quantity: priVal
                                                                     };
                                                                 } else {
                                                                     const secVal = (!isNaN(val) && item.hasSecondaryUnit && item.conversionFactor > 0)
-                                                                        ? parseFloat((val * item.conversionFactor).toFixed(4))
+                                                                        ? convertPrimaryToSecondaryQty(val, item.conversionFactor)
                                                                         : 0;
                                                                     newItems[index] = {
                                                                         ...newItems[index],
-                                                                        quantity: val,
+                                                                        quantity: isNaN(val) ? val : formatPrimaryQty(val),
                                                                         secondaryQuantity: secVal
                                                                     };
                                                                 }
@@ -1046,7 +1047,7 @@ export default function MaterialRequestModal({
                                                         />
                                                         {isExceedingStock && (
                                                             <span className="text-[10px] text-red-500 font-medium block mt-1">
-                                                                Max Available: {isOperatingInSecondary ? `${secStock.toFixed(2)} ${item.secondaryUnit}` : `${currentStock} ${item.unit}`}
+                                                                Max Available: {isOperatingInSecondary ? `${Math.round(secStock)} ${item.secondaryUnit}` : `${formatPrimaryQty(currentStock)} ${item.unit}`}
                                                             </span>
                                                         )}
                                                     </div>
@@ -1055,9 +1056,9 @@ export default function MaterialRequestModal({
                                                     {item.hasSecondaryUnit && item.conversionFactor > 0 && (
                                                         <div className="mt-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 truncate" title={`1 ${item.unit} = ${item.conversionFactor} ${item.secondaryUnit}`}>
                                                             {isOperatingInSecondary ? (
-                                                                <span>↳ = <strong className="font-bold">{item.quantity || 0}</strong> {item.unit}</span>
+                                                                <span>↳ = <strong className="font-bold">{formatPrimaryQty(item.quantity || 0)}</strong> {item.unit}</span>
                                                             ) : (
-                                                                <span>↳ = <strong className="font-bold">{item.secondaryQuantity || 0}</strong> {item.secondaryUnit}</span>
+                                                                <span>↳ = <strong className="font-bold">{Math.round(item.secondaryQuantity || 0)}</strong> {item.secondaryUnit}</span>
                                                             )}
                                                         </div>
                                                     )}
@@ -1328,8 +1329,13 @@ export default function MaterialRequestModal({
                                                 <div>
                                                     <div className="text-[10px] text-slate-400 uppercase font-bold">Demand Qty</div>
                                                     <div className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                                        {reqQty} {unit}
+                                                        {formatPrimaryQty(reqQty)} {unit}
                                                     </div>
+                                                    {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                        <div className="text-[10px] font-mono font-semibold text-indigo-500">
+                                                            ↳ {convertPrimaryToSecondaryQty(reqQty, item.conversionFactor || 1)} {item.secondaryUnit}
+                                                        </div>
+                                                    )}
                                                 </div>
 
                                                 <div className="min-w-[85px]">
@@ -1341,8 +1347,13 @@ export default function MaterialRequestModal({
                                                             ? 'text-amber-600 dark:text-amber-400' 
                                                             : 'text-rose-600 dark:text-rose-400'
                                                     }`}>
-                                                        {currentStock} {unit}
+                                                        {formatPrimaryQty(currentStock)} {unit}
                                                     </div>
+                                                    {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                        <div className="text-[10px] font-mono font-semibold text-slate-500">
+                                                            ↳ {convertPrimaryToSecondaryQty(currentStock, item.conversionFactor || 1)} {item.secondaryUnit}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>

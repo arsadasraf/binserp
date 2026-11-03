@@ -364,12 +364,20 @@ export default function InventoryTable({
     };
 
 
-    // Format quantities cleanly (up to 3 decimal places without trailing zeros)
+    // Format primary quantities cleanly (up to 2 decimal places without trailing zeros)
     const formatQty = (val: number | string | undefined | null): string => {
         if (val === undefined || val === null || val === '') return '0';
         const num = Number(val);
         if (isNaN(num)) return '0';
-        return Number(num.toFixed(3)).toString();
+        return Number(num.toFixed(2)).toString();
+    };
+
+    // Format secondary converted quantities to nearest whole integer (e.g. 2.6 -> 3, 2.4 -> 2)
+    const formatSecQty = (val: number | string | undefined | null): string => {
+        if (val === undefined || val === null || val === '') return '0';
+        const num = Number(val);
+        if (isNaN(num)) return '0';
+        return Math.round(num).toString();
     };
 
     // Helpers to extract column string/number values
@@ -436,7 +444,7 @@ export default function InventoryTable({
         if (!item.hasSecondaryUnit || !item.secondaryUnit) return '-';
         const factor = Number(item.conversionFactor) || 1;
         const stock = Number(item.currentStock ?? item.quantity ?? 0);
-        return `${formatQty(stock * factor)} ${item.secondaryUnit}`;
+        return `${formatSecQty(stock * factor)} ${item.secondaryUnit}`;
     };
 
     const getMonthlyFlowValue = (item: any) => {
@@ -446,7 +454,7 @@ export default function InventoryTable({
         let flowStr = `+${formatQty(inQty)} / -${formatQty(outQty)} ${item.unit || 'PCS'}`;
         if (item.hasSecondaryUnit && item.secondaryUnit) {
             const factor = Number(item.conversionFactor) || 1;
-            flowStr += ` (+${formatQty(inQty * factor)} / -${formatQty(outQty * factor)} ${item.secondaryUnit})`;
+            flowStr += ` (+${formatSecQty(inQty * factor)} / -${formatSecQty(outQty * factor)} ${item.secondaryUnit})`;
         }
         return flowStr;
     };
@@ -456,7 +464,7 @@ export default function InventoryTable({
         let minStr = `${formatQty(min)} ${item.unit || 'PCS'}`;
         if (item.hasSecondaryUnit && item.secondaryUnit) {
             const factor = Number(item.conversionFactor) || 1;
-            minStr += ` (${formatQty(min * factor)} ${item.secondaryUnit})`;
+            minStr += ` (${formatSecQty(min * factor)} ${item.secondaryUnit})`;
         }
         return minStr;
     };
@@ -691,8 +699,8 @@ export default function InventoryTable({
             const itemName = focusedItem.materialName || focusedItem.componentName || focusedItem.name || 'Unnamed Item';
             const itemDesc = focusedItem.descriptions || focusedItem.description || '';
             const hasSec = Boolean(focusedItem.hasSecondaryUnit && focusedItem.secondaryUnit && (focusedItem.conversionFactor || 0) > 0);
-            const secStock = hasSec ? stock * (focusedItem.conversionFactor || 1) : 0;
-            const secWipStock = hasSec ? wipStock * (focusedItem.conversionFactor || 1) : 0;
+            const secStock = hasSec ? Math.round(stock * (focusedItem.conversionFactor || 1)) : 0;
+            const secWipStock = hasSec ? Math.round(wipStock * (focusedItem.conversionFactor || 1)) : 0;
 
             return {
                 isFocused: true,
@@ -709,11 +717,11 @@ export default function InventoryTable({
                 formattedStock: `${formatQty(stock)} ${focusedItem.unit || 'PCS'}`,
                 hasSec,
                 secStock,
-                formattedSecStock: hasSec ? `${formatQty(secStock)} ${focusedItem.secondaryUnit}` : null,
+                formattedSecStock: hasSec ? `${formatSecQty(secStock)} ${focusedItem.secondaryUnit}` : null,
                 wipStock,
                 formattedWipStock: `${formatQty(wipStock)} ${focusedItem.unit || 'PCS'}`,
                 secWipStock,
-                formattedSecWipStock: hasSec ? `${formatQty(secWipStock)} ${focusedItem.secondaryUnit}` : null,
+                formattedSecWipStock: hasSec ? `${formatSecQty(secWipStock)} ${focusedItem.secondaryUnit}` : null,
                 shopfloorWip,
                 jobWorkWip,
                 totalWipStockUnits: wipStock,
@@ -859,12 +867,12 @@ export default function InventoryTable({
                 'Description': item.descriptions || item.description || '-',
                 'Category': getCategoryValue(item),
                 'Location': getLocationValue(item),
-                'Primary Stock': currentStock,
+                'Primary Stock': Number(currentStock.toFixed(2)),
                 'Primary Unit': item.unit || 'PCS',
-                'Total WIP Stock': wipStock,
-                'Shopfloor WIP': shopfloorWip,
-                'Job Work WIP': jobWorkWip,
-                'Secondary Stock': hasSec ? formatQty(currentStock * factor) : '-',
+                'Total WIP Stock': Number(wipStock.toFixed(2)),
+                'Shopfloor WIP': Number(shopfloorWip.toFixed(2)),
+                'Job Work WIP': Number(jobWorkWip.toFixed(2)),
+                'Secondary Stock': hasSec ? formatSecQty(currentStock * factor) : '-',
                 'Secondary Unit': hasSec ? item.secondaryUnit : '-',
                 'Conversion Factor': hasSec ? `1 ${item.unit || 'Unit'} = ${factor} ${item.secondaryUnit}` : '-',
                 'Unit Price (INR)': priceInfo.unitPrice,
@@ -872,12 +880,12 @@ export default function InventoryTable({
                 'Store Valuation (INR)': Number(valuation.toFixed(2)),
                 'WIP Valuation (INR)': Number(wipValuation.toFixed(2)),
                 'Combined Total Valuation (INR)': Number(combinedValuation.toFixed(2)),
-                'Monthly Inward (Primary)': inward,
-                'Monthly Outward (Primary)': outward,
-                'Monthly Inward (Secondary)': hasSec ? formatQty(inward * factor) : '-',
-                'Monthly Outward (Secondary)': hasSec ? formatQty(outward * factor) : '-',
-                'Min Stock (Primary)': reorderLevel,
-                'Min Stock (Secondary)': hasSec ? formatQty(reorderLevel * factor) : '-',
+                'Monthly Inward (Primary)': Number(inward.toFixed(2)),
+                'Monthly Outward (Primary)': Number(outward.toFixed(2)),
+                'Monthly Inward (Secondary)': hasSec ? formatSecQty(inward * factor) : '-',
+                'Monthly Outward (Secondary)': hasSec ? formatSecQty(outward * factor) : '-',
+                'Min Stock (Primary)': Number(reorderLevel.toFixed(2)),
+                'Min Stock (Secondary)': hasSec ? formatSecQty(reorderLevel * factor) : '-',
             };
         });
 
@@ -1662,7 +1670,7 @@ export default function InventoryTable({
                                                         </span>
                                                         {hasSec && (
                                                             <span className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 font-mono font-medium" title={formatUomConversionTooltip(item) || `1 ${item.unit} = ${item.conversionFactor} ${item.secondaryUnit}`}>
-                                                                ({formatQty(secStock)} {item.secondaryUnit})
+                                                                ({formatSecQty(secStock)} {item.secondaryUnit})
                                                             </span>
                                                         )}
                                                     </div>
@@ -1680,7 +1688,7 @@ export default function InventoryTable({
                                                                 </span>
                                                                 {hasSec && wipStock > 0 && (
                                                                     <span className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 font-mono font-medium">
-                                                                        ({formatQty(secWip)} {item.secondaryUnit})
+                                                                        ({formatSecQty(secWip)} {item.secondaryUnit})
                                                                     </span>
                                                                 )}
                                                                 {(shopfloorWip > 0 || jobWorkWip > 0) && (
@@ -1738,10 +1746,10 @@ export default function InventoryTable({
                                                             {hasSec && (
                                                                 <div className="flex items-center gap-1 text-[11px] font-mono text-gray-500 dark:text-gray-400">
                                                                     <span className="text-emerald-500" title="Secondary Inward">
-                                                                        (+{formatQty(inward * (item.conversionFactor || 1))})
+                                                                        (+{formatSecQty(inward * (item.conversionFactor || 1))})
                                                                     </span>
                                                                     <span className="text-rose-500" title="Secondary Outward">
-                                                                        (-{formatQty(outward * (item.conversionFactor || 1))})
+                                                                        (-{formatSecQty(outward * (item.conversionFactor || 1))})
                                                                     </span>
                                                                     <span className="text-[10px]">{item.secondaryUnit}</span>
                                                                 </div>
@@ -1759,7 +1767,7 @@ export default function InventoryTable({
                                                     </div>
                                                     {hasSec && (
                                                         <div className="text-[11px] text-gray-400 font-normal">
-                                                            {formatQty((item.reorderLevel || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                            {formatSecQty((item.reorderLevel || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
                                                         </div>
                                                     )}
                                                 </td>
@@ -1823,7 +1831,7 @@ export default function InventoryTable({
                                                 })()}
                                                 {hasSec && (
                                                     <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono" title={formatUomConversionTooltip(item)}>
-                                                        ({formatQty((item.currentStock || 0) * (item.conversionFactor || 1))} {item.secondaryUnit})
+                                                        ({formatSecQty((item.currentStock || 0) * (item.conversionFactor || 1))} {item.secondaryUnit})
                                                     </span>
                                                 )}
                                             </div>
@@ -1870,8 +1878,8 @@ export default function InventoryTable({
                                                 </div>
                                                 {hasSec && (
                                                     <div className="flex items-center justify-end gap-1 font-mono text-[11px] text-gray-500">
-                                                        <span className="text-emerald-500">(+{formatQty(inward * (item.conversionFactor || 1))})</span>
-                                                        <span className="text-rose-500">(-{formatQty(outward * (item.conversionFactor || 1))})</span>
+                                                        <span className="text-emerald-500">(+{formatSecQty(inward * (item.conversionFactor || 1))})</span>
+                                                        <span className="text-rose-500">(-{formatSecQty(outward * (item.conversionFactor || 1))})</span>
                                                         <span className="text-[10px]">{item.secondaryUnit}</span>
                                                     </div>
                                                 )}
@@ -1897,7 +1905,7 @@ export default function InventoryTable({
                                                     {formatQty(item.reorderLevel || 0)} {item.unit}
                                                     {hasSec && (
                                                         <span className="block text-[10px] text-gray-400 font-normal">
-                                                            {formatQty((item.reorderLevel || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                            {formatSecQty((item.reorderLevel || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
                                                         </span>
                                                     )}
                                                 </span>
@@ -2102,7 +2110,7 @@ export default function InventoryTable({
                                                         </span>
                                                         {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 && (
                                                             <span className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 font-mono font-medium" title={formatUomConversionTooltip(item) || `1 ${item.unit || 'Nos'} = ${item.conversionFactor} ${item.secondaryUnit}`}>
-                                                                ({formatQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit})
+                                                                ({formatSecQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit})
                                                             </span>
                                                         )}
                                                     </div>
@@ -2121,7 +2129,7 @@ export default function InventoryTable({
                                                                 </span>
                                                                 {secWip > 0 && (
                                                                     <span className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 font-mono font-medium">
-                                                                        ({formatQty(secWip)} {item.secondaryUnit})
+                                                                        ({formatSecQty(secWip)} {item.secondaryUnit})
                                                                     </span>
                                                                 )}
                                                                 {(shopfloorWip > 0 || jobWorkWip > 0) && (
@@ -2164,14 +2172,14 @@ export default function InventoryTable({
                                                     {item.monthlyData ? (
                                                         <div className="flex flex-col gap-0.5">
                                                             <div className="flex items-center gap-1 font-medium text-gray-700 dark:text-gray-300 text-xs">
-                                                                <span className="text-emerald-600 font-bold" title="Inward">(+{item.monthlyData.totalInwardQuantity || 0})</span>
-                                                                <span className="text-rose-600 font-bold" title="Outward">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
+                                                                <span className="text-emerald-600 font-bold" title="Inward">(+{formatQty(item.monthlyData.totalInwardQuantity || 0)})</span>
+                                                                <span className="text-rose-600 font-bold" title="Outward">(-{formatQty(item.monthlyData.totalOutwardQuantity || 0)})</span>
                                                                 <span className="text-gray-400 text-[10px]">{item.unit || 'Nos'}</span>
                                                             </div>
                                                             {item.hasSecondaryUnit && item.secondaryUnit && (
                                                                 <div className="flex items-center gap-1 text-[10px] text-gray-500 font-mono">
-                                                                    <span className="text-emerald-500">(+{formatQty((item.monthlyData.totalInwardQuantity || 0) * (item.conversionFactor || 1))})</span>
-                                                                    <span className="text-rose-500">(-{formatQty((item.monthlyData.totalOutwardQuantity || 0) * (item.conversionFactor || 1))})</span>
+                                                                    <span className="text-emerald-500">(+{formatSecQty((item.monthlyData.totalInwardQuantity || 0) * (item.conversionFactor || 1))})</span>
+                                                                    <span className="text-rose-500">(-{formatSecQty((item.monthlyData.totalOutwardQuantity || 0) * (item.conversionFactor || 1))})</span>
                                                                     <span>{item.secondaryUnit}</span>
                                                                 </div>
                                                             )}
@@ -2241,7 +2249,7 @@ export default function InventoryTable({
                                             </div>
                                             <div className="flex flex-col items-end gap-1">
                                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.quantity <= (item.reorderLevel || 0) ? "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"}`}>
-                                                    {item.quantity} {item.unit || ''}
+                                                    {formatQty(item.quantity)} {item.unit || ''}
                                                 </span>
                                                 {(() => {
                                                     const { wipStock, shopfloorWip, jobWorkWip } = getItemWipDetails(item);
@@ -2259,7 +2267,7 @@ export default function InventoryTable({
                                                 })()}
                                                 {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 && (
                                                     <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                                                        ({formatQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit})
+                                                        ({formatSecQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit})
                                                     </span>
                                                 )}
                                             </div>
@@ -2286,14 +2294,14 @@ export default function InventoryTable({
                                         {item.monthlyData && (
                                             <div className="flex flex-col gap-0.5 text-xs mt-1 bg-gray-50 dark:bg-gray-700/40 p-1.5 rounded-lg border border-gray-100 dark:border-gray-700 w-fit">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-emerald-600 font-medium">(+{item.monthlyData.totalInwardQuantity || 0})</span>
-                                                    <span className="text-rose-600 font-medium">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
+                                                    <span className="text-emerald-600 font-medium">(+{formatQty(item.monthlyData.totalInwardQuantity || 0)})</span>
+                                                    <span className="text-rose-600 font-medium">(-{formatQty(item.monthlyData.totalOutwardQuantity || 0)})</span>
                                                     <span className="text-gray-400 text-[10px]">{item.unit || 'Nos'}</span>
                                                 </div>
                                                 {item.hasSecondaryUnit && item.secondaryUnit && (
                                                     <div className="flex items-center gap-1 text-[10px] text-gray-500 font-mono">
-                                                        <span className="text-emerald-500">(+{formatQty((item.monthlyData.totalInwardQuantity || 0) * (item.conversionFactor || 1))})</span>
-                                                        <span className="text-rose-500">(-{formatQty((item.monthlyData.totalOutwardQuantity || 0) * (item.conversionFactor || 1))})</span>
+                                                        <span className="text-emerald-500">(+{formatSecQty((item.monthlyData.totalInwardQuantity || 0) * (item.conversionFactor || 1))})</span>
+                                                        <span className="text-rose-500">(-{formatSecQty((item.monthlyData.totalOutwardQuantity || 0) * (item.conversionFactor || 1))})</span>
                                                         <span>{item.secondaryUnit}</span>
                                                     </div>
                                                 )}

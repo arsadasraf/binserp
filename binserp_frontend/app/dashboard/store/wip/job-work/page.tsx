@@ -45,7 +45,7 @@ export default function WipJobWorkPage() {
   };
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col flex-1 min-h-0">
       {toast && (
         <div
           className={`mb-4 p-3 rounded-lg text-sm font-medium transition-all ${

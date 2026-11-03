@@ -951,8 +951,9 @@ export default function MRPProcurementWorkbench({
   ) => {
     const isDual = Boolean(item?.hasSecondaryUnit && item?.secondaryUnit && Number(item?.conversionFactor) > 0);
     const convFactor = Number(item?.conversionFactor) || 1;
+    const cleanPrimaryQty = parseFloat((Number(qty) || 0).toFixed(2));
     const secondaryQty = isDual
-      ? parseFloat((qty * convFactor).toFixed(3))
+      ? Math.round(cleanPrimaryQty * convFactor)
       : null;
 
     const alignClass = 
@@ -971,7 +972,7 @@ export default function MRPProcurementWorkbench({
       return (
         <div className="flex flex-col items-center">
           <span className="font-black text-rose-600 bg-rose-50 dark:bg-rose-950/80 px-2 py-0.5 rounded text-[11px] whitespace-nowrap">
-            {qty.toLocaleString('en-IN')} {primaryUnit}
+            {cleanPrimaryQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {primaryUnit}
           </span>
           {isDual && secondaryQty !== null && (
             <span className="text-[10px] font-semibold text-rose-500/90 dark:text-rose-400 mt-0.5 whitespace-nowrap">
@@ -989,7 +990,7 @@ export default function MRPProcurementWorkbench({
       return (
         <div className="flex flex-col items-center">
           <span className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-950/80 px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap">
-            {qty.toLocaleString('en-IN')} {primaryUnit}
+            {cleanPrimaryQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {primaryUnit}
           </span>
           {isDual && secondaryQty !== null && (
             <span className="text-[9px] font-semibold text-blue-500/90 dark:text-blue-400 mt-0.5 whitespace-nowrap">
@@ -1005,7 +1006,7 @@ export default function MRPProcurementWorkbench({
     return (
       <div className={`flex flex-col ${alignClass}`}>
         <span className={`${defaultFont} whitespace-nowrap`}>
-          {qty.toLocaleString('en-IN')} {primaryUnit}
+          {cleanPrimaryQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {primaryUnit}
         </span>
         {isDual && secondaryQty !== null && (
           <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 mt-0.5 whitespace-nowrap">
@@ -1210,7 +1211,7 @@ export default function MRPProcurementWorkbench({
 
         const isDual = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
         const convFactor = Number(it.conversionFactor) || 1;
-        const secQty = isDual ? (Number(it.secondaryNetShortage || it.secondaryGrossRequired) || parseFloat((qty * convFactor).toFixed(3))) : undefined;
+        const secQty = isDual ? (Number(it.secondaryNetShortage || it.secondaryGrossRequired) || Math.round(qty * convFactor)) : undefined;
 
         return {
           material: it.materialId || '',
@@ -1345,7 +1346,7 @@ export default function MRPProcurementWorkbench({
           hasSecondaryUnit: Boolean(it.hasSecondaryUnit && it.secondaryUnit),
           secondaryUnit: it.secondaryUnit || '',
           conversionFactor: Number(it.conversionFactor) || 1,
-          secondaryQuantity: it.hasSecondaryUnit ? (Number(it.secondaryNetShortage) || parseFloat(((it.netShortage || it.requiredQuantity) * (Number(it.conversionFactor) || 1)).toFixed(3))) : undefined,
+          secondaryQuantity: it.hasSecondaryUnit ? (Number(it.secondaryNetShortage) || Math.round((it.netShortage || it.requiredQuantity) * (Number(it.conversionFactor) || 1))) : undefined,
           rate: it.bestVendor?.rate || it.estimatedRate || 0,
           vendorId: it.bestVendor?.vendorId,
           sourceMRPs: it.mrpSources?.map((s: any) => s.mrpNumber) || [it.parentMRP || selectedPlan?.mrpNumber].filter(Boolean),
@@ -1427,7 +1428,7 @@ export default function MRPProcurementWorkbench({
         hasSecondaryUnit: Boolean(it.hasSecondaryUnit && it.secondaryUnit),
         secondaryUnit: it.secondaryUnit || '',
         conversionFactor: Number(it.conversionFactor) || 1,
-        secondaryQuantity: it.hasSecondaryUnit ? (Number(it.secondaryNetShortage || it.secondaryGrossRequired) || parseFloat(((it.netShortage || it.requiredQuantity || it.grossRequired) * (Number(it.conversionFactor) || 1)).toFixed(3))) : undefined,
+        secondaryQuantity: it.hasSecondaryUnit ? (Number(it.secondaryNetShortage || it.secondaryGrossRequired) || Math.round((it.netShortage || it.requiredQuantity || it.grossRequired) * (Number(it.conversionFactor) || 1))) : undefined,
         description: it.customPoDescription || it.description || `Consolidated MRP Shortage (${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || ''})`,
         isBucket: Boolean(it.isBucket),
         sourceCutSizes: it.sourceCutSizes || [],
@@ -2246,7 +2247,7 @@ export default function MRPProcurementWorkbench({
                                             {cs.grossRequired} {bucket.unit}
                                             {bucket.hasSecondaryUnit && bucket.secondaryUnit && (
                                               <div className="text-[10px] font-normal text-slate-400">
-                                                ({parseFloat((cs.grossRequired * (Number(bucket.conversionFactor) || 1)).toFixed(2))} {bucket.secondaryUnit})
+                                                ({Math.round(cs.grossRequired * (Number(bucket.conversionFactor) || 1))} {bucket.secondaryUnit})
                                               </div>
                                             )}
                                           </td>
@@ -2819,7 +2820,7 @@ export default function MRPProcurementWorkbench({
                                       }`}
                                       title={matchedPlan ? `Click to inspect ${mrpNum} Nested BOM` : mrpNum}
                                     >
-                                      {mrpNum} {src.requiredQty || src.quantity ? `(${src.requiredQty || src.quantity} ${item.unit}${item.hasSecondaryUnit && item.secondaryUnit ? ` / ${parseFloat(((src.requiredQty || src.quantity) * (Number(item.conversionFactor) || 1)).toFixed(2))} ${item.secondaryUnit}` : ''})` : ''}
+                                      {mrpNum} {src.requiredQty || src.quantity ? `(${src.requiredQty || src.quantity} ${item.unit}${item.hasSecondaryUnit && item.secondaryUnit ? ` / ${Math.round((src.requiredQty || src.quantity) * (Number(item.conversionFactor) || 1))} ${item.secondaryUnit}` : ''})` : ''}
                                     </button>
                                   );
                                 })}
@@ -4555,7 +4556,7 @@ export default function MRPProcurementWorkbench({
                           Order Target: <strong>{fg.quantity} {fg.unit}</strong>
                           {fg.hasSecondaryUnit && fg.secondaryUnit && (
                             <span className="text-[10px] text-slate-400 font-medium ml-1">
-                              ({parseFloat((fg.quantity * (Number(fg.conversionFactor) || 1)).toFixed(2))} {fg.secondaryUnit})
+                              ({Math.round(fg.quantity * (Number(fg.conversionFactor) || 1))} {fg.secondaryUnit})
                             </span>
                           )}
                         </span>
@@ -4563,7 +4564,7 @@ export default function MRPProcurementWorkbench({
                           GRN Received: <strong>{fg.receivedQuantity} {fg.unit}</strong>
                           {fg.hasSecondaryUnit && fg.secondaryUnit && (
                             <span className="text-[10px] text-teal-500/80 font-medium ml-1">
-                              ({parseFloat((fg.receivedQuantity * (Number(fg.conversionFactor) || 1)).toFixed(2))} {fg.secondaryUnit})
+                              ({Math.round(fg.receivedQuantity * (Number(fg.conversionFactor) || 1))} {fg.secondaryUnit})
                             </span>
                           )}
                         </span>

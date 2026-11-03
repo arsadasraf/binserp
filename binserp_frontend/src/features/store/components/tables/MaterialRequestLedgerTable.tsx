@@ -26,6 +26,7 @@ import {
 import { generateMaterialRequestReportPDF } from '@/src/utils/generateMaterialRequestReportPDF';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 import { showWarningToast } from '@/src/features/store/utils/storeDialogHelper';
+import { formatPrimaryQty, convertPrimaryToSecondaryQty } from '@/src/utils/dualUomHelper';
 
 interface MaterialRequestLedgerTableProps {
   requests: any[];
@@ -582,9 +583,19 @@ export default function MaterialRequestLedgerTable({
                           <div className="space-y-1">
                             {(req.items || []).slice(0, 2).map((it: any, iIdx: number) => {
                               const desc = it.materialDescription || it.description || it.specification || '';
+                              const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+                              const priQty = formatPrimaryQty(it.quantity);
+                              const secQty = hasSec
+                                ? (it.secondaryQuantity != null && !isNaN(Number(it.secondaryQuantity)) && Number(it.secondaryQuantity) > 0
+                                  ? Math.round(Number(it.secondaryQuantity))
+                                  : convertPrimaryToSecondaryQty(priQty, it.conversionFactor || 1))
+                                : null;
                               return (
                                 <div key={iIdx} className="text-xs">
                                   <span className="font-semibold text-slate-800 dark:text-slate-200">{it.materialName || it.name}</span>
+                                  <span className="ml-1.5 text-[11px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                                    ({priQty} {it.unit || 'PCS'}{hasSec ? ` / ${secQty} ${it.secondaryUnit}` : ''})
+                                  </span>
                                   {desc && (
                                     <div className="text-[10.5px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]">
                                       {desc}
@@ -603,8 +614,8 @@ export default function MaterialRequestLedgerTable({
                         <td className="p-3.5 text-center">
                           <div className="font-mono font-bold text-slate-800 dark:text-slate-200">
                             {req.items?.[0]?.selectedUnit === req.items?.[0]?.secondaryUnit 
-                              ? (Number(req.items?.[0]?.secondaryQuantity) || totalQty) 
-                              : totalQty}
+                              ? Math.round(Number(req.items?.[0]?.secondaryQuantity) || totalQty) 
+                              : formatPrimaryQty(totalQty)}
                           </div>
                           <span className="text-[10px] text-slate-400">
                             {req.items?.[0]?.selectedUnit || req.items?.[0]?.unit || 'Units'}
@@ -612,9 +623,9 @@ export default function MaterialRequestLedgerTable({
                           {req.items?.[0]?.hasSecondaryUnit && req.items?.[0]?.secondaryUnit && (
                             <div className="text-[9.5px] text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5">
                               {req.items?.[0]?.selectedUnit === req.items?.[0]?.secondaryUnit ? (
-                                <span>(= {totalQty} {req.items?.[0]?.unit})</span>
+                                <span>(= {formatPrimaryQty(totalQty)} {req.items?.[0]?.unit})</span>
                               ) : (
-                                <span>(= {req.items.reduce((acc: number, it: any) => acc + (Number(it.secondaryQuantity) || 0), 0)} {req.items[0].secondaryUnit})</span>
+                                <span>(= {Math.round(req.items.reduce((acc: number, it: any) => acc + (Number(it.secondaryQuantity) || (Number(it.quantity || 0) * (Number(it.conversionFactor) || 1))), 0))} {req.items[0].secondaryUnit})</span>
                               )}
                             </div>
                           )}
@@ -714,15 +725,22 @@ export default function MaterialRequestLedgerTable({
                     <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between pb-1 border-b border-slate-200/60 dark:border-slate-700/60">
                       <span>Requested Item(s)</span>
                       <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                        Total Qty: {totalQty} {req.items?.[0]?.unit || 'Units'}
+                        Total Qty: {formatPrimaryQty(totalQty)} {req.items?.[0]?.unit || 'Units'}
                       </span>
                     </div>
 
                     {(req.items || []).slice(0, 3).map((it: any, iIdx: number) => {
                       const desc = it.materialDescription || it.description || it.specification || '';
+                      const hasSec = Boolean(it.hasSecondaryUnit && it.secondaryUnit);
+                      const priQty = formatPrimaryQty(it.quantity);
+                      const secQty = hasSec
+                        ? (it.secondaryQuantity != null && !isNaN(Number(it.secondaryQuantity)) && Number(it.secondaryQuantity) > 0
+                          ? Math.round(Number(it.secondaryQuantity))
+                          : convertPrimaryToSecondaryQty(priQty, it.conversionFactor || 1))
+                        : null;
                       return (
                         <div key={iIdx} className="flex justify-between items-start text-xs">
-                          <div className="truncate max-w-[70%]">
+                          <div className="truncate max-w-[65%]">
                             <span className="font-semibold text-slate-800 dark:text-slate-200">
                               • {it.materialName || it.name}
                             </span>
@@ -732,9 +750,16 @@ export default function MaterialRequestLedgerTable({
                               </span>
                             )}
                           </div>
-                          <span className="font-mono font-bold text-slate-900 dark:text-white text-[11px] shrink-0">
-                            {it.quantity} {it.unit || 'PCS'}
-                          </span>
+                          <div className="text-right shrink-0">
+                            <span className="font-mono font-bold text-slate-900 dark:text-white text-[11px]">
+                              {priQty} {it.unit || 'PCS'}
+                            </span>
+                            {hasSec && (
+                              <div className="text-[10px] text-indigo-500 font-semibold font-mono">
+                                ↳ {secQty} {it.secondaryUnit}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}

@@ -1,5 +1,5 @@
 import { purchaseOrderSchema, mrpPlanSchema } from "../../models/purchase/index.js";
-import { vendorSchema, grnSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema, storePrefixSchema } from "../../models/store/index.js";
+import { vendorSchema, grnSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema, storePrefixSchema, jobWorkSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
@@ -15,6 +15,77 @@ import mongoose from "mongoose";
 
 const isValidObjectId = (id) => id && mongoose.Types.ObjectId.isValid(String(id));
 
+const syncJobWorkChallanPO = async (req, companyId, poDoc, prevChallanId = null, prevChallanNumber = "") => {
+  try {
+    const JobWork = req.getModel('JobWork', jobWorkSchema);
+    const currChallanId = poDoc?.jobWorkChallan && isValidObjectId(poDoc.jobWorkChallan) ? String(poDoc.jobWorkChallan) : null;
+    const currChallanNumber = poDoc?.challanNumber ? String(poDoc.challanNumber).trim() : "";
+
+    // 1. If a previous challan was linked and is now unlinked or changed, clear its poNumber if it pointed to this PO
+    const prevIdStr = prevChallanId && isValidObjectId(prevChallanId) ? String(prevChallanId) : null;
+    const prevNumStr = prevChallanNumber ? String(prevChallanNumber).trim() : "";
+    const isPrevChanged = (prevIdStr && prevIdStr !== currChallanId) || (prevNumStr && prevNumStr !== currChallanNumber);
+    if (isPrevChanged && poDoc?.poNumber) {
+      const prevFilter = { company: companyId, poNumber: poDoc.poNumber };
+      if (prevIdStr) prevFilter._id = prevIdStr;
+      else if (prevNumStr) prevFilter.challanNumber = prevNumStr;
+      await JobWork.updateMany(prevFilter, { $set: { poNumber: "" } });
+    }
+
+    // 2. Attach poNumber (and sync process rates) onto the linked JobWork Challan
+    if ((currChallanId || currChallanNumber) && poDoc?.poNumber) {
+      const challanFilter = { company: companyId };
+      if (currChallanId) challanFilter._id = currChallanId;
+      else challanFilter.challanNumber = currChallanNumber;
+
+      const challan = await JobWork.findOne(challanFilter).lean();
+      if (challan) {
+        const updatedItems = Array.isArray(challan.items) ? [...challan.items] : [];
+        if (updatedItems.length > 0 && Array.isArray(poDoc.items) && poDoc.items.length > 0) {
+          updatedItems.forEach((cItem, idx) => {
+            const matchedPoItem =
+              poDoc.items.find(
+                (pIt) =>
+                  (pIt.material && cItem.item && String(pIt.material) === String(cItem.item)) ||
+                  (pIt.materialName && cItem.itemName && String(pIt.materialName).trim().toLowerCase() === String(cItem.itemName).trim().toLowerCase())
+              ) || poDoc.items[idx];
+            if (matchedPoItem) {
+              if (Number(matchedPoItem.rate || 0) > 0) {
+                cItem.processRate = Number(matchedPoItem.rate);
+              }
+              if (matchedPoItem.selectedUnit) {
+                cItem.selectedUnit = matchedPoItem.selectedUnit;
+              }
+            }
+          });
+        }
+
+        await JobWork.updateOne(
+          { _id: challan._id, company: companyId },
+          { $set: { poNumber: poDoc.poNumber, items: updatedItems } }
+        );
+
+        // Ensure both jobWorkChallan and challanNumber are populated on the PO document if one was missing
+        const poUpdateFields = {};
+        if (!poDoc.challanNumber && challan.challanNumber) {
+          poUpdateFields.challanNumber = challan.challanNumber;
+          poDoc.challanNumber = challan.challanNumber;
+        }
+        if (!poDoc.jobWorkChallan && challan._id) {
+          poUpdateFields.jobWorkChallan = challan._id;
+          poDoc.jobWorkChallan = challan._id;
+        }
+        if (Object.keys(poUpdateFields).length > 0) {
+          const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
+          await PurchaseOrder.updateOne({ _id: poDoc._id }, { $set: poUpdateFields });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to sync JobWork Challan PO reference:", err.message);
+  }
+};
+
 export const createPO = asyncHandler(async (req, res) => {
   const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
   const companyId = getCompanyId(req);
@@ -25,7 +96,8 @@ export const createPO = asyncHandler(async (req, res) => {
     items, material, component, materialName, quantity, unit, rate, amount, category, status,
     transportType, transportCharge, packingType, packingCharge, subtotal, totalTax, grandTotal, remarks, description,
     gstType, cgstAmount, sgstAmount, igstAmount,
-    poType, processType, sacCode, expectedDeliveryDate
+    poType, processType, sacCode, expectedDeliveryDate,
+    jobWorkChallan, challanNumber
   } = req.body;
 
   if (!poNumber) {
@@ -42,6 +114,8 @@ export const createPO = asyncHandler(async (req, res) => {
     company: companyId,
     poNumber,
     poType: poType || 'standard',
+    jobWorkChallan: isValidObjectId(jobWorkChallan) ? jobWorkChallan : undefined,
+    challanNumber: challanNumber ? String(challanNumber).trim() : '',
     processType: processType || '',
     sacCode: sacCode || '',
     expectedDeliveryDate: expectedDeliveryDate ? new Date(expectedDeliveryDate) : undefined,
@@ -129,7 +203,8 @@ export const createPO = asyncHandler(async (req, res) => {
         description: item.description || item.itemDescription || item.remarks || item.specifications || description || '',
         processType: item.processType || processType || '',
         processNote: item.processNote || '',
-        hsnCode: item.hsnCode || item.hsn || '',
+        hsnCode: item.hsnCode || item.sacCode || item.hsn || '',
+        sacCode: item.sacCode || item.hsnCode || sacCode || '',
         pieceCount: Number(item.pieceCount || item.count || 0),
         quantity: pricing.quantity,
         unit: item.unit ? item.unit.trim() : 'KG',
@@ -248,6 +323,10 @@ export const createPO = asyncHandler(async (req, res) => {
   }
 
   const po = await PurchaseOrder.create(poData);
+
+  if (po.jobWorkChallan || po.challanNumber) {
+    await syncJobWorkChallanPO(req, companyId, po);
+  }
 
   if (po.mrpPlanId || po.mrpNumber) {
     try {
@@ -742,6 +821,13 @@ export const updatePO = asyncHandler(async (req, res) => {
     updateData.vendor = isValidObjectId(req.body.vendor) ? req.body.vendor : existingPO.vendor;
   }
 
+  if (req.body.jobWorkChallan !== undefined) {
+    updateData.jobWorkChallan = isValidObjectId(req.body.jobWorkChallan) ? req.body.jobWorkChallan : null;
+  }
+  if (req.body.challanNumber !== undefined) {
+    updateData.challanNumber = req.body.challanNumber ? String(req.body.challanNumber).trim() : '';
+  }
+
   // Handle explicit or manual MRP Plan linking
   if (req.body.mrpNumber !== undefined || req.body.mrpPlanId !== undefined) {
     const rawNum = req.body.mrpNumber ? String(req.body.mrpNumber).trim() : "";
@@ -796,7 +882,8 @@ export const updatePO = asyncHandler(async (req, res) => {
         description: item.description || item.itemDescription || item.remarks || item.specifications || '',
         processType: item.processType || req.body.processType || existingPO.processType || '',
         processNote: item.processNote || '',
-        hsnCode: item.hsnCode || item.hsn || '',
+        hsnCode: item.hsnCode || item.sacCode || item.hsn || '',
+        sacCode: item.sacCode || item.hsnCode || req.body.sacCode || existingPO.sacCode || '',
         pieceCount: Number(item.pieceCount || item.count || 0),
         quantity: pricing.quantity,
         unit: item.unit ? item.unit.trim() : 'KG',
@@ -896,6 +983,10 @@ export const updatePO = asyncHandler(async (req, res) => {
     { new: true }
   );
 
+  if (po?.jobWorkChallan || po?.challanNumber || existingPO?.jobWorkChallan || existingPO?.challanNumber) {
+    await syncJobWorkChallanPO(req, companyId, po, existingPO.jobWorkChallan, existingPO.challanNumber);
+  }
+
   const affectedPlan = po?.mrpPlanId || po?.mrpNumber || existingPO?.mrpPlanId || existingPO?.mrpNumber;
   if (affectedPlan) {
     try {
@@ -943,6 +1034,18 @@ export const deletePO = asyncHandler(async (req, res) => {
   console.log(`[PO Audit] PO ${po.poNumber} (${id}) deleted by ${userName} (${req.user?.id || req.user?._id}) at ${new Date().toISOString()}`);
 
   await PurchaseOrder.deleteOne({ _id: id, company: companyId });
+
+  if (po.jobWorkChallan || po.challanNumber) {
+    try {
+      const JobWork = req.getModel('JobWork', jobWorkSchema);
+      const challanFilter = { company: companyId, poNumber: po.poNumber };
+      if (isValidObjectId(po.jobWorkChallan)) challanFilter._id = po.jobWorkChallan;
+      else if (po.challanNumber) challanFilter.challanNumber = po.challanNumber;
+      await JobWork.updateMany(challanFilter, { $set: { poNumber: "" } });
+    } catch (e) {
+      console.warn("Failed to unlink JobWork Challan on PO deletion:", e.message);
+    }
+  }
 
   if (po.mrpPlanId || po.mrpNumber) {
     try {

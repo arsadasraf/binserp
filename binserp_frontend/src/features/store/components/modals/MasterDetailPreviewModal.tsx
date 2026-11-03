@@ -33,9 +33,11 @@ import {
     filterEnrichedTree,
     filterEnrichedConsolidated,
     PriceFilterMode,
+    BOMCostingMode,
     EnrichedExplodedBOMNode,
     EnrichedConsolidatedBOMItem
 } from '@/src/utils/bomCostingHelper';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 export interface MasterDetailPreviewModalProps {
     isOpen: boolean;
@@ -73,8 +75,9 @@ export default function MasterDetailPreviewModal({
     // FG Sub-tab state: 'overview' (default) or 'bom'
     const [activeFgTab, setActiveFgTab] = useState<'overview' | 'bom'>('overview');
 
-    // BOM Filter state and dual view mode
+    // BOM Filter state, 3-mode dynamic costing basis (default: L2_ONLY), and dual view mode
     const [activeBOMFilter, setActiveBOMFilter] = useState<BOMFilterType>('ALL');
+    const [costingMode, setCostingMode] = useState<BOMCostingMode>('L2_ONLY');
     const [bomViewMode, setBomViewMode] = useState<'tree' | 'table'>('tree');
     const [priceFilterMode, setPriceFilterMode] = useState<PriceFilterMode>('ALL');
     const [isPdfDropdownOpen, setIsPdfDropdownOpen] = useState(false);
@@ -83,6 +86,7 @@ export default function MasterDetailPreviewModal({
     useEffect(() => {
         if (isOpen) {
             setActiveFgTab('overview');
+            setCostingMode('L2_ONLY');
             setPriceFilterMode('ALL');
             setActiveBOMFilter('ALL');
         }
@@ -127,24 +131,24 @@ export default function MasterDetailPreviewModal({
         return explodeFGBOMHierarchy(item, fgList, rmList, boList);
     }, [isFG, item, fgList, rmList, boList]);
 
-    // 1. Enrich raw tree and consolidated items with Vendor & Sales price lists
+    // 1. Enrich raw tree and consolidated items with Vendor & Sales price lists + active costing mode
     const enrichedConsolidated = useMemo(() => {
         if (!explodedBOM) return [];
         const base = consolidateBOMItems(explodedBOM.flatTree, activeBOMFilter);
-        return enrichConsolidatedItemsWithPricing(base, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList);
-    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList]);
+        return enrichConsolidatedItemsWithPricing(base, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode);
+    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode]);
 
     const enrichedNestedTree = useMemo(() => {
         if (!explodedBOM) return [];
         const base = filterNestedBOMTree(explodedBOM.nestedTree, activeBOMFilter);
-        return enrichTreeWithPricing(base, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList);
-    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList]);
+        return enrichTreeWithPricing(base, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode);
+    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode]);
 
     const enrichedFlatTree = useMemo(() => {
         if (!explodedBOM) return [];
         const filteredFlat = explodedBOM.flatTree.filter(n => matchesBOMFilter(n, activeBOMFilter));
-        return enrichTreeWithPricing(filteredFlat, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList);
-    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList]);
+        return enrichTreeWithPricing(filteredFlat, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode);
+    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode]);
 
     // 2. Apply Price Filter Mode (All / Priced Only / Missing Price Only)
     const priceFilteredConsolidated = useMemo(() => {
@@ -161,10 +165,11 @@ export default function MasterDetailPreviewModal({
 
     // 3. Dynamic Costing & Quantity Dashboard Summary
     const costingSummary = useMemo(() => {
-        return calculateBOMCostingSummary(priceFilteredFlatTree, priceFilteredConsolidated);
-    }, [priceFilteredFlatTree, priceFilteredConsolidated]);
+        return calculateBOMCostingSummary(priceFilteredFlatTree, priceFilteredConsolidated, costingMode);
+    }, [priceFilteredFlatTree, priceFilteredConsolidated, costingMode]);
 
     // Excel-style column filters state for BOM Workbench
+    const [bomSearchQuery, setBomSearchQuery] = useState<string>('');
     const [colFilterMaterialName, setColFilterMaterialName] = useState<string[]>([]);
     const [colFilterSubCategory, setColFilterSubCategory] = useState<string[]>([]);
     const [colFilterClassification, setColFilterClassification] = useState<string[]>([]);
@@ -176,6 +181,7 @@ export default function MasterDetailPreviewModal({
     };
 
     const handleClearAllFilters = () => {
+        setBomSearchQuery('');
         setColFilterMaterialName([]);
         setColFilterSubCategory([]);
         setColFilterClassification([]);
@@ -184,7 +190,7 @@ export default function MasterDetailPreviewModal({
         setPriceFilterMode('ALL');
     };
 
-    const hasActiveFilters = colFilterMaterialName.length > 0 || colFilterSubCategory.length > 0 || colFilterClassification.length > 0 || colFilterLevel.length > 0 || priceFilterMode !== 'ALL';
+    const hasActiveFilters = Boolean(bomSearchQuery.trim()) || colFilterMaterialName.length > 0 || colFilterSubCategory.length > 0 || colFilterClassification.length > 0 || colFilterLevel.length > 0 || priceFilterMode !== 'ALL';
 
     const getNormalizedClassification = useCallback((itemType: string): string => {
         if (itemType === 'SubAssembly') return 'Sub-Assembly';
@@ -202,6 +208,11 @@ export default function MasterDetailPreviewModal({
             if (colFilterClassification.length > 0) {
                 const cls = getNormalizedClassification(cItem.itemType);
                 if (!colFilterClassification.includes(cls)) return false;
+            }
+            if (bomSearchQuery.trim()) {
+                const cls = getNormalizedClassification(cItem.itemType);
+                const searchableText = `${cItem.materialName || ''} ${cItem.description || ''} ${cItem.subCategory || ''} ${cls} ${cItem.unit || ''} ${cItem.priceInfo?.vendorName || ''}`;
+                if (!isSpaceFreeMatch(searchableText, bomSearchQuery)) return false;
             }
             return true;
         });
@@ -224,7 +235,7 @@ export default function MasterDetailPreviewModal({
             });
         }
         return items;
-    }, [priceFilteredConsolidated, colFilterMaterialName, colFilterSubCategory, colFilterClassification, tableSortConfig, getNormalizedClassification]);
+    }, [priceFilteredConsolidated, colFilterMaterialName, colFilterSubCategory, colFilterClassification, bomSearchQuery, tableSortConfig, getNormalizedClassification]);
 
     // Filter and sort for Multi-Level Nested Tree View
     const matchesExcelFiltersForNode = useCallback((node: EnrichedExplodedBOMNode): boolean => {
@@ -235,8 +246,13 @@ export default function MasterDetailPreviewModal({
             if (!colFilterClassification.includes(cls)) return false;
         }
         if (colFilterLevel.length > 0 && !colFilterLevel.includes(`L${node.level}`)) return false;
+        if (bomSearchQuery.trim()) {
+            const cls = getNormalizedClassification(node.itemType);
+            const searchableText = `${node.materialName || ''} ${node.description || ''} ${node.subCategory || ''} ${cls} L${node.level} ${node.unit || ''} ${node.priceInfo?.vendorName || ''}`;
+            if (!isSpaceFreeMatch(searchableText, bomSearchQuery)) return false;
+        }
         return true;
-    }, [colFilterMaterialName, colFilterSubCategory, colFilterClassification, colFilterLevel, getNormalizedClassification]);
+    }, [colFilterMaterialName, colFilterSubCategory, colFilterClassification, colFilterLevel, bomSearchQuery, getNormalizedClassification]);
 
     const filterTreeByExcel = useCallback((nodes: EnrichedExplodedBOMNode[]): EnrichedExplodedBOMNode[] => {
         if (!hasActiveFilters && priceFilterMode === 'ALL') return nodes;
@@ -289,21 +305,40 @@ export default function MasterDetailPreviewModal({
 
     // Open add price modal
     const handleOpenAddPrice = useCallback((nodeOrItem: any) => {
+        const pInfo = nodeOrItem.priceInfo;
         const isFGType = nodeOrItem.itemType === 'SubAssembly' || nodeOrItem.itemType === 'Assembly' || nodeOrItem.itemType === 'Component';
         if (isFGType) {
             setSalesPriceInitialData({
                 fgItem: nodeOrItem.id,
-                price: nodeOrItem.priceInfo?.unitPrice || '',
-                _id: nodeOrItem.priceInfo?.priceListId
+                price: pInfo?.unitPrice || '',
+                currency: pInfo?.currency || 'INR',
+                taxRate: pInfo?.taxRate !== undefined ? pInfo.taxRate : 18,
+                pricingUnit: pInfo?.pricingUnit || nodeOrItem.unit || '',
+                isSecondaryUnit: Boolean(pInfo?.isSecondaryUnit),
+                remarks: pInfo?.remarks || '',
+                unit: nodeOrItem.unit,
+                hasSecondaryUnit: nodeOrItem.hasSecondaryUnit,
+                secondaryUnit: nodeOrItem.secondaryUnit,
+                conversionFactor: nodeOrItem.conversionFactor,
+                _id: pInfo?.priceListId
             });
             setShowSalesPriceModal(true);
         } else {
             setVendorPriceInitialData({
                 material: nodeOrItem.id,
                 itemCategory: nodeOrItem.itemType === 'BO' ? 'bo' : 'rm',
-                price: nodeOrItem.priceInfo?.unitPrice || '',
-                isPreferred: Boolean(nodeOrItem.priceInfo?.isPreferredVendor),
-                _id: nodeOrItem.priceInfo?.priceListId
+                vendor: pInfo?.vendorId || '',
+                price: pInfo?.unitPrice || '',
+                taxRate: pInfo?.taxRate !== undefined ? pInfo.taxRate : 18,
+                pricingUnit: pInfo?.pricingUnit || nodeOrItem.unit || '',
+                isSecondaryUnit: Boolean(pInfo?.isSecondaryUnit),
+                isPreferred: Boolean(pInfo?.isPreferredVendor),
+                remarks: pInfo?.remarks || '',
+                unit: nodeOrItem.unit,
+                hasSecondaryUnit: nodeOrItem.hasSecondaryUnit,
+                secondaryUnit: nodeOrItem.secondaryUnit,
+                conversionFactor: nodeOrItem.conversionFactor,
+                _id: pInfo?.priceListId
             });
             setShowVendorPriceModal(true);
         }
@@ -1188,17 +1223,59 @@ export default function MasterDetailPreviewModal({
                                             </div>
                                         )}
 
-                                        {/* Sub-Assembly Sales Price Notice */}
-                                        {costingSummary.excludedChildPartsCount > 0 && (
-                                            <div className="p-3.5 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/60 rounded-2xl flex items-center gap-3 text-xs text-indigo-900 dark:text-indigo-200 shadow-2xs">
-                                                <div className="p-2 rounded-xl bg-indigo-600 text-white shadow-xs shrink-0">
-                                                    <Info size={16} />
+                                        {/* 3-Mode Dynamic BOM Costing Basis Selector */}
+                                        <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-2xs">
+                                            <div className="space-y-0.5">
+                                                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                                                    <Coins size={15} className="text-indigo-600 dark:text-indigo-400" />
+                                                    <span>Dynamic Assembly Costing Mode</span>
                                                 </div>
-                                                <div className="flex-1 leading-relaxed">
-                                                    <span className="font-extrabold">Sub-Assembly Sales Pricing Rule Active:</span> Sub-assemblies with an assigned price in the Sales Price List are costed at their assigned price. Their child raw materials and bought-out components are excluded from the extended BOM cost to prevent double-counting.
-                                                </div>
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                    {costingMode === 'L2_ONLY' && 'Mode 1 (Default): Cost calculated strictly from Level 2 (L2) direct items. Deeper levels are shown for structure without double-counting.'}
+                                                    {costingMode === 'COMPONENT_AND_BO' && 'Mode 2: Cost calculated from In-House Components + Bought-Out (BO) items across all levels.'}
+                                                    {costingMode === 'RM_AND_BO' && 'Mode 3: Cost calculated from Raw Materials (RM of In-House Components) + Bought-Out (BO) items.'}
+                                                </p>
                                             </div>
-                                        )}
+
+                                            {/* Segmented Floating Pill Tabs (Rule 7 Standard) */}
+                                            <div className="flex overflow-x-auto max-w-full no-scrollbar bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs gap-1.5 scroll-smooth shrink-0 w-fit">
+                                                {[
+                                                    {
+                                                        id: 'L2_ONLY' as BOMCostingMode,
+                                                        label: '1. L2 Items Costing',
+                                                        icon: GitFork,
+                                                    },
+                                                    {
+                                                        id: 'COMPONENT_AND_BO' as BOMCostingMode,
+                                                        label: '2. In-House Comp + BO',
+                                                        icon: Layers,
+                                                    },
+                                                    {
+                                                        id: 'RM_AND_BO' as BOMCostingMode,
+                                                        label: '3. RM (of Comp) + BO',
+                                                        icon: Box,
+                                                    }
+                                                ].map((m) => {
+                                                    const isActive = costingMode === m.id;
+                                                    const ModeIcon = m.icon;
+                                                    return (
+                                                        <button
+                                                            key={m.id}
+                                                            type="button"
+                                                            onClick={() => setCostingMode(m.id)}
+                                                            className={`flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all duration-150 whitespace-nowrap shrink-0 active:scale-95 cursor-pointer ${
+                                                                isActive
+                                                                    ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm shadow-indigo-500/25'
+                                                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                                                            }`}
+                                                        >
+                                                            <ModeIcon size={15} className={isActive ? 'text-white' : 'text-slate-500 dark:text-slate-400'} />
+                                                            <span>{m.label}</span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
 
                                         {/* Dynamic Executive Dashboard (5 Metric Cards) */}
                                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
@@ -1377,8 +1454,30 @@ export default function MasterDetailPreviewModal({
                                                 </div>
                                             </div>
 
-                                            {/* Filters Bar: Category Chips + Pricing Status Chips */}
+                                            {/* Filters Bar: Keyword Search + Category Chips + Pricing Status Chips */}
                                             <div className="space-y-2.5">
+                                                {/* Keyword Search Input */}
+                                                <div className="relative max-w-md">
+                                                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                                    <input
+                                                        type="text"
+                                                        value={bomSearchQuery}
+                                                        onChange={(e) => setBomSearchQuery(e.target.value)}
+                                                        placeholder="Search BOM by item name, description, category, or vendor..."
+                                                        className="w-full pl-8 pr-7 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-2xs"
+                                                    />
+                                                    {bomSearchQuery && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setBomSearchQuery('')}
+                                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-md cursor-pointer"
+                                                            title="Clear BOM search"
+                                                        >
+                                                            <X size={13} />
+                                                        </button>
+                                                    )}
+                                                </div>
+
                                                 {/* Category Filter Chips */}
                                                 <div className="flex flex-wrap items-center gap-2 text-xs">
                                                     <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Category:</span>
@@ -1714,6 +1813,9 @@ export default function MasterDetailPreviewModal({
                                                                                             key={uIdx}
                                                                                             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[10px] text-slate-700 dark:text-slate-300"
                                                                                         >
+                                                                                            <span className="px-1 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-[9px]">
+                                                                                                L{u.level}
+                                                                                            </span>
                                                                                             <span className="font-medium">{u.parentName}:</span>
                                                                                             <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{u.quantityPerParent} {u.unit}</span>
                                                                                         </span>
@@ -1735,12 +1837,19 @@ export default function MasterDetailPreviewModal({
                                                                             <td className="px-3 py-2.5 text-right whitespace-nowrap">
                                                                                 {isPriced ? (
                                                                                     <div>
-                                                                                        <div className="font-mono font-bold text-slate-900 dark:text-white text-xs">
-                                                                                            ₹{pInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                                        <div className="font-mono font-bold text-slate-900 dark:text-white text-xs flex items-center justify-end gap-1">
+                                                                                            <span>₹{pInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                                                            <span className={`text-[10px] px-1 py-0.2 rounded font-semibold ${
+                                                                                                pInfo.isSecondaryUnit
+                                                                                                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300'
+                                                                                                    : 'text-slate-500 dark:text-slate-400'
+                                                                                            }`}>
+                                                                                                / {pInfo.pricingUnit || cItem.unit}
+                                                                                            </span>
                                                                                         </div>
                                                                                         <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-end gap-1 mt-0.5">
                                                                                             {pInfo.isPreferredVendor && <span className="text-amber-500 font-bold" title="Preferred Vendor">★</span>}
-                                                                                            <span className="truncate max-w-[130px]">{pInfo.vendorName || (pInfo.priceSource === 'sales-price-list' ? 'Sales List' : 'Master')}</span>
+                                                                                            <span className="truncate max-w-[140px]" title={pInfo.vendorName || ''}>{pInfo.vendorName || (pInfo.priceSource === 'sales-price-list' ? 'Sales Catalog' : 'Standard Base Price')}</span>
                                                                                         </div>
                                                                                     </div>
                                                                                 ) : (
@@ -1752,7 +1861,11 @@ export default function MasterDetailPreviewModal({
 
                                                                             {/* Extended Cost */}
                                                                             <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                                                                                {isPriced ? (
+                                                                                {!pInfo?.isCostedInActiveMode ? (
+                                                                                    <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200/70 dark:border-slate-700" title="Excluded from active costing mode total to prevent double-counting">
+                                                                                        {pInfo?.exclusionReason || 'Excluded in Mode'}
+                                                                                    </span>
+                                                                                ) : isPriced ? (
                                                                                     <div className="font-mono font-extrabold text-indigo-700 dark:text-indigo-300 text-xs sm:text-sm">
                                                                                         ₹{pInfo.extendedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                                                     </div>
@@ -2000,12 +2113,19 @@ export default function MasterDetailPreviewModal({
                                                                                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
                                                                                         {isPriced ? (
                                                                                             <div>
-                                                                                                <div className="font-mono font-bold text-slate-900 dark:text-white text-xs">
-                                                                                                    ₹{pInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                                                <div className="font-mono font-bold text-slate-900 dark:text-white text-xs flex items-center justify-end gap-1">
+                                                                                                    <span>₹{pInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                                                                    <span className={`text-[10px] px-1 py-0.2 rounded font-semibold ${
+                                                                                                        pInfo.isSecondaryUnit
+                                                                                                            ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300'
+                                                                                                            : 'text-slate-500 dark:text-slate-400'
+                                                                                                    }`}>
+                                                                                                        / {pInfo.pricingUnit || node.unit}
+                                                                                                    </span>
                                                                                                 </div>
                                                                                                 <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-end gap-1 mt-0.5">
                                                                                                     {pInfo.isPreferredVendor && <span className="text-amber-500 font-bold" title="Preferred Vendor">★</span>}
-                                                                                                    <span className="truncate max-w-[130px]">{pInfo.vendorName || (pInfo.priceSource === 'sales-price-list' ? 'Sales List' : 'Master')}</span>
+                                                                                                    <span className="truncate max-w-[140px]" title={pInfo.vendorName || ''}>{pInfo.vendorName || (pInfo.priceSource === 'sales-price-list' ? 'Sales Catalog' : 'Standard Base Price')}</span>
                                                                                                 </div>
                                                                                             </div>
                                                                                         ) : (
@@ -2015,11 +2135,11 @@ export default function MasterDetailPreviewModal({
                                                                                         )}
                                                                                     </td>
 
-                                                                                    {/* Extended Cost (or covered in sub-assembly) */}
+                                                                                    {/* Extended Cost (or excluded by active costing mode) */}
                                                                                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                                                                                        {pInfo?.underPricedSubAssembly ? (
-                                                                                            <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded" title="Covered under parent Sub-Assembly sales price">
-                                                                                                Covered in Sub-Assy
+                                                                                        {!pInfo?.isCostedInActiveMode ? (
+                                                                                            <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200/70 dark:border-slate-700" title="Excluded from active costing mode total to prevent double-counting">
+                                                                                                {pInfo?.exclusionReason || 'Excluded in Mode'}
                                                                                             </span>
                                                                                         ) : isPriced ? (
                                                                                             <div className="font-mono font-extrabold text-indigo-700 dark:text-indigo-300 text-xs sm:text-sm">
@@ -2059,8 +2179,56 @@ export default function MasterDetailPreviewModal({
                                                                     });
                                                                 };
 
+                                                                const rootCatName = typeof item.category === 'object' ? item.category?.name : (typeof item.categoryId === 'object' ? item.categoryId?.name : (item.category || '-'));
+
                                                                 return finalDisplayTree.length > 0 ? (
-                                                                    renderTreeRows(finalDisplayTree)
+                                                                    <>
+                                                                        {/* L1 Root FG / Assembly Header Row */}
+                                                                        <tr className="bg-purple-50/70 dark:bg-purple-950/30 border-b border-purple-200/70 dark:border-purple-800/60">
+                                                                            <td className="px-3 py-2.5 text-center">
+                                                                                <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-black bg-purple-600 text-white shadow-2xs">
+                                                                                    L1
+                                                                                </span>
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5">
+                                                                                <div className="font-black text-xs sm:text-sm text-purple-950 dark:text-purple-100 flex items-center gap-2 flex-wrap">
+                                                                                    <span>{item.name || 'Root Finished Good'}</span>
+                                                                                    <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-purple-100 dark:bg-purple-900/70 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700">
+                                                                                        Root {item.type || 'Assembly'}
+                                                                                    </span>
+                                                                                </div>
+                                                                                {(item.description || item.descriptions) && (
+                                                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-1">
+                                                                                        {item.description || item.descriptions}
+                                                                                    </div>
+                                                                                )}
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs font-semibold">
+                                                                                {rootCatName || '-'}
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                                                                <span className="px-2 py-0.5 font-bold rounded text-[10px] border bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700">
+                                                                                    ⚙️ {item.type || 'Assembly'} (L1)
+                                                                                </span>
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-700 dark:text-slate-300 text-xs">
+                                                                                1 {item.unit || 'Nos'}
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5 text-right font-mono font-bold text-purple-700 dark:text-purple-300 text-xs">
+                                                                                1 {item.unit || 'Nos'}
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5 text-right text-[10px] font-bold text-purple-600 dark:text-purple-400">
+                                                                                {costingMode === 'L2_ONLY' ? 'Rolled-up (L2 Mode)' : costingMode === 'COMPONENT_AND_BO' ? 'Rolled-up (Comp + BO)' : 'Rolled-up (RM + BO)'}
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5 text-right font-mono font-black text-purple-700 dark:text-purple-300 text-xs sm:text-sm">
+                                                                                ₹{costingSummary.totalEstimatedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                            </td>
+                                                                            <td className="px-3 py-2.5 text-center text-[10px] text-slate-400 font-semibold">
+                                                                                Root FG
+                                                                            </td>
+                                                                        </tr>
+                                                                        {renderTreeRows(finalDisplayTree)}
+                                                                    </>
                                                                 ) : (
                                                                     <tr>
                                                                         <td colSpan={9} className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
@@ -2205,6 +2373,7 @@ export default function MasterDetailPreviewModal({
                         rawMaterials={rmList}
                         boughtOuts={boList}
                         vendors={fetchedVendors}
+                        vendorPriceLists={fetchedVendorPriceLists}
                     />
 
                     <PriceListModal

@@ -37,7 +37,7 @@ export default function FgWipInventoryPage() {
   };
 
   return (
-    <div className="animate-in fade-in duration-300">
+    <div className="flex flex-col flex-1 min-h-0 animate-in fade-in duration-300">
       {toast && (
         <div className={`mb-4 p-3 rounded-lg text-sm font-medium transition-all ${toast.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
           {toast.message}

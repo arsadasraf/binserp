@@ -1157,135 +1157,150 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                 </div>
             )}
 
-            {/* Search, Filter & Action Toolbar - 3-Row Mobile & Responsive Architecture */}
-            <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex flex-col gap-2.5">
-                {/* ROW 1: Search Bar & Create PO Icon */}
-                <div className="flex items-center gap-2 w-full">
-                    <div className="relative flex-1 min-w-0">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                        <input
-                            type="text"
-                            placeholder={viewMode === 'items' ? "Search Material, Description, PO #..." : "Search PO #, Vendor, or Material..."}
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-8 sm:pl-9 pr-7 sm:pr-8 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white"
-                        />
-                        {searchTerm && (
+            {/* Search, Filter & Action Toolbar - 3-Row on Mobile, Single-Line on Desktop */}
+            <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3.5 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex flex-col gap-2.5">
+                <div className="flex flex-col lg:flex-row lg:items-center gap-2.5 w-full">
+                    {/* ROW 1 (Mobile) / Left Section (Desktop): Search Bar & Mobile Create PO Icon */}
+                    <div className="flex items-center gap-2 w-full lg:flex-1 lg:min-w-[220px]">
+                        <div className="relative flex-1 min-w-0">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                            <input
+                                type="text"
+                                placeholder={viewMode === 'items' ? "Search Material, Description, PO #..." : "Search PO #, Vendor, or Material..."}
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-8 sm:pl-9 pr-7 sm:pr-8 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white"
+                            />
+                            {searchTerm && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchTerm('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer p-0.5"
+                                    title="Clear search"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Create Outward PO Button (Mobile only in Row 1) */}
+                        {onCreatePO && (
                             <button
                                 type="button"
-                                onClick={() => setSearchTerm('')}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer p-0.5"
-                                title="Clear search"
+                                onClick={onCreatePO}
+                                className="lg:hidden p-2 sm:px-4 sm:py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 active:from-cyan-800 active:to-blue-800 text-white rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0 active:scale-95"
+                                title="Create Outward PO"
                             >
-                                <X size={14} />
+                                <Plus size={16} />
+                                <span className="hidden sm:inline font-bold text-xs">Create Outward PO</span>
                             </button>
                         )}
                     </div>
 
-                    {/* Create Outward PO Button (Icon on mobile, labeled on desktop) */}
-                    {onCreatePO && (
+                    {/* ROW 2 (Mobile) / Middle Section (Desktop): POs and Items View Mode Toggle */}
+                    <div className="w-full flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80 sm:w-fit shrink-0">
                         <button
                             type="button"
-                            onClick={onCreatePO}
-                            className="p-2 sm:px-4 sm:py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 active:from-cyan-800 active:to-blue-800 text-white rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0 active:scale-95"
-                            title="Create Outward PO"
+                            onClick={() => setViewMode('po')}
+                            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-1.5 px-3 sm:px-3.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                                viewMode === 'po'
+                                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-2xs'
+                                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                            title="View Outward Purchase Orders"
                         >
-                            <Plus size={16} />
-                            <span className="hidden sm:inline font-bold text-xs">Create Outward PO</span>
+                            <ShoppingCart size={13} />
+                            <span>POs ({dateFilteredData.length})</span>
                         </button>
-                    )}
-                </div>
-
-                {/* ROW 2: POs and Items View Mode Toggle */}
-                <div className="w-full flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80 sm:w-fit">
-                    <button
-                        type="button"
-                        onClick={() => setViewMode('po')}
-                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                            viewMode === 'po'
-                                ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-2xs'
-                                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                        title="View Outward Purchase Orders"
-                    >
-                        <ShoppingCart size={13} />
-                        <span>POs ({dateFilteredData.length})</span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setViewMode('items')}
-                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-1.5 sm:py-2 px-3 sm:px-4 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                            viewMode === 'items'
-                                ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-2xs'
-                                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                        title="View All Materials & Linked Outward POs"
-                    >
-                        <Package size={13} />
-                        <span>Items ({uniqueItemCount})</span>
-                    </button>
-                </div>
-
-                {/* ROW 3: KPI Toggle, Day & Month Filter Dropdown, and Export Button */}
-                <div className="flex items-center gap-1.5 sm:gap-2 w-full max-w-full">
-                    {/* Toggle Top Dashboard / KPI cards */}
-                    <button
-                        type="button"
-                        onClick={() => setShowDashboard(prev => !prev)}
-                        className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border shrink-0 active:scale-95 ${
-                            showDashboard
-                                ? 'bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800 shadow-2xs'
-                                : 'bg-slate-100 text-slate-700 border-gray-200 hover:bg-slate-200/80 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
-                        }`}
-                        title={showDashboard ? "Hide KPI Dashboard" : "Show dynamic KPI metrics"}
-                    >
-                        <BarChart3 size={14} className={showDashboard ? "text-purple-600 dark:text-purple-400" : "text-slate-500"} />
-                        <span>{showDashboard ? "Hide" : "KPIs"}</span>
-                    </button>
-
-                    {/* Date Filter Mode Dropdown (Day, Month, Year, Range, All Time) */}
-                    <div className="relative flex-1 min-w-0">
-                        <select
-                            value={activeDateDropdownValue}
-                            onChange={handleDateFilterDropdownChange}
-                            className="w-full appearance-none pl-7 sm:pl-8 pr-6 sm:pr-7 py-2 text-xs font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20 truncate"
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('items')}
+                            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 py-1.5 px-3 sm:px-3.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                                viewMode === 'items'
+                                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-2xs'
+                                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                            title="View All Materials & Linked Outward POs"
                         >
-                            <option value="all">📅 All Time</option>
-                            <option value="today">📅 Today</option>
-                            <option value="yesterday">📅 Yesterday</option>
-                            <option value="this_month">📅 This Month</option>
-                            <option value="last_month">📅 Last Month</option>
-                            <option value="custom_day">📅 Custom Day...</option>
-                            <option value="custom_month">📅 Custom Month...</option>
-                            <option value="year">📅 Filter by Year...</option>
-                            <option value="range">📅 Custom Range...</option>
-                        </select>
-                        <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-600 dark:text-purple-400 pointer-events-none" size={13} />
-                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={13} />
+                            <Package size={13} />
+                            <span>Items ({uniqueItemCount})</span>
+                        </button>
                     </div>
 
-                    {/* Export to Excel */}
-                    <button
-                        type="button"
-                        onClick={exportPOListToExcel}
-                        className="px-2.5 sm:px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs shrink-0 active:scale-95"
-                        title="Export filtered PO list to Excel"
-                    >
-                        <FileSpreadsheet size={14} className="text-emerald-600 dark:text-emerald-400" />
-                        <span>Export</span>
-                    </button>
-
-                    {/* Reset date filter button */}
-                    {dateMode !== 'all' && (
+                    {/* ROW 3 (Mobile) / Right Section (Desktop): KPI Toggle, Date Filter Dropdown, Export & Desktop Create Button */}
+                    <div className="flex items-center gap-1.5 sm:gap-2 w-full lg:w-auto max-w-full shrink-0">
+                        {/* Toggle Top Dashboard / KPI cards */}
                         <button
                             type="button"
-                            onClick={handleResetDateFilter}
-                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-all cursor-pointer shrink-0 active:scale-95"
-                            title="Reset Date Filter"
+                            onClick={() => setShowDashboard(prev => !prev)}
+                            className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border shrink-0 active:scale-95 ${
+                                showDashboard
+                                    ? 'bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800 shadow-2xs'
+                                    : 'bg-slate-100 text-slate-700 border-gray-200 hover:bg-slate-200/80 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                            }`}
+                            title={showDashboard ? "Hide KPI Dashboard" : "Show dynamic KPI metrics"}
                         >
-                            <X size={14} />
+                            <BarChart3 size={14} className={showDashboard ? "text-purple-600 dark:text-purple-400" : "text-slate-500"} />
+                            <span>{showDashboard ? "Hide" : "KPIs"}</span>
                         </button>
-                    )}
+
+                        {/* Date Filter Mode Dropdown (Day, Month, Year, Range, All Time) */}
+                        <div className="relative flex-1 lg:flex-initial lg:w-44 min-w-0">
+                            <select
+                                value={activeDateDropdownValue}
+                                onChange={handleDateFilterDropdownChange}
+                                className="w-full appearance-none pl-7 sm:pl-8 pr-6 sm:pr-7 py-2 text-xs font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20 truncate"
+                            >
+                                <option value="all">📅 All Time</option>
+                                <option value="today">📅 Today</option>
+                                <option value="yesterday">📅 Yesterday</option>
+                                <option value="this_month">📅 This Month</option>
+                                <option value="last_month">📅 Last Month</option>
+                                <option value="custom_day">📅 Custom Day...</option>
+                                <option value="custom_month">📅 Custom Month...</option>
+                                <option value="year">📅 Filter by Year...</option>
+                                <option value="range">📅 Custom Range...</option>
+                            </select>
+                            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-600 dark:text-purple-400 pointer-events-none" size={13} />
+                            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={13} />
+                        </div>
+
+                        {/* Export to Excel */}
+                        <button
+                            type="button"
+                            onClick={exportPOListToExcel}
+                            className="px-2.5 sm:px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs shrink-0 active:scale-95"
+                            title="Export filtered PO list to Excel"
+                        >
+                            <FileSpreadsheet size={14} className="text-emerald-600 dark:text-emerald-400" />
+                            <span>Export</span>
+                        </button>
+
+                        {/* Reset date filter button */}
+                        {dateMode !== 'all' && (
+                            <button
+                                type="button"
+                                onClick={handleResetDateFilter}
+                                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-all cursor-pointer shrink-0 active:scale-95"
+                                title="Reset Date Filter"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
+
+                        {/* Create Outward PO Button (Desktop inline on right end) */}
+                        {onCreatePO && (
+                            <button
+                                type="button"
+                                onClick={onCreatePO}
+                                className="hidden lg:flex px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 active:from-cyan-800 active:to-blue-800 text-white rounded-xl shadow-xs transition-all items-center justify-center gap-1.5 cursor-pointer shrink-0 active:scale-95 whitespace-nowrap"
+                                title="Create Outward PO"
+                            >
+                                <Plus size={16} />
+                                <span className="font-bold text-xs">Create Outward PO</span>
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Auxiliary Date Controls (When day, month, year, or range is selected) */}

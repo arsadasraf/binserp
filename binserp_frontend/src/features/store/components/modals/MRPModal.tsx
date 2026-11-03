@@ -37,6 +37,8 @@ interface MRPModalProps {
     initialData?: any;
     preselectedPoIds?: string[];
     preselectedMonth?: string;
+    initialFgItems?: any[];
+    initialMrpPlans?: any[];
 }
 
 interface FGRow {
@@ -85,7 +87,7 @@ interface BOMCostSummary {
     boCount: number;
 }
 
-export default function MRPModal({ isOpen, onClose, onSuccess, token, initialData, preselectedPoIds, preselectedMonth }: MRPModalProps) {
+export default function MRPModal({ isOpen, onClose, onSuccess, token, initialData, preselectedPoIds, preselectedMonth, initialFgItems, initialMrpPlans }: MRPModalProps) {
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [selectedPlanningMonth, setSelectedPlanningMonth] = useState<string>(preselectedMonth || 'all');
@@ -101,10 +103,10 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
     // Masters Data
     const [customerList, setCustomerList] = useState<any[]>([]);
-    const [fgItemList, setFgItemList] = useState<any[]>([]);
+    const [fgItemList, setFgItemList] = useState<any[]>(() => Array.isArray(initialFgItems) ? initialFgItems : []);
     const [bomsList, setBomsList] = useState<any[]>([]);
     const [incomingPOs, setIncomingPOs] = useState<any[]>([]);
-    const [existingMRPPlans, setExistingMRPPlans] = useState<any[]>([]);
+    const [existingMRPPlans, setExistingMRPPlans] = useState<any[]>(() => Array.isArray(initialMrpPlans) ? initialMrpPlans : []);
 
     // Plan Mode: Single PO vs Consolidated Multi-PO
     const [planMode, setPlanMode] = useState<'single' | 'consolidated'>('single');
@@ -718,13 +720,60 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
     const loadDropdownMasters = async () => {
         setLoading(true);
         try {
+            // 1. Immediately hydrate from parent props if available so FG search is instant
+            if (Array.isArray(initialFgItems) && initialFgItems.length > 0 && fgItemList.length === 0) {
+                setFgItemList(initialFgItems);
+            }
+            if (Array.isArray(initialMrpPlans) && initialMrpPlans.length > 0 && existingMRPPlans.length === 0) {
+                setExistingMRPPlans(initialMrpPlans);
+            }
+
+            // 2. Fast-track FG catalog + Price List in parallel without waiting for heavy PO/MRP endpoints
+            const fgPromise = apiGet('/api/store/fg-item?lite=true', token);
+            const priceListPromise = apiGet('/api/sales/price-list', token);
+
+            Promise.allSettled([fgPromise, priceListPromise]).then(([fgRes, priceListRes]) => {
+                let fastFGs: any[] = [];
+                if (fgRes.status === 'fulfilled' && fgRes.value) {
+                    fastFGs = Array.isArray(fgRes.value) ? fgRes.value : (fgRes.value.fgItems || fgRes.value.data || []);
+                }
+                if (priceListRes.status === 'fulfilled' && priceListRes.value && fastFGs.length > 0) {
+                    const loadedPLs = Array.isArray(priceListRes.value)
+                        ? priceListRes.value
+                        : (priceListRes.value.priceLists || priceListRes.value.data || []);
+                    const plMap = new Map<string, any>();
+                    loadedPLs.forEach((pl: any) => {
+                        const fgId = pl.fgItem?._id || pl.fgItem;
+                        if (fgId) plMap.set(String(fgId), pl);
+                    });
+                    fastFGs = fastFGs.map((fg: any) => {
+                        const pl = plMap.get(String(fg._id));
+                        const effectivePrice = Number(fg.sellingPrice || pl?.price || 0);
+                        const effectiveCurrency = (fg.currency || pl?.currency || 'INR').trim().toUpperCase();
+                        return {
+                            ...fg,
+                            sellingPrice: effectivePrice,
+                            currency: effectiveCurrency,
+                            salesPriceListPrice: pl ? Number(pl.price || 0) : fg.salesPriceListPrice,
+                            salesPriceListCurrency: pl ? pl.currency : fg.salesPriceListCurrency,
+                            priceSource: pl ? 'Sales Price List' : (fg.sellingPrice ? 'Master Catalog' : 'Unset')
+                        };
+                    });
+                }
+                if (fastFGs.length > 0) {
+                    setFgItemList(fastFGs);
+                }
+            });
+
             const [custRes, fgRes, bomRes, poRes, mrpRes, priceListRes] = await Promise.allSettled([
                 apiGet('/api/store/customer', token),
-                apiGet('/api/store/fg-item', token),
+                fgPromise,
                 apiGet('/api/store/bom', token),
                 apiGet('/api/sales/incoming-po', token),
-                apiGet('/api/purchase/mrp/plans', token),
-                apiGet('/api/sales/price-list', token)
+                Array.isArray(initialMrpPlans) && initialMrpPlans.length > 0
+                    ? Promise.resolve({ mrpPlans: initialMrpPlans })
+                    : apiGet('/api/purchase/mrp/plans', token),
+                priceListPromise
             ]);
 
             let loadedFGs: any[] = [];
@@ -1036,17 +1085,49 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         syncMultiPORows([]);
     };
 
+    // Pre-indexed BOM lookup sets for O(1) checks during FG dropdown rendering
+    const bomLookup = useMemo(() => {
+        const names = new Set<string>();
+        const codes = new Set<string>();
+        (bomsList || []).forEach((b: any) => {
+            if (b?.productName) names.add(String(b.productName).toLowerCase().trim());
+            if (b?.productCode) codes.add(String(b.productCode).trim());
+        });
+        return { names, codes };
+    }, [bomsList]);
+
+    // Pre-indexed FG items with normalized search string for instant filtering
+    const indexedFGItems = useMemo(() => {
+        return (fgItemList || []).map((f: any) => {
+            const nameLower = (f.name || '').toLowerCase().trim();
+            const codeStr = (f.code || '').trim();
+            const descStr = f.description || f.descriptions || '';
+            const hasBom =
+                (Array.isArray(f.bom) && f.bom.length > 0) ||
+                (nameLower && bomLookup.names.has(nameLower)) ||
+                (codeStr && bomLookup.codes.has(codeStr));
+            return {
+                ...f,
+                _searchStr: `${nameLower} ${codeStr.toLowerCase()} ${descStr.toLowerCase()}`,
+                _hasBom: Boolean(hasBom)
+            };
+        });
+    }, [fgItemList, bomLookup]);
+
     // Filtered FG Items for table row search
     const filteredFGItems = useMemo(() => {
-        if (!fgSearchQuery.trim()) return fgItemList;
         const q = fgSearchQuery.toLowerCase().trim();
-        return fgItemList.filter(
-            (f: any) =>
-                (f.name && f.name.toLowerCase().includes(q)) ||
-                (f.code && f.code.toLowerCase().includes(q)) ||
-                (f.description && f.description.toLowerCase().includes(q))
+        if (!q) return indexedFGItems;
+        const tokens = q.split(/\s+/).filter(Boolean);
+        return indexedFGItems.filter((f: any) =>
+            tokens.every((tok) => f._searchStr.includes(tok))
         );
-    }, [fgItemList, fgSearchQuery]);
+    }, [indexedFGItems, fgSearchQuery]);
+
+    // Windowed slice for fast DOM rendering in dropdown
+    const visibleFGItems = useMemo(() => {
+        return filteredFGItems.slice(0, 60);
+    }, [filteredFGItems]);
 
     // Handle Manual FG Selection in Table Row
     const handleSelectFGForRow = (index: number, selected: any) => {
@@ -1978,53 +2059,123 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
                         {/* Table */}
                         <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-visible shadow-xs bg-white dark:bg-slate-900">
-                            <table className="w-full text-xs text-left">
+                            <table className="w-full table-fixed min-w-[980px] text-xs text-left">
                                 <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-300 uppercase border-b border-slate-200 dark:border-slate-700">
                                     <tr>
-                                        <th className="px-3 py-3 w-10 text-center">#</th>
-                                        <th className="px-3 py-3 min-w-[220px]">Finished Goods (FG) Item</th>
-                                        <th className="px-3 py-3 min-w-[150px]">Description</th>
-                                        <th className="px-3 py-3 w-20 text-center">Qty</th>
-                                        <th className="px-3 py-3 w-14 text-center">Unit</th>
-                                        <th className="px-3 py-3 w-28 text-right">Selling Rate</th>
-                                        <th className="px-3 py-3 w-28 text-right">Total Income</th>
-                                        <th className="px-3 py-3 min-w-[125px]">PO Date</th>
-                                        <th className="px-3 py-3 min-w-[135px]">Committed Date</th>
-                                        <th className="px-3 py-3 w-10 text-right"></th>
+                                        <th className="px-2.5 py-3 w-10 text-center">#</th>
+                                        <th className="px-3 py-3 w-[34%]">Finished Goods (FG) Item & Description</th>
+                                        <th className="px-2.5 py-3 w-24 text-center">Qty</th>
+                                        <th className="px-2.5 py-3 w-24 text-center">Unit</th>
+                                        <th className="px-3 py-3 w-40 text-right">Selling Rate</th>
+                                        <th className="px-3 py-3 w-44 text-right">Total Income</th>
+                                        <th className="px-2.5 py-3 w-34">PO Date</th>
+                                        <th className="px-2.5 py-3 w-34">Committed Date</th>
+                                        <th className="px-2 py-3 w-10 text-right"></th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                                    {fgRows.map((row, idx) => (
-                                        <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                                            <td className="px-3 py-3 text-slate-400 font-bold text-center">{idx + 1}</td>
+                                    {fgRows.map((row, idx) => {
+                                        const isSearchingRow = activeFGSearchIdx === idx;
+                                        const hasSelectedItem = Boolean(row.fgItemName);
+                                        const fullHoverText = `${row.fgItemName || ''}${row.description ? ` — ${row.description}` : ''}`;
 
-                                            {/* Keyword-Searchable FG Combobox */}
-                                            <td className="px-3 py-3 relative">
-                                                <div className="relative">
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Type to search FG Item..."
-                                                        value={
-                                                            activeFGSearchIdx === idx
-                                                                ? fgSearchQuery
-                                                                : row.fgItemName
-                                                                ? `${row.fgItemName}${row.description ? ` - ${row.description}` : ''}`
-                                                                : ''
-                                                        }
-                                                        onFocus={() => {
-                                                             setActiveFGSearchIdx(idx);
-                                                             setFgSearchQuery(row.fgItemName || '');
-                                                        }}
-                                                        onChange={(e) => {
-                                                             setFgSearchQuery(e.target.value);
-                                                             handleRowChange(idx, 'fgItemName', e.target.value);
-                                                        }}
-                                                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
-                                                    />
-                                                    <ChevronDown
-                                                        size={14}
-                                                        className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none"
-                                                    />
+                                        return (
+                                        <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                                            <td className="px-2.5 py-3 text-slate-400 font-bold text-center align-top pt-4">{idx + 1}</td>
+
+                                            {/* Combined FG Item Name & Description (Single Field with Truncation + Hover Full-Text Preview) */}
+                                            <td className="px-3 py-3 relative max-w-0 align-top">
+                                                <div className="relative group/fgcell min-w-0">
+                                                    {isSearchingRow || !hasSelectedItem ? (
+                                                        <div className="relative">
+                                                            <Search size={13} className="absolute left-3 top-2.5 text-slate-400 pointer-events-none" />
+                                                            <input
+                                                                type="text"
+                                                                autoFocus={isSearchingRow}
+                                                                placeholder="Search FG Item Name or Description..."
+                                                                value={isSearchingRow ? fgSearchQuery : (row.fgItemName || '')}
+                                                                onFocus={() => {
+                                                                    setActiveFGSearchIdx(idx);
+                                                                    setFgSearchQuery(row.fgItemName || '');
+                                                                }}
+                                                                onChange={(e) => {
+                                                                    setFgSearchQuery(e.target.value);
+                                                                    if (activeFGSearchIdx !== idx) {
+                                                                        setActiveFGSearchIdx(idx);
+                                                                    }
+                                                                }}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Escape') {
+                                                                        setActiveFGSearchIdx(null);
+                                                                        setFgSearchQuery('');
+                                                                    } else if (e.key === 'Enter') {
+                                                                        e.preventDefault();
+                                                                        if (visibleFGItems.length > 0) {
+                                                                            handleSelectFGForRow(idx, visibleFGItems[0]);
+                                                                        } else if (fgSearchQuery.trim()) {
+                                                                            handleRowChange(idx, 'fgItemName', fgSearchQuery.trim());
+                                                                            setActiveFGSearchIdx(null);
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className="w-full pl-8 pr-8 py-2 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 shadow-2xs truncate"
+                                                            />
+                                                            {isSearchingRow && fgSearchQuery ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setFgSearchQuery('')}
+                                                                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                                                                    title="Clear search"
+                                                                >
+                                                                    <X size={13} />
+                                                                </button>
+                                                            ) : (
+                                                                <ChevronDown
+                                                                    size={14}
+                                                                    className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none"
+                                                                />
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div
+                                                            onClick={() => {
+                                                                setActiveFGSearchIdx(idx);
+                                                                setFgSearchQuery(row.fgItemName || '');
+                                                            }}
+                                                            title={fullHoverText}
+                                                            className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors cursor-pointer flex items-center justify-between gap-2 min-w-0 shadow-2xs"
+                                                        >
+                                                            <div className="min-w-0 flex-1 overflow-hidden">
+                                                                <div className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                                                                    {row.fgItemName}
+                                                                </div>
+                                                                {row.description ? (
+                                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 italic truncate mt-0.5">
+                                                                        {row.description}
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="text-[10px] text-slate-400 italic truncate mt-0.5">
+                                                                        Click to search or change FG item
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <ChevronDown size={14} className="text-slate-400 shrink-0" />
+                                                        </div>
+                                                    )}
+
+                                                    {/* Mouse-Over Full Text Hover Popover (Shown only on hover when item is selected and not searching) */}
+                                                    {hasSelectedItem && !isSearchingRow && (
+                                                        <div className="hidden group-hover/fgcell:block absolute left-0 bottom-full mb-1.5 z-[80] w-max max-w-[440px] p-3 rounded-xl bg-slate-900/95 dark:bg-slate-800 text-white shadow-xl border border-slate-700 pointer-events-none animate-in fade-in duration-150">
+                                                            <div className="font-bold text-xs text-white break-words whitespace-normal leading-snug">
+                                                                {row.fgItemName}
+                                                            </div>
+                                                            {row.description && (
+                                                                <div className="text-[11px] text-slate-300 italic mt-1 break-words whitespace-normal leading-relaxed border-t border-slate-700/80 pt-1">
+                                                                    {row.description}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
 
                                                 {row.bomNumber && (
@@ -2078,7 +2229,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                             <FileText size={10} /> PO #{row.customerPoNumber}
                                                         </span>
                                                         {row.customerName && (
-                                                            <span className="text-[10px] text-slate-500 font-medium">
+                                                            <span className="text-[10px] text-slate-500 font-medium truncate max-w-[180px]">
                                                                 {row.customerName}
                                                             </span>
                                                         )}
@@ -2091,72 +2242,62 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                 ) : null}
 
                                                 {/* Search Results Dropdown */}
-                                                {activeFGSearchIdx === idx && (
+                                                {isSearchingRow && (
                                                     <div
                                                         ref={fgDropdownRef}
-                                                        className="absolute left-3 right-3 mt-1 max-h-52 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 p-1 space-y-0.5"
+                                                        className="absolute left-3 right-3 mt-1 max-h-64 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 p-1.5 space-y-0.5"
                                                     >
-                                                        {filteredFGItems.length === 0 ? (
+                                                        {visibleFGItems.length === 0 ? (
                                                             <div className="p-3 text-center text-xs text-slate-400">
-                                                                No FG master found
+                                                                {loading && fgItemList.length === 0
+                                                                    ? 'Loading FG catalog...'
+                                                                    : 'No matching FG master found'}
                                                             </div>
                                                         ) : (
-                                                            filteredFGItems.map((fg: any) => {
-                                                                const matchedBom = bomsList.find(
-                                                                    (b) =>
-                                                                        b.productName?.toLowerCase() ===
-                                                                            fg.name?.toLowerCase() ||
-                                                                        b.productCode === fg.code
-                                                                );
-                                                                const hasBom =
-                                                                    matchedBom ||
-                                                                    (Array.isArray(fg.bom) && fg.bom.length > 0);
-
-                                                                return (
-                                                                    <button
-                                                                        key={fg._id}
-                                                                        type="button"
-                                                                        onClick={() => handleSelectFGForRow(idx, fg)}
-                                                                        className="w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-between cursor-pointer"
-                                                                    >
-                                                                        <div>
-                                                                            <span className="font-bold text-slate-900 dark:text-white block">
-                                                                                {fg.name}
-                                                                            </span>
-                                                                            <span className="text-[10px] text-slate-400">
-                                                                                {(fg.description || fg.descriptions) ? `${fg.description || fg.descriptions} • ` : ''}Unit: {fg.unit || 'PCS'}
-                                                                            </span>
-                                                                        </div>
-                                                                        <span
-                                                                            className={`text-[9px] font-bold px-2 py-0.5 rounded-md uppercase ${
-                                                                                hasBom
-                                                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                                                                    : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                                                                            }`}
+                                                            <>
+                                                                {visibleFGItems.map((fg: any) => {
+                                                                    const fgDesc = fg.description || fg.descriptions || '';
+                                                                    return (
+                                                                        <button
+                                                                            key={fg._id}
+                                                                            type="button"
+                                                                            onClick={() => handleSelectFGForRow(idx, fg)}
+                                                                            title={`${fg.name}${fgDesc ? ` — ${fgDesc}` : ''}`}
+                                                                            className="w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-between gap-2 cursor-pointer"
                                                                         >
-                                                                            {hasBom ? 'BOM Attached' : 'No BOM'}
-                                                                        </span>
-                                                                    </button>
-                                                                );
-                                                            })
+                                                                            <div className="min-w-0 flex-1 overflow-hidden">
+                                                                                <span className="font-bold text-slate-900 dark:text-white block truncate">
+                                                                                    {fg.name}
+                                                                                </span>
+                                                                                <span className="text-[10px] text-slate-500 dark:text-slate-400 italic block truncate">
+                                                                                    {fgDesc ? `${fgDesc} • ` : ''}Unit: {fg.unit || 'PCS'}
+                                                                                </span>
+                                                                            </div>
+                                                                            <span
+                                                                                className={`text-[9px] font-bold px-2 py-0.5 rounded-md uppercase shrink-0 ${
+                                                                                    fg._hasBom
+                                                                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                                                                                        : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                                                                                }`}
+                                                                            >
+                                                                                {fg._hasBom ? 'BOM Attached' : 'No BOM'}
+                                                                            </span>
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                                {filteredFGItems.length > 60 && (
+                                                                    <div className="px-3 py-1.5 text-center text-[10px] font-semibold text-slate-400 border-t border-slate-100 dark:border-slate-800">
+                                                                        Showing top 60 of {filteredFGItems.length} items — type more to narrow search
+                                                                    </div>
+                                                                )}
+                                                            </>
                                                         )}
                                                     </div>
                                                 )}
                                             </td>
 
-                                            {/* Description */}
-                                            <td className="px-3 py-3">
-                                                <input
-                                                    type="text"
-                                                    placeholder="Specs / notes..."
-                                                    value={row.description}
-                                                    onChange={(e) => handleRowChange(idx, 'description', e.target.value)}
-                                                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                                />
-                                            </td>
-
                                             {/* Quantity */}
-                                            <td className="px-3 py-3 text-center">
+                                            <td className="px-2.5 py-3 text-center align-top">
                                                 <input
                                                     type="number"
                                                     min="1"
@@ -2165,19 +2306,21 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                         handleRowChange(idx, 'quantity', Math.max(1, Number(e.target.value)))
                                                     }
                                                     required
-                                                    className="w-full px-2 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-center font-bold text-indigo-600 dark:text-indigo-400 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                                    className="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-bold text-indigo-600 dark:text-indigo-400 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                                                 />
                                             </td>
 
-                                            {/* Unit */}
-                                            <td className="px-3 py-3 text-center text-slate-600 dark:text-slate-400 font-bold">
-                                                {row.unit || 'PCS'}
+                                            {/* Unit (Expanded space with pill badge) */}
+                                            <td className="px-2.5 py-3 text-center align-top">
+                                                <div className="inline-flex items-center justify-center w-full px-3 py-2 rounded-xl bg-slate-100/80 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs">
+                                                    {row.unit || 'PCS'}
+                                                </div>
                                             </td>
 
-                                            {/* Selling Rate */}
-                                            <td className="px-3 py-3 text-right">
+                                            {/* Selling Rate (Expanded space for multi-digit rates) */}
+                                            <td className="px-3 py-3 text-right align-top">
                                                 <div className="relative">
-                                                    <span className="absolute left-2.5 top-2 text-[10px] text-slate-400 font-bold">₹</span>
+                                                    <span className="absolute left-2.5 top-2 text-[11px] text-slate-400 font-bold">₹</span>
                                                     <input
                                                         type="number"
                                                         min="0"
@@ -2185,23 +2328,25 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                         placeholder="0.00"
                                                         value={row.sellingPrice !== undefined && row.sellingPrice !== 0 ? row.sellingPrice : ''}
                                                         onChange={(e) => handleRowChange(idx, 'sellingPrice', parseFloat(e.target.value) || 0)}
-                                                        className="w-full pl-6 pr-2 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-right font-semibold text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                                        className="w-full pl-6 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-right font-mono font-bold text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                                                     />
                                                 </div>
                                                 {row.priceSource && (
-                                                    <span className="text-[9px] text-slate-400 font-medium block mt-0.5 truncate text-right">
+                                                    <span className="text-[9px] text-slate-400 font-medium block mt-0.5 truncate text-right" title={row.priceSource}>
                                                         {row.priceSource}
                                                     </span>
                                                 )}
                                             </td>
 
-                                            {/* Total Price */}
-                                            <td className="px-3 py-3 text-right font-bold text-slate-900 dark:text-white font-mono text-xs">
-                                                ₹{((row.totalPrice !== undefined ? row.totalPrice : (Number(row.quantity || 0) * Number(row.sellingPrice || 0))) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            {/* Total Income (Expanded space for full formatted currency) */}
+                                            <td className="px-3 py-3 text-right align-top">
+                                                <div className="w-full px-3 py-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 font-bold text-emerald-700 dark:text-emerald-300 font-mono text-xs whitespace-nowrap text-right">
+                                                    ₹{((row.totalPrice !== undefined ? row.totalPrice : (Number(row.quantity || 0) * Number(row.sellingPrice || 0))) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </div>
                                             </td>
 
                                             {/* Row PO Date */}
-                                            <td className="px-3 py-3">
+                                            <td className="px-2.5 py-3 align-top">
                                                 <input
                                                     type="date"
                                                     value={row.poDeliveryDate || ''}
@@ -2211,7 +2356,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                             </td>
 
                                             {/* Row Committed Date */}
-                                            <td className="px-3 py-3">
+                                            <td className="px-2.5 py-3 align-top">
                                                 <input
                                                     type="date"
                                                     value={row.targetDate}
@@ -2230,7 +2375,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                             </td>
 
                                             {/* Delete Row */}
-                                            <td className="px-3 py-3 text-right">
+                                            <td className="px-2 py-3 text-right align-top pt-3.5">
                                                 <button
                                                     type="button"
                                                     onClick={() => handleRemoveRow(idx)}
@@ -2241,7 +2386,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                 </button>
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>

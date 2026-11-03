@@ -198,6 +198,15 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
         return list;
     }, [transactions, historyDatePreset, historyStartDate, historyEndDate]);
 
+    const fmtPrimary = (v: any) => {
+        const n = Number(v);
+        return isNaN(n) ? 0 : parseFloat(n.toFixed(2));
+    };
+    const fmtSec = (v: any) => {
+        const n = Number(v);
+        return isNaN(n) ? 0 : Math.round(n);
+    };
+
     const downloadPDF = () => {
         const doc = new jsPDF();
 
@@ -217,9 +226,9 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                 ['Item Name', item?.materialName || item?.componentName || item?.name || '-'],
                 ['Item Code', item?.materialCode || item?.componentCode || item?.code || '-'],
                 ['Item Type', type === 'bo' ? 'Bought Out Material' : 'In-House Component'],
-                ['Current Stock', `${type === 'bo' ? item?.currentStock : item?.quantity} ${item?.unit || ''}`],
-                ['Opening Stock', `${displayOpeningStock !== null ? displayOpeningStock : (item?.monthlyData?.openingStock || 0)} ${item?.unit || ''}`],
-                ['Min Stock / Reorder', `${item?.minimumStock || item?.reorderLevel || 0} ${item?.unit || ''}`],
+                ['Current Stock', `${fmtPrimary(type === 'bo' ? item?.currentStock : item?.quantity)} ${item?.unit || ''}`],
+                ['Opening Stock', `${fmtPrimary(displayOpeningStock !== null ? displayOpeningStock : (item?.monthlyData?.openingStock || 0))} ${item?.unit || ''}`],
+                ['Min Stock / Reorder', `${fmtPrimary(item?.minimumStock || item?.reorderLevel || 0)} ${item?.unit || ''}`],
                 ['Category / Type', type === 'bo' ? (item?.categoryId?.name || item?.category?.name || item?.category || '-') : (item?.type || '-')],
                 ['Location', item?.locationId?.name || item?.location?.name || item?.location || '-'],
                 ['Description', item?.descriptions || item?.description || '-'],
@@ -244,8 +253,8 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                 new Date(grn.date).toLocaleDateString(),
                 grn.grnNumber,
                 type === 'bo' ? (grn.supplier?.name || 'N/A') : 'Production GRN',
-                grnItem ? `${grnItem.quantity || grnItem.receivedQuantity} ${grnItem.unit || ''}` : '-',
-                grnItem ? (grnItem.acceptedQuantity || 0) : '-',
+                grnItem ? `${fmtPrimary(grnItem.quantity || grnItem.receivedQuantity)} ${grnItem.unit || ''}` : '-',
+                grnItem ? fmtPrimary(grnItem.acceptedQuantity || 0) : '-',
                 grn.qcStatus || 'N/A'
             ];
         });
@@ -268,7 +277,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
             new Date(tx.timestamp || tx.createdAt).toLocaleDateString(),
             tx.referenceDocNumber || 'N/A',
             tx.recipientOrSource || 'Shopfloor / Dispatch',
-            `-${tx.quantity} ${tx.unit || ''}`,
+            `-${fmtPrimary(tx.quantity)} ${tx.unit || ''}`,
             tx.purpose || tx.transactionCategory || 'Outward'
         ]);
 
@@ -287,8 +296,8 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
 
     const itemName = item.materialName || item.componentName || item.name;
     const itemCode = item.materialCode || item.componentCode || item.code;
-    const stock = item.currentStock !== undefined ? item.currentStock : (item.quantity ?? 0);
-    const minStock = item.minimumStock || item.reorderLevel || 0;
+    const stock = fmtPrimary(item.currentStock !== undefined ? item.currentStock : (item.quantity ?? 0));
+    const minStock = fmtPrimary(item.minimumStock || item.reorderLevel || 0);
     const categoryName = item.categoryId?.name || item.category?.name || item.category || '-';
     const locationName = item.locationId?.name || item.location?.name || item.location || '-';
 
@@ -395,7 +404,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                         {item.hasSecondaryUnit && item.secondaryUnit && item.conversionFactor ? (
                                             <div className="flex flex-col mt-0.5">
                                                 <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                                                    {Number((stock * item.conversionFactor).toFixed(4))} {item.secondaryUnit}
+                                                    {fmtSec(stock * item.conversionFactor)} {item.secondaryUnit}
                                                 </span>
                                                 <span className="text-[10px] text-gray-400 font-mono">
                                                     1 {item.unit} = {item.conversionFactor} {item.secondaryUnit}
@@ -423,7 +432,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                         ) : (
                                             <div className="flex items-center gap-1">
                                                 <span className="font-bold text-gray-800 dark:text-gray-200">
-                                                    {displayOpeningStock !== null ? displayOpeningStock : (item?.monthlyData?.openingStock || 0)}
+                                                    {fmtPrimary(displayOpeningStock !== null ? displayOpeningStock : (item?.monthlyData?.openingStock || 0))}
                                                 </span>
                                                 <button 
                                                     onClick={handleOpeningStockEditClick}
@@ -459,7 +468,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                     </span>
                                     {item.hasSecondaryUnit && item.secondaryUnit && item.conversionFactor ? (
                                         <div className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
-                                            {Number((minStock * item.conversionFactor).toFixed(4))} {item.secondaryUnit}
+                                            {fmtSec(minStock * item.conversionFactor)} {item.secondaryUnit}
                                         </div>
                                     ) : null}
                                 </div>
@@ -551,28 +560,28 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                     <div className="grid grid-cols-4 gap-3 text-center text-xs">
                                         <div className="bg-white dark:bg-gray-900 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800">
                                             <span className="text-gray-400 block text-[10px] font-semibold uppercase">Opening</span>
-                                            <span className="font-bold text-gray-800 dark:text-gray-200">{item.monthlyData.openingStock || 0} {item.unit}</span>
+                                            <span className="font-bold text-gray-800 dark:text-gray-200">{fmtPrimary(item.monthlyData.openingStock || 0)} {item.unit}</span>
                                             {item.hasSecondaryUnit && item.secondaryUnit && item.conversionFactor ? (
                                                 <span className="block text-[10px] text-gray-500 font-mono mt-0.5">
-                                                    {Number(((item.monthlyData.openingStock || 0) * item.conversionFactor).toFixed(4))} {item.secondaryUnit}
+                                                    {fmtSec((item.monthlyData.openingStock || 0) * item.conversionFactor)} {item.secondaryUnit}
                                                 </span>
                                             ) : null}
                                         </div>
                                         <div className="bg-white dark:bg-gray-900 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800">
                                             <span className="text-emerald-600 block text-[10px] font-semibold uppercase">Total Inward</span>
-                                            <span className="font-bold text-emerald-600">+{item.monthlyData.totalInwardQuantity || 0} {item.unit}</span>
+                                            <span className="font-bold text-emerald-600">+{fmtPrimary(item.monthlyData.totalInwardQuantity || 0)} {item.unit}</span>
                                             {item.hasSecondaryUnit && item.secondaryUnit && item.conversionFactor ? (
                                                 <span className="block text-[10px] text-emerald-600/80 font-mono mt-0.5">
-                                                    +{Number(((item.monthlyData.totalInwardQuantity || 0) * item.conversionFactor).toFixed(4))} {item.secondaryUnit}
+                                                    +{fmtSec((item.monthlyData.totalInwardQuantity || 0) * item.conversionFactor)} {item.secondaryUnit}
                                                 </span>
                                             ) : null}
                                         </div>
                                         <div className="bg-white dark:bg-gray-900 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800">
                                             <span className="text-rose-600 block text-[10px] font-semibold uppercase">Total Outward</span>
-                                            <span className="font-bold text-rose-600">-{item.monthlyData.totalOutwardQuantity || 0} {item.unit}</span>
+                                            <span className="font-bold text-rose-600">-{fmtPrimary(item.monthlyData.totalOutwardQuantity || 0)} {item.unit}</span>
                                             {item.hasSecondaryUnit && item.secondaryUnit && item.conversionFactor ? (
                                                 <span className="block text-[10px] text-rose-600/80 font-mono mt-0.5">
-                                                    -{Number(((item.monthlyData.totalOutwardQuantity || 0) * item.conversionFactor).toFixed(4))} {item.secondaryUnit}
+                                                    -{fmtSec((item.monthlyData.totalOutwardQuantity || 0) * item.conversionFactor)} {item.secondaryUnit}
                                                 </span>
                                             ) : null}
                                         </div>
@@ -581,7 +590,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                             <span className="font-extrabold text-indigo-600">{stock} {item.unit}</span>
                                             {item.hasSecondaryUnit && item.secondaryUnit && item.conversionFactor ? (
                                                 <span className="block text-[10px] text-indigo-600/80 font-mono mt-0.5">
-                                                    {Number((stock * item.conversionFactor).toFixed(4))} {item.secondaryUnit}
+                                                    {fmtSec(stock * item.conversionFactor)} {item.secondaryUnit}
                                                 </span>
                                             ) : null}
                                         </div>
@@ -598,7 +607,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                             Active Reserved Stock Breakdown (by Customer PO & Sales Order)
                                         </span>
                                         <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-extrabold bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-200">
-                                            Total Reserved: {item.allocatedQuantity || 0} {item.unit || 'PCS'}
+                                            Total Reserved: {fmtPrimary(item.allocatedQuantity || 0)} {item.unit || 'PCS'}
                                         </span>
                                     </h3>
 
@@ -625,7 +634,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                             {resItem.customerName}
                                                         </td>
                                                         <td className="p-2.5 text-right font-mono font-extrabold text-amber-600 dark:text-amber-400">
-                                                            {resItem.reservedQuantity} {item.unit || 'PCS'}
+                                                            {fmtPrimary(resItem.reservedQuantity)} {item.unit || 'PCS'}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -680,10 +689,10 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                             {tx.recipientOrSource || 'Shop Floor'}
                                                         </td>
                                                         <td className="px-3.5 py-2.5 text-right font-extrabold text-rose-600 font-mono">
-                                                            <div>-{Math.abs(tx.quantity)} {tx.unit || item.unit}</div>
+                                                            <div>-{fmtPrimary(Math.abs(tx.quantity))} {tx.unit || item.unit}</div>
                                                             {(tx.secondaryQuantity || (tx.hasSecondaryUnit && tx.conversionFactor) || (item.hasSecondaryUnit && item.conversionFactor)) ? (
                                                                 <div className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 font-mono">
-                                                                    ({Math.abs(tx.secondaryQuantity || Math.round(Number(tx.quantity) * (tx.conversionFactor || item.conversionFactor || 1) * 100) / 100)} {tx.secondaryUnit || item.secondaryUnit})
+                                                                    ({fmtSec(Math.abs(tx.secondaryQuantity || Number(tx.quantity) * (tx.conversionFactor || item.conversionFactor || 1)))} {tx.secondaryUnit || item.secondaryUnit})
                                                                 </div>
                                                             ) : null}
                                                         </td>
@@ -721,33 +730,33 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                     <div className="p-3 bg-gray-50 dark:bg-gray-900/60 rounded-xl border border-gray-100 dark:border-gray-800 text-center flex flex-col justify-center">
                                         <span className="text-gray-400 block text-[10px] uppercase font-bold">Opening Balance</span>
                                         <span className="text-base font-black text-gray-800 dark:text-gray-200">
-                                            {displayOpeningStock !== null ? displayOpeningStock : (item?.monthlyData?.openingStock || 0)} {item.unit}
+                                            {fmtPrimary(displayOpeningStock !== null ? displayOpeningStock : (item?.monthlyData?.openingStock || 0))} {item.unit}
                                         </span>
                                         {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 ? (
                                             <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
-                                                ({Math.round(((displayOpeningStock !== null ? displayOpeningStock : (item?.monthlyData?.openingStock || 0)) * (item.conversionFactor || 1)) * 100) / 100} {item.secondaryUnit})
+                                                ({fmtSec((displayOpeningStock !== null ? displayOpeningStock : (item?.monthlyData?.openingStock || 0)) * (item.conversionFactor || 1))} {item.secondaryUnit})
                                             </span>
                                         ) : null}
                                     </div>
                                     <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-xl border border-emerald-100 dark:border-emerald-900/50 text-center flex flex-col justify-center">
                                         <span className="text-emerald-600 dark:text-emerald-400 block text-[10px] uppercase font-bold">Total Inward (+)</span>
                                         <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
-                                            +{item?.monthlyData?.totalInwardQuantity || 0} {item.unit}
+                                            +{fmtPrimary(item?.monthlyData?.totalInwardQuantity || 0)} {item.unit}
                                         </span>
                                         {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 ? (
                                             <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 font-mono mt-0.5">
-                                                (+{Math.round(((item?.monthlyData?.totalInwardQuantity || 0) * (item.conversionFactor || 1)) * 100) / 100} {item.secondaryUnit})
+                                                (+{fmtSec((item?.monthlyData?.totalInwardQuantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit})
                                             </span>
                                         ) : null}
                                     </div>
                                     <div className="p-3 bg-rose-50/60 dark:bg-rose-950/30 rounded-xl border border-rose-100 dark:border-rose-900/50 text-center flex flex-col justify-center">
                                         <span className="text-rose-600 dark:text-rose-400 block text-[10px] uppercase font-bold">Total Outward (-)</span>
                                         <span className="text-base font-black text-rose-600 dark:text-rose-400">
-                                            -{item?.monthlyData?.totalOutwardQuantity || 0} {item.unit}
+                                            -{fmtPrimary(item?.monthlyData?.totalOutwardQuantity || 0)} {item.unit}
                                         </span>
                                         {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 ? (
                                             <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 font-mono mt-0.5">
-                                                (-{Math.round(((item?.monthlyData?.totalOutwardQuantity || 0) * (item.conversionFactor || 1)) * 100) / 100} {item.secondaryUnit})
+                                                (-{fmtSec((item?.monthlyData?.totalOutwardQuantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit})
                                             </span>
                                         ) : null}
                                     </div>
@@ -758,7 +767,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                         </span>
                                         {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 ? (
                                             <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 font-mono mt-0.5">
-                                                ({Math.round((stock * (item.conversionFactor || 1)) * 100) / 100} {item.secondaryUnit})
+                                                ({fmtSec(stock * (item.conversionFactor || 1))} {item.secondaryUnit})
                                             </span>
                                         ) : null}
                                     </div>
@@ -900,26 +909,26 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                                 </td>
                                                                 <td className="px-4 py-3 text-center">
                                                                     <div className="font-bold text-emerald-600 font-mono">
-                                                                        +{grnItem ? (grnItem.quantity || grnItem.receivedQuantity) : (grn.quantity || '-')} {item.unit}
+                                                                        +{grnItem ? fmtPrimary(grnItem.quantity || grnItem.receivedQuantity) : (grn.quantity !== undefined ? fmtPrimary(grn.quantity) : '-')} {item.unit}
                                                                     </div>
                                                                     {(grnItem?.secondaryQuantity || (grnItem?.hasSecondaryUnit && item.conversionFactor) || (item.hasSecondaryUnit && item.conversionFactor)) ? (
                                                                         <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 font-mono">
-                                                                            ({grnItem?.secondaryQuantity || Math.round(Number(grnItem?.quantity || grnItem?.receivedQuantity || grn.quantity || 0) * (item.conversionFactor || 1) * 100) / 100} {grnItem?.secondaryUnit || item.secondaryUnit})
+                                                                            ({fmtSec(grnItem?.secondaryQuantity || Number(grnItem?.quantity || grnItem?.receivedQuantity || grn.quantity || 0) * (item.conversionFactor || 1))} {grnItem?.secondaryUnit || item.secondaryUnit})
                                                                         </div>
                                                                     ) : null}
                                                                 </td>
                                                                 <td className="px-4 py-3 text-center font-semibold text-gray-700 dark:text-gray-300">
                                                                     <div className="font-mono">
-                                                                        {grnItem ? (grnItem.acceptedQuantity !== undefined ? grnItem.acceptedQuantity : (grnItem.quantity || '-')) : '-'} {item.unit}
+                                                                        {grnItem ? fmtPrimary(grnItem.acceptedQuantity !== undefined ? grnItem.acceptedQuantity : (grnItem.quantity || 0)) : '-'} {item.unit}
                                                                     </div>
                                                                     {(grnItem?.secondaryAcceptedQuantity || (grnItem?.hasSecondaryUnit && item.conversionFactor) || (item.hasSecondaryUnit && item.conversionFactor)) && (
                                                                         <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 font-mono">
-                                                                            ({grnItem?.secondaryAcceptedQuantity || Math.round(Number(grnItem?.acceptedQuantity !== undefined ? grnItem.acceptedQuantity : (grnItem?.quantity || 0)) * (item.conversionFactor || 1) * 100) / 100} {grnItem?.secondaryUnit || item.secondaryUnit})
+                                                                            ({fmtSec(grnItem?.secondaryAcceptedQuantity || Number(grnItem?.acceptedQuantity !== undefined ? grnItem.acceptedQuantity : (grnItem?.quantity || 0)) * (item.conversionFactor || 1))} {grnItem?.secondaryUnit || item.secondaryUnit})
                                                                         </div>
                                                                     )}
                                                                     {rejCount > 0 && (
                                                                         <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 block">
-                                                                            ({rejCount} rejected)
+                                                                            ({fmtPrimary(rejCount)} rejected)
                                                                         </span>
                                                                     )}
                                                                 </td>
@@ -1035,11 +1044,11 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                                 </td>
                                                                 <td className="px-4 py-3 text-right">
                                                                     <div className="font-bold text-rose-600 font-mono">
-                                                                        -{Math.abs(tx.quantity)} {tx.unit || item.unit}
+                                                                        -{fmtPrimary(Math.abs(tx.quantity))} {tx.unit || item.unit}
                                                                     </div>
                                                                     {(tx.secondaryQuantity || (tx.hasSecondaryUnit && tx.conversionFactor) || (item.hasSecondaryUnit && item.conversionFactor)) ? (
                                                                         <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 font-mono">
-                                                                            ({Math.abs(tx.secondaryQuantity || Math.round(Number(tx.quantity) * (tx.conversionFactor || item.conversionFactor || 1) * 100) / 100)} {tx.secondaryUnit || item.secondaryUnit})
+                                                                            ({fmtSec(Math.abs(tx.secondaryQuantity || Number(tx.quantity) * (tx.conversionFactor || item.conversionFactor || 1)))} {tx.secondaryUnit || item.secondaryUnit})
                                                                         </div>
                                                                     ) : null}
                                                                 </td>
