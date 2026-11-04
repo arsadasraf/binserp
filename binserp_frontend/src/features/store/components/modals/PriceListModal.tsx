@@ -1,9 +1,11 @@
 "use client";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { X, Save, AlertCircle, Tag, Globe } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
 import { formatItemSelectLabel, getItemDescription } from "@/src/utils/itemDisplayHelper";
 import { CURRENCY_OPTIONS, getCurrencySymbol, normalizeCurrencyCode } from "@/src/utils/currencyHelper";
+
+const EMPTY_ARRAY: any[] = [];
 
 interface PriceListModalProps {
   isOpen: boolean;
@@ -19,8 +21,8 @@ export default function PriceListModal({
   onClose,
   onSubmit,
   initialData,
-  fgItems = [],
-  priceLists = [],
+  fgItems = EMPTY_ARRAY,
+  priceLists = EMPTY_ARRAY,
 }: PriceListModalProps) {
   const [formData, setFormData] = useState({
     fgItem: "",
@@ -34,53 +36,66 @@ export default function PriceListModal({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const initializedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (isOpen) {
-      if (initialData?.fgItem) {
-        const fgIdStr = typeof initialData.fgItem === "object"
-          ? String(initialData.fgItem._id || initialData.fgItem.id || "")
-          : String(initialData.fgItem || "");
-        const itemObj = typeof initialData.fgItem === "object"
-          ? initialData.fgItem
-          : fgItems.find(f => String(f._id || f.id) === fgIdStr);
-        const existingConfig = priceLists.find(p => String(p.fgItem?._id || p.fgItem) === fgIdStr);
-
-        const resolvedPricingUnit = (initialData.pricingUnit ?? existingConfig?.pricingUnit ?? "").toString().trim();
-        const resolvedSecUnit = (
-          initialData.secondaryUnit ||
-          itemObj?.secondaryUnit ||
-          ""
-        ).toString().trim();
-        const resolvedIsSec =
-          initialData.isSecondaryUnit !== undefined
-            ? Boolean(initialData.isSecondaryUnit)
-            : existingConfig?.isSecondaryUnit !== undefined
-            ? Boolean(existingConfig.isSecondaryUnit)
-            : Boolean(resolvedPricingUnit && resolvedSecUnit && resolvedPricingUnit.toUpperCase() === resolvedSecUnit.toUpperCase());
-
-        setFormData({
-          fgItem: itemObj?._id || fgIdStr || "",
-          currency: normalizeCurrencyCode(initialData.currency ?? existingConfig?.currency ?? itemObj?.currency ?? "INR"),
-          price: (initialData.price !== undefined && initialData.price !== "" ? initialData.price : (existingConfig?.price ?? itemObj?.sellingPrice ?? ""))?.toString(),
-          taxRate: (initialData.taxRate ?? existingConfig?.taxRate ?? itemObj?.taxRate ?? "18")?.toString(),
-          pricingUnit: resolvedPricingUnit,
-          isSecondaryUnit: resolvedIsSec,
-          remarks: initialData.remarks || existingConfig?.remarks || "",
-        });
-      } else {
-        setFormData({
-          fgItem: "",
-          currency: "INR",
-          price: "",
-          taxRate: "18",
-          pricingUnit: "",
-          isSecondaryUnit: false,
-          remarks: "",
-        });
-      }
-      setError("");
+    if (!isOpen) {
+      initializedKeyRef.current = null;
+      return;
     }
+
+    const initKey = initialData
+      ? `${initialData._id || ""}_${typeof initialData.fgItem === "object" ? (initialData.fgItem?._id || initialData.fgItem?.id || "") : (initialData.fgItem || "")}`
+      : "__NEW__";
+
+    if (initializedKeyRef.current === initKey) {
+      return;
+    }
+    initializedKeyRef.current = initKey;
+
+    if (initialData?.fgItem) {
+      const fgIdStr = typeof initialData.fgItem === "object"
+        ? String(initialData.fgItem._id || initialData.fgItem.id || "")
+        : String(initialData.fgItem || "");
+      const itemObj = typeof initialData.fgItem === "object"
+        ? initialData.fgItem
+        : fgItems.find(f => String(f._id || f.id) === fgIdStr);
+      const existingConfig = priceLists.find(p => String(p.fgItem?._id || p.fgItem) === fgIdStr);
+
+      const resolvedPricingUnit = (initialData.pricingUnit ?? existingConfig?.pricingUnit ?? "").toString().trim();
+      const resolvedSecUnit = (
+        initialData.secondaryUnit ||
+        itemObj?.secondaryUnit ||
+        ""
+      ).toString().trim();
+      const resolvedIsSec =
+        initialData.isSecondaryUnit !== undefined
+          ? Boolean(initialData.isSecondaryUnit)
+          : existingConfig?.isSecondaryUnit !== undefined
+          ? Boolean(existingConfig.isSecondaryUnit)
+          : Boolean(resolvedPricingUnit && resolvedSecUnit && resolvedPricingUnit.toUpperCase() === resolvedSecUnit.toUpperCase());
+
+      setFormData({
+        fgItem: itemObj?._id || fgIdStr || "",
+        currency: normalizeCurrencyCode(initialData.currency ?? existingConfig?.currency ?? itemObj?.currency ?? "INR"),
+        price: (initialData.price !== undefined && initialData.price !== "" ? initialData.price : (existingConfig?.price ?? itemObj?.sellingPrice ?? ""))?.toString(),
+        taxRate: (initialData.taxRate ?? existingConfig?.taxRate ?? itemObj?.taxRate ?? "18")?.toString(),
+        pricingUnit: resolvedPricingUnit,
+        isSecondaryUnit: resolvedIsSec,
+        remarks: initialData.remarks || existingConfig?.remarks || "",
+      });
+    } else {
+      setFormData({
+        fgItem: "",
+        currency: "INR",
+        price: "",
+        taxRate: "18",
+        pricingUnit: "",
+        isSecondaryUnit: false,
+        remarks: "",
+      });
+    }
+    setError("");
   }, [isOpen, initialData, fgItems, priceLists]);
 
   const fgOptions = useMemo(() => {

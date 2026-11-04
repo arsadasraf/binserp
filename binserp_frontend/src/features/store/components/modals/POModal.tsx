@@ -40,20 +40,84 @@ export interface POLineItemEntry {
     category: string;
 }
 
-// Steel Shapes for RM Calculator
-type SteelShape = 'plate' | 'round_bar' | 'pipe' | 'square_tube' | 'flat_bar' | 'angle';
+// Shapes & Material Presets for Material Weight Calculator
+type SteelShape =
+    | 'plate'
+    | 'round_bar'
+    | 'square_bar'
+    | 'hex_bar'
+    | 'flat_bar'
+    | 'pipe'
+    | 'square_tube'
+    | 'angle'
+    | 'channel'
+    | 'ibeam'
+    | 't_section';
+
+const MATERIAL_DENSITY_PRESETS: { label: string; density: number }[] = [
+    { label: 'Mild Steel (MS)', density: 7.85 },
+    { label: 'Carbon Steel (EN8 / EN9 / C45)', density: 7.85 },
+    { label: 'Alloy Steel (EN19 / EN24 / EN31)', density: 7.85 },
+    { label: 'Stainless Steel (SS 304 / 304L)', density: 7.93 },
+    { label: 'Stainless Steel (SS 316 / 316L)', density: 8.00 },
+    { label: 'Stainless Steel (SS 202)', density: 7.80 },
+    { label: 'Stainless Steel (SS 410 / 420 / 430)', density: 7.75 },
+    { label: 'Duplex Steel (2205)', density: 7.80 },
+    { label: 'Tool / Die Steel (D2 / H13 / OHNS)', density: 7.70 },
+    { label: 'High Speed Steel (HSS M2)', density: 8.16 },
+    { label: 'Spring Steel (EN45 / EN47)', density: 7.85 },
+    { label: 'Galvanized Iron (GI)', density: 7.85 },
+    { label: 'Cast Iron (CI)', density: 7.20 },
+    { label: 'Ductile / SG Iron', density: 7.10 },
+    { label: 'Aluminum (6061 / 6082 / 5052)', density: 2.70 },
+    { label: 'Aluminum (7075 / 2024)', density: 2.81 },
+    { label: 'Cast Aluminum (LM6 / ADC12)', density: 2.65 },
+    { label: 'Brass', density: 8.50 },
+    { label: 'Copper (Electrolytic ETP)', density: 8.96 },
+    { label: 'Phosphor Bronze / Gunmetal', density: 8.80 },
+    { label: 'Aluminum Bronze', density: 7.60 },
+    { label: 'Titanium (Grade 2 / Grade 5)', density: 4.50 },
+    { label: 'Inconel (625 / 718)', density: 8.44 },
+    { label: 'Monel (400)', density: 8.80 },
+    { label: 'Zinc / Zamak', density: 7.14 },
+    { label: 'Lead', density: 11.34 },
+    { label: 'Nylon (PA6 / PA66)', density: 1.15 },
+    { label: 'Delrin / POM (Acetal)', density: 1.41 },
+    { label: 'UHMWPE / HDPE', density: 0.95 },
+    { label: 'PTFE (Teflon)', density: 2.20 },
+    { label: 'Polypropylene (PP)', density: 0.91 },
+    { label: 'PVC (Rigid)', density: 1.38 },
+    { label: 'Polycarbonate / Acrylic', density: 1.20 },
+    { label: 'PEEK', density: 1.32 },
+    { label: 'FRP / Epoxy G10 / Bakelite', density: 1.80 },
+    { label: 'Rubber (Neoprene / Nitrile / EPDM)', density: 1.25 },
+];
+
+const SHAPE_OPTIONS: { key: SteelShape; label: string }[] = [
+    { key: 'plate', label: 'Sheet / Plate' },
+    { key: 'round_bar', label: 'Round Bar / Rod' },
+    { key: 'square_bar', label: 'Square Bar' },
+    { key: 'hex_bar', label: 'Hexagonal Bar' },
+    { key: 'flat_bar', label: 'Flat Bar / Strip' },
+    { key: 'pipe', label: 'Round Pipe / Tube' },
+    { key: 'square_tube', label: 'Square / Rectangular Tube' },
+    { key: 'angle', label: 'L-Angle' },
+    { key: 'channel', label: 'C-Channel' },
+    { key: 'ibeam', label: 'I-Beam / H-Beam' },
+    { key: 't_section', label: 'T-Section (Tee)' },
+];
 
 interface SteelCalcState {
     shape: SteelShape;
     materialType: string;
-    density: number; // in g/cm³ (kg/dm³)
+    density: number; // auto-applied in g/cm³ (kg/dm³)
     lengthMm: number;
     widthMm: number;
     thicknessMm: number;
     outerDiaMm: number;
     heightMm: number;
     pieces: number;
-    ratePerKg: number;
+    targetRowIndex: number; // -1 = New Row, 0..N = specific row index
 }
 
 interface ItemValidationError {
@@ -143,7 +207,7 @@ export default function POModal({
         outerDiaMm: 50,
         heightMm: 50,
         pieces: 1,
-        ratePerKg: 75,
+        targetRowIndex: 0,
     });
 
     const [materialEntries, setMaterialEntries] = useState<POLineItemEntry[]>([{
@@ -845,73 +909,113 @@ export default function POModal({
             );
     }, [materialEntries, itemSearchQuery]);
 
-    // Steel RM Calculator Calculations
+    // Material Weight Calculator Calculations (Sheet/Plate to L-Angle & Structural Shapes)
     const calculatedSteelResult = useMemo(() => {
         const { shape, density, lengthMm, widthMm, thicknessMm, outerDiaMm, heightMm, pieces } = steelCalc;
-        const L_m = lengthMm / 1000;
-        const W_m = widthMm / 1000;
-        const T_m = thicknessMm / 1000;
-        const OD_m = outerDiaMm / 1000;
-        const H_m = heightMm / 1000;
-        const rho = density * 1000; // convert g/cm³ to kg/m³
+        const L_m = Math.max(0, Number(lengthMm) || 0) / 1000;
+        const W_m = Math.max(0, Number(widthMm) || 0) / 1000;
+        const T_m = Math.max(0, Number(thicknessMm) || 0) / 1000;
+        const OD_m = Math.max(0, Number(outerDiaMm) || 0) / 1000;
+        const H_m = Math.max(0, Number(heightMm) || 0) / 1000;
+        const rho = Math.max(0, Number(density) || 0) * 1000; // convert g/cm³ to kg/m³
 
         let singleWeightKg = 0;
-        let specString = '';
 
         if (shape === 'plate') {
             singleWeightKg = L_m * W_m * T_m * rho;
-            specString = `Sheet/Plate ${lengthMm} x ${widthMm} x ${thicknessMm}mm`;
         } else if (shape === 'round_bar') {
             const radius_m = OD_m / 2;
             singleWeightKg = Math.PI * Math.pow(radius_m, 2) * L_m * rho;
-            specString = `Round Bar Dia Ø${outerDiaMm}mm x ${lengthMm}mm Length`;
-        } else if (shape === 'pipe') {
-            singleWeightKg = Math.PI * (OD_m - T_m) * T_m * L_m * rho;
-            specString = `Round Pipe OD Ø${outerDiaMm}mm x ${thicknessMm}mm Wall x ${lengthMm}mm`;
-        } else if (shape === 'square_tube') {
-            singleWeightKg = 2 * (W_m + H_m - (2 * T_m)) * T_m * L_m * rho;
-            specString = `Square/Rect Tube ${widthMm} x ${heightMm} x ${thicknessMm}mm Wall x ${lengthMm}mm`;
+        } else if (shape === 'square_bar') {
+            singleWeightKg = Math.pow(W_m, 2) * L_m * rho;
+        } else if (shape === 'hex_bar') {
+            // Area of regular hexagon across flats (AF) = (sqrt(3) / 2) * AF^2 = 0.8660254 * AF^2
+            singleWeightKg = 0.8660254 * Math.pow(OD_m, 2) * L_m * rho;
         } else if (shape === 'flat_bar') {
             singleWeightKg = W_m * T_m * L_m * rho;
-            specString = `Flat Bar ${widthMm}mm Width x ${thicknessMm}mm Thk x ${lengthMm}mm Length`;
-        } else if (shape === 'angle') {
-            singleWeightKg = (W_m + H_m - T_m) * T_m * L_m * rho;
-            specString = `Equal Angle ${widthMm} x ${heightMm} x ${thicknessMm}mm x ${lengthMm}mm`;
+        } else if (shape === 'pipe') {
+            singleWeightKg = Math.PI * Math.max(0, OD_m - T_m) * T_m * L_m * rho;
+        } else if (shape === 'square_tube') {
+            singleWeightKg = 2 * Math.max(0, W_m + H_m - (2 * T_m)) * T_m * L_m * rho;
+        } else if (shape === 'angle' || shape === 't_section') {
+            singleWeightKg = Math.max(0, W_m + H_m - T_m) * T_m * L_m * rho;
+        } else if (shape === 'channel' || shape === 'ibeam') {
+            singleWeightKg = Math.max(0, H_m + (2 * W_m) - (2 * T_m)) * T_m * L_m * rho;
         }
 
-        const totalWeightKg = singleWeightKg * (pieces || 1);
+        const totalWeightKg = singleWeightKg * Math.max(1, Number(pieces) || 1);
 
         return {
             singleWeightKg: Math.max(0, singleWeightKg),
             totalWeightKg: Math.max(0, totalWeightKg),
-            specString: `${steelCalc.materialType} ${specString}`,
         };
     }, [steelCalc]);
 
-    const handleApplySteelCalculation = () => {
-        const { totalWeightKg, specString } = calculatedSteelResult;
+    const handleApplySteelCalculation = (mode: 'target_row' | 'new_row' = 'target_row') => {
+        const { totalWeightKg } = calculatedSteelResult;
         const formattedWeight = parseFloat(totalWeightKg.toFixed(3));
-        const rate = Number(steelCalc.ratePerKg) || 0;
-        const lineSub = formattedWeight * rate;
+        const piecesCount = Math.max(1, Number(steelCalc.pieces) || 1);
 
-        const newEntry: POLineItemEntry = {
-            itemType: 'rm',
-            material: '',
-            materialName: `${steelCalc.materialType} (${steelCalc.shape.replace('_', ' ').toUpperCase()})`,
-            description: `${specString} | Dimensions: L=${steelCalc.lengthMm}mm, W=${steelCalc.widthMm}mm, T=${steelCalc.thicknessMm}mm`,
-            hsnCode: '7208',
-            pieceCount: Number(steelCalc.pieces) || 1,
-            quantity: formattedWeight,
-            unit: 'KG',
-            rate: rate,
-            amount: lineSub, // Actual amount without tax
-            category: 'Raw Material',
-        };
+        const targetIdx = mode === 'new_row' ? -1 : steelCalc.targetRowIndex;
 
-        if (materialEntries.length === 1 && !materialEntries[0].material && !materialEntries[0].materialName && materialEntries[0].quantity === 0) {
-            setMaterialEntries([newEntry]);
+        if (targetIdx >= 0 && targetIdx < materialEntries.length) {
+            setMaterialEntries(prev => {
+                const updated = [...prev];
+                const current = { ...updated[targetIdx] };
+                const hasSec = Boolean(current.hasSecondaryUnit && current.secondaryUnit);
+                const convFactor = Number(current.conversionFactor) || 1;
+
+                current.pieceCount = piecesCount;
+                if (!current.unit) current.unit = 'KG';
+
+                const synced = syncQuantities('quantity', formattedWeight, convFactor);
+                current.quantity = synced.quantity;
+                if (hasSec) {
+                    current.secondaryQuantity = synced.secondaryQuantity;
+                }
+
+                const pricing = computeDualUomLinePricing({
+                    quantity: current.quantity,
+                    unit: current.unit || 'KG',
+                    hasSecondaryUnit: hasSec,
+                    secondaryUnit: current.secondaryUnit,
+                    conversionFactor: convFactor,
+                    secondaryQuantity: current.secondaryQuantity,
+                    rateUnit: current.rateUnit,
+                    rate: current.rate,
+                });
+
+                current.quantity = pricing.quantity;
+                current.secondaryQuantity = pricing.secondaryQuantity;
+                current.selectedUnit = pricing.selectedUnit;
+                current.primaryRate = pricing.primaryRate;
+                current.secondaryRate = pricing.secondaryRate;
+                current.rate = pricing.rate;
+                current.amount = pricing.amount;
+
+                updated[targetIdx] = current;
+                return updated;
+            });
         } else {
-            setMaterialEntries(prev => [...prev, newEntry]);
+            const newEntry: POLineItemEntry = {
+                itemType: poCategory,
+                material: '',
+                materialName: '',
+                description: '',
+                hsnCode: '',
+                pieceCount: piecesCount,
+                quantity: formattedWeight,
+                unit: 'KG',
+                rate: 0,
+                amount: 0,
+                category: poCategory === 'rm' ? 'Raw Material' : poCategory === 'bo' ? 'Bought Out' : 'Consumable',
+            };
+
+            if (materialEntries.length === 1 && !materialEntries[0].material && !materialEntries[0].materialName && materialEntries[0].quantity === 0) {
+                setMaterialEntries([newEntry]);
+            } else {
+                setMaterialEntries(prev => [...prev, newEntry]);
+            }
         }
 
         setShowSteelCalc(false);
@@ -1374,27 +1478,270 @@ export default function POModal({
                                 </span>
                             </div>
 
-                            {/* In-Modal Quick Filter */}
-                            <div className="relative w-full sm:w-64">
-                                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                <input
-                                    type="text"
-                                    placeholder="Find row, name, desc, HSN..."
-                                    value={itemSearchQuery}
-                                    onChange={(e) => setItemSearchQuery(e.target.value)}
-                                    className="w-full pl-8 pr-7 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-cyan-500"
-                                />
-                                {itemSearchQuery && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setItemSearchQuery('')}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                                    >
-                                        <X size={13} />
-                                    </button>
-                                )}
+                            {/* Desktop Material Calculator Button + In-Modal Quick Filter */}
+                            <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowSteelCalc(prev => !prev)}
+                                    className={`hidden lg:inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs active:scale-95 ${
+                                        showSteelCalc
+                                            ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/25'
+                                            : 'bg-indigo-50/80 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60'
+                                    }`}
+                                    title="Open Material Weight Calculator (Sheet, Plate, Bar, Pipe, Tube, Hex, L-Angle, Channel, Beam)"
+                                >
+                                    <Calculator size={14} />
+                                    <span>{showSteelCalc ? 'Hide Material Calculator' : 'Calculate Material Weight'}</span>
+                                </button>
+
+                                <div className="relative w-full sm:w-64">
+                                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                    <input
+                                        type="text"
+                                        placeholder="Find row, name, desc, HSN..."
+                                        value={itemSearchQuery}
+                                        onChange={(e) => setItemSearchQuery(e.target.value)}
+                                        className="w-full pl-8 pr-7 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-cyan-500"
+                                    />
+                                    {itemSearchQuery && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setItemSearchQuery('')}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                        >
+                                            <X size={13} />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         </div>
+
+                        {/* Desktop-Only Modern Material Weight Calculator Panel */}
+                        {showSteelCalc && (
+                            <div className="hidden lg:block px-4 py-3.5 bg-gradient-to-r from-indigo-50/70 via-slate-50 to-cyan-50/50 dark:from-slate-800/90 dark:via-slate-900 dark:to-slate-800/90 border-b border-indigo-200/80 dark:border-indigo-800/70 animate-in fade-in duration-150">
+                                <div className="flex items-end gap-2.5 flex-wrap">
+                                    {/* Material Dropdown (Auto-applies density in background) */}
+                                    <div className="w-56 shrink-0">
+                                        <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                            Material
+                                        </label>
+                                        <select
+                                            value={steelCalc.materialType}
+                                            onChange={(e) => {
+                                                const selectedLabel = e.target.value;
+                                                const preset = MATERIAL_DENSITY_PRESETS.find(m => m.label === selectedLabel);
+                                                setSteelCalc(prev => ({
+                                                    ...prev,
+                                                    materialType: selectedLabel,
+                                                    density: preset ? preset.density : prev.density,
+                                                }));
+                                            }}
+                                            className="w-full px-2.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer shadow-2xs"
+                                        >
+                                            {MATERIAL_DENSITY_PRESETS.map((preset) => (
+                                                <option key={preset.label} value={preset.label}>
+                                                    {preset.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    {/* Shape / Profile Dropdown */}
+                                    <div className="w-48 shrink-0">
+                                        <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                            Shape / Profile
+                                        </label>
+                                        <select
+                                            value={steelCalc.shape}
+                                            onChange={(e) => setSteelCalc(prev => ({ ...prev, shape: e.target.value as SteelShape }))}
+                                            className="w-full px-2.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer shadow-2xs"
+                                        >
+                                            {SHAPE_OPTIONS.map((sh) => (
+                                                <option key={sh.key} value={sh.key}>
+                                                    {sh.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    {/* Length (mm) */}
+                                    <div className="w-28 shrink-0">
+                                        <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                            Length (mm)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="any"
+                                            value={steelCalc.lengthMm || ''}
+                                            onChange={(e) => setSteelCalc(prev => ({ ...prev, lengthMm: parseFloat(e.target.value) || 0 }))}
+                                            className="w-full px-2.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-900 dark:text-white text-center focus:ring-2 focus:ring-indigo-500 outline-none shadow-2xs"
+                                        />
+                                    </div>
+
+                                    {/* Dia / Across Flats (mm) */}
+                                    {(steelCalc.shape === 'round_bar' || steelCalc.shape === 'pipe' || steelCalc.shape === 'hex_bar') && (
+                                        <div className="w-28 shrink-0">
+                                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                                {steelCalc.shape === 'hex_bar' ? 'AF Size (mm)' : 'Dia Ø (mm)'}
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="any"
+                                                value={steelCalc.outerDiaMm || ''}
+                                                onChange={(e) => setSteelCalc(prev => ({ ...prev, outerDiaMm: parseFloat(e.target.value) || 0 }))}
+                                                className="w-full px-2.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-900 dark:text-white text-center focus:ring-2 focus:ring-indigo-500 outline-none shadow-2xs"
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Width / Side / Leg A / Flange W (mm) */}
+                                    {(steelCalc.shape === 'plate' ||
+                                        steelCalc.shape === 'square_bar' ||
+                                        steelCalc.shape === 'square_tube' ||
+                                        steelCalc.shape === 'flat_bar' ||
+                                        steelCalc.shape === 'angle' ||
+                                        steelCalc.shape === 't_section' ||
+                                        steelCalc.shape === 'channel' ||
+                                        steelCalc.shape === 'ibeam') && (
+                                        <div className="w-28 shrink-0">
+                                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                                {steelCalc.shape === 'square_bar'
+                                                    ? 'Side (mm)'
+                                                    : steelCalc.shape === 'angle'
+                                                    ? 'Leg A (mm)'
+                                                    : steelCalc.shape === 'channel' || steelCalc.shape === 'ibeam' || steelCalc.shape === 't_section'
+                                                    ? 'Flange W (mm)'
+                                                    : 'Width (mm)'}
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="any"
+                                                value={steelCalc.widthMm || ''}
+                                                onChange={(e) => setSteelCalc(prev => ({ ...prev, widthMm: parseFloat(e.target.value) || 0 }))}
+                                                className="w-full px-2.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-900 dark:text-white text-center focus:ring-2 focus:ring-indigo-500 outline-none shadow-2xs"
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Height / Leg B / Web H (mm) */}
+                                    {(steelCalc.shape === 'square_tube' ||
+                                        steelCalc.shape === 'angle' ||
+                                        steelCalc.shape === 't_section' ||
+                                        steelCalc.shape === 'channel' ||
+                                        steelCalc.shape === 'ibeam') && (
+                                        <div className="w-28 shrink-0">
+                                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                                {steelCalc.shape === 'angle'
+                                                    ? 'Leg B (mm)'
+                                                    : steelCalc.shape === 'channel' || steelCalc.shape === 'ibeam' || steelCalc.shape === 't_section'
+                                                    ? 'Web H (mm)'
+                                                    : 'Height (mm)'}
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="any"
+                                                value={steelCalc.heightMm || ''}
+                                                onChange={(e) => setSteelCalc(prev => ({ ...prev, heightMm: parseFloat(e.target.value) || 0 }))}
+                                                className="w-full px-2.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-900 dark:text-white text-center focus:ring-2 focus:ring-indigo-500 outline-none shadow-2xs"
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Thickness / Wall Thk (mm) */}
+                                    {steelCalc.shape !== 'round_bar' && steelCalc.shape !== 'square_bar' && steelCalc.shape !== 'hex_bar' && (
+                                        <div className="w-28 shrink-0">
+                                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                                {steelCalc.shape === 'pipe' || steelCalc.shape === 'square_tube' ? 'Wall (mm)' : 'Thk (mm)'}
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="any"
+                                                value={steelCalc.thicknessMm || ''}
+                                                onChange={(e) => setSteelCalc(prev => ({ ...prev, thicknessMm: parseFloat(e.target.value) || 0 }))}
+                                                className="w-full px-2.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-900 dark:text-white text-center focus:ring-2 focus:ring-indigo-500 outline-none shadow-2xs"
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Pieces (Nos) */}
+                                    <div className="w-20 shrink-0">
+                                        <label className="block text-[11px] font-bold text-amber-700 dark:text-amber-300 mb-1">
+                                            Pcs
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            step="1"
+                                            value={steelCalc.pieces || ''}
+                                            onChange={(e) => setSteelCalc(prev => ({ ...prev, pieces: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                            className="w-full px-2 py-2 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-xl text-xs font-mono font-bold text-amber-900 dark:text-amber-200 text-center focus:ring-2 focus:ring-amber-500 outline-none shadow-2xs"
+                                        />
+                                    </div>
+
+                                    {/* Target PO Row Selector */}
+                                    <div className="w-36 shrink-0">
+                                        <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                            Apply To
+                                        </label>
+                                        <select
+                                            value={steelCalc.targetRowIndex}
+                                            onChange={(e) => setSteelCalc(prev => ({ ...prev, targetRowIndex: parseInt(e.target.value, 10) }))}
+                                            className="w-full px-2.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer shadow-2xs"
+                                        >
+                                            {materialEntries.map((_, rIdx) => (
+                                                <option key={rIdx} value={rIdx}>
+                                                    Row #{rIdx + 1}
+                                                </option>
+                                            ))}
+                                            <option value={-1}>+ New Row</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Calculated Weight Output + Apply Button */}
+                                    <div className="flex items-center gap-2 ml-auto pt-4">
+                                        <div className="flex items-center gap-3 px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-800 shadow-2xs">
+                                            <div>
+                                                <div className="text-[10px] font-bold uppercase text-slate-400 leading-none">1 Pc</div>
+                                                <div className="font-mono font-bold text-xs text-slate-700 dark:text-slate-200 mt-0.5">
+                                                    {calculatedSteelResult.singleWeightKg.toFixed(3)} KG
+                                                </div>
+                                            </div>
+                                            <div className="h-6 w-px bg-slate-200 dark:bg-slate-700" />
+                                            <div>
+                                                <div className="text-[10px] font-bold uppercase text-indigo-600 dark:text-indigo-400 leading-none">Total</div>
+                                                <div className="font-mono font-black text-sm text-indigo-700 dark:text-indigo-300 mt-0.5">
+                                                    {calculatedSteelResult.totalWeightKg.toFixed(3)} KG
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => handleApplySteelCalculation(steelCalc.targetRowIndex === -1 ? 'new_row' : 'target_row')}
+                                            disabled={calculatedSteelResult.totalWeightKg <= 0}
+                                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-700 hover:to-cyan-700 text-white text-xs font-bold shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+                                        >
+                                            <Check size={14} />
+                                            <span>Apply</span>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowSteelCalc(false)}
+                                            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                            title="Close Calculator"
+                                        >
+                                            <X size={15} />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Desktop Line Items Table: Balanced Columns & Non-Overflowing Material Cell with Hover Full Text */}
                         <div className="hidden lg:block overflow-x-auto pb-4">
@@ -1915,6 +2262,15 @@ export default function POModal({
                                     className="px-5 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                                 >
                                     <Plus size={16} /> Add Item
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowSteelCalc(prev => !prev)}
+                                    className="hidden lg:inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95"
+                                    title="Open Material Weight Calculator (Desktop Only)"
+                                >
+                                    <Calculator size={15} />
+                                    <span>{showSteelCalc ? 'Hide Weight Calculator' : 'Material Weight Calculator'}</span>
                                 </button>
                             </div>
 

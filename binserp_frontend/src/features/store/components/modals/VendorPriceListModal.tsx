@@ -1,9 +1,11 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { X, Save, AlertCircle, Layers, Tag } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
 import { apiGet } from "@/src/lib/api";
 import { formatItemSelectLabel, getItemDescription } from "@/src/utils/itemDisplayHelper";
+
+const EMPTY_ARRAY: any[] = [];
 
 interface VendorPriceListModalProps {
   isOpen: boolean;
@@ -28,7 +30,7 @@ export default function VendorPriceListModal({
   boughtOuts: propBoughtOuts,
   consumables: propConsumables,
   vendors: propVendors,
-  vendorPriceLists: propVendorPriceLists = [],
+  vendorPriceLists: propVendorPriceLists = EMPTY_ARRAY,
 }: VendorPriceListModalProps) {
   const [itemType, setItemType] = useState<'rm' | 'bo' | 'consumable'>('rm');
   const [formData, setFormData] = useState({
@@ -90,87 +92,101 @@ export default function VendorPriceListModal({
     }
   }, [isOpen, propRawMaterials, propBoughtOuts, propConsumables, propVendors]);
 
+  const initializedKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (isOpen) {
-      if (initialData) {
-        const matId = (initialData.material?._id || initialData.material || "").toString();
-        const detectedCat = initialData.itemCategory || initialData.material?.itemCategory || initialData.category;
-        if (detectedCat === 'rm' || detectedCat === 'bo' || detectedCat === 'consumable') {
-          setItemType(detectedCat);
-        }
-
-        // Cross-check against existing vendorPriceLists if _id or material is provided
-        const matchedPL = Array.isArray(propVendorPriceLists)
-          ? propVendorPriceLists.find((pl: any) => {
-              if (initialData._id && String(pl._id) === String(initialData._id)) return true;
-              const plMatId = String(pl.material?._id || pl.material?.id || pl.material || "");
-              return Boolean(matId && plMatId && matId === plMatId);
-            })
-          : null;
-
-        const rawVendor = initialData.vendor !== undefined ? initialData.vendor : matchedPL?.vendor;
-        const resolvedVendorId = typeof rawVendor === 'object' && rawVendor !== null
-          ? String(rawVendor._id || rawVendor.id || "")
-          : String(rawVendor || "");
-
-        const resolvedPrice =
-          initialData.price !== undefined && initialData.price !== ""
-            ? initialData.price.toString()
-            : matchedPL?.price !== undefined
-            ? matchedPL.price.toString()
-            : "";
-
-        const resolvedTaxRate =
-          initialData.taxRate !== undefined && initialData.taxRate !== ""
-            ? initialData.taxRate.toString()
-            : matchedPL?.taxRate !== undefined
-            ? matchedPL.taxRate.toString()
-            : "18";
-
-        const resolvedPricingUnit = (
-          initialData.pricingUnit ||
-          matchedPL?.pricingUnit ||
-          ""
-        ).toString().trim();
-
-        const resolvedSecUnit = (
-          initialData.secondaryUnit ||
-          initialData.material?.secondaryUnit ||
-          matchedPL?.material?.secondaryUnit ||
-          ""
-        ).toString().trim();
-
-        const resolvedIsSecondary =
-          initialData.isSecondaryUnit !== undefined
-            ? Boolean(initialData.isSecondaryUnit)
-            : matchedPL?.isSecondaryUnit !== undefined
-            ? Boolean(matchedPL.isSecondaryUnit)
-            : Boolean(resolvedPricingUnit && resolvedSecUnit && resolvedPricingUnit.toUpperCase() === resolvedSecUnit.toUpperCase());
-
-        setFormData({
-          material: matId,
-          vendor: resolvedVendorId,
-          price: resolvedPrice,
-          taxRate: resolvedTaxRate,
-          isPreferred: initialData.isPreferred !== undefined ? Boolean(initialData.isPreferred) : Boolean(matchedPL?.isPreferred),
-          pricingUnit: resolvedPricingUnit,
-          isSecondaryUnit: resolvedIsSecondary,
-          remarks: initialData.remarks !== undefined ? initialData.remarks : (matchedPL?.remarks || ""),
-        });
-      } else {
-        setFormData({
-          material: "",
-          vendor: "",
-          price: "",
-          taxRate: "18",
-          isPreferred: false,
-          pricingUnit: "",
-          isSecondaryUnit: false,
-          remarks: "",
-        });
-      }
-      setError("");
+    if (!isOpen) {
+      initializedKeyRef.current = null;
+      return;
     }
+
+    const initKey = initialData
+      ? `${initialData._id || ""}_${initialData.material?._id || initialData.material || ""}_${initialData.vendor?._id || initialData.vendor || ""}_${initialData.itemCategory || ""}`
+      : "__NEW__";
+
+    if (initializedKeyRef.current === initKey) {
+      return;
+    }
+    initializedKeyRef.current = initKey;
+
+    if (initialData) {
+      const matId = (initialData.material?._id || initialData.material || "").toString();
+      const detectedCat = initialData.itemCategory || initialData.material?.itemCategory || initialData.category;
+      if (detectedCat === 'rm' || detectedCat === 'bo' || detectedCat === 'consumable') {
+        setItemType(detectedCat);
+      }
+
+      // Cross-check against existing vendorPriceLists if _id or material is provided
+      const matchedPL = Array.isArray(propVendorPriceLists)
+        ? propVendorPriceLists.find((pl: any) => {
+            if (initialData._id && String(pl._id) === String(initialData._id)) return true;
+            const plMatId = String(pl.material?._id || pl.material?.id || pl.material || "");
+            return Boolean(matId && plMatId && matId === plMatId);
+          })
+        : null;
+
+      const rawVendor = initialData.vendor !== undefined ? initialData.vendor : matchedPL?.vendor;
+      const resolvedVendorId = typeof rawVendor === 'object' && rawVendor !== null
+        ? String(rawVendor._id || rawVendor.id || "")
+        : String(rawVendor || "");
+
+      const resolvedPrice =
+        initialData.price !== undefined && initialData.price !== ""
+          ? initialData.price.toString()
+          : matchedPL?.price !== undefined
+          ? matchedPL.price.toString()
+          : "";
+
+      const resolvedTaxRate =
+        initialData.taxRate !== undefined && initialData.taxRate !== ""
+          ? initialData.taxRate.toString()
+          : matchedPL?.taxRate !== undefined
+          ? matchedPL.taxRate.toString()
+          : "18";
+
+      const resolvedPricingUnit = (
+        initialData.pricingUnit ||
+        matchedPL?.pricingUnit ||
+        ""
+      ).toString().trim();
+
+      const resolvedSecUnit = (
+        initialData.secondaryUnit ||
+        initialData.material?.secondaryUnit ||
+        matchedPL?.material?.secondaryUnit ||
+        ""
+      ).toString().trim();
+
+      const resolvedIsSecondary =
+        initialData.isSecondaryUnit !== undefined
+          ? Boolean(initialData.isSecondaryUnit)
+          : matchedPL?.isSecondaryUnit !== undefined
+          ? Boolean(matchedPL.isSecondaryUnit)
+          : Boolean(resolvedPricingUnit && resolvedSecUnit && resolvedPricingUnit.toUpperCase() === resolvedSecUnit.toUpperCase());
+
+      setFormData({
+        material: matId,
+        vendor: resolvedVendorId,
+        price: resolvedPrice,
+        taxRate: resolvedTaxRate,
+        isPreferred: initialData.isPreferred !== undefined ? Boolean(initialData.isPreferred) : Boolean(matchedPL?.isPreferred),
+        pricingUnit: resolvedPricingUnit,
+        isSecondaryUnit: resolvedIsSecondary,
+        remarks: initialData.remarks !== undefined ? initialData.remarks : (matchedPL?.remarks || ""),
+      });
+    } else {
+      setFormData({
+        material: "",
+        vendor: "",
+        price: "",
+        taxRate: "18",
+        isPreferred: false,
+        pricingUnit: "",
+        isSecondaryUnit: false,
+        remarks: "",
+      });
+    }
+    setError("");
   }, [isOpen, initialData, propVendorPriceLists]);
 
   // Find selected material object to inspect dual-unit settings

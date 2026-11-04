@@ -137,4 +137,25 @@ Across all operational modules and popup dialogues:
   - Cancel Button: `px-4.5 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all cursor-pointer active:scale-95`
   - Submit Button: `px-6 py-2.5 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 rounded-xl shadow-md shadow-indigo-500/25 hover:shadow-lg hover:shadow-indigo-500/35 transition-all cursor-pointer flex items-center gap-2 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed`
 
+## 9. Cross-Module Feature Integration & Mandatory Regression Testing Standard
+Across the entire BinsERP application (Backend APIs, Multi-Tenant DB, and Frontend Modules):
+
+- **Strict Rule — Read & Follow `INTEGRATION_RULES.md`**:
+  Every AI agent and developer MUST follow the cross-module integration contracts defined in [`e:\Binserp\INTEGRATION_RULES.md`](file:///e:/Binserp/INTEGRATION_RULES.md) whenever adding a new feature, modifying an existing workflow, or fixing a bug.
+
+- **Key Cross-Module Integration Invariants**:
+  1. **Masters <-> BOM <-> Price Lists <-> Downstream Documents**: Always preserve Dual-UOM fields (`hasSecondaryUnit`, `secondaryUnit`, `conversionFactor`, `primaryRatio`, `secondaryRatio`, `secondaryQuantity`, `selectedUnit`) and item technical descriptions (`descriptions` / `description`) across Masters, BOM, MRP, Purchase Orders, GRNs, WIP Material Requests/Issues, Job Work Challans, and Sales Orders.
+  2. **MRP <-> Material PO & Job Work Outward PO <-> GRN**: Any change to MRP Demand Plans or Purchase Orders must preserve bidirectional `mrpPlanId` / `mrpNumber` linking, `linkedPOs` / `linkedPOCount` (including both `standard` and `jobwork` POs), and `syncMRPPlanFinancials`.
+  3. **WIP Material Request <-> Material Issue <-> Time-Lock Governance**: The 24-hour edit time-lock policy (`checkTimeLockGovernance`) applies **strictly to manual user edits** of request specifications and must **never** block operational status/fulfillment transitions (`Issued`, `Partially Issued`, `Approved`, `Rejected`, `skipInventoryUpdate`, `bypassTimeLock`) when issuing materials against older requests.
+  4. **Job Work Outward PO <-> Job Work Challan**: Maintain bidirectional `poNumber`, `challanNumber`, `jobWorkChallan`, and `processRate` synchronization (`syncJobWorkChallanPO`).
+  5. **Dynamic Space-Free & Multi-Keyword Search**: All search inputs, BOM filters, Price List search bars, and `ColumnFilter` components must use `isSpaceFreeMatch` / `matchesAnyField` from `@/src/utils/spaceFreeSearchHelper` and must never strip spaces on `onChange`.
+
+- **Mandatory Verification & Test Evolution Protocol**:
+  1. On every code change, verify syntax & types:
+     - Backend syntax check: `node -c <file>` in `binserp_backend`
+     - Frontend typecheck: `npx tsc --noEmit` in `binserp_frontend`
+  2. Whenever a new feature is added or an existing integration contract is intentionally changed, **add or update the corresponding integration test** in `binserp_backend/tests/` or `binserp_frontend/tests/` so regression tests always stay in sync with the application.
+  3. **Strict On-Demand Test Execution Rule**: **ONLY run the integration test commands (`npm run test` / `npx vitest run`) when the user explicitly asks to run integration tests.** Do NOT run the integration test suite automatically unless requested by the user.
+
+
 
