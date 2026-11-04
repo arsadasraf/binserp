@@ -1388,7 +1388,8 @@ export const getAllMRPPlans = async (req, res) => {
     // Batch query linked POs for all plans
     const linkedPOs = await PurchaseOrder.find({
       company: companyId,
-      $or: poOrClauses
+      $or: poOrClauses,
+      status: { $nin: ["Cancelled"] }
     }).select("mrpPlanId mrpNumber poNumber status grandTotal totalAmount").lean().catch(() => []);
 
     // Map from plan ID string -> Map<poId, amount> to strictly deduplicate POs per plan
@@ -1567,7 +1568,8 @@ export const getMRPPlanById = async (req, res) => {
 
     const linkedPOs = await PurchaseOrder.find({
       company: companyId,
-      $or: singlePlanOrClauses
+      $or: singlePlanOrClauses,
+      status: { $nin: ["Cancelled"] }
     })
       .populate("vendor", "name code gst phone email")
       .populate("items.material", "name code unit category descriptions description specification")
@@ -2533,7 +2535,13 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
 
   let plan = planDocOrId;
   if (typeof planDocOrId === "string" || planDocOrId instanceof mongoose.Types.ObjectId) {
-    plan = await MRPPlan.findOne({ _id: planDocOrId, company: companyId });
+    plan = await MRPPlan.findOne({
+      company: companyId,
+      $or: [
+        { _id: mongoose.isValidObjectId(planDocOrId) ? planDocOrId : undefined },
+        { mrpNumber: String(planDocOrId) }
+      ].filter(Boolean)
+    });
   }
   if (!plan) return null;
 
@@ -2674,18 +2682,42 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     });
   });
 
-  // Build Fast In-Transit PO Quantities Map for this specific MRP Plan
+  // Build Fast In-Transit PO Quantities Map & PO Item Lookup for this specific MRP Plan
   const inTransitPoQtyMap = new Map();
   const validPlanPoNumbers = new Set();
+  const poItemLookup = new Map();
+
   openPOs.forEach(po => {
-    if (po.poNumber) validPlanPoNumbers.add(po.poNumber);
+    if (po.poNumber) validPlanPoNumbers.add(po.poNumber.trim().toLowerCase());
     (po.items || []).forEach(item => {
       const orderedQty = Number(item.quantity || 0);
-      const pendingQty = Number(item.pendingQuantity ?? (orderedQty - (item.receivedQuantity || 0))) || 0;
+      const recQty = Number(item.receivedQuantity || 0);
+      const pendingQty = Number(item.pendingQuantity ?? (orderedQty - recQty)) || 0;
+      const rate = Number(item.rate || 0);
+
       const k1 = cleanStr(item.materialName || item.itemName);
       const k2 = cleanStr(item.materialCode || item.itemCode);
-      [k1, k2, cleanKey(k1), cleanKey(k2)].filter(Boolean).forEach(k => {
+      const matIdK = item.material ? String(item.material) : null;
+
+      [k1, k2, cleanKey(k1), cleanKey(k2), matIdK].filter(Boolean).forEach(k => {
         inTransitPoQtyMap.set(k, (inTransitPoQtyMap.get(k) || 0) + (pendingQty > 0 ? pendingQty : orderedQty));
+
+        if (!poItemLookup.has(k)) {
+          poItemLookup.set(k, {
+            poNumber: po.poNumber || "",
+            rate,
+            orderedQuantity: orderedQty,
+            receivedQuantity: recQty
+          });
+        } else {
+          const existing = poItemLookup.get(k);
+          existing.orderedQuantity += orderedQty;
+          existing.receivedQuantity += recQty;
+          if (rate > 0) existing.rate = rate;
+          if (po.poNumber && !existing.poNumber.split(',').map(s => s.trim().toLowerCase()).includes(po.poNumber.trim().toLowerCase())) {
+            existing.poNumber = existing.poNumber ? `${existing.poNumber}, ${po.poNumber}` : po.poNumber;
+          }
+        }
       });
     });
   });
@@ -3671,22 +3703,38 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
     });
   }
 
-  // Reconcile procurement state from existing requirements into new requirements
+  // Reconcile procurement state from live linked Outward POs into requirements
   const reconcileReqList = (reqMap) => {
     reqMap.forEach((req, key) => {
       const prev = oldReqMap.get(key) || oldReqMap.get(cleanStr(req.materialName)) || oldReqMap.get(cleanStr(req.materialCode));
-      if (prev) {
-        if (prev.status && prev.status !== "Pending") req.status = prev.status;
-        if (prev.poNumber) req.poNumber = prev.poNumber;
-        if (prev.rfqNumber) req.rfqNumber = prev.rfqNumber;
-        if (prev.orderedQuantity) req.orderedQuantity = Number(prev.orderedQuantity) || 0;
-        if (prev.receivedQuantity) req.receivedQuantity = Number(prev.receivedQuantity) || 0;
-        if (prev.preferredVendor) req.preferredVendor = prev.preferredVendor;
-        if (prev.preferredVendorName) req.preferredVendorName = prev.preferredVendorName;
+      const k1 = cleanStr(req.materialName);
+      const k2 = cleanStr(req.materialCode);
+      const mId = req.material ? String(req.material) : null;
+      const poData = poItemLookup.get(mId) || poItemLookup.get(k1) || poItemLookup.get(k2) || poItemLookup.get(cleanKey(k1)) || poItemLookup.get(cleanKey(k2));
 
-        const ordered = req.orderedQuantity || (inTransitPoQtyMap.get(key) || 0);
-        req.shortage = Math.max(0, req.requiredQuantity - req.currentStock - ordered);
+      if (poData && (poData.orderedQuantity > 0 || poData.poNumber)) {
+        req.poNumber = poData.poNumber;
+        req.orderedQuantity = poData.orderedQuantity;
+        req.receivedQuantity = poData.receivedQuantity;
+        if (req.receivedQuantity >= req.requiredQuantity && req.requiredQuantity > 0) {
+          req.status = "Completed";
+        } else {
+          req.status = "PO Raised";
+        }
+      } else {
+        // UNLINKED or No Active Linked PO: explicitly reset PO tracking
+        req.poNumber = "";
+        req.orderedQuantity = 0;
+        req.receivedQuantity = 0;
+        req.status = "Pending";
       }
+
+      if (prev?.rfqNumber) req.rfqNumber = prev.rfqNumber;
+      if (prev?.preferredVendor && !req.preferredVendor) req.preferredVendor = prev.preferredVendor;
+      if (prev?.preferredVendorName && !req.preferredVendorName) req.preferredVendorName = prev.preferredVendorName;
+
+      const ordered = req.orderedQuantity || (inTransitPoQtyMap.get(key) || 0);
+      req.shortage = Math.max(0, req.requiredQuantity - req.currentStock - ordered);
     });
   };
 
@@ -3700,7 +3748,9 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
   const preserveRemovedWithPOs = (oldList, targetMap, itemType) => {
     (oldList || []).forEach((oldItem) => {
       const k = (oldItem.materialCode || oldItem.materialName || "").toLowerCase();
-      if (!targetMap.has(k) && (oldItem.orderedQuantity > 0 || oldItem.poNumber || oldItem.status === "PO Raised")) {
+      const oldPo = oldItem.poNumber ? String(oldItem.poNumber).trim().toLowerCase() : "";
+      const isPoActive = oldPo && validPlanPoNumbers.has(oldPo);
+      if (!targetMap.has(k) && isPoActive && (oldItem.orderedQuantity > 0 || oldItem.status === "PO Raised")) {
         targetMap.set(k, {
           material: oldItem.material,
           materialName: oldItem.materialName,
@@ -3776,6 +3826,21 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
   enrichedFgItems.forEach((fg) => {
     if (Array.isArray(fg.nestedMaterials)) {
       fg.nestedMaterials.forEach((nMat) => {
+        const k1 = cleanStr(nMat.materialName);
+        const k2 = cleanStr(nMat.materialCode);
+        const poData = poItemLookup.get(k1) || poItemLookup.get(k2) || poItemLookup.get(cleanKey(k1)) || poItemLookup.get(cleanKey(k2));
+        if (poData && (poData.orderedQuantity > 0 || poData.poNumber)) {
+          nMat.poNumber = poData.poNumber;
+          if (poData.receivedQuantity >= (Number(nMat.totalRequired) || 0) && (Number(nMat.totalRequired) || 0) > 0) {
+            nMat.status = "Completed";
+          } else {
+            nMat.status = "PO Raised";
+          }
+        } else {
+          nMat.poNumber = "";
+          nMat.status = "Pending";
+        }
+
         const pricing = resolveMaterialPrice(nMat.materialName, nMat.materialCode, undefined, undefined);
         nMat.unitCost = pricing.unitCost;
         nMat.costSource = pricing.costSource;
@@ -3840,188 +3905,11 @@ export const recalculateMRPWithLatestBOM = async (planDocOrId, req, options = {}
 
 /**
  * Synchronize MRP Plan Financials & Outward PO Commitments:
- * - Aggregates all linked outward Purchase Orders to calculate committedExpense
- * - Reconciles orderedQuantity, receivedQuantity, and status on RM/BO requirements
- * - Updates material unitCost using actual contracted outward PO rates if available
- * - Recomputes totalIncome, totalGrossMaterialCost, totalEstimatedExpense
- * - Dynamically evaluates budgetStatus (Within Budget, Near Limit, Over Budget, Unset)
- * - Computes projectedGrossProfit and projectedMarginPercentage
+ * - Recalculates MRP Plan with live active Outward POs, Vendor Price Lists, and Inventory Valuations
+ * - Automatically handles unlinking/deletions, resetting committed values and requirement statuses
  */
 export const syncMRPPlanFinancials = async (planDocOrId, req) => {
-  const companyId = getCompanyId(req) || (planDocOrId?.company?._id || planDocOrId?.company);
-  const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
-  const PurchaseOrder = req.getModel("PurchaseOrder", purchaseOrderSchema);
-
-  let plan = planDocOrId;
-  if (typeof planDocOrId === "string" || planDocOrId instanceof mongoose.Types.ObjectId) {
-    plan = await MRPPlan.findOne({
-      company: companyId,
-      $or: [
-        { _id: mongoose.isValidObjectId(planDocOrId) ? planDocOrId : undefined },
-        { mrpNumber: String(planDocOrId) }
-      ].filter(Boolean)
-    });
-  }
-  if (!plan) return null;
-
-  // 1. Fetch all active outward Purchase Orders linked to this MRP Plan
-  const linkedPOs = await PurchaseOrder.find({
-    company: companyId,
-    $or: [
-      { mrpPlanId: plan._id },
-      { mrpNumber: plan.mrpNumber }
-    ],
-    status: { $nin: ["Cancelled"] }
-  }).lean().catch(() => []);
-
-  // 2. Compute committedExpense (sum of grand totals of all valid outward POs)
-  const committedExpense = Math.round(
-    linkedPOs.reduce((sum, po) => {
-      const amt = Number(po.grandTotal != null ? po.grandTotal : (po.totalAmount != null ? po.totalAmount : 0)) || 0;
-      return sum + amt;
-    }, 0) * 100
-  ) / 100;
-
-  // 3. Build item-level lookup from linked outward POs
-  const poItemLookup = new Map();
-  linkedPOs.forEach(po => {
-    (po.items || []).forEach(item => {
-      const nameK = cleanStr(item.materialName || item.itemName);
-      const codeK = cleanStr(item.materialCode || item.itemCode);
-      const matIdK = item.material ? String(item.material) : null;
-      const rate = Number(item.rate || 0);
-      const qty = Number(item.quantity || 0);
-      const recQty = Number(item.receivedQuantity || 0);
-
-      const entry = {
-        poNumber: po.poNumber,
-        rate,
-        orderedQuantity: qty,
-        receivedQuantity: recQty
-      };
-
-      [nameK, codeK, cleanKey(nameK), cleanKey(codeK), matIdK].filter(Boolean).forEach(k => {
-        if (!poItemLookup.has(k)) {
-          poItemLookup.set(k, { ...entry });
-        } else {
-          const existing = poItemLookup.get(k);
-          existing.orderedQuantity += qty;
-          existing.receivedQuantity += recQty;
-          if (rate > 0) existing.rate = rate;
-        }
-      });
-    });
-  });
-
-  // 4. Reconcile requirements and recalculate costs
-  let totalGrossMaterialCost = 0;
-  let totalEstimatedExpense = 0;
-
-  const reconcileList = (reqList) => {
-    (reqList || []).forEach(r => {
-      const k1 = cleanStr(r.materialName);
-      const k2 = cleanStr(r.materialCode);
-      const mId = r.material ? String(r.material) : null;
-      const poData = poItemLookup.get(mId) || poItemLookup.get(k1) || poItemLookup.get(k2) || poItemLookup.get(cleanKey(k1)) || poItemLookup.get(cleanKey(k2));
-
-      if (poData) {
-        if (poData.poNumber) r.poNumber = poData.poNumber;
-        if (poData.orderedQuantity > 0) r.orderedQuantity = poData.orderedQuantity;
-        if (poData.receivedQuantity > 0) r.receivedQuantity = poData.receivedQuantity;
-        if (poData.rate > 0) {
-          r.unitCost = poData.rate;
-          r.costSource = `Contracted PO Rate (${poData.poNumber})`;
-        }
-        if (r.receivedQuantity >= r.requiredQuantity && r.requiredQuantity > 0) {
-          r.status = "Completed";
-        } else if (r.orderedQuantity > 0 || r.poNumber) {
-          r.status = "PO Raised";
-        }
-      }
-
-      const reqQty = Number(r.requiredQuantity || 0);
-      const stockQty = Number(r.currentStock || r.stockQuantity || 0);
-      const ordQty = Number(r.orderedQuantity || 0);
-      r.shortage = Math.max(0, reqQty - stockQty - ordQty);
-
-      const unitCost = Number(r.unitCost || 0);
-      r.grossCost = Math.round(reqQty * unitCost * 100) / 100;
-      r.shortageCost = Math.round(r.shortage * unitCost * 100) / 100;
-
-      totalGrossMaterialCost += r.grossCost;
-      totalEstimatedExpense += r.shortageCost;
-    });
-  };
-
-  reconcileList(plan.rmRequirements);
-  reconcileList(plan.boRequirements);
-  reconcileList(plan.componentRequirements);
-  reconcileList(plan.subAssemblyRequirements);
-  reconcileList(plan.consumableRequirements);
-
-  // Reconcile nestedMaterials on fgItems
-  (plan.fgItems || []).forEach(fg => {
-    if (Array.isArray(fg.nestedMaterials)) {
-      fg.nestedMaterials.forEach(nm => {
-        const k1 = cleanStr(nm.materialName);
-        const k2 = cleanStr(nm.materialCode);
-        const poData = poItemLookup.get(k1) || poItemLookup.get(k2) || poItemLookup.get(cleanKey(k1)) || poItemLookup.get(cleanKey(k2));
-        if (poData) {
-          if (poData.poNumber) nm.poNumber = poData.poNumber;
-          if (poData.rate > 0) {
-            nm.unitCost = poData.rate;
-            nm.costSource = `Contracted PO Rate (${poData.poNumber})`;
-          }
-          if (poData.receivedQuantity >= (Number(nm.totalRequired) || 0) && (Number(nm.totalRequired) || 0) > 0) {
-            nm.status = "Completed";
-          } else if (poData.orderedQuantity > 0 || poData.poNumber) {
-            nm.status = "PO Raised";
-          }
-        }
-        const unitCost = Number(nm.unitCost || 0);
-        nm.grossCost = Math.round((Number(nm.totalRequired) || 0) * unitCost * 100) / 100;
-        nm.shortageCost = Math.round((Number(nm.shortage) || 0) * unitCost * 100) / 100;
-      });
-    }
-  });
-
-  // 5. Total Income from FG items (preserving Customer PO selling rates)
-  let totalIncome = (plan.fgItems || []).reduce((sum, f) => sum + (Number(f.totalPrice) || (Number(f.quantity || 0) * Number(f.sellingPrice || 0))), 0);
-  totalIncome = Math.round(totalIncome * 100) / 100;
-  totalGrossMaterialCost = Math.round(totalGrossMaterialCost * 100) / 100;
-  totalEstimatedExpense = Math.round(totalEstimatedExpense * 100) / 100;
-
-  // 6. Dynamic Budget Status
-  const targetExpense = Number(plan.targetExpense || 0);
-  const effectiveExpense = committedExpense > 0 ? committedExpense : totalEstimatedExpense;
-
-  let budgetStatus = "Unset";
-  if (targetExpense > 0) {
-    if (effectiveExpense > targetExpense) {
-      budgetStatus = "Over Budget";
-    } else if (effectiveExpense >= targetExpense * 0.85) {
-      budgetStatus = "Near Limit";
-    } else {
-      budgetStatus = "Within Budget";
-    }
-  }
-
-  // 7. Projected Profit & Margin
-  const projectedGrossProfit = Math.round((totalIncome - (committedExpense > 0 ? committedExpense : totalGrossMaterialCost)) * 100) / 100;
-  const projectedMarginPercentage = totalIncome > 0
-    ? Math.round((projectedGrossProfit / totalIncome) * 10000) / 100
-    : 0;
-
-  plan.committedExpense = committedExpense;
-  plan.totalIncome = totalIncome;
-  plan.totalGrossMaterialCost = totalGrossMaterialCost;
-  plan.totalEstimatedExpense = totalEstimatedExpense;
-  plan.budgetStatus = budgetStatus;
-  plan.projectedGrossProfit = projectedGrossProfit;
-  plan.projectedMarginPercentage = projectedMarginPercentage;
-
-  await plan.save();
-  return plan;
+  return await recalculateMRPWithLatestBOM(planDocOrId, req, { force: true });
 };
 
 /**

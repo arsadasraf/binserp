@@ -4,7 +4,8 @@ import crypto from "crypto";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { getTenantModel } from "../../db/tenant.js";
 import { userSchema } from "../../models/user/index.js";
-import { generateTokens, setTokenCookies } from "../../utils/token.js";
+import { generateTokens, setTokenCookies, parseDeviceInfo } from "../../utils/token.js";
+import { clearCachedCompany } from "../../middlewares/auth.middleware.js";
 
 // ✅ Login Company
 export const loginCompany = async (req, res) => {
@@ -36,17 +37,29 @@ export const loginCompany = async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    const deviceInfo = parseDeviceInfo(req);
+
     // Increment token version for strict single-device login
     company.tokenVersion = (company.tokenVersion || 0) + 1;
 
-    const { accessToken, refreshToken } = generateTokens(company._id, "company", null, company.tokenVersion);
+    const { accessToken, refreshToken } = generateTokens(
+      company._id,
+      "company",
+      null,
+      company.tokenVersion,
+      deviceInfo.accessMode
+    );
 
-    // Save refresh token
+    // Save refresh token & device info
     company.refreshToken = refreshToken;
+    company.currentDevice = deviceInfo;
     await company.save({ validateBeforeSave: false });
 
+    // Clear in-memory company cache so previous device is invalidated immediately
+    clearCachedCompany(company.companyId, String(company._id));
+
     // SET HTTP ONLY COOKIE
-    setTokenCookies(res, accessToken, refreshToken);
+    setTokenCookies(res, accessToken, refreshToken, deviceInfo.accessMode);
 
     res.status(200).json({
       message: "Login successful",
@@ -56,8 +69,11 @@ export const loginCompany = async (req, res) => {
         email: company.email,
         logo: (await signPhotos([company.logo]))[0],
         isVerified: company.isVerified,
+        deviceInfo,
       },
       token: accessToken,
+      refreshToken,
+      deviceInfo,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

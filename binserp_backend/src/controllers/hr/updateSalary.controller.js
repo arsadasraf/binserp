@@ -168,7 +168,7 @@ export const updateSalary = async (req, res) => {
         }
 
         const populatedSalary = await Salary.findById(salary._id)
-            .populate('employee', 'name employeeId department designation paymentDetails isOTApplicable')
+            .populate('employee', 'name employeeId department designation employeeType paymentDetails isOTApplicable salary standardWorkingHours weeklyOff holidayWorkPolicy weekOffWorkPolicy otCompensateForAbsent absentOTRate leaves compOffBalance')
             .populate('generatedBy', 'name')
             .populate('updatedBy', 'name');
 

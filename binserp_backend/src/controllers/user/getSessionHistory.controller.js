@@ -17,10 +17,9 @@ export const getSessionHistory = async (req, res) => {
 
     const SessionHistoryModel = getTenantModel(company.dbName, "SessionHistory", sessionHistorySchema);
 
-    // Fetch the last 5 records
+    // Fetch complete session history sorted by newest first
     const history = await SessionHistoryModel.find({ userId })
-      .sort({ createdAt: -1 }) // Sort by newest first
-      .limit(5)
+      .sort({ createdAt: -1 })
       .lean();
 
     res.status(200).json(history);

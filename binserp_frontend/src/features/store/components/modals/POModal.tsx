@@ -1167,8 +1167,8 @@ export default function POModal({
             date,
             vendor,
             vendorName: selectedVendorObj?.name || vendorName,
-            mrpNumber: mrpNumber || undefined,
-            mrpPlanId: mrpPlanId || undefined,
+            mrpNumber: mrpNumber ? mrpNumber.trim() : "",
+            mrpPlanId: mrpPlanId || null,
             category: poCategory === 'rm' ? 'Raw Material' : poCategory === 'bo' ? 'Bought Out' : 'Consumable',
             status,
             remarks,
@@ -1239,6 +1239,9 @@ export default function POModal({
         };
 
         onSubmit(payload);
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('mrpPlanUpdated'));
+        }
     };
 
     if (!isOpen) return null;

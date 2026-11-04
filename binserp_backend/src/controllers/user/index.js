@@ -11,3 +11,4 @@ export { requestPasswordReset } from './requestPasswordReset.controller.js';
 export { resetPassword } from './resetPassword.controller.js';
 export { updateUserProfile } from './updateUserProfile.controller.js';
 export { uploadUserPhoto } from './uploadUserPhoto.controller.js';
+export { forceLogoutUser } from './forceLogoutUser.controller.js';

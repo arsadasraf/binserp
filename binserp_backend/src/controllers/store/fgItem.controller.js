@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, storeOrderFulfillmentSchema, storePrefixSchema, stockTransactionSchema, inventorySchema } from "../../models/store/index.js";
 import { salesOrderSchema, priceListSchema } from "../../models/sales/index.js";
 import { mrpPlanSchema } from "../../models/purchase/index.js";
+import { componentSchema } from "../../models/ppc/index.js";
 import { recalculateMRPWithLatestBOM } from "../purchase/mrpPlan.controller.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
@@ -19,32 +20,49 @@ const getCompanyId = (req) => {
 const resolveBomComponentUnits = async (req, bomList) => {
   if (!Array.isArray(bomList) || bomList.length === 0) return [];
 
-  const componentIds = bomList
-    .filter(b => b && b.item && mongoose.Types.ObjectId.isValid(b.item))
-    .map(b => b.item);
+  const getRawId = (item) => {
+    if (!item) return null;
+    if (typeof item === 'object') {
+      const idVal = item._id || item.id;
+      return idVal ? String(idVal) : null;
+    }
+    return String(item);
+  };
+
+  const validEntries = bomList.map(b => {
+    if (!b) return null;
+    const rawId = getRawId(b.item);
+    if (!rawId || !mongoose.Types.ObjectId.isValid(rawId)) return null;
+    return { ...b, rawId };
+  }).filter(Boolean);
+
+  const componentIds = validEntries.map(e => e.rawId);
+  if (componentIds.length === 0) return [];
 
   const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
   const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
   const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
   const FGItem = req.getModel('FGItem', fgItemSchema);
+  const Component = req.getModel('Component', componentSchema);
 
-  const [rms, bos, rmBos, fgs] = await Promise.all([
-    RawMaterial.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor').lean().catch(() => []),
-    BoughtOut.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor').lean().catch(() => []),
-    RmBoItem.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor').lean().catch(() => []),
-    FGItem.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor').lean().catch(() => [])
+  const [rms, bos, rmBos, fgs, comps] = await Promise.all([
+    RawMaterial.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor primaryRatio secondaryRatio').lean().catch(() => []),
+    BoughtOut.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor primaryRatio secondaryRatio').lean().catch(() => []),
+    RmBoItem.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor primaryRatio secondaryRatio').lean().catch(() => []),
+    FGItem.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor primaryRatio secondaryRatio').lean().catch(() => []),
+    Component.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor primaryRatio secondaryRatio').lean().catch(() => [])
   ]);
 
   const compMap = new Map();
-  [...rms, ...bos, ...rmBos, ...fgs].forEach(item => {
+  [...rms, ...bos, ...rmBos, ...fgs, ...comps].forEach(item => {
     if (item && item._id) compMap.set(item._id.toString(), item);
   });
 
-  return bomList.filter(b => b && b.item && mongoose.Types.ObjectId.isValid(b.item)).map(b => {
+  return validEntries.map(b => {
     const normType = b.itemType || 'RawMaterial';
     const isRM = normType === 'RawMaterial' || normType === 'Material';
     const defaultUom = isRM ? 'KG' : 'NOS';
-    const masterComp = compMap.get(b.item.toString());
+    const masterComp = compMap.get(b.rawId);
     const canonicalUom = (masterComp?.unit || b.unit || defaultUom).toString().trim();
     const hasSec = Boolean(masterComp?.hasSecondaryUnit ?? b.hasSecondaryUnit);
     const secUnit = (masterComp?.secondaryUnit ?? b.secondaryUnit ?? '').toString().trim();
@@ -65,8 +83,8 @@ const resolveBomComponentUnits = async (req, bomList) => {
 
     return {
       itemType: normType,
-      item: b.item,
-      itemName: b.itemName || '',
+      item: b.rawId,
+      itemName: b.itemName || (typeof b.item === 'object' && b.item?.name ? b.item.name : ''),
       quantity: priQty,
       unit: canonicalUom,
       hasSecondaryUnit: hasSec,
@@ -213,6 +231,7 @@ export const getAllFGItems = async (req, res) => {
     req.getModel('BoughtOut', boughtOutSchema);
     req.getModel('RmBoItem', rmBoItemSchema);
     req.getModel('Material', rmBoItemSchema);
+    req.getModel('Component', componentSchema);
     if (req.query?.lite === 'true' || req.query?.lite === '1') {
       const liteCompanyId = getCompanyId(req);
       const PriceListLite = req.getModel('PriceList', priceListSchema);
@@ -259,7 +278,7 @@ export const getAllFGItems = async (req, res) => {
       .populate('location', 'name')
       .populate('category', 'name code unit')
       .populate('categoryId', 'name code unit')
-      .populate('bom.item', 'name componentName code componentCode unit rate descriptions description type hasSecondaryUnit secondaryUnit conversionFactor') 
+      .populate('bom.item', 'name componentName code componentCode unit rate descriptions description type hasSecondaryUnit secondaryUnit conversionFactor primaryRatio secondaryRatio') 
       .sort({ createdAt: -1 })
       .lean();
 

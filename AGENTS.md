@@ -157,5 +157,51 @@ Across the entire BinsERP application (Backend APIs, Multi-Tenant DB, and Fronte
   2. Whenever a new feature is added or an existing integration contract is intentionally changed, **add or update the corresponding integration test** in `binserp_backend/tests/` or `binserp_frontend/tests/` so regression tests always stay in sync with the application.
   3. **Strict On-Demand Test Execution Rule**: **ONLY run the integration test commands (`npm run test` / `npx vitest run`) when the user explicitly asks to run integration tests.** Do NOT run the integration test suite automatically unless requested by the user.
 
+## 10. HR Salaries Calculation, Slips & Statement Standard
+Across all HR Payroll / Salary calculation views, backend controllers (`getSalaries.controller.js`, `createSalarySlip.controller.js`, `updateSalary.controller.js`), and Excel/PDF exporters (`companySalaryExcelHelper.ts`, `companySalaryPdfHelper.ts`, `SalariesTab.tsx`, `EditSalaryPageView.tsx`, `EditSalaryModal.tsx`):
+
+1. **Strict Employee Master Payment Structure Fetching (Never Auto-Invent Percentages)**:
+   - **NEVER** auto-calculate or invent `Basic`, `DA`, `HRA`, `Conveyance`, or `Food` using arbitrary percentage splits (such as `60% / 30% / 5% / 5%`).
+   - Always fetch payment structure components strictly from the **Employee Master** (`employee.salary`):
+     - `Basic` $\leftarrow$ `employee.salary.basic`
+     - `DA` $\leftarrow$ `employee.salary.specialAllowance` (or `employee.salary.da`)
+     - `HRA` $\leftarrow$ `employee.salary.hra`
+     - `Conveyance` $\leftarrow$ `employee.salary.conveyance`
+     - `Food` $\leftarrow$ `employee.salary.medical` (or `employee.salary.food`)
+     - `Room Rent` $\leftarrow$ `employee.salary.roomRent` (if any)
+   - `Fixed Salary` and `Total Salary` must be identical and equal the sum of the Employee Master payment structure components (`Basic + DA + HRA + Conveyance + Food + Room Rent`, falling back to `employee.salary.grossSalary` if individual components are zero).
+
+2. **Per-Day Salary & Total Calendar Days Divisor**:
+   - Always divide by the **total calendar days of the month** (`daysInMonth`: `28` / `29` / `30` / `31`):
+     $$\text{Per Day Salary} = \frac{\text{Fixed Salary}}{\text{Total Calendar Days in Month}}$$
+   - Earned Monthly Salary:
+     $$\text{Salary Earned} = \text{round}\left(\text{Per Day Salary} \times \text{Total Payable Days}\right)$$
+     (When `Total Payable Days == daysInMonth`, `Salary Earned` equals `Fixed Salary` exactly).
+   - In the **Monthly Salary Statement** (`SALARY STATEMENT FOR THE MONTH OF ...`), pro-rate each individual component strictly from its Employee Master value by $\frac{\text{Master Component}}{\text{Total Calendar Days in Month}} \times \text{Present Days}$.
+
+3. **Proportionate Week-Off (Sunday) Rule (`> 20` Working Days Threshold)**:
+   - Let `activeWorkingDays` = `Present Days` (`1.0` full, `0.5` half-day) + `Public Holidays` (`1.0`) + `Approved Paid Leaves` (`CL` / `SL` / `CompOff`).
+   - If `activeWorkingDays > 20`: **ALL** weekly-off days (`Sundays`) in that month are paid (`1.00` each).
+   - If `activeWorkingDays <= 20`: Paid weekly-offs are granted proportionately at **1 paid week-off per 6 working days** ($\min(\text{totalWeekOffs}, \lfloor \text{activeWorkingDays} / 6 \rfloor)$); remaining week-offs are `0.00` (`-`).
+   - `Total Payable Days` = $\min(\text{daysInMonth}, \text{activeWorkingDays} + \text{paidWeekOffDays})$.
+
+4. **Overtime (OT) Hourly Rate & Absent-Day Multiplier Shift Rule**:
+   - **Applicability Guard**: OT hours, OT rates, and OT pay (`OT- Single`, `OT - 1.5`) must **ONLY** be calculated and displayed for employees with `isOTApplicable === true` in Employee Master. If `isOTApplicable` is `false`, all OT fields must be `0` / blank.
+   - **Base OT Hourly Rate**: Depends strictly on the Employee Master `Basic` salary divided by `daysInMonth` and `standardWorkingHours`:
+     $$\text{Base OT Hourly Rate} = \frac{\text{Basic Salary}}{\text{Total Calendar Days in Month} \times \text{Standard Working Hours}}$$
+   - **Main vs. Absent OT Multiplier Shift**:
+     - Normally, OT hours are paid at the employee's **Main OT Multiplier** (`employee.salary.otRate`, e.g. `1.5x` or `1.0x`):
+       $$\text{Main OT Rate} = \text{Base OT Hourly Rate} \times \text{Main OT Multiplier}$$
+     - If the employee was absent on working days (`actualAbsentDays > 0`), then `actualAbsentDays * standardWorkingHours` of their total OT hours are shifted from the Main OT Multiplier to the **Absent OT Multiplier** (`employee.absentOTRate`, e.g. `1.0x`):
+       $$\text{Shifted Absent OT Hours} = \min\left(\text{Total OT Hours},\; \text{actualAbsentDays} \times \text{standardWorkingHours}\right)$$
+       $$\text{Remaining Main OT Hours} = \max\left(0,\; \text{Total OT Hours} - \text{Shifted Absent OT Hours}\right)$$
+     - `OT- Single` displays the `1.0x` (Absent-shifted or Single-rate) hours, rate, and amount; `OT - 1.5` displays the remaining Main-multiplier hours, rate, and amount.
+
+5. **Saved Salaries Exports & Light-Theme PDF Standard**:
+   - Company Name on all slips and statements must be dynamically resolved from Company Master (`/api/store/company-info` $\rightarrow$ `/api/hr-prefix` $\rightarrow$ `/api/company/me`).
+   - Individual `Comb`, `Sal`, and `OT` PDF slips and the 14-column Attendance-cum-Salary sheet must always use a clean, light/white print-friendly theme (never dark headers/backgrounds).
+   - The `Salary Statement ▾` dropdown in Saved Salaries supports both **Excel (`.xlsx`)** and **PDF (`.pdf`)** across three modes: `Only Salaries` (21 columns), `Only OT` (17 columns, OT-applicable employees), and `Total (Salary + OT)` (21 columns) with `DEPARTMENT` and a bottom `TOTAL` row.
+
+
 
 

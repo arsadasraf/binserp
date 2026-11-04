@@ -1275,11 +1275,11 @@ export default function EmployeeMaster() {
                                                         <input type="number" value={formData.conveyance} onChange={e => setFormData({ ...formData, conveyance: Number(e.target.value) })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="0.00" />
                                                     </div>
                                                     <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Medical</label>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Food / Medical</label>
                                                         <input type="number" value={formData.medical} onChange={e => setFormData({ ...formData, medical: Number(e.target.value) })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="0.00" />
                                                     </div>
                                                     <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Special Allowance</label>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">DA / Special Allowance</label>
                                                         <input type="number" value={formData.specialAllowance} onChange={e => setFormData({ ...formData, specialAllowance: Number(e.target.value) })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="0.00" />
                                                     </div>
                                                     

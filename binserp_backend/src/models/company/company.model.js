@@ -115,7 +115,18 @@ export const companySchema = new mongoose.Schema({
   refreshToken: {
     type: String,
   },
-  tokenVersion: {
+  tokenVersion: { type: Number, default: 0 },
+  currentDevice: {
+    deviceType: { type: String, default: "" },
+    accessMode: { type: String, default: "Browser" },
+    categoryLabel: { type: String, default: "" },
+    os: { type: String, default: "" },
+    browser: { type: String, default: "" },
+    summary: { type: String, default: "" },
+    ipAddress: { type: String, default: "" },
+    loggedInAt: { type: Date, default: null },
+  },
+  _unusedTokenVersion: {
     type: Number,
     default: 0,
   }

@@ -202,6 +202,44 @@ describe("Chain 3: MRP Demand Plan -> Outward Material & Job Work POs -> GRN -> 
     expect(listedPlan.linkedPOs).toHaveLength(2);
   });
 
+  it("dynamically recalculates committed values and unlinks Outward POs from the MRP Plan", async () => {
+    // 1. Unlink the Job Work Outward PO from the MRP Plan
+    const unlinkRes = await request(app)
+      .put(`/api/purchase/po/${jobWorkPoId}`)
+      .set(tenant.headers.admin)
+      .send({
+        mrpNumber: "",
+        mrpPlanId: null,
+      });
+    expect(unlinkRes.status).toBe(200);
+
+    // 2. Fetch MRP Plan Details -> Must now only have 1 linked PO (the standard material PO)
+    const mrpDetailRes = await request(app)
+      .get(`/api/mrp/plan/${mrpPlanId}`)
+      .set(tenant.headers.admin);
+    expect(mrpDetailRes.status).toBe(200);
+    const planAfterUnlink = mrpDetailRes.body.mrpPlan;
+    expect(planAfterUnlink.linkedPOCount).toBe(1);
+    expect(planAfterUnlink.linkedPOs).toHaveLength(1);
+    expect(planAfterUnlink.linkedPOs[0].poType).toBe("standard");
+
+    // 3. Re-link the Job Work Outward PO back to the MRP Plan
+    const relinkRes = await request(app)
+      .put(`/api/purchase/po/${jobWorkPoId}`)
+      .set(tenant.headers.admin)
+      .send({
+        mrpNumber,
+        mrpPlanId,
+      });
+    expect(relinkRes.status).toBe(200);
+
+    const mrpDetailAfterRelink = await request(app)
+      .get(`/api/mrp/plan/${mrpPlanId}`)
+      .set(tenant.headers.admin);
+    expect(mrpDetailAfterRelink.status).toBe(200);
+    expect(mrpDetailAfterRelink.body.mrpPlan.linkedPOCount).toBe(2);
+  });
+
   it("records GRN against the Purchase Order and increments Store Inventory & Stock Transactions", async () => {
     const grnRes = await request(app)
       .post("/api/store/grn")

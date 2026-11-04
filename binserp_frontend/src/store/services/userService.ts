@@ -15,6 +15,14 @@ export const userService = binsApi.injectEndpoints({
       query: (userId) => `/api/user/session-history/${userId}`,
       providesTags: ["Auth"],
     }),
+    forceLogoutUser: builder.mutation<any, { id: string; userType?: string }>({
+      query: ({ id, userType }) => ({
+        url: `/api/user/force-logout/${id}`,
+        method: "POST",
+        body: { userType },
+      }),
+      invalidatesTags: ["Auth"],
+    }),
     createUser: builder.mutation<any, Record<string, any>>({
       query: (body) => ({
         url: "/api/user/create",
@@ -53,10 +61,9 @@ export const {
   useGetUsersQuery,
   useGetActiveSessionsQuery,
   useGetSessionHistoryQuery,
+  useForceLogoutUserMutation,
   useCreateUserMutation,
   useUpdateUserMutation,
   useDeleteUserMutation,
   useToggleUserStatusMutation,
 } = userService;
-
-

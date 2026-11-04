@@ -13,6 +13,7 @@ import {
   uploadUserPhoto,
   getActiveSessions,
   getSessionHistory,
+  forceLogoutUser,
 } from "../controllers/user/index.js";
 import { verifyJWT, requirePermission } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/upload.middleware.js";
@@ -31,6 +32,7 @@ router.post("/upload-photo", verifyJWT, upload.single("photo"), uploadUserPhoto)
 // Admin routes (strictly protected by Admin:users permission)
 router.get("/active-sessions", verifyJWT, requirePermission("Admin", "users"), getActiveSessions);
 router.get("/session-history/:userId", verifyJWT, requirePermission("Admin", "users"), getSessionHistory);
+router.post("/force-logout/:id", verifyJWT, requirePermission("Admin", "users", "update"), forceLogoutUser);
 router.post("/create", verifyJWT, requirePermission("Admin", "users", "create"), createUser);
 router.get("/all", verifyJWT, requirePermission("Admin", "users", "read"), getAllUsers);
 router.get("/:id", verifyJWT, requirePermission("Admin", "users", "read"), getUserById);

@@ -4,7 +4,7 @@ import Swal from "sweetalert2";
 
 const baseUrl = API_BASE_URL;
 
-import { clearSession } from "@/src/lib/session";
+import { clearSession, updateRefreshedTokens } from "@/src/lib/session";
 
 const baseQuery = fetchBaseQuery({
   baseUrl,
@@ -88,7 +88,11 @@ const customBaseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryEr
         }, api, extraOptions);
 
         if (refreshResult.data) {
-          const newToken = (refreshResult.data as any).token;
+          const rData = refreshResult.data as any;
+          if (rData?.token && typeof window !== "undefined") {
+            updateRefreshedTokens(rData.token, rData.refreshToken, rData.accessMode);
+          }
+          const newToken = null;
           if (newToken && typeof window !== "undefined") {
             localStorage.setItem("token", newToken);
             const isSecure = window.location.protocol === "https:";
@@ -113,7 +117,7 @@ const customBaseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryEr
           let alertText = 'Your session has expired. Please log in again.';
           if (isAnotherDevice) {
             alertTitle = 'Logged in from another device';
-            alertText = 'You have been logged out because your account was logged into from another device.';
+            alertText = errorData?.message || 'You have been logged out because your account was logged into from another device.';
           }
 
           await Swal.fire({

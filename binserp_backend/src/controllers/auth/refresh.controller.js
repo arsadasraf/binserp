@@ -80,22 +80,44 @@ export const refreshTokens = async (req, res, next) => {
     // Verify the token matches the one in DB
     if (userInstance.refreshToken !== refreshToken) {
       clearAuthCookies(res);
-      // Possible token reuse or revoked session from another device login.
-      throw new ApiError(401, "Session expired. You logged in from another device.");
+      const otherDev = userInstance.currentDevice?.summary ? ` (${userInstance.currentDevice.summary})` : "";
+      throw new ApiError(401, `Session expired. You logged in from another device${otherDev}.`);
     }
 
-    // Generate new access token
-    const newTokens = generateTokens(id, type, companyId, userInstance.tokenVersion || 0);
+    const accessMode = decoded.accessMode || userInstance.currentDevice?.accessMode || "Browser";
 
-    // Keep the existing refresh token to avoid race conditions with multiple tabs/requests
+    // Strict 24-hour cap on Web Browser sessions
+    if (accessMode !== "App") {
+      const loggedInAt = userInstance.currentDevice?.loggedInAt
+        ? new Date(userInstance.currentDevice.loggedInAt).getTime()
+        : (decoded.iat ? decoded.iat * 1000 : 0);
+      if (loggedInAt > 0 && Date.now() - loggedInAt >= 24 * 60 * 60 * 1000) {
+        userInstance.refreshToken = null;
+        await userInstance.save({ validateBeforeSave: false });
+        clearAuthCookies(res);
+        throw new ApiError(401, "Web browser session expired after 24 hours. Please log in again.");
+      }
+    }
+
+    // Generate new tokens:
+    // For App mode, rotate refreshToken too so the session remains permanently active until explicit logout or another device login
+    const newTokens = generateTokens(id, type, companyId, userInstance.tokenVersion || 0, accessMode);
     const newAccessToken = newTokens.accessToken;
+    const activeRefreshToken = accessMode === "App" ? newTokens.refreshToken : refreshToken;
 
-    // Set new cookies (this also renews the refresh token cookie expiration)
-    setTokenCookies(res, newAccessToken, refreshToken);
+    if (accessMode === "App") {
+      userInstance.refreshToken = activeRefreshToken;
+      await userInstance.save({ validateBeforeSave: false });
+    }
+
+    // Set new cookies
+    setTokenCookies(res, newAccessToken, activeRefreshToken, accessMode);
 
     return res.status(200).json({
       message: "Tokens refreshed successfully",
-      token: newAccessToken // Sent for backward compatibility if needed
+      token: newAccessToken,
+      refreshToken: activeRefreshToken,
+      accessMode,
     });
   } catch (error) {
     next(error);

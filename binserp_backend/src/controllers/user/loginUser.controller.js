@@ -6,7 +6,7 @@ import { getTenantConnection, getTenantModel } from "../../db/tenant.js";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
-import { generateTokens, setTokenCookies } from "../../utils/token.js";
+import { generateTokens, setTokenCookies, parseDeviceInfo } from "../../utils/token.js";
 
 const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // Radius of the earth in km
@@ -111,25 +111,37 @@ export const loginUser = async (req, res) => {
         }
       }
 
+      // Parse device & access mode (Phone/Desktop + App/Browser)
+      const deviceInfo = parseDeviceInfo(req);
+
       // Increment token version for strict single-device login
       user.tokenVersion = (user.tokenVersion || 0) + 1;
 
-      // Generate tokens
-      const { accessToken, refreshToken } = generateTokens(user._id, "user", company.companyId, user.tokenVersion);
+      // Generate tokens (App = Permanent sliding, Browser = 24h max)
+      const { accessToken, refreshToken } = generateTokens(
+        user._id,
+        "user",
+        company.companyId,
+        user.tokenVersion,
+        deviceInfo.accessMode
+      );
 
       user.refreshToken = refreshToken;
+      user.currentDevice = deviceInfo;
+      user.lastDevice = deviceInfo;
+      user.lastActiveAt = new Date();
       await user.save({ validateBeforeSave: false });
 
-      setTokenCookies(res, accessToken, refreshToken);
+      setTokenCookies(res, accessToken, refreshToken, deviceInfo.accessMode);
 
       // Track Session History
       const SessionHistoryModel = getTenantModel(company.dbName, "SessionHistory", sessionHistorySchema);
-      const clientIP = req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress || "Unknown";
       await SessionHistoryModel.create({
         userId: user.userId,
         userType: "user",
         action: "login",
-        ipAddress: clientIP,
+        ipAddress: deviceInfo.ipAddress,
+        deviceInfo,
         location: {
           lat: req.body.latitude ? Number(req.body.latitude) : null,
           lng: req.body.longitude ? Number(req.body.longitude) : null,
@@ -148,6 +160,7 @@ export const loginUser = async (req, res) => {
           roles: user.roles && user.roles.length > 0 ? user.roles : user.role ? [user.role] : [],
           role: user.role || null,
           photo: (await signPhotos([user.photo]))[0],
+          deviceInfo,
           company: {
             id: company._id,
             companyId: company.companyId,
@@ -155,6 +168,8 @@ export const loginUser = async (req, res) => {
           },
         },
         token: accessToken,
+        refreshToken,
+        deviceInfo,
       });
     }
 
@@ -200,32 +215,39 @@ export const loginUser = async (req, res) => {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
+      // Parse device & access mode (Phone/Desktop + App/Browser)
+      const deviceInfo = parseDeviceInfo(req);
+
       // Increment token version for strict single-device login
       employee.tokenVersion = (employee.tokenVersion || 0) + 1;
 
-      // Generate tokens
+      // Generate tokens (App = Permanent sliding, Browser = 24h max)
       const { accessToken, refreshToken } = generateTokens(
         employee._id,
         "employee",
         company.companyId,
-        employee.tokenVersion
+        employee.tokenVersion,
+        deviceInfo.accessMode
       );
 
       employee.refreshToken = refreshToken;
+      employee.currentDevice = deviceInfo;
+      employee.lastDevice = deviceInfo;
+      employee.lastActiveAt = new Date();
       await employee.save({ validateBeforeSave: false });
 
       const roleLevel = employee.roleLevel || 1;
 
-      setTokenCookies(res, accessToken, refreshToken);
+      setTokenCookies(res, accessToken, refreshToken, deviceInfo.accessMode);
 
       // Track Session History
       const SessionHistoryModel = getTenantModel(company.dbName, "SessionHistory", sessionHistorySchema);
-      const clientIP = req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress || "Unknown";
       await SessionHistoryModel.create({
         userId: employee.employeeId,
         userType: "employee",
         action: "login",
-        ipAddress: clientIP,
+        ipAddress: deviceInfo.ipAddress,
+        deviceInfo,
         location: {
           lat: req.body.latitude ? Number(req.body.latitude) : null,
           lng: req.body.longitude ? Number(req.body.longitude) : null,
@@ -245,6 +267,7 @@ export const loginUser = async (req, res) => {
           roles: employee.roles || [],
           photo: (await signPhotos([employee.photo]))[0],
           type: "employee",
+          deviceInfo,
           company: {
             id: company._id,
             companyId: company.companyId,
@@ -252,6 +275,8 @@ export const loginUser = async (req, res) => {
           },
         },
         token: accessToken,
+        refreshToken,
+        deviceInfo,
       });
     }
 

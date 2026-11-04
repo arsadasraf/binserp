@@ -41,6 +41,7 @@ export default function FinishedGoodsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [previewItem, setPreviewItem] = useState<any>(null);
+  const [previewTab, setPreviewTab] = useState<'overview' | 'bom'>('overview');
   const [formData, setFormData] = useState<StoreFormData>({ type: 'Component', unit: 'Nos' });
   const [photos, setPhotos] = useState<File[]>([]);
   
@@ -48,6 +49,16 @@ export default function FinishedGoodsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [rowNotice, setRowNotice] = useState<{ itemId: string; message: string; type: 'error' | 'success' } | null>(null);
+
+  // Synchronize previewItem with updated finishedGoods data after an edit or refetch
+  useEffect(() => {
+    if (previewItem?._id && Array.isArray(finishedGoods) && finishedGoods.length > 0) {
+      const fresh = finishedGoods.find((f: any) => String(f._id) === String(previewItem._id));
+      if (fresh && fresh !== previewItem) {
+        setPreviewItem(fresh);
+      }
+    }
+  }, [finishedGoods, previewItem?._id]);
 
   useEffect(() => {
     if (!toast) return;
@@ -410,7 +421,10 @@ export default function FinishedGoodsPage() {
           onEdit={handleEdit} 
           onDelete={handleDelete}
           onToggleStatus={handleToggleStatus}
-          onView={(item) => setPreviewItem(item)}
+          onView={(item) => {
+            setPreviewTab('overview');
+            setPreviewItem(item);
+          }}
           rowNotice={rowNotice}
           onClearRowNotice={() => setRowNotice(null)}
         />
@@ -421,6 +435,10 @@ export default function FinishedGoodsPage() {
         onClose={() => setPreviewItem(null)}
         item={previewItem}
         masterTab="fg-items"
+        initialTab={previewTab}
+        allFGItems={finishedGoods}
+        allRMItems={rawMaterials}
+        allBOItems={boughtOuts}
         onEdit={(item) => handleEdit(item)}
         onDelete={(id) => handleDelete(id)}
       />
@@ -470,7 +488,10 @@ export default function FinishedGoodsPage() {
             fgItems={finishedGoods}
             photos={photos}
             setPhotos={setPhotos}
-            onPreviewBOM={() => setPreviewItem(formData)}
+            onPreviewBOM={() => {
+              setPreviewTab('bom');
+              setPreviewItem(formData);
+            }}
           />
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-slate-800">
             <button

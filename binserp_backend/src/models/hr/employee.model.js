@@ -162,6 +162,26 @@ export const employeeSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    currentDevice: {
+      deviceType: { type: String, default: "" },
+      accessMode: { type: String, default: "Browser" },
+      categoryLabel: { type: String, default: "" },
+      os: { type: String, default: "" },
+      browser: { type: String, default: "" },
+      summary: { type: String, default: "" },
+      ipAddress: { type: String, default: "" },
+      loggedInAt: { type: Date, default: null },
+    },
+    lastDevice: {
+      deviceType: { type: String, default: "" },
+      accessMode: { type: String, default: "Browser" },
+      categoryLabel: { type: String, default: "" },
+      os: { type: String, default: "" },
+      browser: { type: String, default: "" },
+      summary: { type: String, default: "" },
+      ipAddress: { type: String, default: "" },
+      loggedInAt: { type: Date, default: null },
+    },
   },
   { timestamps: true }
 );

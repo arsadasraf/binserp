@@ -279,11 +279,34 @@ export default function EditSalaryPageView({
     const totalMonthDays = calendarData.length || row.totalMonthDays || 30;
     const effectiveWorkingDays = totalMonthDays - weeklyOffsCount;
 
-    const dailyDivisorBasis = emp?.salary?.dailyDivisorBasis || "TotalMonthDays";
-    const divisor = dailyDivisorBasis === "TotalMonthDays" ? totalMonthDays : effectiveWorkingDays;
+    // Leaves Consumed & Holidays
+    let casualLeaveConsumed = 0;
+    let sickLeaveConsumed = 0;
+    let compOffConsumed = 0;
+    let holidaysCount = 0;
+
+    calendarData.forEach((day) => {
+      const status = day.useManual ? day.manualStatus : day.originalStatus;
+      if (status === "CL") casualLeaveConsumed += 1;
+      if (status === "SL") sickLeaveConsumed += 1;
+      if (status === "CO" || status === "CompOff") compOffConsumed += 1;
+      if (status === "Holiday" || day.originalStatus === "Holiday") holidaysCount += 1;
+    });
+
+    const dailyDivisorBasis = "TotalMonthDays";
+    const divisor = totalMonthDays;
+
+    // Proportionate Week-Off Rule:
+    // > 20 working days => all week-offs paid; <= 20 working days => 1 paid week-off per 6 working days
+    const activeWorkingDays =
+      workedDays + holidaysCount + casualLeaveConsumed + sickLeaveConsumed + compOffConsumed;
+    const paidWeekOffDays =
+      activeWorkingDays > 20
+        ? weeklyOffsCount
+        : Math.min(weeklyOffsCount, Math.floor(activeWorkingDays / 6));
 
     // Payable Days
-    const payableDays = Math.max(0, divisor - actualAbsentDays);
+    const payableDays = Math.min(totalMonthDays, activeWorkingDays + paidWeekOffDays);
     const absentHours = actualAbsentDays * standardHours;
 
     // Per Day Salary & Base Hourly Rate
@@ -291,21 +314,14 @@ export default function EditSalaryPageView({
     const baseHourlyRate =
       divisor > 0 && standardHours > 0 ? (baseSalary / divisor) / standardHours : 0;
 
-    // Overtime Calculations
-    const otCompensateForAbsent = emp?.otCompensateForAbsent ?? true;
-    const mainOTRateMultiplier = emp?.salary?.otRate || 1.0;
-    const absentOTRateMultiplier = emp?.absentOTRate || 1.0;
+    // Overtime Calculations (Only when isOTApplicable === true)
+    // Base OT Hourly Rate = (Basic Salary / Total Month Days) / Applicable Working Hours
+    const mainOTRateMultiplier = Number(emp?.salary?.otRate) || 1.5;
+    const absentOTRateMultiplier = Number(emp?.absentOTRate) || 1.0;
 
-    const otCalcBasis = emp?.salary?.otCalculationBasis || "Basic";
-    let otBaseSalary = 0;
-    if (otCalcBasis === "Basic") otBaseSalary = emp?.salary?.basic || 0;
-    else if (otCalcBasis === "Gross") otBaseSalary = emp?.salary?.grossSalary || 0;
-    else if (otCalcBasis === "Net") otBaseSalary = emp?.salary?.netSalary || 0;
-
-    const otDivBasis = emp?.salary?.otDivisorBasis || "TotalMonthDays";
-    const otDivisor = otDivBasis === "TotalMonthDays" ? totalMonthDays : effectiveWorkingDays;
+    const otBaseSalary = emp?.salary?.basic || Math.round(baseSalary * 0.6);
     const otHourlyRate =
-      otDivisor > 0 && standardHours > 0 ? (otBaseSalary / otDivisor) / standardHours : 0;
+      totalMonthDays > 0 && standardHours > 0 ? (otBaseSalary / totalMonthDays) / standardHours : 0;
 
     const mainOtHourlyRate = otHourlyRate * mainOTRateMultiplier;
     const absentOtHourlyRate = otHourlyRate * absentOTRateMultiplier;
@@ -317,35 +333,21 @@ export default function EditSalaryPageView({
     let otCompensatedPay = 0;
     let mainOtPay = 0;
 
-    if (emp?.isOTApplicable) {
-      if (otCompensateForAbsent) {
-        compensatedHours = Math.min(totalOtHours, absentHours);
-        mainOtHours = totalOtHours - compensatedHours;
-        otCompensatedPay = compensatedHours * otHourlyRate * 1.0;
-        mainOtPay = mainOtHours * mainOtHourlyRate;
-        otPay = otCompensatedPay + mainOtPay;
+    if (emp?.isOTApplicable && totalOtHours > 0) {
+      absentOtHours = actualAbsentDays > 0 ? Math.min(totalOtHours, absentHours) : 0;
+      compensatedHours = absentOtHours;
+      mainOtHours = Math.max(0, totalOtHours - absentOtHours);
+      if (mainOTRateMultiplier <= 1.0) {
+        otCompensatedPay = Math.round(totalOtHours * otHourlyRate * mainOTRateMultiplier);
+        mainOtPay = 0;
       } else {
-        absentOtHours = Math.min(totalOtHours, absentHours);
-        mainOtHours = totalOtHours - absentOtHours;
-        otCompensatedPay = absentOtHours * absentOtHourlyRate;
-        mainOtPay = mainOtHours * mainOtHourlyRate;
-        otPay = otCompensatedPay + mainOtPay;
+        otCompensatedPay = Math.round(absentOtHours * absentOtHourlyRate);
+        mainOtPay = Math.round(mainOtHours * mainOtHourlyRate);
       }
+      otPay = otCompensatedPay + mainOtPay;
+    } else {
+      totalOtHours = 0;
     }
-
-    // Leaves Consumed
-    let casualLeaveConsumed = 0;
-    let sickLeaveConsumed = 0;
-    let compOffConsumed = 0;
-    let holidaysCount = 0;
-
-    calendarData.forEach((day) => {
-      const status = day.useManual ? day.manualStatus : day.originalStatus;
-      if (status === "CL") casualLeaveConsumed += 1;
-      if (status === "SL") sickLeaveConsumed += 1;
-      if (status === "CO" || status === "CompOff") compOffConsumed += 1;
-      if (status === "Holiday") holidaysCount += 1;
-    });
 
     // Deductions & Pay
     const ratio = divisor > 0 ? payableDays / divisor : 0;

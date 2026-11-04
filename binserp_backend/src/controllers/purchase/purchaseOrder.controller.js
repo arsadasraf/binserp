@@ -831,17 +831,18 @@ export const updatePO = asyncHandler(async (req, res) => {
   // Handle explicit or manual MRP Plan linking
   if (req.body.mrpNumber !== undefined || req.body.mrpPlanId !== undefined) {
     const rawNum = req.body.mrpNumber ? String(req.body.mrpNumber).trim() : "";
-    updateData.mrpNumber = rawNum || undefined;
-    if (isValidObjectId(req.body.mrpPlanId)) {
-      updateData.mrpPlanId = req.body.mrpPlanId;
-    } else if (rawNum) {
-      const MRPPlan = req.getModel('MRPPlan', mrpPlanSchema);
-      const planDoc = await MRPPlan.findOne({ company: companyId, mrpNumber: rawNum }).select('_id').lean();
-      if (planDoc?._id) {
-        updateData.mrpPlanId = planDoc._id;
+    if (rawNum || (req.body.mrpPlanId && isValidObjectId(req.body.mrpPlanId))) {
+      updateData.mrpNumber = rawNum;
+      if (isValidObjectId(req.body.mrpPlanId)) {
+        updateData.mrpPlanId = req.body.mrpPlanId;
+      } else {
+        const MRPPlan = req.getModel('MRPPlan', mrpPlanSchema);
+        const planDoc = await MRPPlan.findOne({ company: companyId, mrpNumber: rawNum }).select('_id').lean();
+        updateData.mrpPlanId = planDoc?._id || null;
       }
     } else {
-      updateData.mrpPlanId = undefined;
+      updateData.mrpNumber = "";
+      updateData.mrpPlanId = null;
     }
   }
 
@@ -987,17 +988,17 @@ export const updatePO = asyncHandler(async (req, res) => {
     await syncJobWorkChallanPO(req, companyId, po, existingPO.jobWorkChallan, existingPO.challanNumber);
   }
 
-  const affectedPlan = po?.mrpPlanId || po?.mrpNumber || existingPO?.mrpPlanId || existingPO?.mrpNumber;
-  if (affectedPlan) {
+  const prevPlanId = existingPO?.mrpPlanId ? String(existingPO.mrpPlanId) : null;
+  const prevPlanNum = existingPO?.mrpNumber ? String(existingPO.mrpNumber).trim() : "";
+  const currPlanId = po?.mrpPlanId ? String(po.mrpPlanId) : null;
+  const currPlanNum = po?.mrpNumber ? String(po.mrpNumber).trim() : "";
+
+  const affectedPlans = new Set([prevPlanId, prevPlanNum, currPlanId, currPlanNum].filter(Boolean));
+  for (const planRef of affectedPlans) {
     try {
-      await syncMRPPlanFinancials(affectedPlan, req);
-      const prevPlan = existingPO?.mrpPlanId || existingPO?.mrpNumber;
-      const currPlan = po?.mrpPlanId || po?.mrpNumber;
-      if (prevPlan && currPlan && String(prevPlan) !== String(currPlan)) {
-        await syncMRPPlanFinancials(prevPlan, req);
-      }
+      await syncMRPPlanFinancials(planRef, req);
     } catch (e) {
-      console.warn("Failed to sync MRP Plan financials on PO update:", e.message);
+      console.warn(`Failed to sync MRP Plan financials for ${planRef} on PO update:`, e.message);
     }
   }
 
@@ -1047,11 +1048,14 @@ export const deletePO = asyncHandler(async (req, res) => {
     }
   }
 
-  if (po.mrpPlanId || po.mrpNumber) {
+  const poPlanId = po.mrpPlanId ? String(po.mrpPlanId) : null;
+  const poPlanNum = po.mrpNumber ? String(po.mrpNumber).trim() : "";
+  const affectedPlans = new Set([poPlanId, poPlanNum].filter(Boolean));
+  for (const planRef of affectedPlans) {
     try {
-      await syncMRPPlanFinancials(po.mrpPlanId || po.mrpNumber, req);
+      await syncMRPPlanFinancials(planRef, req);
     } catch (e) {
-      console.warn("Failed to sync MRP Plan financials on PO deletion:", e.message);
+      console.warn(`Failed to sync MRP Plan financials for ${planRef} on PO deletion:`, e.message);
     }
   }
 

@@ -5,10 +5,16 @@ import { employeeSchema } from "../../models/hr/index.js";
 import { Company } from "../../models/company/index.js";
 import { SaasAdmin } from "../../models/saasadmin/index.js";
 import { sessionHistorySchema } from "../../models/user/sessionHistory.model.js";
+import { parseDeviceInfo } from "../../utils/token.js";
+import { clearCachedCompany } from "../../middlewares/auth.middleware.js";
 
 export const logout = async (req, res, next) => {
   try {
-    const refreshToken = req.cookies.refreshToken || req.cookies.accessToken || req.cookies.saasAdminToken;
+    const refreshToken =
+      req.cookies?.refreshToken ||
+      req.cookies?.accessToken ||
+      req.cookies?.saasAdminToken ||
+      req.headers?.authorization?.replace("Bearer ", "");
 
     if (refreshToken) {
       try {
@@ -31,9 +37,15 @@ export const logout = async (req, res, next) => {
           }
 
           if (userInstance) {
+            const prevDevice = userInstance.currentDevice || parseDeviceInfo(req);
             userInstance.refreshToken = null;
+            userInstance.currentDevice = undefined;
             userInstance.tokenVersion = (userInstance.tokenVersion || 0) + 1;
             await userInstance.save({ validateBeforeSave: false });
+
+            if (type === "company") {
+              clearCachedCompany(userInstance.companyId, String(userInstance._id));
+            }
 
             // Track Logout History for tenant users
             if ((type === "user" || type === "employee") && companyId) {
@@ -45,7 +57,8 @@ export const logout = async (req, res, next) => {
                   userId: type === "user" ? userInstance.userId : userInstance.employeeId,
                   userType: type,
                   action: "logout",
-                  ipAddress: clientIP,
+                  ipAddress: String(clientIP).split(",")[0].trim(),
+                  deviceInfo: prevDevice,
                 });
               }
             }

@@ -50,19 +50,21 @@ export interface MasterDetailPreviewModalProps {
     allFGItems?: any[];
     allRMItems?: any[];
     allBOItems?: any[];
+    initialTab?: 'overview' | 'bom';
 }
 
 export default function MasterDetailPreviewModal({
     isOpen,
     onClose,
-    item,
+    item: rawItem,
     masterTab,
     onEdit,
     onDelete,
     companyInfo: initialCompanyInfo,
     allFGItems: initialAllFGItems,
     allRMItems: initialAllRMItems,
-    allBOItems: initialAllBOItems
+    allBOItems: initialAllBOItems,
+    initialTab
 }: MasterDetailPreviewModalProps) {
     const { data: fetchedCompanyInfo } = useGetStoreDataQuery("company-info", { skip: !isOpen });
     const companyInfo = initialCompanyInfo || fetchedCompanyInfo;
@@ -75,31 +77,12 @@ export default function MasterDetailPreviewModal({
     // FG Sub-tab state: 'overview' (default) or 'bom'
     const [activeFgTab, setActiveFgTab] = useState<'overview' | 'bom'>('overview');
 
-    // BOM Filter state, 3-mode dynamic costing basis (default: L2_ONLY), and dual view mode
+    // BOM Filter state, 3-mode dynamic costing basis (default: L2_ONLY), and dual view mode (default: table / Consolidated View)
     const [activeBOMFilter, setActiveBOMFilter] = useState<BOMFilterType>('ALL');
     const [costingMode, setCostingMode] = useState<BOMCostingMode>('L2_ONLY');
-    const [bomViewMode, setBomViewMode] = useState<'tree' | 'table'>('tree');
+    const [bomViewMode, setBomViewMode] = useState<'tree' | 'table'>('table');
     const [priceFilterMode, setPriceFilterMode] = useState<PriceFilterMode>('ALL');
     const [isPdfDropdownOpen, setIsPdfDropdownOpen] = useState(false);
-
-    // Reset sub-tab and filters on open / item switch
-    useEffect(() => {
-        if (isOpen) {
-            setActiveFgTab('overview');
-            setCostingMode('L2_ONLY');
-            setPriceFilterMode('ALL');
-            setActiveBOMFilter('ALL');
-        }
-    }, [isOpen, item?._id]);
-
-    // Permissions check: User must have BOTH master and purchase access to add/edit price lists
-    const { userType, hasTabAccess, isModuleAllowed } = usePermission();
-    const canManagePrice = useMemo(() => {
-        if (userType === 'company' || userType === 'saasadmin') return true;
-        const hasMaster = hasTabAccess('store', 'masters') || hasTabAccess('store', 'fg-items') || isModuleAllowed('store');
-        const hasPurchase = hasTabAccess('store', 'purchase') || hasTabAccess('store', 'vendor-price-list') || hasTabAccess('purchase', 'price-list') || isModuleAllowed('purchase');
-        return Boolean(hasMaster && hasPurchase);
-    }, [userType, hasTabAccess, isModuleAllowed]);
 
     // Fetch master item pools for BOM hierarchy explosion if FG
     const { data: fetchedFG = [] } = useGetStoreDataQuery("fg-item", { skip: !isOpen || !isFG });
@@ -110,6 +93,30 @@ export default function MasterDetailPreviewModal({
     const { data: fetchedVendorPriceLists = [], refetch: refetchVendorPrices } = useGetStoreDataQuery("vendor-price-list", { skip: !isOpen || !isFG });
     const { data: fetchedSalesPriceLists = [], refetch: refetchSalesPrices } = useGetStoreDataQuery("price-list", { skip: !isOpen || !isFG });
     const { data: fetchedVendors = [] } = useGetStoreDataQuery("vendor", { skip: !isOpen || !isFG });
+
+    // Reset sub-tab, default view mode to Consolidated Table ('table'), and refresh price lists on open / item switch
+    useEffect(() => {
+        if (isOpen) {
+            setActiveFgTab(initialTab || 'overview');
+            setCostingMode('L2_ONLY');
+            setBomViewMode('table');
+            setPriceFilterMode('ALL');
+            setActiveBOMFilter('ALL');
+            if (isFG) {
+                refetchVendorPrices();
+                refetchSalesPrices();
+            }
+        }
+    }, [isOpen, rawItem?._id, initialTab, isFG, refetchVendorPrices, refetchSalesPrices]);
+
+    // Permissions check: User must have BOTH master and purchase access to add/edit price lists
+    const { userType, hasTabAccess, isModuleAllowed } = usePermission();
+    const canManagePrice = useMemo(() => {
+        if (userType === 'company' || userType === 'saasadmin') return true;
+        const hasMaster = hasTabAccess('store', 'masters') || hasTabAccess('store', 'fg-items') || isModuleAllowed('store');
+        const hasPurchase = hasTabAccess('store', 'purchase') || hasTabAccess('store', 'vendor-price-list') || hasTabAccess('purchase', 'price-list') || isModuleAllowed('purchase');
+        return Boolean(hasMaster && hasPurchase);
+    }, [userType, hasTabAccess, isModuleAllowed]);
 
     const [createStoreRecord] = useCreateStoreRecordMutation();
     const [updateStoreRecord] = useUpdateStoreRecordMutation();
@@ -124,6 +131,16 @@ export default function MasterDetailPreviewModal({
     const fgList = initialAllFGItems || fetchedFG || [];
     const rmList = initialAllRMItems || fetchedRM || [];
     const boList = initialAllBOItems || fetchedBO || [];
+
+    // Dynamically resolve freshest item from fgList if available (ensures edits immediately reflect in preview)
+    const item = useMemo(() => {
+        if (!rawItem) return null;
+        if (isFG && rawItem._id && Array.isArray(fgList) && fgList.length > 0) {
+            const fresh = fgList.find((f: any) => String(f._id) === String(rawItem._id));
+            if (fresh) return fresh;
+        }
+        return rawItem;
+    }, [isFG, rawItem, fgList]);
 
     // Explode multi-level nested BOM hierarchy recursively
     const explodedBOM: ExplodedBOMResult | null = useMemo(() => {

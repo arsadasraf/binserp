@@ -92,6 +92,32 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
     setCurrentPlan(mrpPlan);
   }, [mrpPlan]);
 
+  const refreshPlanData = async () => {
+    if (!currentPlan?._id) return;
+    const token = localStorage.getItem('token') || '';
+    try {
+      const res = await apiGet(`/api/purchase/mrp/plan/${currentPlan._id}`, token);
+      const updated = res?.mrpPlan || res?.plan || res?.data;
+      if (updated) {
+        setCurrentPlan(updated);
+        fetchLinkedOutwardPOs(updated);
+        if (onPlanUpdated) onPlanUpdated(updated);
+      }
+    } catch (e) {
+      fetchLinkedOutwardPOs(currentPlan);
+    }
+  };
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      if (isOpen && currentPlan?._id) {
+        refreshPlanData();
+      }
+    };
+    window.addEventListener('mrpPlanUpdated', handleUpdate);
+    return () => window.removeEventListener('mrpPlanUpdated', handleUpdate);
+  }, [isOpen, currentPlan?._id]);
+
   useEffect(() => {
     if (isOpen && currentPlan) {
       fetchFGGRNHistory();

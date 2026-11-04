@@ -107,6 +107,13 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
 
       // STRICT SINGLE-DEVICE CHECK
       if ((decoded.tokenVersion || 0) !== (user.tokenVersion || 0)) {
+        if (!user.refreshToken) {
+          throw new ApiError(401, "Session expired. Your session was terminated or logged out.");
+        }
+        const devLabel = user.currentDevice?.summary ? ` (${user.currentDevice.summary})` : "";
+        throw new ApiError(401, `Session expired. You logged in from another device${devLabel}.`);
+      }
+      if (false) {
         throw new ApiError(401, "Session expired. You logged in from another device.");
       }
 
@@ -161,6 +168,13 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
 
       // STRICT SINGLE-DEVICE CHECK
       if ((decoded.tokenVersion || 0) !== (employee.tokenVersion || 0)) {
+        if (!employee.refreshToken) {
+          throw new ApiError(401, "Session expired. Your session was terminated or logged out.");
+        }
+        const devLabel = employee.currentDevice?.summary ? ` (${employee.currentDevice.summary})` : "";
+        throw new ApiError(401, `Session expired. You logged in from another device${devLabel}.`);
+      }
+      if (false) {
         throw new ApiError(401, "Session expired. You logged in from another device.");
       }
 
@@ -189,6 +203,13 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
 
       // STRICT SINGLE-DEVICE CHECK
       if ((decoded.tokenVersion || 0) !== (company.tokenVersion || 0)) {
+        if (!company.refreshToken) {
+          throw new ApiError(401, "Session expired. Your session was terminated or logged out.");
+        }
+        const devLabel = company.currentDevice?.summary ? ` (${company.currentDevice.summary})` : "";
+        throw new ApiError(401, `Session expired. You logged in from another device${devLabel}.`);
+      }
+      if (false) {
         throw new ApiError(401, "Session expired. You logged in from another device.");
       }
 

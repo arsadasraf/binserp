@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image"
 import Link from "next/link";
 import { useLoginMutation } from "@/src/store/services/authService";
-import { persistSession, clearSession } from "@/src/lib/session";
+import { persistSession, clearSession, detectClientDeviceInfo } from "@/src/lib/session";
 import ErrorAlert from "@/src/components/ErrorAlert";
 import SuccessAlert from "@/src/components/SuccessAlert";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
@@ -72,7 +72,7 @@ export default function LoginPage() {
 
       const response = await login({
         type: loginType,
-        credentials: { companyId, userId, password, ...locationData },
+        credentials: { companyId, userId, password, ...locationData, clientInfo: detectClientDeviceInfo() },
       }).unwrap();
 
       if (response.token) {
@@ -81,6 +81,8 @@ export default function LoginPage() {
 
         persistSession({
           token: response.token,
+          refreshToken: response.refreshToken,
+          accessMode: response.deviceInfo?.accessMode,
           userType: realUserType,
           user: loginType === "user" ? response.user : response.company,
         });

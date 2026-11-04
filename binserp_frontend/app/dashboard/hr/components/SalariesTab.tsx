@@ -19,8 +19,17 @@ import DailyLogsModal, { DayStatus } from './modals/DailyLogsModal';
 import ExcelColumnFilter from './ExcelColumnFilter';
 import { API_BASE_URL } from '@/src/utils/config';
 import { formatWorkDuration } from '@/src/utils/attendanceUtils';
-import { exportAllSalariesCompanyExcel, exportSingleSalaryCompanyExcel } from '@/src/utils/companySalaryExcelHelper';
-import { exportAllSalariesCompanyPDF, exportSingleSalaryCompanyPDF } from '@/src/utils/companySalaryPdfHelper';
+import {
+    exportAllSalariesCompanyExcel,
+    exportSingleSalaryCompanyExcel,
+    exportMonthlySalaryStatementExcel,
+    computeCompanySalarySheetData
+} from '@/src/utils/companySalaryExcelHelper';
+import {
+    exportAllSalariesCompanyPDF,
+    exportSingleSalaryCompanyPDF,
+    exportMonthlySalaryStatementPDF
+} from '@/src/utils/companySalaryPdfHelper';
 import AttendanceValidationTab from './AttendanceValidationTab';
 import MonthlyAttendanceValidationModal from './modals/MonthlyAttendanceValidationModal';
 import EditSalaryPageView from './EditSalaryPageView';
@@ -98,6 +107,7 @@ export default function SalariesTab() {
     const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
     const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
     const [overwriteExisting, setOverwriteExisting] = useState(false);
+    const [isStatementDropdownOpen, setIsStatementDropdownOpen] = useState(false);
     const [bulkGenerationResult, setBulkGenerationResult] = useState<any>(null);
 
     // 4. Modals & Review State
@@ -177,26 +187,36 @@ export default function SalariesTab() {
         return Math.max(0, Number((hours - standardHours).toFixed(2)));
     };
 
-    // Fetch Initial Employees & Branding
+    // Fetch Initial Employees & Branding (Company Name from Master)
     useEffect(() => {
         const fetchInitialData = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const [empRes, compRes, prefixRes] = await Promise.all([
+                const [empRes, storeCompRes, compRes, prefixRes] = await Promise.all([
                     axios.get(`${API_BASE_URL}/api/hr/employee`, { headers: { Authorization: `Bearer ${token}` } }),
+                    axios.get(`${API_BASE_URL}/api/store/company-info`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
                     axios.get(`${API_BASE_URL}/api/company/me`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
                     axios.get(`${API_BASE_URL}/api/hr-prefix`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null)
                 ]);
                 setEmployees(empRes.data.employees || []);
-                if (prefixRes?.data?.settings?.companyName) {
-                    setCompanyName(prefixRes.data.settings.companyName);
-                } else if (compRes?.data?.companyName) {
-                    setCompanyName(compRes.data.companyName);
-                } else if (compRes?.data?.name) {
-                    setCompanyName(compRes.data.name);
+                const storeInfo = storeCompRes?.data?.data || storeCompRes?.data;
+                const masterCompName =
+                    storeInfo?.companyName ||
+                    storeInfo?.legalName ||
+                    storeInfo?.tradeName ||
+                    prefixRes?.data?.settings?.companyName ||
+                    compRes?.data?.companyName ||
+                    compRes?.data?.name ||
+                    "";
+                if (masterCompName) {
+                    setCompanyName(masterCompName);
                 }
-                if (prefixRes?.data?.settings?.companyLogo) setCompanyLogo(prefixRes.data.settings.companyLogo);
-                if (prefixRes?.data?.settings?.companyAddress) setCompanyAddress(prefixRes.data.settings.companyAddress);
+                if (prefixRes?.data?.settings?.companyLogo || storeInfo?.logo) {
+                    setCompanyLogo(prefixRes?.data?.settings?.companyLogo || storeInfo?.logo);
+                }
+                if (prefixRes?.data?.settings?.companyAddress || storeInfo?.billingAddress) {
+                    setCompanyAddress(prefixRes?.data?.settings?.companyAddress || storeInfo?.billingAddress);
+                }
                 if (prefixRes?.data?.settings?.currency) setCurrency(prefixRes.data.settings.currency);
                 else setCurrency('₹');
             } catch (err) {
@@ -417,55 +437,64 @@ export default function SalariesTab() {
                 }
             });
 
-            const effectiveWorkingDays = daysInMonth - weeklyOffsCount;
-            const dailyDivisorBasis = emp?.salary?.dailyDivisorBasis || 'TotalMonthDays';
-            const divisor = dailyDivisorBasis === 'TotalMonthDays' ? daysInMonth : effectiveWorkingDays;
+            const divisor = daysInMonth;
+            const dailyDivisorBasis = 'TotalMonthDays';
 
-            const payableDays = Math.max(0, divisor - actualAbsentDays);
+            // Proportionate Week-Off Rule:
+            // Active working days = Present + HalfDay(0.5) + Paid Holidays + Paid Leaves
+            // > 20 working days => all week-offs paid; <= 20 working days => 1 paid week-off per 6 working days
+            const activeWorkingDays = workedDays + holidaysCount + casualLeaveConsumed + sickLeaveConsumed + compOffConsumed;
+            const paidWeekOffDays = activeWorkingDays > 20
+                ? weeklyOffsCount
+                : Math.min(weeklyOffsCount, Math.floor(activeWorkingDays / 6));
+
+            const payableDays = Math.min(daysInMonth, activeWorkingDays + paidWeekOffDays);
             const absentHours = actualAbsentDays * standardHours;
 
-            // Salary Base
-            const perDayBasis = emp?.salary?.perDayCalculationBasis || 'Gross';
-            let baseSalary = 0;
-            if (perDayBasis === 'Basic') baseSalary = emp?.salary?.basic || 0;
-            else if (perDayBasis === 'Net') baseSalary = emp?.salary?.netSalary || 0;
-            else baseSalary = emp?.salary?.grossSalary || 0;
+            // Fixed Salary Base (Fixed Salary === Total Salary)
+            const masterComponentSum =
+                (emp?.salary?.basic || 0) +
+                (emp?.salary?.specialAllowance || 0) +
+                (emp?.salary?.hra || 0) +
+                (emp?.salary?.conveyance || 0) +
+                (emp?.salary?.medical || 0);
+            const baseSalary = emp?.salary?.grossSalary || masterComponentSum || emp?.salary?.basic || 0;
+            const basicSalaryForOt = emp?.salary?.basic || Math.round(baseSalary * 0.60);
 
             const baseHourlyRate = divisor > 0 && standardHours > 0 ? (baseSalary / divisor) / standardHours : 0;
 
-            // Overtime Pay Calculation
+            // Overtime Pay Calculation (Only when isOTApplicable === true)
+            // Base OT Rate = Basic Salary / Total Month Days / Applicable Working Hours
+            // Absent working hours shift from Main OT Multiplier to Absent OT Rate Multiplier
             const isOT = Boolean(emp?.isOTApplicable);
-            const otCompensateForAbsent = emp?.otCompensateForAbsent ?? true;
-            const mainOTRateMultiplier = emp?.salary?.otRate || 1.0;
-            const absentOTRateMultiplier = emp?.absentOTRate || 1.0;
+            const mainOTRateMultiplier = Number(emp?.salary?.otRate) || 1.5;
+            const absentOTRateMultiplier = Number(emp?.absentOTRate) || 1.0;
 
-            const otCalcBasis = emp?.salary?.otCalculationBasis || 'Basic';
-            let otBaseSalary = 0;
-            if (otCalcBasis === 'Basic') otBaseSalary = emp?.salary?.basic || 0;
-            else if (otCalcBasis === 'Gross') otBaseSalary = emp?.salary?.grossSalary || 0;
-            else if (otCalcBasis === 'Net') otBaseSalary = emp?.salary?.netSalary || 0;
-
-            const otDivBasis = emp?.salary?.otDivisorBasis || 'TotalMonthDays';
-            const otDivisor = otDivBasis === 'TotalMonthDays' ? daysInMonth : effectiveWorkingDays;
-            const otHourlyRate = otDivisor > 0 && standardHours > 0 ? (otBaseSalary / otDivisor) / standardHours : 0;
+            const otHourlyRate = divisor > 0 && standardHours > 0 ? (basicSalaryForOt / divisor) / standardHours : 0;
 
             let otPay = 0;
-            if (isOT) {
-                if (otCompensateForAbsent) {
-                    const compensatedHours = Math.min(totalOtHours, absentHours);
-                    const mainOtHours = totalOtHours - compensatedHours;
-                    otPay = (compensatedHours * otHourlyRate * 1.0) + (mainOtHours * otHourlyRate * mainOTRateMultiplier);
+            if (isOT && totalOtHours > 0) {
+                const shiftedAbsentOtHours = actualAbsentDays > 0
+                    ? Math.min(totalOtHours, absentHours)
+                    : 0;
+                const mainOtHours = Math.max(0, totalOtHours - shiftedAbsentOtHours);
+
+                if (mainOTRateMultiplier <= 1.0) {
+                    otPay = totalOtHours * otHourlyRate * mainOTRateMultiplier;
                 } else {
-                    const absentOtHours = Math.min(totalOtHours, absentHours);
-                    const mainOtHours = totalOtHours - absentOtHours;
-                    otPay = (absentOtHours * otHourlyRate * absentOTRateMultiplier) + (mainOtHours * otHourlyRate * mainOTRateMultiplier);
+                    const singlePay = Math.round(shiftedAbsentOtHours * otHourlyRate * absentOTRateMultiplier);
+                    const multPay = Math.round(mainOtHours * otHourlyRate * mainOTRateMultiplier);
+                    otPay = singlePay + multPay;
                 }
+            } else {
+                totalOtHours = 0;
+                otPay = 0;
             }
 
             // Deductions & Pay
             const ratio = divisor > 0 ? (payableDays / divisor) : 0;
             const earnedBasic = (emp?.salary?.basic || 0) * ratio;
-            const earnedGross = (emp?.salary?.grossSalary || 0) * ratio;
+            const earnedGross = payableDays >= daysInMonth ? baseSalary : Math.round((baseSalary / divisor) * payableDays);
 
             const isPFApplicable = emp?.salary?.isPFApplicable || false;
             const isESIApplicable = emp?.salary?.isESIApplicable || false;
@@ -486,7 +515,7 @@ export default function SalariesTab() {
                 ? emp.salary.professionalTax
                 : (isPTApplicable ? 200 : 0);
 
-            const grossPay = divisor > 0 ? (baseSalary / divisor) * payableDays : 0;
+            const grossPay = earnedGross;
             const netPay = Math.round(grossPay + otPay - (pfDeduction + esiDeduction + pt));
 
             return {
@@ -996,248 +1025,423 @@ export default function SalariesTab() {
         XLSX.writeFile(workbook, `Payroll_Salaries_${month}_${year}.xlsx`);
     };
 
-    // PDF Slip Download
+    // Modern & Simple Light-Theme PDF Slip Download (Combined / Salary / Overtime)
     const handleDownloadSavedPDF = (salary: any, slipType: 'Combined' | 'Salary' | 'Overtime') => {
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const empId = typeof salary.employee === 'string' ? salary.employee : salary.employee?._id;
         const fullEmpData = employees.find(e => e._id === empId);
-        const emp = fullEmpData || salary.employee;
+        const emp = fullEmpData || salary.employee || {};
         const pageW = doc.internal.pageSize.getWidth();
         const pageH = doc.internal.pageSize.getHeight();
         const margin = 10;
+        const contentW = pageW - 2 * margin;
 
-        const isOT = Boolean(emp?.isOTApplicable);
+        const calc = computeCompanySalarySheetData(salary, emp, salary.month || month, Number(salary.year || year));
+        const isOT = calc.isOTApplicable;
+        const showOTColumn = isOT && slipType !== 'Salary';
         const cur = (currency === '₹' || !currency) ? 'Rs.' : currency;
 
-        const primaryColor: [number, number, number] = [30, 41, 59];
-        const neutralBg: [number, number, number] = [248, 250, 252];
-        const lightBorder: [number, number, number] = [226, 232, 240];
+        const textDark: [number, number, number] = [15, 23, 42];
+        const textMuted: [number, number, number] = [100, 116, 139];
+        const borderLight: [number, number, number] = [203, 213, 225];
+        const headerFill: [number, number, number] = [248, 250, 252];
 
-        const drawHeader = () => {
-            doc.setFillColor(...primaryColor);
-            doc.rect(0, 0, pageW, 20, 'F');
-            doc.setTextColor(255, 255, 255);
+        // 1. Clean Light Header (No Dark Background)
+        let curY = 10;
+        const hasLogo = !!companyLogo;
+        const logoSize = 13;
 
-            const hasLogo = !!companyLogo;
-            const logoSize = 14;
-            const logoX = margin;
-            const logoY = 3;
+        if (hasLogo) {
+            try {
+                doc.addImage(companyLogo!, 'JPEG', margin, curY - 2, logoSize, logoSize, undefined, 'FAST');
+            } catch { }
+        }
 
-            if (hasLogo) {
-                try {
-                    doc.addImage(companyLogo!, 'JPEG', logoX, logoY, logoSize, logoSize, undefined, 'FAST');
-                } catch { }
-            }
+        const nameX = hasLogo ? margin + logoSize + 3 : margin;
+        doc.setTextColor(...textDark);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(13);
+        doc.text((companyName || 'Company').toUpperCase(), nameX, curY + 3);
 
-            const nameX = hasLogo ? margin + logoSize + 3 : margin;
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(13);
-            doc.text(companyName || 'Company', nameX, 10);
-
-            if (companyAddress) {
-                doc.setFont('helvetica', 'normal');
-                doc.setFontSize(6.5);
-                doc.text(companyAddress, nameX, 16, { maxWidth: 75 });
-            }
-
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(10.5);
-            const title = slipType === 'Overtime' 
-                ? 'Monthly Overtime Statement' 
-                : slipType === 'Salary' 
-                ? 'Monthly Salary Slip' 
-                : 'Monthly Salary & Overtime Slip';
-            doc.text(title, pageW / 2, 11, { align: 'center' });
-
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(8.5);
-            doc.text(`${salary.month} ${salary.year}`, pageW - margin, 9, { align: 'right' });
+        if (companyAddress) {
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.5);
-            doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, pageW - margin, 15, { align: 'right' });
+            doc.setFontSize(7);
+            doc.setTextColor(...textMuted);
+            doc.text(companyAddress, nameX, curY + 7.5, { maxWidth: 95 });
+        }
 
-            doc.setFillColor(...neutralBg);
-            doc.rect(0, 20, pageW, 12, 'F');
-            doc.setDrawColor(...lightBorder);
-            doc.line(0, 32, pageW, 32);
+        // Right-aligned Document Title & Period
+        const title = slipType === 'Overtime'
+            ? 'MONTHLY OVERTIME STATEMENT'
+            : slipType === 'Salary'
+            ? 'MONTHLY SALARY SLIP'
+            : 'SALARY & OVERTIME SLIP';
 
-            doc.setTextColor(15, 23, 42);
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(9);
-            doc.text(emp?.name || '-', margin, 27.5);
+        doc.setTextColor(...textDark);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text(title, pageW - margin, curY + 3, { align: 'right' });
 
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(7.5);
-            doc.setTextColor(71, 85, 105);
-            const empInfo = `ID: ${emp?.employeeId || '-'}  |  Dept: ${emp?.department || '-'}  |  Desig: ${emp?.designation || '-'}`;
-            doc.text(empInfo, pageW - margin, 27.5, { align: 'right' });
-        };
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(...textMuted);
+        doc.text(`Period: ${salary.month} ${salary.year}  |  Date: ${new Date().toLocaleDateString('en-IN')}`, pageW - margin, curY + 7.5, { align: 'right' });
 
-        drawHeader();
+        curY += 12;
+        doc.setDrawColor(...borderLight);
+        doc.setLineWidth(0.3);
+        doc.line(margin, curY, pageW - margin, curY);
 
-        let displayGrossPay = salary.grossSalary || 0;
-        let displayOtPay = salary.overtime?.amount || 0;
+        // 2. Clean Employee Details Strip (Light Card with Subtle Border)
+        curY += 3;
+        doc.setFillColor(...headerFill);
+        doc.setDrawColor(...borderLight);
+        doc.setLineWidth(0.2);
+        doc.roundedRect(margin, curY, contentW, 14, 1.5, 1.5, 'FD');
 
-        if (slipType === 'Overtime') displayGrossPay = 0;
-        else if (slipType === 'Salary') displayOtPay = 0;
-        
-        const displayNetPay = displayGrossPay + displayOtPay;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(...textDark);
+        doc.text(`${calc.empName}`, margin + 3.5, curY + 5.2);
 
-        const basicPay = emp?.salary?.basic || 0;
-        const hra = emp?.salary?.hra || 0;
-        const conv = emp?.salary?.conveyance || 0;
-        const med = emp?.salary?.medical || 0;
-        const spl = emp?.salary?.specialAllowance || 0;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...textMuted);
+        doc.text(
+            `Emp ID: ${calc.empId}   |   Dept: ${emp?.department || '-'}   |   Designation: ${calc.designation || '-'}`,
+            margin + 3.5,
+            curY + 10.5
+        );
 
-        const pfDeduction = salary.salaryComponents?.pf || 0;
-        const esiDeduction = salary.salaryComponents?.esi || 0;
-        const pt = salary.salaryComponents?.professionalTax || 0;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...textDark);
+        const rightMetaTop = slipType === 'Overtime'
+            ? `Total OT Hours: ${calc.totalOtAll.toFixed(2)} Hrs`
+            : `Fixed Salary: ${cur} ${calc.fixedSalary.toLocaleString('en-IN')}   |   Per Day: ${cur} ${calc.perDayAmount.toFixed(2)}`;
+        const rightMetaBottom = slipType === 'Overtime'
+            ? `Standard Shift: ${calc.standardHours} Hrs/Day`
+            : `Payable Days: ${calc.totalPresentAll.toFixed(2)} / ${calc.daysInMonth} Days`;
 
-        const employerPF = salary.employerContributions?.pf || 0;
-        const employerESI = salary.employerContributions?.esi || 0;
+        doc.text(rightMetaTop, pageW - margin - 3.5, curY + 5.2, { align: 'right' });
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...textMuted);
+        doc.text(rightMetaBottom, pageW - margin - 3.5, curY + 10.5, { align: 'right' });
 
-        if (slipType !== 'Overtime') {
-            const earningsRows: [string, string, string, string][] = [
-                ['Basic Pay', `${cur} ${basicPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Provident Fund (PF)', `${cur} ${pfDeduction.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`],
-                ['HRA', `${cur} ${hra.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'ESI', `${cur} ${esiDeduction.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`],
-                ['Conveyance', `${cur} ${conv.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Professional Tax', `${cur} ${pt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`],
-                ['Medical', `${cur} ${med.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, '', ''],
-                ['Special Allowance', `${cur} ${spl.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, '', ''],
+        curY += 17;
+
+        // 3. Financial Summary Section (Light, Clean Tables)
+        const pfDeduction = Number(salary.salaryComponents?.pf) || 0;
+        const esiDeduction = Number(salary.salaryComponents?.esi) || 0;
+        const ptDeduction = calc.ptAmount;
+        const advanceDeduction = calc.advanceAmount;
+        const totalDeductions = pfDeduction + esiDeduction + ptDeduction + advanceDeduction;
+
+        let displayNetPay = 0;
+
+        if (slipType === 'Overtime') {
+            displayNetPay = calc.totalOtPay;
+            const baseOtHourlyRate = (calc.daysInMonth > 0 && calc.standardHours > 0)
+                ? (calc.basicPay / calc.daysInMonth) / calc.standardHours
+                : 0;
+
+            const otRows: [string, string, string, string][] = [
+                [
+                    'Basic Salary Basis',
+                    `${cur} ${calc.basicPay.toLocaleString('en-IN')}`,
+                    'Base OT Rate / Hr',
+                    `${cur} ${baseOtHourlyRate.toFixed(2)} / hr`
+                ],
+                [
+                    'OT - Single (Absent Adj.)',
+                    `${calc.singleOtHours.toFixed(2)} Hrs @ ${cur} ${calc.singleOtRate.toFixed(2)}/hr`,
+                    'OT - Single Amount',
+                    `${cur} ${calc.singleOtPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+                ],
+                [
+                    `OT - ${calc.mainOTRateMultiplier}x (Regular OT)`,
+                    `${calc.multOtHours.toFixed(2)} Hrs @ ${cur} ${calc.multOtRate.toFixed(2)}/hr`,
+                    `OT - ${calc.mainOTRateMultiplier}x Amount`,
+                    `${cur} ${calc.multOtPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+                ],
+                [
+                    'Total Overtime Hours',
+                    `${calc.totalOtAll.toFixed(2)} Hrs`,
+                    'Total Overtime Pay',
+                    `${cur} ${calc.totalOtPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+                ]
             ];
 
-            if (slipType === 'Combined' && isOT) {
-                earningsRows.push(['Overtime Pay', `${cur} ${displayOtPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, '', '']);
+            autoTable(doc, {
+                startY: curY,
+                margin: { left: margin, right: margin },
+                head: [['Overtime Component', 'Hours & Rate Details', 'Pay Component', 'Amount']],
+                body: otRows,
+                theme: 'grid',
+                headStyles: {
+                    fillColor: headerFill,
+                    textColor: textDark,
+                    fontStyle: 'bold',
+                    fontSize: 7.5,
+                    lineColor: borderLight,
+                    lineWidth: 0.2
+                },
+                styles: {
+                    fontSize: 7.2,
+                    cellPadding: 1.6,
+                    valign: 'middle',
+                    textColor: textDark,
+                    lineColor: borderLight,
+                    lineWidth: 0.15
+                },
+                columnStyles: {
+                    0: { fontStyle: 'bold', cellWidth: contentW * 0.26 },
+                    1: { halign: 'left', cellWidth: contentW * 0.30 },
+                    2: { fontStyle: 'bold', cellWidth: contentW * 0.24 },
+                    3: { halign: 'right', fontStyle: 'bold', cellWidth: contentW * 0.20 },
+                },
+                didParseCell: (data) => {
+                    if (data.row.index === otRows.length - 1) {
+                        data.cell.styles.fillColor = headerFill;
+                        data.cell.styles.fontStyle = 'bold';
+                    }
+                }
+            });
+        } else {
+            const earnedSalary = calc.salaryEarned;
+            const includeOt = slipType === 'Combined' && isOT;
+            const totalEarnings = earnedSalary + calc.incrementAmount + (includeOt ? calc.totalOtPay : 0);
+            displayNetPay = Math.round(totalEarnings - totalDeductions);
+
+            const earningsRows: [string, string, string, string][] = [
+                [
+                    'Basic Salary (Master)',
+                    `${cur} ${calc.basicPay.toLocaleString('en-IN')}`,
+                    'Provident Fund (PF)',
+                    pfDeduction > 0 ? `${cur} ${pfDeduction.toLocaleString('en-IN')}` : '-'
+                ],
+                [
+                    'DA / Special Allowance',
+                    calc.da > 0 ? `${cur} ${calc.da.toLocaleString('en-IN')}` : '-',
+                    'ESI',
+                    esiDeduction > 0 ? `${cur} ${esiDeduction.toLocaleString('en-IN')}` : '-'
+                ],
+                [
+                    'HRA',
+                    calc.hra > 0 ? `${cur} ${calc.hra.toLocaleString('en-IN')}` : '-',
+                    'Professional Tax (PT)',
+                    ptDeduction > 0 ? `${cur} ${ptDeduction.toLocaleString('en-IN')}` : '-'
+                ],
+                [
+                    'Conveyance',
+                    calc.conv > 0 ? `${cur} ${calc.conv.toLocaleString('en-IN')}` : '-',
+                    'Advance / Other',
+                    advanceDeduction > 0 ? `${cur} ${advanceDeduction.toLocaleString('en-IN')}` : '-'
+                ],
+                [
+                    `Earned Salary (${calc.totalPresentAll.toFixed(2)} Days)`,
+                    `${cur} ${earnedSalary.toLocaleString('en-IN')}`,
+                    '',
+                    ''
+                ]
+            ];
+
+            if (includeOt) {
+                if (calc.singleOtHours > 0) {
+                    earningsRows.push([
+                        `OT - Single (${calc.singleOtHours.toFixed(2)} Hrs @ ${calc.singleOtRate.toFixed(2)})`,
+                        `${cur} ${calc.singleOtPay.toLocaleString('en-IN')}`,
+                        '',
+                        ''
+                    ]);
+                }
+                if (calc.multOtHours > 0) {
+                    earningsRows.push([
+                        `OT - ${calc.mainOTRateMultiplier}x (${calc.multOtHours.toFixed(2)} Hrs @ ${calc.multOtRate.toFixed(2)})`,
+                        `${cur} ${calc.multOtPay.toLocaleString('en-IN')}`,
+                        '',
+                        ''
+                    ]);
+                }
+                if (calc.singleOtHours === 0 && calc.multOtHours === 0) {
+                    earningsRows.push(['Overtime Pay', '-', '', '']);
+                }
             }
 
             earningsRows.push([
-                'Total Earnings', 
-                `${cur} ${(displayGrossPay + (slipType === 'Combined' ? displayOtPay : 0)).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 
-                'Total Deductions', 
-                `${cur} ${(pfDeduction + esiDeduction + pt).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+                'Total Earnings',
+                `${cur} ${totalEarnings.toLocaleString('en-IN')}`,
+                'Total Deductions',
+                `${cur} ${totalDeductions.toLocaleString('en-IN')}`
             ]);
 
             autoTable(doc, {
-                startY: 36,
+                startY: curY,
                 margin: { left: margin, right: margin },
-                head: [['Earnings Component', 'Amount', 'Deductions Component', 'Amount']],
+                head: [['Earnings & Structure', 'Amount', 'Deductions', 'Amount']],
                 body: earningsRows,
                 theme: 'grid',
-                headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: 'bold', fontSize: 7.5 },
-                styles: { fontSize: 7, cellPadding: 1.5, valign: 'middle' },
+                headStyles: {
+                    fillColor: headerFill,
+                    textColor: textDark,
+                    fontStyle: 'bold',
+                    fontSize: 7.5,
+                    lineColor: borderLight,
+                    lineWidth: 0.2
+                },
+                styles: {
+                    fontSize: 7,
+                    cellPadding: 1.4,
+                    valign: 'middle',
+                    textColor: textDark,
+                    lineColor: borderLight,
+                    lineWidth: 0.15
+                },
                 columnStyles: {
-                    0: { fontStyle: 'bold' },
-                    1: { halign: 'right' },
-                    2: { fontStyle: 'bold' },
-                    3: { halign: 'right' },
+                    0: { fontStyle: 'bold', cellWidth: contentW * 0.34 },
+                    1: { halign: 'right', cellWidth: contentW * 0.18 },
+                    2: { fontStyle: 'bold', cellWidth: contentW * 0.30 },
+                    3: { halign: 'right', cellWidth: contentW * 0.18 },
                 },
                 didParseCell: (data) => {
                     if (data.row.index === earningsRows.length - 1) {
                         data.cell.styles.fontStyle = 'bold';
-                        data.cell.styles.fillColor = [248, 250, 252];
+                        data.cell.styles.fillColor = headerFill;
                     }
                 }
             });
-
-            const nextY = (doc as any).lastAutoTable.finalY + 3;
-
-            if (employerPF > 0 || employerESI > 0) {
-                autoTable(doc, {
-                    startY: nextY,
-                    margin: { left: margin, right: margin },
-                    head: [['Employer Contributions (Not Deducted from Net Pay)', 'Amount']],
-                    body: [
-                        ['Employer PF (12%)', `${cur} ${employerPF.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`],
-                        ['Employer ESI (3.25%)', `${cur} ${employerESI.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`],
-                    ],
-                    theme: 'grid',
-                    headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: 'bold', fontSize: 7 },
-                    styles: { fontSize: 6.8, cellPadding: 1.2 },
-                    columnStyles: { 1: { halign: 'right' } }
-                });
-            }
         }
 
-        const netY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 4 : 36;
-        doc.setFillColor(238, 242, 255);
-        doc.rect(margin, netY, pageW - 2 * margin, 8, 'F');
+        // 4. Net Payable Box (Clean Light Box with Crisp Border)
+        const netY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 3 : curY;
+        doc.setFillColor(...headerFill);
+        doc.setDrawColor(...borderLight);
+        doc.setLineWidth(0.25);
+        doc.roundedRect(margin, netY, contentW, 8, 1.2, 1.2, 'FD');
+
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8.5);
-        doc.setTextColor(30, 41, 59);
-        doc.text('NET SALARY PAYABLE:', margin + 4, netY + 5.5);
-        doc.setTextColor(79, 70, 229);
+        doc.setTextColor(...textDark);
+        const netLabel = slipType === 'Overtime' ? 'TOTAL OVERTIME PAYABLE:' : 'NET SALARY PAYABLE:';
+        doc.text(netLabel, margin + 3.5, netY + 5.3);
         doc.text(
             `${cur} ${displayNetPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-            pageW - margin - 4,
-            netY + 5.5,
+            pageW - margin - 3.5,
+            netY + 5.3,
             { align: 'right' }
         );
 
-        // Daily logs breakdown
-        const tableBody = (salary.dailyLogs || []).map((d: any) => {
-            const finalStatus = d.useManual ? d.manualStatus : d.originalStatus;
-            const finalHours = d.useManual ? (d.manualHours ?? 0) : (d.originalHours ?? 0);
-            const checkInFormatted = formatPunchTime(d.originalCheckIn);
-            const checkOutFormatted = formatPunchTime(d.originalCheckOut);
-            
-            const dailyOt = d.useManual 
-                ? (d.manualOtHours ?? getDailyOtHours(finalHours, d.dayName, d.manualStatus === 'Holiday' || d.originalStatus === 'Holiday', emp))
-                : (d.otHours ?? getDailyOtHours(finalHours, d.dayName, d.originalStatus === 'Holiday', emp));
+        // 5. Compact Dual-Column Daily Attendance Table (Days 1-15 Left | Days 16-31 Right, Light Header)
+        const attRows: any[][] = [];
+        for (let i = 1; i <= 15; i++) {
+            const leftDay = calc.dayDetailsMap.get(i);
+            const rightDay = calc.dayDetailsMap.get(i + 15);
 
-            const statusText = d.useManual ? `${finalStatus} (M)` : (finalStatus || 'Absent');
-
-            if (isOT) {
-                return [
-                    d.date, d.dayName, checkInFormatted, checkOutFormatted, statusText,
-                    finalHours > 0 ? `${finalHours.toFixed(1)}h` : '0h',
-                    dailyOt > 0 ? `${dailyOt.toFixed(1)}h` : '-',
-                ];
+            if (showOTColumn) {
+                attRows.push([
+                    leftDay ? String(leftDay.day) : '',
+                    leftDay ? leftDay.inTime : '',
+                    leftDay ? leftDay.outTime : '',
+                    leftDay ? leftDay.presentAbsent : '',
+                    leftDay ? leftDay.otHours : '',
+                    rightDay ? String(rightDay.day) : '',
+                    rightDay ? rightDay.inTime : '',
+                    rightDay ? rightDay.outTime : '',
+                    rightDay ? rightDay.presentAbsent : '',
+                    rightDay ? rightDay.otHours : '',
+                ]);
             } else {
-                return [
-                    d.date, d.dayName, checkInFormatted, checkOutFormatted, statusText,
-                    finalHours > 0 ? `${finalHours.toFixed(1)}h` : '0h',
-                ];
+                attRows.push([
+                    leftDay ? String(leftDay.day) : '',
+                    leftDay ? leftDay.inTime : '',
+                    leftDay ? leftDay.outTime : '',
+                    leftDay ? leftDay.presentAbsent : '',
+                    rightDay ? String(rightDay.day) : '',
+                    rightDay ? rightDay.inTime : '',
+                    rightDay ? rightDay.outTime : '',
+                    rightDay ? rightDay.presentAbsent : '',
+                ]);
             }
-        });
+        }
 
-        const tableHead = isOT
-            ? [['Date', 'Day', 'Check-In', 'Check-Out', 'Status', 'Total Duty Hrs', 'OT Hrs']]
-            : [['Date', 'Day', 'Check-In', 'Check-Out', 'Status', 'Total Duty Hrs']];
+        if (calc.daysInMonth >= 31) {
+            const day31 = calc.dayDetailsMap.get(31);
+            if (showOTColumn) {
+                attRows.push([
+                    '', '', '', '-', '',
+                    '31',
+                    day31 ? day31.inTime : '',
+                    day31 ? day31.outTime : '',
+                    day31 ? day31.presentAbsent : '',
+                    day31 ? day31.otHours : '',
+                ]);
+            } else {
+                attRows.push([
+                    '', '', '', '-',
+                    '31',
+                    day31 ? day31.inTime : '',
+                    day31 ? day31.outTime : '',
+                    day31 ? day31.presentAbsent : '',
+                ]);
+            }
+        }
+
+        // Totals row at bottom of attendance grid
+        if (showOTColumn) {
+            attRows.push([
+                { content: 'Total Days & OT Hours', colSpan: 8, styles: { fontStyle: 'bold', halign: 'right', fillColor: headerFill } },
+                { content: calc.totalPresentAll.toFixed(2), styles: { fontStyle: 'bold', halign: 'right', fillColor: headerFill } },
+                { content: calc.totalOtAll > 0 ? calc.totalOtAll.toFixed(2) : '-', styles: { fontStyle: 'bold', halign: 'right', fillColor: headerFill } },
+            ]);
+        } else {
+            attRows.push([
+                { content: 'Total Payable Days', colSpan: 7, styles: { fontStyle: 'bold', halign: 'right', fillColor: headerFill } },
+                { content: calc.totalPresentAll.toFixed(2), styles: { fontStyle: 'bold', halign: 'right', fillColor: headerFill } },
+            ]);
+        }
+
+        const attHead = showOTColumn
+            ? [['Date', 'In', 'Out', 'Days', 'OT', 'Date', 'In', 'Out', 'Days', 'OT']]
+            : [['Date', 'In', 'Out', 'Days', 'Date', 'In', 'Out', 'Days']];
 
         autoTable(doc, {
             startY: netY + 11,
             margin: { left: margin, right: margin },
-            head: tableHead,
-            body: tableBody,
+            head: attHead,
+            body: attRows,
             theme: 'grid',
-            styles: { 
-                fontSize: 6.5, cellPadding: 1.1, halign: 'center', valign: 'middle',
-                textColor: [30, 41, 59], lineColor: [226, 232, 240], lineWidth: 0.1
+            styles: {
+                fontSize: 6.8,
+                cellPadding: 1.1,
+                halign: 'center',
+                valign: 'middle',
+                textColor: textDark,
+                lineColor: borderLight,
+                lineWidth: 0.12
             },
-            headStyles: { 
-                fillColor: [71, 85, 105], textColor: 255, fontStyle: 'bold', fontSize: 6.8, cellPadding: 1.4 
+            headStyles: {
+                fillColor: headerFill,
+                textColor: textDark,
+                fontStyle: 'bold',
+                fontSize: 7,
+                cellPadding: 1.3,
+                lineColor: borderLight,
+                lineWidth: 0.2
             },
-            columnStyles: isOT ? {
-                0: { cellWidth: 26 }, 1: { cellWidth: 16 }, 2: { cellWidth: 26 },
-                3: { cellWidth: 26 }, 4: { cellWidth: 36 }, 5: { cellWidth: 30, fontStyle: 'bold' },
-                6: { cellWidth: 30, fontStyle: 'bold', textColor: [124, 58, 237] },
-            } : {
-                0: { cellWidth: 30 }, 1: { cellWidth: 20 }, 2: { cellWidth: 32 },
-                3: { cellWidth: 32 }, 4: { cellWidth: 42 }, 5: { cellWidth: 34, fontStyle: 'bold' },
-            }
         });
 
-        const finalY = (doc as any).lastAutoTable?.finalY || pageH - 15;
-        if (finalY + 12 < pageH) {
-            doc.setDrawColor(200, 200, 200);
-            doc.line(margin, finalY + 5, pageW - margin, finalY + 5);
-            doc.setFontSize(6.5);
-            doc.setTextColor(140);
-            doc.text('This is a computer-generated document and does not require a physical signature.', margin, finalY + 9.5);
-            doc.text(companyName || '', pageW - margin, finalY + 9.5, { align: 'right' });
+        const finalY = (doc as any).lastAutoTable?.finalY || pageH - 18;
+        if (finalY + 16 < pageH) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7.2);
+            doc.setTextColor(...textMuted);
+            doc.text('Accountant Signature', margin + 15, finalY + 12, { align: 'center' });
+            doc.text('Approver Signature', pageW / 2, finalY + 12, { align: 'center' });
+            doc.text('Employee Signature', pageW - margin - 15, finalY + 12, { align: 'center' });
         }
 
         const filePrefix = slipType === 'Combined' ? 'Salary_OT_Slip' : slipType === 'Overtime' ? 'OT_Statement' : 'SalarySlip';
-        doc.save(`${filePrefix}_${emp?.name || 'Employee'}_${salary.month}_${salary.year}.pdf`);
+        doc.save(`${filePrefix}_${calc.empName || 'Employee'}_${salary.month}_${salary.year}.pdf`);
     };
 
     const handleDeleteSavedSalary = async (id: string) => {
@@ -2077,7 +2281,7 @@ export default function SalariesTab() {
                             {/* EXPORT ALL-IN-ONE EXCEL (COMPANY FORMAT) */}
                             <button
                                 type="button"
-                                onClick={() => exportAllSalariesCompanyExcel(filteredSavedSalaries, employees, month, year, companyName || "EXCEL WIRECUT INC")}
+                                onClick={() => exportAllSalariesCompanyExcel(filteredSavedSalaries, employees, month, year, companyName || "")}
                                 className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-colors"
                                 title="Export single Excel workbook containing each generated employee on their own sheet + Master summary"
                             >
@@ -2087,22 +2291,130 @@ export default function SalariesTab() {
                             {/* EXPORT ALL SLIPS PDF (COMPANY FORMAT) */}
                             <button
                                 type="button"
-                                onClick={() => exportAllSalariesCompanyPDF(filteredSavedSalaries, employees, month, year, companyName || "EXCEL WIRECUT INC")}
+                                onClick={() => exportAllSalariesCompanyPDF(filteredSavedSalaries, employees, month, year, companyName || "")}
                                 className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-colors"
                                 title="Export all generated employee salary slips in company format into a single multi-page PDF"
                             >
                                 <FileText size={14} /> All Slips PDF
                             </button>
 
-                            {/* Standard Table Excel */}
-                            <button
-                                type="button"
-                                onClick={handleDownloadSavedExcel}
-                                className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                                title="Download table data as Excel"
-                            >
-                                <Download size={13} /> Table Excel
-                            </button>
+                            {/* SALARY STATEMENT DROPDOWN (Only Salaries / Only OT / Total in Excel & PDF) */}
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsStatementDropdownOpen(prev => !prev)}
+                                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-colors cursor-pointer"
+                                    title="Download Monthly Wage Overview Statement (Only Salaries / Only OT / Total) in Excel or PDF"
+                                >
+                                    <Download size={13} />
+                                    <span>Salary Statement</span>
+                                    <ChevronDown size={13} className={`transition-transform duration-150 ${isStatementDropdownOpen ? 'rotate-180' : ''}`} />
+                                </button>
+
+                                {isStatementDropdownOpen && (
+                                    <>
+                                        <div
+                                            className="fixed inset-0 z-30"
+                                            onClick={() => setIsStatementDropdownOpen(false)}
+                                        />
+                                        <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl z-40 p-2 space-y-1.5 animate-in fade-in zoom-in-95 duration-150">
+                                            <div className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
+                                                Monthly Wage Statement ({month} {year})
+                                            </div>
+
+                                            {/* 1. Only Salaries */}
+                                            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors">
+                                                <div>
+                                                    <div className="text-xs font-bold text-slate-800 dark:text-slate-100">Only Salaries</div>
+                                                    <div className="text-[10px] text-slate-400">21-col wage sheet without OT</div>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setIsStatementDropdownOpen(false);
+                                                            exportMonthlySalaryStatementExcel(filteredSavedSalaries, employees, month, year, companyName || "", 'salary');
+                                                        }}
+                                                        className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                                    >
+                                                        <FileSpreadsheet size={12} /> Excel
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setIsStatementDropdownOpen(false);
+                                                            exportMonthlySalaryStatementPDF(filteredSavedSalaries, employees, month, year, companyName || "", 'salary');
+                                                        }}
+                                                        className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                                    >
+                                                        <FileText size={12} /> PDF
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* 2. Only OT */}
+                                            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors">
+                                                <div>
+                                                    <div className="text-xs font-bold text-slate-800 dark:text-slate-100">Only OT</div>
+                                                    <div className="text-[10px] text-slate-400">Overtime hours, rates &amp; OT pay</div>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setIsStatementDropdownOpen(false);
+                                                            exportMonthlySalaryStatementExcel(filteredSavedSalaries, employees, month, year, companyName || "", 'ot');
+                                                        }}
+                                                        className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                                    >
+                                                        <FileSpreadsheet size={12} /> Excel
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setIsStatementDropdownOpen(false);
+                                                            exportMonthlySalaryStatementPDF(filteredSavedSalaries, employees, month, year, companyName || "", 'ot');
+                                                        }}
+                                                        className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                                    >
+                                                        <FileText size={12} /> PDF
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* 3. Total (Salary + OT) */}
+                                            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/30 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors border border-indigo-100 dark:border-indigo-900/50">
+                                                <div>
+                                                    <div className="text-xs font-bold text-indigo-900 dark:text-indigo-200">Total (Salary + OT)</div>
+                                                    <div className="text-[10px] text-indigo-600/80 dark:text-indigo-400">Complete 21-col wage statement</div>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setIsStatementDropdownOpen(false);
+                                                            exportMonthlySalaryStatementExcel(filteredSavedSalaries, employees, month, year, companyName || "", 'total');
+                                                        }}
+                                                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer"
+                                                    >
+                                                        <FileSpreadsheet size={12} /> Excel
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setIsStatementDropdownOpen(false);
+                                                            exportMonthlySalaryStatementPDF(filteredSavedSalaries, employees, month, year, companyName || "", 'total');
+                                                        }}
+                                                        className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer"
+                                                    >
+                                                        <FileText size={12} /> PDF
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
 
                             {isAnySavedFilterActive && (
                                 <button
@@ -2355,7 +2667,7 @@ export default function SalariesTab() {
                                                     {/* Company Format Single Exports */}
                                                     <button
                                                         type="button"
-                                                        onClick={() => exportSingleSalaryCompanyExcel(salary, fullEmp, month, year, companyName || "EXCEL WIRECUT INC")}
+                                                        onClick={() => exportSingleSalaryCompanyExcel(salary, fullEmp, month, year, companyName || "")}
                                                         className="px-1.5 py-0.5 hover:bg-emerald-50 dark:hover:bg-slate-700 text-emerald-700 dark:text-emerald-400 font-bold text-[10px] rounded border border-emerald-300 dark:border-emerald-700"
                                                         title="Download Company Excel Statement"
                                                     >
@@ -2363,7 +2675,7 @@ export default function SalariesTab() {
                                                     </button>
                                                     <button
                                                         type="button"
-                                                        onClick={() => exportSingleSalaryCompanyPDF(salary, fullEmp, month, year, companyName || "EXCEL WIRECUT INC")}
+                                                        onClick={() => exportSingleSalaryCompanyPDF(salary, fullEmp, month, year, companyName || "")}
                                                         className="px-1.5 py-0.5 hover:bg-red-50 dark:hover:bg-slate-700 text-red-600 dark:text-red-400 font-bold text-[10px] rounded border border-red-300 dark:border-red-700"
                                                         title="Download Company PDF Statement"
                                                     >

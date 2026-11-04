@@ -13,12 +13,20 @@ export const sessionHistorySchema = new mongoose.Schema({
   },
   action: { 
     type: String, 
-    enum: ["login", "logout"], 
+    enum: ["login", "logout", "force_logout"], 
     required: true 
   },
   ipAddress: { 
     type: String,
     default: "Unknown"
+  },
+  deviceInfo: {
+    deviceType: { type: String, default: "" },
+    accessMode: { type: String, default: "" },
+    categoryLabel: { type: String, default: "" },
+    os: { type: String, default: "" },
+    browser: { type: String, default: "" },
+    summary: { type: String, default: "" }
   },
   location: {
     lat: { type: Number, default: null },
