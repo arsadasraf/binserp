@@ -52,8 +52,12 @@ interface JobWorkPOModalProps {
   vendors?: any[];
   materials?: any[];
   inHouseItems?: any[];
+  rawMaterials?: any[];
+  boughtOuts?: any[];
+  consumables?: any[];
   initialData?: any;
   isEditing?: boolean;
+  initialChallan?: any;
 }
 
 export default function JobWorkPOModal({
@@ -63,8 +67,12 @@ export default function JobWorkPOModal({
   vendors = [],
   materials = [],
   inHouseItems = [],
+  rawMaterials = [],
+  boughtOuts = [],
+  consumables = [],
   initialData,
-  isEditing = false
+  isEditing = false,
+  initialChallan
 }: JobWorkPOModalProps) {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
 
@@ -119,6 +127,20 @@ export default function JobWorkPOModal({
 
   const isChallanLinked = Boolean(selectedChallanId || selectedChallanNumber);
 
+
+  // Auto-select initialChallan if passed from Challan Table
+  useEffect(() => {
+    if (initialChallan && isOpen) {
+      const challanVendorId = initialChallan.vendor?._id || initialChallan.vendor?.id || (typeof initialChallan.vendor === 'string' ? initialChallan.vendor : '');
+      if (challanVendorId) {
+        setSelectedVendorId(String(challanVendorId));
+        const vObj = vendors.find(v => String(v._id || v.id) === String(challanVendorId));
+        if (vObj) setSelectedVendorObj(vObj);
+      }
+      handleSelectChallan(String(initialChallan._id || initialChallan.id));
+    }
+  }, [initialChallan, isOpen, allChallans]);
+
   // Fetch all Job Work Challans when modal opens
   useEffect(() => {
     if (!isOpen || !token) return;
@@ -145,12 +167,18 @@ export default function JobWorkPOModal({
     };
   }, [isOpen, token]);
 
-  // Combine items for selector: Raw Materials, Bought Outs, FG items
+  // Combine items for selector: Raw Materials, Bought Outs, Consumables, FG items
   const allSelectableItems = useMemo(() => {
     const combined: any[] = [];
     const seen = new Set<string>();
 
-    [...materials, ...inHouseItems].forEach(it => {
+    [
+      ...(materials || []),
+      ...(rawMaterials || []),
+      ...(boughtOuts || []),
+      ...(consumables || []),
+      ...(inHouseItems || [])
+    ].forEach(it => {
       const id = it._id || it.id;
       if (id && !seen.has(String(id))) {
         seen.add(String(id));
@@ -159,7 +187,7 @@ export default function JobWorkPOModal({
     });
 
     return combined;
-  }, [materials, inHouseItems]);
+  }, [materials, rawMaterials, boughtOuts, consumables, inHouseItems]);
 
   const itemOptions = useMemo(() => {
     return allSelectableItems.map(it => ({
@@ -235,10 +263,44 @@ export default function JobWorkPOModal({
       setExpectedDeliveryDate(new Date(challan.expectedReturnDate).toISOString().slice(0, 10));
     }
 
-    const defaultSac = sacCode || '9988';
-    const rawItems: any[] = Array.isArray(challan.items) && challan.items.length > 0
+        const defaultSac = sacCode || '9988';
+    let rawItems: any[] = Array.isArray(challan.items) && challan.items.length > 0
       ? challan.items
       : [];
+
+    if (rawItems.length === 0 && challan.operationMode === 'assembly') {
+      if (Array.isArray(challan.assemblyGroups) && challan.assemblyGroups.length > 0) {
+        rawItems = challan.assemblyGroups.map((g: any) => ({
+          itemName: g.assemblyOutputItem?.itemName || g.groupName || 'Assembly Item',
+          item: g.assemblyOutputItem?.item,
+          quantitySent: g.assemblyOutputItem?.quantityToBeReceived || 1,
+          unit: g.assemblyOutputItem?.receivingUnit || 'PCS',
+          hasSecondaryUnit: g.assemblyOutputItem?.hasSecondaryUnit,
+          secondaryUnit: g.assemblyOutputItem?.secondaryUnit,
+          conversionFactor: g.assemblyOutputItem?.conversionFactor,
+          secondaryQuantitySent: g.assemblyOutputItem?.secondaryQuantityToBeReceived,
+          selectedUnit: g.assemblyOutputItem?.selectedUnit || g.assemblyOutputItem?.receivingUnit,
+          processRate: g.assemblyOutputItem?.processRate || 0,
+          processType: g.assemblyOutputItem?.processType || headerProc || 'Assembly',
+          description: g.assemblyOutputItem?.description || ''
+        }));
+      } else if (challan.assemblyOutputItem) {
+        rawItems = [{
+          itemName: challan.assemblyOutputItem.itemName || 'Assembly Item',
+          item: challan.assemblyOutputItem.item,
+          quantitySent: challan.assemblyOutputItem.quantityToBeReceived || 1,
+          unit: challan.assemblyOutputItem.receivingUnit || 'PCS',
+          hasSecondaryUnit: challan.assemblyOutputItem.hasSecondaryUnit,
+          secondaryUnit: challan.assemblyOutputItem.secondaryUnit,
+          conversionFactor: challan.assemblyOutputItem.conversionFactor,
+          secondaryQuantitySent: challan.assemblyOutputItem.secondaryQuantityToBeReceived,
+          selectedUnit: challan.assemblyOutputItem.selectedUnit || challan.assemblyOutputItem.receivingUnit,
+          processRate: challan.assemblyOutputItem.processRate || 0,
+          processType: challan.assemblyOutputItem.processType || headerProc || 'Assembly',
+          description: challan.assemblyOutputItem.description || ''
+        }];
+      }
+    }
 
     if (rawItems.length > 0) {
       const mappedItems: JobWorkLineItem[] = rawItems.map((cItem: any, idx: number) => {
@@ -259,7 +321,7 @@ export default function JobWorkPOModal({
           '';
         const itemProc = cItem.processType || headerProc || COMMON_PROCESSES[0];
         const priQty = Number(cItem.quantitySent ?? cItem.quantity ?? 1) || 1;
-        const priUnit = (cItem.unit || matchedMaster?.unit || 'PCS').trim();
+        const priUnit = (cItem.unit || cItem.receivingUnit || matchedMaster?.unit || 'PCS').trim();
 
         const hasSec = Boolean(
           cItem.hasSecondaryUnit ||
@@ -275,7 +337,7 @@ export default function JobWorkPOModal({
               : Number((priQty * convFactor).toFixed(3)))
           : 0;
 
-        // Default to the exact unit selected when the DC was created
+        // Exact unit preservation from Challan:
         const dcUnit = (cItem.selectedUnit || '').trim();
         const isSecSelected = Boolean(hasSec && secUnit && dcUnit.toLowerCase() === secUnit.toLowerCase());
         const selectedUnit = isSecSelected ? secUnit : priUnit;

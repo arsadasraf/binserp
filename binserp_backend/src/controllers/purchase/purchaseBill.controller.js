@@ -1,5 +1,6 @@
 import { purchaseBillSchema } from "../../models/purchase/index.js";
 import { grnSchema, jobWorkSchema } from "../../models/store/index.js";
+import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
@@ -485,15 +486,23 @@ export const updatePurchaseBill = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const companyId = getCompanyId(req);
 
+  const existingBill = await PurchaseBill.findOne({ _id: id, company: companyId });
+  if (!existingBill) {
+    throw new ApiError(404, "Purchase Bill not found");
+  }
+
+  // Check dynamic timeLock governance from Prefix Settings
+  const entityKey = existingBill.billType === 'job-work-service' ? 'jobWorkBill' : 'invoice';
+  const governance = await checkTimeLockGovernance(req, entityKey, existingBill.createdAt || existingBill.date, 'edit');
+  if (!governance.allowed) {
+    throw new ApiError(403, governance.message || "Purchase Bill cannot be edited due to prefix policy time lock.");
+  }
+
   const updatedBill = await PurchaseBill.findOneAndUpdate(
     { _id: id, company: companyId },
     req.body,
     { new: true, runValidators: true }
   );
-
-  if (!updatedBill) {
-    throw new ApiError(404, "Purchase Bill not found");
-  }
 
   return res.status(200).json(new ApiResponse(200, updatedBill, "Purchase Bill updated successfully"));
 });
@@ -508,6 +517,13 @@ export const deletePurchaseBill = asyncHandler(async (req, res) => {
   const billToDelete = await PurchaseBill.findOne({ _id: id, company: companyId });
   if (!billToDelete) {
     throw new ApiError(404, "Purchase Bill not found");
+  }
+
+  // Check dynamic timeLock governance from Prefix Settings
+  const entityKey = billToDelete.billType === 'job-work-service' ? 'jobWorkBill' : 'invoice';
+  const governance = await checkTimeLockGovernance(req, entityKey, billToDelete.createdAt || billToDelete.date, 'delete');
+  if (!governance.allowed) {
+    throw new ApiError(403, governance.message || "Purchase Bill cannot be deleted due to prefix policy time lock.");
   }
 
   // Rollback GRN Billed status if linked

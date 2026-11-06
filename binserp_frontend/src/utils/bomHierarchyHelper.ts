@@ -106,29 +106,35 @@ export function explodeFGBOMHierarchy(
     };
   }
 
-  // Pre-index master collections for O(1) lookups
+  // Pre-index master collections for O(1) lookups by ID, Code/PartNumber, and Name
   const fgMapById = new Map<string, any>();
+  const fgMapByCode = new Map<string, any>();
   const fgMapByName = new Map<string, any>();
   (allFGItems || []).forEach(fg => {
     if (fg._id) fgMapById.set(String(fg._id), fg);
     if (fg.id) fgMapById.set(String(fg.id), fg);
-    if (fg.name) fgMapByName.set(fg.name.toLowerCase().trim(), fg);
+    if (fg.code) fgMapByCode.set(String(fg.code).toLowerCase().trim(), fg);
+    if (fg.name) fgMapByName.set(String(fg.name).toLowerCase().trim(), fg);
   });
 
   const rmMapById = new Map<string, any>();
+  const rmMapByCode = new Map<string, any>();
   const rmMapByName = new Map<string, any>();
   (allRMItems || []).forEach(rm => {
     if (rm._id) rmMapById.set(String(rm._id), rm);
     if (rm.id) rmMapById.set(String(rm.id), rm);
-    if (rm.name) rmMapByName.set(rm.name.toLowerCase().trim(), rm);
+    if (rm.code) rmMapByCode.set(String(rm.code).toLowerCase().trim(), rm);
+    if (rm.name) rmMapByName.set(String(rm.name).toLowerCase().trim(), rm);
   });
 
   const boMapById = new Map<string, any>();
+  const boMapByCode = new Map<string, any>();
   const boMapByName = new Map<string, any>();
   (allBOItems || []).forEach(bo => {
     if (bo._id) boMapById.set(String(bo._id), bo);
     if (bo.id) boMapById.set(String(bo.id), bo);
-    if (bo.name) boMapByName.set(bo.name.toLowerCase().trim(), bo);
+    if (bo.code) boMapByCode.set(String(bo.code).toLowerCase().trim(), bo);
+    if (bo.name) boMapByName.set(String(bo.name).toLowerCase().trim(), bo);
   });
 
   let maxLevel = 1;
@@ -156,41 +162,78 @@ export function explodeFGBOMHierarchy(
     bomItems.forEach((bItem, index) => {
       if (!bItem) return;
 
-      const rawType = (bItem.itemType || '').toString();
+      const rawType = (bItem.itemType || '').toString().trim();
       const rawName = (bItem.itemName || (typeof bItem.item === 'object' ? bItem.item?.name : '') || '').trim();
+      const rawCode = (bItem.materialCode || bItem.code || (typeof bItem.item === 'object' ? bItem.item?.code : '') || '').trim();
       const rawId = typeof bItem.item === 'object' && bItem.item !== null
         ? String(bItem.item._id || bItem.item.id || '')
         : String(bItem.item || '');
 
+      const normRawType = rawType.toLowerCase();
+      const isExplicitRM = normRawType === 'rawmaterial' || normRawType === 'material' || normRawType === 'rm';
+      const isExplicitBO = normRawType === 'boughtout' || normRawType === 'bought_out' || normRawType === 'bo';
+      const isExplicitFG = normRawType === 'fgitem' || normRawType === 'fg' || normRawType === 'component' || normRawType === 'subassembly' || normRawType === 'sub assembly' || normRawType === 'assembly';
+      const isConsumable = normRawType.includes('consumable');
+
       const perParentQty = parseFloat((Number(bItem.quantity) || 1).toFixed(2));
       const cumulativeQty = parseFloat((perParentQty * parentCumulativeQty).toFixed(2));
-      // 1. Resolve matched master record
-      let matchedFG = (rawId ? fgMapById.get(rawId) : null) || (rawName ? fgMapByName.get(rawName.toLowerCase()) : null);
-      let matchedRM = (rawId ? rmMapById.get(rawId) : null) || (rawName ? rmMapByName.get(rawName.toLowerCase()) : null);
-      let matchedBO = (rawId ? boMapById.get(rawId) : null) || (rawName ? boMapByName.get(rawName.toLowerCase()) : null);
 
-      // Determine classification
-      const isFGType = rawType === 'FGItem' || rawType.toLowerCase().includes('fg') || Boolean(matchedFG);
-      const isBOType = !isFGType && (rawType === 'BoughtOut' || rawType.toLowerCase().includes('bought') || rawType === 'BO' || Boolean(matchedBO));
-      const isConsumable = rawType.toLowerCase().includes('consumable');
+      // 1. Resolve matched master record strictly within declared category
+      let matchedFG: any = null;
+      let matchedRM: any = null;
+      let matchedBO: any = null;
+
+      if (isExplicitRM) {
+        matchedRM = (rawId ? rmMapById.get(rawId) : null)
+          || (rawCode ? rmMapByCode.get(rawCode.toLowerCase()) : null)
+          || (rawName ? rmMapByName.get(rawName.toLowerCase()) : null);
+      } else if (isExplicitBO || isConsumable) {
+        matchedBO = (rawId ? boMapById.get(rawId) : null)
+          || (rawCode ? boMapByCode.get(rawCode.toLowerCase()) : null)
+          || (rawName ? boMapByName.get(rawName.toLowerCase()) : null);
+      } else if (isExplicitFG) {
+        matchedFG = (rawId ? fgMapById.get(rawId) : null)
+          || (rawCode ? fgMapByCode.get(rawCode.toLowerCase()) : null)
+          || (rawName ? fgMapByName.get(rawName.toLowerCase()) : null);
+      } else {
+        // Fallback when itemType is unspecified: match by ID first, then by code, then by name
+        if (rawId) {
+          matchedFG = fgMapById.get(rawId);
+          matchedBO = boMapById.get(rawId);
+          matchedRM = rmMapById.get(rawId);
+        }
+        if (!matchedFG && !matchedBO && !matchedRM && rawCode) {
+          const lCode = rawCode.toLowerCase();
+          matchedFG = fgMapByCode.get(lCode);
+          matchedBO = boMapByCode.get(lCode);
+          matchedRM = rmMapByCode.get(lCode);
+        }
+        if (!matchedFG && !matchedBO && !matchedRM && rawName) {
+          const lName = rawName.toLowerCase();
+          matchedFG = fgMapByName.get(lName);
+          matchedBO = boMapByName.get(lName);
+          matchedRM = rmMapByName.get(lName);
+        }
+      }
+
+      // Determine classification strictly respecting user choice
+      const isFGType = isExplicitFG || (!isExplicitRM && !isExplicitBO && !isConsumable && Boolean(matchedFG));
+      const isBOType = isExplicitBO || (!isExplicitRM && !isFGType && !isConsumable && Boolean(matchedBO));
 
       let resolvedType: 'SubAssembly' | 'Assembly' | 'Component' | 'BO' | 'RM' = 'RM';
-      let categoryLabel = 'Raw Material';
+      let categoryLabel = 'Raw Material (RM)';
 
-      const canonicalUnit = matchedFG?.unit || matchedRM?.unit || matchedBO?.unit || bItem.unit || (isBOType || isFGType ? 'NOS' : 'KG');
+      const canonicalUnit = (isFGType ? matchedFG?.unit : (isBOType || isConsumable ? matchedBO?.unit : matchedRM?.unit))
+        || bItem.unit
+        || (isBOType || isFGType ? 'NOS' : 'KG');
       const unit = canonicalUnit;
 
-      // Subcategory / Category resolution across all master collections
+      // Subcategory / Category resolution across matched master collection
+      const matchedRecord = isFGType ? matchedFG : (isBOType || isConsumable ? matchedBO : matchedRM);
       const resolvedSubCategory = (
-        matchedFG?.categoryId?.name ||
-        matchedFG?.category?.name ||
-        matchedFG?.category ||
-        matchedRM?.categoryId?.name ||
-        matchedRM?.category?.name ||
-        matchedRM?.category ||
-        matchedBO?.categoryId?.name ||
-        matchedBO?.category?.name ||
-        matchedBO?.category ||
+        matchedRecord?.categoryId?.name ||
+        matchedRecord?.category?.name ||
+        matchedRecord?.category ||
         (typeof bItem.item === 'object' && bItem.item !== null
           ? (bItem.item?.categoryId?.name || bItem.item?.category?.name || bItem.item?.category)
           : '') ||
@@ -257,12 +300,8 @@ export function explodeFGBOMHierarchy(
       const technicalDescription = (
         bItem.itemDescription ||
         bItem.description ||
-        matchedFG?.description ||
-        matchedFG?.descriptions ||
-        matchedRM?.descriptions ||
-        matchedRM?.description ||
-        matchedBO?.descriptions ||
-        matchedBO?.description ||
+        matchedRecord?.description ||
+        matchedRecord?.descriptions ||
         (typeof bItem.item === 'object' ? (bItem.item?.descriptions || bItem.item?.description) : '') ||
         ''
       ).toString().trim();
@@ -270,25 +309,19 @@ export function explodeFGBOMHierarchy(
       // Dual unit resolution
       const hasSec = Boolean(
         bItem.hasSecondaryUnit ||
-        matchedFG?.hasSecondaryUnit ||
-        matchedRM?.hasSecondaryUnit ||
-        matchedBO?.hasSecondaryUnit ||
+        matchedRecord?.hasSecondaryUnit ||
         (typeof bItem.item === 'object' && bItem.item?.hasSecondaryUnit)
       );
       const secUnit = (
         bItem.secondaryUnit ||
-        matchedFG?.secondaryUnit ||
-        matchedRM?.secondaryUnit ||
-        matchedBO?.secondaryUnit ||
+        matchedRecord?.secondaryUnit ||
         (typeof bItem.item === 'object' ? bItem.item?.secondaryUnit : '') ||
         ''
       ).toString().trim();
 
       const convFactor = Number(
         bItem.conversionFactor ??
-        matchedFG?.conversionFactor ??
-        matchedRM?.conversionFactor ??
-        matchedBO?.conversionFactor ??
+        matchedRecord?.conversionFactor ??
         (typeof bItem.item === 'object' ? bItem.item?.conversionFactor : 1)
       ) || 1;
 
@@ -296,17 +329,17 @@ export function explodeFGBOMHierarchy(
       const secCumulative = hasSec ? Math.round(cumulativeQty * convFactor) : undefined;
 
       const resolvedMasterId = String(
-        matchedFG?._id || matchedFG?.id ||
-        matchedBO?._id || matchedBO?.id ||
-        matchedRM?._id || matchedRM?.id ||
+        (isFGType ? (matchedFG?._id || matchedFG?.id) : '') ||
+        (isBOType || isConsumable ? (matchedBO?._id || matchedBO?.id) : '') ||
+        (matchedRM?._id || matchedRM?.id) ||
         rawId ||
         ''
       );
-      const effectiveId = resolvedMasterId || `item-${level}-${index}-${rawName}`;
-      const uniqueKey = `${effectiveId}-${level}-${index}`;
+      const effectiveId = resolvedMasterId || `item-${resolvedType}-${level}-${index}-${rawName}`;
+      const uniqueKey = `${resolvedType}-${effectiveId}-${level}-${index}`;
 
-      // Check for child BOM in matched FG
-      const childBOM = (matchedFG && Array.isArray(matchedFG.bom)) ? matchedFG.bom : [];
+      // Check for child BOM strictly in matched FG
+      const childBOM = (isFGType && matchedFG && Array.isArray(matchedFG.bom)) ? matchedFG.bom : [];
       const hasChildren = childBOM.length > 0 && !visitedPath.has(effectiveId);
 
       const node: ExplodedBOMNode = {
@@ -410,8 +443,9 @@ export function consolidateBOMItems(
   (nodes || []).forEach((node) => {
     if (!matchesBOMFilter(node, filterType)) return;
 
-    // Key by ID or normalized name
-    const key = (node.id && node.id !== 'undefined' ? String(node.id) : '') || node.materialName.toLowerCase().trim();
+    // Distinct compound key: separate by itemType so RM, BO, and FG with same part number/name are kept distinct
+    const rawIdOrName = (node.id && node.id !== 'undefined' ? String(node.id) : '') || node.materialName.toLowerCase().trim();
+    const key = `${node.itemType}:${rawIdOrName}`;
     if (!key) return;
 
     let existing = map.get(key);
@@ -460,7 +494,11 @@ export function consolidateBOMItems(
     });
   });
 
-  return Array.from(map.values()).sort((a, b) => a.materialName.localeCompare(b.materialName));
+  return Array.from(map.values()).sort((a, b) => {
+    const cmp = a.materialName.localeCompare(b.materialName);
+    if (cmp !== 0) return cmp;
+    return a.itemType.localeCompare(b.itemType);
+  });
 }
 
 /**

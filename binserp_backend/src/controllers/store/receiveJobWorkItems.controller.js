@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { purchaseBillSchema } from "../../models/purchase/index.js";
 import { 
   jobWorkSchema, vendorSchema, fgItemSchema, 
   fgInventoryMonthlySchema, rmInventoryMonthlySchema 
@@ -35,7 +36,10 @@ export const receiveJobWorkItems = async (req, res) => {
       qcRequired = true,
       qcStatus,
       remarks,
-      documents = []
+      documents = [],
+      autoCreateBill = false,
+      billNumber: customBillNumber,
+      taxRate: customTaxRate = 18
     } = req.body;
 
     if (qcRequired === 'true') qcRequired = true;
@@ -53,6 +57,7 @@ export const receiveJobWorkItems = async (req, res) => {
     const isStoreConversion = jobWork.jobWorkType === "store-conversion" || jobWork.jobWorkType === "inventory-conversion" || !jobWork.jobWorkType;
     const isWipWorkflow = jobWork.jobWorkType === "store-to-wip" || jobWork.jobWorkType === "wip-to-wip";
 
+    const collectedBillItems = [];
     const cleanId = (val) => {
       if (!val) return "";
       const s = String(val).trim();
@@ -447,6 +452,16 @@ export const receiveJobWorkItems = async (req, res) => {
         });
       }
       
+      collectedBillItems.push({
+        itemId,
+        targetItemDoc,
+        targetItemType,
+        matchedItemName,
+        matchedItemRate,
+        matchedItemUnit,
+        qtyNum
+      });
+
       jobWork.receiveHistory.push({
         date: now,
         grnNumber: generatedGrnNumber,
@@ -496,6 +511,84 @@ export const receiveJobWorkItems = async (req, res) => {
     }
     jobWork.status = anyPending ? "Partial" : "Closed";
 
+    // Auto-create Job Work Service Bill if requested or document type is invoice
+    let createdBill = null;
+    const shouldCreateBill = Boolean(autoCreateBill === true || autoCreateBill === 'true' || returnDocType === 'invoice' || returnDocType === 'both');
+    if (shouldCreateBill && collectedBillItems.length > 0) {
+      try {
+        const PurchaseBill = req.getModel("PurchaseBill", purchaseBillSchema);
+        const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+        const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+        const finalBillNumber = (customBillNumber || "").trim() || `JWBILL-${todayStr}-${randomSuffix}`;
+        const taxPct = Number(customTaxRate) >= 0 ? Number(customTaxRate) : 18;
+
+        const billLineItems = collectedBillItems.map(it => {
+          const lineAmt = (it.qtyNum || 0) * (it.matchedItemRate || 0);
+          const lineTax = (lineAmt * taxPct) / 100;
+          return {
+            material: (it.targetItemType === 'rm' || it.targetItemType === 'bo') && mongoose.Types.ObjectId.isValid(it.targetItemDoc) ? it.targetItemDoc : undefined,
+            materialName: it.matchedItemName,
+            serviceName: jobWork.natureOfProcess || "Job Work Service",
+            processType: jobWork.natureOfProcess || "",
+            processNote: remarks || "",
+            description: it.matchedItemName,
+            quantity: it.qtyNum,
+            unit: it.matchedItemUnit || "PCS",
+            rate: it.matchedItemRate || 0,
+            amount: lineAmt,
+            taxRate: taxPct,
+            taxAmount: lineTax
+          };
+        });
+
+        const subtotal = billLineItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+        const totalTax = billLineItems.reduce((sum, item) => sum + (item.taxAmount || 0), 0);
+        const grandTotal = Math.round((subtotal + totalTax) * 100) / 100;
+
+        createdBill = new PurchaseBill({
+          company: companyId,
+          billNumber: finalBillNumber,
+          supplierInvoiceNumber: invoiceNumber || effectiveDcNumber || generatedGrnNumber,
+          date: effectiveInvDate || now,
+          vendor: jobWork.vendor?._id || jobWork.vendor,
+          vendorName: vendorName,
+          vendorAddress: jobWork.vendor?.address || "",
+          vendorGst: jobWork.vendor?.gstNumber || jobWork.vendor?.gstin || "",
+          poNumber: jobWork.poNumber || "",
+          poReference: jobWork.poNumber || "",
+          billType: "job-work-service",
+          serviceCategory: jobWork.natureOfProcess || "Job Work Service",
+          jobWorkChallan: jobWork._id,
+          jobWorkChallanNumber: jobWork.challanNumber,
+          jobWorkGrnNumber: generatedGrnNumber,
+          items: billLineItems,
+          subtotal,
+          taxRate: taxPct,
+          taxAmount: totalTax,
+          totalTax,
+          grandTotal,
+          netPayableAmount: grandTotal,
+          paymentTerms: "30 Days Net",
+          creditDays: 30,
+          remarks: remarks || `Auto-created from Job Work Return Challan #${jobWork.challanNumber}`,
+          createdBy: req.user?.id || req.user?._id
+        });
+        await createdBill.save();
+
+        if (Array.isArray(jobWork.receiveHistory)) {
+          for (const h of jobWork.receiveHistory) {
+            if (h.grnNumber === generatedGrnNumber) {
+              h.billId = createdBill._id;
+              h.billNumber = createdBill.billNumber;
+            }
+          }
+        }
+      } catch (billErr) {
+        console.error("Auto-create PurchaseBill error during Job Work return:", billErr);
+      }
+    }
+
+
     await jobWork.save();
 
     res.status(200).json({
@@ -503,6 +596,7 @@ export const receiveJobWorkItems = async (req, res) => {
         ? "Job Work Inward Receipt created and queued for Quality QC inspection" 
         : "Job Work Return GRN processed & stock updated successfully",
       grnNumber: generatedGrnNumber,
+      createdBill,
       jobWork
     });
 

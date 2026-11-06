@@ -11,6 +11,9 @@ export interface DocumentApprovalPolicy {
 export interface StoreApprovalSettings {
   materialRequest: DocumentApprovalPolicy;
   outwardPo: DocumentApprovalPolicy;
+  jobWorkPo?: DocumentApprovalPolicy;
+  jobWorkChallan?: DocumentApprovalPolicy;
+  jobWorkBill?: DocumentApprovalPolicy;
 }
 
 export const DEFAULT_APPROVAL_SETTINGS: StoreApprovalSettings = {
@@ -21,6 +24,24 @@ export const DEFAULT_APPROVAL_SETTINGS: StoreApprovalSettings = {
     approverNames: []
   },
   outwardPo: {
+    enabled: false,
+    allowAllUsers: true,
+    approvers: [],
+    approverNames: []
+  },
+  jobWorkPo: {
+    enabled: false,
+    allowAllUsers: true,
+    approvers: [],
+    approverNames: []
+  },
+  jobWorkChallan: {
+    enabled: false,
+    allowAllUsers: true,
+    approvers: [],
+    approverNames: []
+  },
+  jobWorkBill: {
     enabled: false,
     allowAllUsers: true,
     approvers: [],
@@ -37,7 +58,10 @@ export function getGlobalApprovalSettings(): StoreApprovalSettings {
 export function setGlobalApprovalSettings(newSettings: Partial<StoreApprovalSettings>) {
   globalApprovalSettings = {
     materialRequest: { ...DEFAULT_APPROVAL_SETTINGS.materialRequest, ...(newSettings.materialRequest || {}) },
-    outwardPo: { ...DEFAULT_APPROVAL_SETTINGS.outwardPo, ...(newSettings.outwardPo || {}) }
+    outwardPo: { ...DEFAULT_APPROVAL_SETTINGS.outwardPo, ...(newSettings.outwardPo || {}) },
+    jobWorkPo: { ...(DEFAULT_APPROVAL_SETTINGS.jobWorkPo || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] }), ...(newSettings.jobWorkPo || {}) },
+    jobWorkChallan: { ...(DEFAULT_APPROVAL_SETTINGS.jobWorkChallan || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] }), ...(newSettings.jobWorkChallan || {}) },
+    jobWorkBill: { ...(DEFAULT_APPROVAL_SETTINGS.jobWorkBill || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] }), ...(newSettings.jobWorkBill || {}) }
   };
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('binserp_approval_settings_updated', { detail: globalApprovalSettings }));
@@ -74,7 +98,10 @@ export function useStoreApprovalSettings(token?: string | null) {
           setGlobalApprovalSettings(data.settings.approvalSettings);
           setSettings({
             materialRequest: { ...DEFAULT_APPROVAL_SETTINGS.materialRequest, ...(data.settings.approvalSettings.materialRequest || {}) },
-            outwardPo: { ...DEFAULT_APPROVAL_SETTINGS.outwardPo, ...(data.settings.approvalSettings.outwardPo || {}) }
+            outwardPo: { ...DEFAULT_APPROVAL_SETTINGS.outwardPo, ...(data.settings.approvalSettings.outwardPo || {}) },
+            jobWorkPo: { ...(DEFAULT_APPROVAL_SETTINGS.jobWorkPo || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] }), ...(data.settings.approvalSettings.jobWorkPo || {}) },
+            jobWorkChallan: { ...(DEFAULT_APPROVAL_SETTINGS.jobWorkChallan || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] }), ...(data.settings.approvalSettings.jobWorkChallan || {}) },
+            jobWorkBill: { ...(DEFAULT_APPROVAL_SETTINGS.jobWorkBill || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] }), ...(data.settings.approvalSettings.jobWorkBill || {}) }
           });
         }
       }
@@ -89,11 +116,13 @@ export function useStoreApprovalSettings(token?: string | null) {
     fetchSettings();
   }, [fetchSettings]);
 
-  const isApprovalRequired = useCallback((docType: 'materialRequest' | 'outwardPo'): boolean => {
+  type ApprovalDocType = 'materialRequest' | 'outwardPo' | 'jobWorkPo' | 'jobWorkChallan' | 'jobWorkBill';
+
+  const isApprovalRequired = useCallback((docType: ApprovalDocType): boolean => {
     return Boolean(settings[docType]?.enabled);
   }, [settings]);
 
-  const canUserApprove = useCallback((docType: 'materialRequest' | 'outwardPo', user: any, userType?: string): boolean => {
+  const canUserApprove = useCallback((docType: ApprovalDocType, user: any, userType?: string): boolean => {
     const policy = settings[docType];
     if (!policy || !policy.enabled) return true; // No approval required
     
@@ -117,11 +146,11 @@ export function useStoreApprovalSettings(token?: string | null) {
     });
   }, [settings]);
 
-  const getApproverNames = useCallback((docType: 'materialRequest' | 'outwardPo'): string[] => {
+  const getApproverNames = useCallback((docType: ApprovalDocType): string[] => {
     return settings[docType]?.approverNames || [];
   }, [settings]);
 
-  const getApproverDisplay = useCallback((docType: 'materialRequest' | 'outwardPo'): string => {
+  const getApproverDisplay = useCallback((docType: ApprovalDocType): string => {
     const names = settings[docType]?.approverNames || [];
     if (names.length > 0) return names.join(', ');
     return 'Authorized Approver';

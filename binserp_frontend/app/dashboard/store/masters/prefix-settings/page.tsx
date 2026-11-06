@@ -19,6 +19,8 @@ export const DEFAULT_TIME_LOCK_HOURS: Record<string, number> = {
   purchasePo: 24,
   jobWorkChallan: 24,
   jobWorkReturn: 1,
+  jobWorkPo: 24,
+  jobWorkBill: 24,
   rfqQuotation: 24,
   mrbDisposition: 24,
   mrpPlan: 24,
@@ -75,6 +77,20 @@ export const TIME_LOCK_CONFIGS = [
     subtitle: 'Mark Return & Receipts',
     icon: Truck,
     description: 'Time window (in hours, default 1h) within which marked Job Work return receipts can be edited or deleted/rolled back.'
+  },
+  {
+    key: 'jobWorkPo',
+    title: 'Job Work Outward PO',
+    subtitle: 'WIP Subcontracting Orders',
+    icon: Wrench,
+    description: 'Window allowed for revising quantities, rates, processes, or deleting Job Work POs before permanent lock.'
+  },
+  {
+    key: 'jobWorkBill',
+    title: 'Job Work Service Bill',
+    subtitle: 'Subcontracting Invoices & Billing',
+    icon: FileText,
+    description: 'Window for amending or deleting Job Work Service Bills before permanent ledger lock.'
   },
   {
     key: 'rfqQuotation',
@@ -198,9 +214,21 @@ export default function PrefixSettingsPage() {
               ...DEFAULT_APPROVAL_SETTINGS.materialRequest,
               ...(data.settings.approvalSettings?.materialRequest || {})
             },
-            outwardPo: {
+                        outwardPo: {
               ...DEFAULT_APPROVAL_SETTINGS.outwardPo,
               ...(data.settings.approvalSettings?.outwardPo || {})
+            },
+            jobWorkPo: {
+              ...(DEFAULT_APPROVAL_SETTINGS.jobWorkPo || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] }),
+              ...(data.settings.approvalSettings?.jobWorkPo || {})
+            },
+            jobWorkChallan: {
+              ...(DEFAULT_APPROVAL_SETTINGS.jobWorkChallan || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] }),
+              ...(data.settings.approvalSettings?.jobWorkChallan || {})
+            },
+            jobWorkBill: {
+              ...(DEFAULT_APPROVAL_SETTINGS.jobWorkBill || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] }),
+              ...(data.settings.approvalSettings?.jobWorkBill || {})
             }
           };
           setSettings(prev => ({ 
@@ -295,15 +323,16 @@ export default function PrefixSettingsPage() {
     }
   };
 
-  const handleApprovalToggle = (docType: 'materialRequest' | 'outwardPo', enabled: boolean) => {
+  const handleApprovalToggle = (docType: 'materialRequest' | 'outwardPo' | 'jobWorkPo' | 'jobWorkChallan' | 'jobWorkBill', enabled: boolean) => {
     setSettings(prev => {
       const current = prev.approvalSettings || DEFAULT_APPROVAL_SETTINGS;
+      const policy = current[docType] || DEFAULT_APPROVAL_SETTINGS[docType] || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] };
       return {
         ...prev,
         approvalSettings: {
           ...current,
           [docType]: {
-            ...current[docType],
+            ...policy,
             enabled
           }
         }
@@ -311,15 +340,16 @@ export default function PrefixSettingsPage() {
     });
   };
 
-  const handleApprovalAllowAllToggle = (docType: 'materialRequest' | 'outwardPo', allowAllUsers: boolean) => {
+  const handleApprovalAllowAllToggle = (docType: 'materialRequest' | 'outwardPo' | 'jobWorkPo' | 'jobWorkChallan' | 'jobWorkBill', allowAllUsers: boolean) => {
     setSettings(prev => {
       const current = prev.approvalSettings || DEFAULT_APPROVAL_SETTINGS;
+      const policy = current[docType] || DEFAULT_APPROVAL_SETTINGS[docType] || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] };
       return {
         ...prev,
         approvalSettings: {
           ...current,
           [docType]: {
-            ...current[docType],
+            ...policy,
             allowAllUsers
           }
         }
@@ -327,14 +357,14 @@ export default function PrefixSettingsPage() {
     });
   };
 
-  const handleAddApprover = (docType: 'materialRequest' | 'outwardPo', userId: string) => {
+  const handleAddApprover = (docType: 'materialRequest' | 'outwardPo' | 'jobWorkPo' | 'jobWorkChallan' | 'jobWorkBill', userId: string) => {
     if (!userId) return;
     const user = (allUsers || []).find((u: any) => String(u._id) === String(userId));
     if (!user) return;
 
     setSettings(prev => {
       const current = prev.approvalSettings || DEFAULT_APPROVAL_SETTINGS;
-      const policy = current[docType];
+      const policy = current[docType] || DEFAULT_APPROVAL_SETTINGS[docType] || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] };
       if ((policy.approvers || []).some(id => String(id) === String(user._id))) {
         return prev;
       }
@@ -352,10 +382,10 @@ export default function PrefixSettingsPage() {
     });
   };
 
-  const handleRemoveApprover = (docType: 'materialRequest' | 'outwardPo', indexToRemove: number) => {
+  const handleRemoveApprover = (docType: 'materialRequest' | 'outwardPo' | 'jobWorkPo' | 'jobWorkChallan' | 'jobWorkBill', indexToRemove: number) => {
     setSettings(prev => {
       const current = prev.approvalSettings || DEFAULT_APPROVAL_SETTINGS;
-      const policy = current[docType];
+      const policy = current[docType] || DEFAULT_APPROVAL_SETTINGS[docType] || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] };
       return {
         ...prev,
         approvalSettings: {
@@ -1220,6 +1250,444 @@ export default function PrefixSettingsPage() {
                     </div>
                   );
                 })()}
+                {/* 3. Job Work Outward PO Card */}
+                {(() => {
+                  const jwPoPolicy = settings.approvalSettings?.jobWorkPo || (DEFAULT_APPROVAL_SETTINGS as any).jobWorkPo || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] };
+                  const availableUsers = (allUsers || []).filter((u: any) => 
+                    !(jwPoPolicy.approvers || []).some((id: any) => String(id) === String(u._id))
+                  );
+
+                  return (
+                    <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/60 hover:bg-white dark:hover:bg-gray-800 transition-all flex flex-col justify-between gap-3">
+                      <div>
+                        <div className="flex items-center justify-between gap-3 pb-3 border-b border-gray-200/70 dark:border-gray-700/70">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 shrink-0">
+                              <Wrench size={16} />
+                            </span>
+                            <div className="min-w-0">
+                              <h3 className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white truncate">
+                                Job Work Outward PO
+                              </h3>
+                              <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
+                                Subcontracting purchase orders linked to challans
+                              </p>
+                            </div>
+                          </div>
+
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={jwPoPolicy.enabled}
+                              onChange={e => handleApprovalToggle('jobWorkPo', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-10 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                          </label>
+                        </div>
+
+                        <div className="mt-3">
+                          {jwPoPolicy.enabled ? (
+                            <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 text-purple-900 dark:text-purple-300 text-[11px] flex items-start gap-2">
+                              <ShieldCheck size={14} className="shrink-0 text-purple-600 dark:text-purple-400 mt-0.5" />
+                              <div>
+                                <span className="font-bold">Approval Mandatory: </span>
+                                Job Work PO PDF generation is locked until approved by authorized approver.
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-2.5 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 text-[11px] flex items-center gap-2">
+                              <Clock size={14} className="shrink-0" />
+                              <span>Direct Job Work PO PDF generation is permitted without approval workflow.</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {jwPoPolicy.enabled && (
+                          <div className="mt-3.5 space-y-3 pt-3 border-t border-gray-200/70 dark:border-gray-700/70">
+                            <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300 block">
+                              Who Can Approve Job Work POs:
+                            </span>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${
+                                jwPoPolicy.allowAllUsers
+                                  ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-700 text-purple-900 dark:text-purple-200 font-bold'
+                                  : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs'
+                              }`}>
+                                <input
+                                  type="radio"
+                                  name="jwPoAllowAll"
+                                  checked={jwPoPolicy.allowAllUsers}
+                                  onChange={() => handleApprovalAllowAllToggle('jobWorkPo', true)}
+                                  className="text-purple-600 focus:ring-purple-500"
+                                />
+                                <div className="text-xs">
+                                  <div className="font-bold">All Created Users</div>
+                                  <div className="text-[10px] text-gray-500 dark:text-gray-400 font-normal">Any active user can approve</div>
+                                </div>
+                              </label>
+
+                              <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${
+                                !jwPoPolicy.allowAllUsers
+                                  ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-700 text-purple-900 dark:text-purple-200 font-bold'
+                                  : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs'
+                              }`}>
+                                <input
+                                  type="radio"
+                                  name="jwPoAllowAll"
+                                  checked={!jwPoPolicy.allowAllUsers}
+                                  onChange={() => handleApprovalAllowAllToggle('jobWorkPo', false)}
+                                  className="text-purple-600 focus:ring-purple-500"
+                                />
+                                <div className="text-xs">
+                                  <div className="font-bold">Specific Approvers</div>
+                                  <div className="text-[10px] text-gray-500 dark:text-gray-400 font-normal">Selected users only</div>
+                                </div>
+                              </label>
+                            </div>
+
+                            {!jwPoPolicy.allowAllUsers && (
+                              <div className="space-y-2 mt-2 bg-white dark:bg-gray-900 p-3 rounded-xl border border-gray-200 dark:border-gray-700">
+                                <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300">
+                                  Select Authorized Approvers
+                                </label>
+                                <select
+                                  onChange={e => {
+                                    handleAddApprover('jobWorkPo', e.target.value);
+                                    e.target.value = '';
+                                  }}
+                                  defaultValue=""
+                                  className="w-full px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-semibold text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500"
+                                >
+                                  <option value="" disabled>+ Add user as approver...</option>
+                                  {availableUsers.map((u: any) => (
+                                    <option key={u._id} value={u._id}>
+                                      {u.name || u.username} {u.email ? `(${u.email})` : ''} - {typeof u.role === 'object' ? u.role?.name : u.role || 'Staff'}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                <div className="flex flex-wrap gap-1.5 pt-1">
+                                  {(jwPoPolicy.approverNames || []).map((name: string, idx: number) => (
+                                    <span
+                                      key={idx}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-100 dark:bg-purple-950/60 text-purple-900 dark:text-purple-200 rounded-lg text-xs font-semibold border border-purple-200 dark:border-purple-800"
+                                    >
+                                      <UserCheck size={11} className="text-purple-600 dark:text-purple-400" />
+                                      <span>{name}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveApprover('jobWorkPo', idx)}
+                                        className="text-purple-500 hover:text-purple-800 dark:hover:text-white p-0.5 rounded cursor-pointer"
+                                        title="Remove Approver"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 4. Job Work Challan Card */}
+                {(() => {
+                  const jwChallanPolicy = settings.approvalSettings?.jobWorkChallan || (DEFAULT_APPROVAL_SETTINGS as any).jobWorkChallan || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] };
+                  const availableUsers = (allUsers || []).filter((u: any) => 
+                    !(jwChallanPolicy.approvers || []).some((id: any) => String(id) === String(u._id))
+                  );
+
+                  return (
+                    <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/60 hover:bg-white dark:hover:bg-gray-800 transition-all flex flex-col justify-between gap-3">
+                      <div>
+                        <div className="flex items-center justify-between gap-3 pb-3 border-b border-gray-200/70 dark:border-gray-700/70">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="p-1.5 rounded-lg bg-teal-50 dark:bg-teal-900/40 text-teal-600 dark:text-teal-400 shrink-0">
+                              <Truck size={16} />
+                            </span>
+                            <div className="min-w-0">
+                              <h3 className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white truncate">
+                                Job Work Challan
+                              </h3>
+                              <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
+                                Subcontracting outward & returnable delivery challans
+                              </p>
+                            </div>
+                          </div>
+
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={jwChallanPolicy.enabled}
+                              onChange={e => handleApprovalToggle('jobWorkChallan', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-10 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                          </label>
+                        </div>
+
+                        <div className="mt-3">
+                          {jwChallanPolicy.enabled ? (
+                            <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 text-purple-900 dark:text-purple-300 text-[11px] flex items-start gap-2">
+                              <ShieldCheck size={14} className="shrink-0 text-purple-600 dark:text-purple-400 mt-0.5" />
+                              <div>
+                                <span className="font-bold">Approval Mandatory: </span>
+                                Challan PDF generation and return receipt operations require authorization.
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-2.5 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 text-[11px] flex items-center gap-2">
+                              <Clock size={14} className="shrink-0" />
+                              <span>Direct Job Work Challan printing is permitted without approval workflow.</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {jwChallanPolicy.enabled && (
+                          <div className="mt-3.5 space-y-3 pt-3 border-t border-gray-200/70 dark:border-gray-700/70">
+                            <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300 block">
+                              Who Can Approve Job Work Challans:
+                            </span>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${
+                                jwChallanPolicy.allowAllUsers
+                                  ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-700 text-purple-900 dark:text-purple-200 font-bold'
+                                  : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs'
+                              }`}>
+                                <input
+                                  type="radio"
+                                  name="jwChallanAllowAll"
+                                  checked={jwChallanPolicy.allowAllUsers}
+                                  onChange={() => handleApprovalAllowAllToggle('jobWorkChallan', true)}
+                                  className="text-purple-600 focus:ring-purple-500"
+                                />
+                                <div className="text-xs">
+                                  <div className="font-bold">All Created Users</div>
+                                  <div className="text-[10px] text-gray-500 dark:text-gray-400 font-normal">Any active user can approve</div>
+                                </div>
+                              </label>
+
+                              <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${
+                                !jwChallanPolicy.allowAllUsers
+                                  ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-700 text-purple-900 dark:text-purple-200 font-bold'
+                                  : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs'
+                              }`}>
+                                <input
+                                  type="radio"
+                                  name="jwChallanAllowAll"
+                                  checked={!jwChallanPolicy.allowAllUsers}
+                                  onChange={() => handleApprovalAllowAllToggle('jobWorkChallan', false)}
+                                  className="text-purple-600 focus:ring-purple-500"
+                                />
+                                <div className="text-xs">
+                                  <div className="font-bold">Specific Approvers</div>
+                                  <div className="text-[10px] text-gray-500 dark:text-gray-400 font-normal">Selected users only</div>
+                                </div>
+                              </label>
+                            </div>
+
+                            {!jwChallanPolicy.allowAllUsers && (
+                              <div className="space-y-2 mt-2 bg-white dark:bg-gray-900 p-3 rounded-xl border border-gray-200 dark:border-gray-700">
+                                <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300">
+                                  Select Authorized Approvers
+                                </label>
+                                <select
+                                  onChange={e => {
+                                    handleAddApprover('jobWorkChallan', e.target.value);
+                                    e.target.value = '';
+                                  }}
+                                  defaultValue=""
+                                  className="w-full px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-semibold text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500"
+                                >
+                                  <option value="" disabled>+ Add user as approver...</option>
+                                  {availableUsers.map((u: any) => (
+                                    <option key={u._id} value={u._id}>
+                                      {u.name || u.username} {u.email ? `(${u.email})` : ''} - {typeof u.role === 'object' ? u.role?.name : u.role || 'Staff'}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                <div className="flex flex-wrap gap-1.5 pt-1">
+                                  {(jwChallanPolicy.approverNames || []).map((name: string, idx: number) => (
+                                    <span
+                                      key={idx}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-100 dark:bg-purple-950/60 text-purple-900 dark:text-purple-200 rounded-lg text-xs font-semibold border border-purple-200 dark:border-purple-800"
+                                    >
+                                      <UserCheck size={11} className="text-purple-600 dark:text-purple-400" />
+                                      <span>{name}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveApprover('jobWorkChallan', idx)}
+                                        className="text-purple-500 hover:text-purple-800 dark:hover:text-white p-0.5 rounded cursor-pointer"
+                                        title="Remove Approver"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 5. Job Work Service Bill Card */}
+                {(() => {
+                  const jwBillPolicy = settings.approvalSettings?.jobWorkBill || (DEFAULT_APPROVAL_SETTINGS as any).jobWorkBill || { enabled: false, allowAllUsers: true, approvers: [], approverNames: [] };
+                  const availableUsers = (allUsers || []).filter((u: any) => 
+                    !(jwBillPolicy.approvers || []).some((id: any) => String(id) === String(u._id))
+                  );
+
+                  return (
+                    <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/60 hover:bg-white dark:hover:bg-gray-800 transition-all flex flex-col justify-between gap-3">
+                      <div>
+                        <div className="flex items-center justify-between gap-3 pb-3 border-b border-gray-200/70 dark:border-gray-700/70">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 shrink-0">
+                              <FileText size={16} />
+                            </span>
+                            <div className="min-w-0">
+                              <h3 className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white truncate">
+                                Job Work Service Bill
+                              </h3>
+                              <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
+                                Subcontracting invoices & service bills
+                              </p>
+                            </div>
+                          </div>
+
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={jwBillPolicy.enabled}
+                              onChange={e => handleApprovalToggle('jobWorkBill', e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-10 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                          </label>
+                        </div>
+
+                        <div className="mt-3">
+                          {jwBillPolicy.enabled ? (
+                            <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 text-purple-900 dark:text-purple-300 text-[11px] flex items-start gap-2">
+                              <ShieldCheck size={14} className="shrink-0 text-purple-600 dark:text-purple-400 mt-0.5" />
+                              <div>
+                                <span className="font-bold">Approval Mandatory: </span>
+                                Service bill verification and payment release require approval.
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-2.5 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 text-[11px] flex items-center gap-2">
+                              <Clock size={14} className="shrink-0" />
+                              <span>Direct Job Work Service Bill processing is permitted without approval workflow.</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {jwBillPolicy.enabled && (
+                          <div className="mt-3.5 space-y-3 pt-3 border-t border-gray-200/70 dark:border-gray-700/70">
+                            <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300 block">
+                              Who Can Approve Job Work Bills:
+                            </span>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${
+                                jwBillPolicy.allowAllUsers
+                                  ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-700 text-purple-900 dark:text-purple-200 font-bold'
+                                  : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs'
+                              }`}>
+                                <input
+                                  type="radio"
+                                  name="jwBillAllowAll"
+                                  checked={jwBillPolicy.allowAllUsers}
+                                  onChange={() => handleApprovalAllowAllToggle('jobWorkBill', true)}
+                                  className="text-purple-600 focus:ring-purple-500"
+                                />
+                                <div className="text-xs">
+                                  <div className="font-bold">All Created Users</div>
+                                  <div className="text-[10px] text-gray-500 dark:text-gray-400 font-normal">Any active user can approve</div>
+                                </div>
+                              </label>
+
+                              <label className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${
+                                !jwBillPolicy.allowAllUsers
+                                  ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-700 text-purple-900 dark:text-purple-200 font-bold'
+                                  : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs'
+                              }`}>
+                                <input
+                                  type="radio"
+                                  name="jwBillAllowAll"
+                                  checked={!jwBillPolicy.allowAllUsers}
+                                  onChange={() => handleApprovalAllowAllToggle('jobWorkBill', false)}
+                                  className="text-purple-600 focus:ring-purple-500"
+                                />
+                                <div className="text-xs">
+                                  <div className="font-bold">Specific Approvers</div>
+                                  <div className="text-[10px] text-gray-500 dark:text-gray-400 font-normal">Selected users only</div>
+                                </div>
+                              </label>
+                            </div>
+
+                            {!jwBillPolicy.allowAllUsers && (
+                              <div className="space-y-2 mt-2 bg-white dark:bg-gray-900 p-3 rounded-xl border border-gray-200 dark:border-gray-700">
+                                <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300">
+                                  Select Authorized Approvers
+                                </label>
+                                <select
+                                  onChange={e => {
+                                    handleAddApprover('jobWorkBill', e.target.value);
+                                    e.target.value = '';
+                                  }}
+                                  defaultValue=""
+                                  className="w-full px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-semibold text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500"
+                                >
+                                  <option value="" disabled>+ Add user as approver...</option>
+                                  {availableUsers.map((u: any) => (
+                                    <option key={u._id} value={u._id}>
+                                      {u.name || u.username} {u.email ? `(${u.email})` : ''} - {typeof u.role === 'object' ? u.role?.name : u.role || 'Staff'}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                <div className="flex flex-wrap gap-1.5 pt-1">
+                                  {(jwBillPolicy.approverNames || []).map((name: string, idx: number) => (
+                                    <span
+                                      key={idx}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-100 dark:bg-purple-950/60 text-purple-900 dark:text-purple-200 rounded-lg text-xs font-semibold border border-purple-200 dark:border-purple-800"
+                                    >
+                                      <UserCheck size={11} className="text-purple-600 dark:text-purple-400" />
+                                      <span>{name}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveApprover('jobWorkBill', idx)}
+                                        className="text-purple-500 hover:text-purple-800 dark:hover:text-white p-0.5 rounded cursor-pointer"
+                                        title="Remove Approver"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
               </div>
             </div>
           )}

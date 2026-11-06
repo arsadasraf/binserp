@@ -53,16 +53,42 @@ const resolveBomComponentUnits = async (req, bomList) => {
     Component.find({ _id: { $in: componentIds } }).select('_id unit hasSecondaryUnit secondaryUnit conversionFactor primaryRatio secondaryRatio').lean().catch(() => [])
   ]);
 
-  const compMap = new Map();
-  [...rms, ...bos, ...rmBos, ...fgs, ...comps].forEach(item => {
-    if (item && item._id) compMap.set(item._id.toString(), item);
+  const rmMap = new Map();
+  const boMap = new Map();
+  const fgMap = new Map();
+  const compModelMap = new Map();
+
+  [...rms, ...rmBos].forEach(item => {
+    if (item && item._id) rmMap.set(item._id.toString(), item);
+  });
+  [...bos, ...rmBos].forEach(item => {
+    if (item && item._id) boMap.set(item._id.toString(), item);
+  });
+  fgs.forEach(item => {
+    if (item && item._id) fgMap.set(item._id.toString(), item);
+  });
+  comps.forEach(item => {
+    if (item && item._id) compModelMap.set(item._id.toString(), item);
   });
 
   return validEntries.map(b => {
     const normType = b.itemType || 'RawMaterial';
     const isRM = normType === 'RawMaterial' || normType === 'Material';
     const defaultUom = isRM ? 'KG' : 'NOS';
-    const masterComp = compMap.get(b.rawId);
+    
+    let masterComp = null;
+    if (isRM) {
+      masterComp = rmMap.get(b.rawId);
+    } else if (normType === 'BoughtOut') {
+      masterComp = boMap.get(b.rawId);
+    } else if (normType === 'FGItem') {
+      masterComp = fgMap.get(b.rawId);
+    } else if (normType === 'Component') {
+      masterComp = compModelMap.get(b.rawId) || fgMap.get(b.rawId);
+    } else {
+      masterComp = rmMap.get(b.rawId) || boMap.get(b.rawId) || fgMap.get(b.rawId) || compModelMap.get(b.rawId);
+    }
+
     const canonicalUom = (masterComp?.unit || b.unit || defaultUom).toString().trim();
     const hasSec = Boolean(masterComp?.hasSecondaryUnit ?? b.hasSecondaryUnit);
     const secUnit = (masterComp?.secondaryUnit ?? b.secondaryUnit ?? '').toString().trim();

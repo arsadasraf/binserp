@@ -11,6 +11,8 @@ import { ItemNameAndDescription } from '@/src/utils/itemDisplayHelper';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 import { generateDocument } from '@/src/utils/documentHelper';
 import JobWorkPOModal from '../modals/JobWorkPOModal';
+import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
+import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 import { apiDelete } from '@/src/lib/api';
 
@@ -47,11 +49,16 @@ export default function JobWorkPOTable({
   vendors = [],
   materials = [],
   inHouseItems = [],
+  rawMaterials = [],
+  boughtOuts = [],
+  consumables = [],
   companyInfo,
   loading,
   onRefresh
 }: JobWorkPOTableProps) {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
+  const { isTimeLockExpired, formatRemainingTime } = useTimeLockPolicy(token);
+  const { isApprovalRequired } = useStoreApprovalSettings(token);
 
   // Filter States
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -332,14 +339,22 @@ export default function JobWorkPOTable({
     };
   }, [data]);
 
-  // Handle Edit PO
+    // Handle Edit PO with Time-Lock Guard
   const handleEdit = (po: any) => {
+    if (isTimeLockExpired(po.createdAt, 'jobWorkPo')) {
+      showErrorDialog('Time-Lock Expired', `The allowed edit window for Job Work PO ${po.poNumber} has expired.`);
+      return;
+    }
     setEditingPO(po);
     setIsPOModalOpen(true);
   };
 
-  // Handle Delete PO
+  // Handle Delete PO with Time-Lock Guard
   const handleDelete = async (po: any) => {
+    if (isTimeLockExpired(po.createdAt, 'jobWorkPo')) {
+      showErrorDialog('Time-Lock Expired', `The allowed deletion window for Job Work PO ${po.poNumber} has expired.`);
+      return;
+    }
     const confirmed = await showDestructiveConfirm({
       title: `Delete Job Work PO ${po.poNumber}?`,
       text: "Are you sure you want to delete this Job Work Purchase Order? This action cannot be undone.",
@@ -355,8 +370,12 @@ export default function JobWorkPOTable({
     }
   };
 
-  // Handle Download PDF
+  // Handle Download PDF with Approval Guard
   const handleDownloadPDF = (po: any) => {
+    if (isApprovalRequired('jobWorkPo') && po.approvalStatus !== 'Approved' && po.status !== 'Approved') {
+      showErrorDialog('Approval Required', `Job Work PO ${po.poNumber} requires approval before PDF can be generated.`);
+      return;
+    }
     generateDocument('pdf', 'po', { po, companyInfo });
   };
 
@@ -862,10 +881,29 @@ export default function JobWorkPOTable({
                         </span>
                       </td>
 
-                      {/* Actions (Download PDF, Edit, Delete) */}
+                                            {/* Actions (Download PDF, Edit, Delete) */}
                       <td className="py-3 px-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          
+                          {/* Time lock countdown */}
+                          {(() => {
+                            const isExpired = isTimeLockExpired(po.createdAt, 'jobWorkPo');
+                            const rem = formatRemainingTime(po.createdAt, 'jobWorkPo');
+                            if (rem === 'Unlimited') return null;
+                            return (
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold mr-1 flex items-center gap-0.5 ${
+                                  isExpired
+                                    ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400 border border-rose-200 dark:border-rose-800'
+                                    : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800'
+                                }`}
+                                title={isExpired ? 'Time lock expired (locked from edits/deletions)' : `Remaining edit/delete window: ${rem}`}
+                              >
+                                <Clock size={10} />
+                                <span>{rem}</span>
+                              </span>
+                            );
+                          })()}
+
                           {/* Download PDF */}
                           <button
                             onClick={() => handleDownloadPDF(po)}
@@ -878,8 +916,9 @@ export default function JobWorkPOTable({
                           {/* Edit PO */}
                           <button
                             onClick={() => handleEdit(po)}
-                            title="Edit PO"
-                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer"
+                            disabled={isTimeLockExpired(po.createdAt, 'jobWorkPo')}
+                            title={isTimeLockExpired(po.createdAt, 'jobWorkPo') ? "Time lock expired" : "Edit PO"}
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <Edit2 size={14} />
                           </button>
@@ -887,8 +926,9 @@ export default function JobWorkPOTable({
                           {/* Delete PO */}
                           <button
                             onClick={() => handleDelete(po)}
-                            title="Delete PO"
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                            disabled={isTimeLockExpired(po.createdAt, 'jobWorkPo')}
+                            title={isTimeLockExpired(po.createdAt, 'jobWorkPo') ? "Time lock expired" : "Delete PO"}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <Trash2 size={14} />
                           </button>
@@ -919,6 +959,9 @@ export default function JobWorkPOTable({
           }}
           vendors={vendors}
           materials={materials}
+          rawMaterials={rawMaterials}
+          boughtOuts={boughtOuts}
+          consumables={consumables}
           inHouseItems={inHouseItems}
           initialData={editingPO}
           isEditing={Boolean(editingPO)}

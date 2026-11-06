@@ -1800,7 +1800,7 @@ export default function MasterDetailPreviewModal({
                                                                     const isPriced = Boolean(pInfo && pInfo.hasPrice);
 
                                                                     return (
-                                                                        <tr key={cItem.id || cItem.materialName} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                                                        <tr key={`${cItem.itemType}-${cItem.id || cItem.materialName}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                                                                             <td className="px-3 py-2.5 text-center font-bold text-slate-400 text-[11px]">
                                                                                 {idx + 1}
                                                                             </td>

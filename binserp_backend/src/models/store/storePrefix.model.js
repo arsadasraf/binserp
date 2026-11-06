@@ -39,6 +39,8 @@ export const storePrefixSchema = new mongoose.Schema(
             purchasePo: { type: Number, default: 24 },
             jobWorkChallan: { type: Number, default: 24 },
             jobWorkReturn: { type: Number, default: 1 },
+            jobWorkPo: { type: Number, default: 24 },
+            jobWorkBill: { type: Number, default: 24 },
             rfqQuotation: { type: Number, default: 24 },
             mrbDisposition: { type: Number, default: 24 },
             mrpPlan: { type: Number, default: 24 },
@@ -53,6 +55,24 @@ export const storePrefixSchema = new mongoose.Schema(
                 approverNames: [{ type: String }],
             },
             outwardPo: {
+                enabled: { type: Boolean, default: false },
+                allowAllUsers: { type: Boolean, default: true },
+                approvers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+                approverNames: [{ type: String }],
+            },
+            jobWorkPo: {
+                enabled: { type: Boolean, default: false },
+                allowAllUsers: { type: Boolean, default: true },
+                approvers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+                approverNames: [{ type: String }],
+            },
+            jobWorkChallan: {
+                enabled: { type: Boolean, default: false },
+                allowAllUsers: { type: Boolean, default: true },
+                approvers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+                approverNames: [{ type: String }],
+            },
+            jobWorkBill: {
                 enabled: { type: Boolean, default: false },
                 allowAllUsers: { type: Boolean, default: true },
                 approvers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],

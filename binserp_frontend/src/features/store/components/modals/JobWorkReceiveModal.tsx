@@ -41,6 +41,8 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
     const [vehicleNo, setVehicleNo] = useState('');
     const [qcRequired, setQcRequired] = useState(true);
     const [remarks, setRemarks] = useState('');
+    const [autoCreateBill, setAutoCreateBill] = useState(false);
+    const [billTaxRate, setBillTaxRate] = useState<number>(18);
 
     // Dedicated Return Document PDF State
     const [pdfDocument, setPdfDocument] = useState<{
@@ -563,6 +565,48 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                     <input type="checkbox" checked={qcRequired} onChange={() => {}} className="accent-teal-600 ml-1" />
                                 </div>
                             </div>
+                        </div>
+
+
+                        {/* Auto-create Job Work Service Bill Card */}
+                        <div className="p-3 bg-gradient-to-r from-teal-50/70 to-emerald-50/70 dark:from-teal-950/40 dark:to-emerald-950/40 rounded-xl border border-teal-200 dark:border-teal-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5">
+                                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                    <input
+                                        type="checkbox"
+                                        checked={autoCreateBill}
+                                        onChange={(e) => setAutoCreateBill(e.target.checked)}
+                                        className="sr-only peer"
+                                    />
+                                    <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-teal-600"></div>
+                                </label>
+                                <div>
+                                    <span className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                                        <span>⚡ Auto-Create Job Work Service Bill</span>
+                                        <span className="text-[10px] font-bold px-1.5 py-0.2 bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200 rounded">Purchase Bill</span>
+                                    </span>
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                        Generates linked Job Work Service Bill in Purchase Bills with returned quantities & process rates
+                                    </p>
+                                </div>
+                            </div>
+
+                            {autoCreateBill && (
+                                <div className="flex items-center gap-2 self-start sm:self-auto">
+                                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">GST Rate:</span>
+                                    <select
+                                        value={billTaxRate}
+                                        onChange={(e) => setBillTaxRate(Number(e.target.value))}
+                                        className="h-7 px-2 bg-white dark:bg-slate-900 border border-teal-300 dark:border-teal-700 rounded-lg text-xs font-bold text-teal-800 dark:text-teal-200 focus:outline-none"
+                                    >
+                                        <option value={0}>0%</option>
+                                        <option value={5}>5%</option>
+                                        <option value={12}>12%</option>
+                                        <option value={18}>18% (Standard)</option>
+                                        <option value={28}>28%</option>
+                                    </select>
+                                </div>
+                            )}
                         </div>
 
                         {/* PDF Document Upload Area */}

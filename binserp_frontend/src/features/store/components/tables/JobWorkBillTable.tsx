@@ -7,6 +7,7 @@ import {
   FileCheck2, Truck, Receipt, MessageSquare, LayoutDashboard, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { PurchaseBill, PurchaseBillMetrics } from '@/src/features/purchase/types/purchaseBill.types';
+import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import { ItemNameAndDescription } from '@/src/utils/itemDisplayHelper';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 import RecordPaymentModal from '../modals/RecordPaymentModal';
@@ -42,6 +43,7 @@ export default function JobWorkBillTable({
   vendors = []
 }: JobWorkBillTableProps) {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
+  const { isTimeLockExpired, formatRemainingTime } = useTimeLockPolicy(token);
 
   // Filter States
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -133,6 +135,10 @@ export default function JobWorkBillTable({
 
   // Delete Bill
   const handleDeleteBill = async (bill: PurchaseBill) => {
+    if (isTimeLockExpired(bill.createdAt, 'jobWorkBill')) {
+      showErrorDialog("Time-Lock Expired", `The allowed deletion window for Job Work Bill ${bill.billNumber} has expired.`);
+      return;
+    }
     const confirmed = await showDestructiveConfirm({
       title: `Delete Job Work Bill ${bill.billNumber}?`,
       text: "Are you sure you want to delete this bill? This will rollback the billed status on any linked Job Work Challan.",
@@ -492,11 +498,32 @@ export default function JobWorkBillTable({
                             <Eye size={14} />
                           </button>
 
+                                                    {/* Time Lock Countdown */}
+                          {(() => {
+                            const isExpired = isTimeLockExpired(bill.createdAt, 'jobWorkBill');
+                            const rem = formatRemainingTime(bill.createdAt, 'jobWorkBill');
+                            if (rem === 'Unlimited') return null;
+                            return (
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold mr-1 flex items-center gap-0.5 ${
+                                  isExpired
+                                    ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400 border border-rose-200 dark:border-rose-800'
+                                    : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800'
+                                }`}
+                                title={isExpired ? 'Time lock expired (locked from deletion)' : `Remaining edit/delete window: ${rem}`}
+                              >
+                                <Clock size={10} />
+                                <span>{rem}</span>
+                              </span>
+                            );
+                          })()}
+
                           {/* Delete */}
                           <button
                             onClick={() => handleDeleteBill(bill)}
-                            title="Delete Bill"
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                            disabled={isTimeLockExpired(bill.createdAt, 'jobWorkBill')}
+                            title={isTimeLockExpired(bill.createdAt, 'jobWorkBill') ? "Time lock expired" : "Delete Bill"}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <Trash2 size={14} />
                           </button>

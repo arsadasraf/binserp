@@ -8,6 +8,7 @@ import {
 import { JobWorkChallan, JobWorkReturningItem, Vendor } from "@/src/features/store/types/store.types";
 import { generateDocument } from '@/src/utils/documentHelper';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
+import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 import { apiDelete } from '@/src/lib/api';
 import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 import { getSafeBlobUrl, openSafeUrlInNewTab, downloadDataUrl } from '@/src/utils/dataUrlHelper';
@@ -25,6 +26,7 @@ interface JobWorkPreviewModalProps {
     onEdit?: (challan: JobWorkChallan) => void;
     onReceive?: (challan: JobWorkChallan) => void;
     onDelete?: (id: string) => void;
+    onCreatePO?: (challan: JobWorkChallan) => void;
 }
 
 export default function JobWorkPreviewModal({
@@ -38,8 +40,10 @@ export default function JobWorkPreviewModal({
     onRefresh,
     onEdit,
     onReceive,
-    onDelete
+    onDelete,
+    onCreatePO
 }: JobWorkPreviewModalProps) {
+    const { isApprovalRequired } = useStoreApprovalSettings(token);
     const { getPolicyHours, getRemainingSeconds, isTimeLockExpired, formatRemainingTime } = useTimeLockPolicy(token);
 
     const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
@@ -63,6 +67,10 @@ export default function JobWorkPreviewModal({
     const vendorEmail = vendorObj?.email || '';
 
     const handleDownloadPDF = () => {
+        if (isApprovalRequired('jobWorkChallan') && (challan as any).approvalStatus !== 'Approved' && (challan as any).status !== 'Approved') {
+            showErrorDialog('Approval Required', `Job Work Challan ${challan.challanNumber} requires approval before PDF can be generated.`);
+            return;
+        }
         const allVendors = [...jobWorkSuppliers, ...vendors];
         generateDocument('pdf', 'returnable_dc', { doc: challan, companyInfo, vendors: allVendors });
     };
@@ -110,12 +118,27 @@ export default function JobWorkPreviewModal({
                         </div>
                     </div>
 
-                    <button
-                        onClick={onClose}
-                        className="w-9 h-9 rounded-full bg-indigo-900 hover:bg-indigo-800 transition-all flex items-center justify-center text-white border border-indigo-700"
+                    <div className="flex items-center gap-2">
+                        {onCreatePO && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    onCreatePO(challan);
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                                title="Create or link Job Work Outward PO"
+                            >
+                                <FileText size={13} />
+                                <span>{(challan as any).poNumber ? `Linked PO: ${(challan as any).poNumber}` : 'Create Job Work PO'}</span>
+                            </button>
+                        )}
+                        <button
+                            onClick={onClose}
+                            className="w-9 h-9 rounded-full bg-indigo-900 hover:bg-indigo-800 transition-all flex items-center justify-center text-white border border-indigo-700"
                     >
                         <X size={18} />
                     </button>
+                    </div>
                 </div>
 
                 {/* Body Content */}

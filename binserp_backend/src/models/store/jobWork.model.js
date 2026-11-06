@@ -385,6 +385,11 @@ export const jobWorkSchema = new mongoose.Schema(
           default: []
         },
         remarks: String,
+        billId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "PurchaseBill"
+        },
+        billNumber: String,
         receivedBy: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "User"

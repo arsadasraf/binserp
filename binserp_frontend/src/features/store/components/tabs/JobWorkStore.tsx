@@ -11,6 +11,8 @@ import { JobWorkChallan, Vendor, JobWorkSupplier, JOB_WORK_PURPOSES } from "@/sr
 import JobWorkForm from '../forms/JobWorkForm';
 import JobWorkReceiveModal from '../modals/JobWorkReceiveModal';
 import JobWorkPreviewModal from '../modals/JobWorkPreviewModal';
+import JobWorkPOModal from '../modals/JobWorkPOModal';
+import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 import RejectionReworkHub from './RejectionReworkHub';
 
 import { apiGet, apiDelete } from '@/src/lib/api';
@@ -98,6 +100,9 @@ export default function JobWorkStore({
 
     // View Mode inside Challans: 'challans' (Challans Register) or 'item-stock' (Item-Wise Vendor Stock)
     const [challanViewMode, setChallanViewMode] = useState<'challans' | 'item-stock'>('challans');
+    const [isJobWorkPOModalOpen, setIsJobWorkPOModalOpen] = useState(false);
+    const [jobWorkPOInitialChallan, setJobWorkPOInitialChallan] = useState<any | null>(null);
+    const { isApprovalRequired } = useStoreApprovalSettings(token);
 
     // Item-Wise View Filter: Only items with pending balance (> 0)
     const [onlyPendingBalance, setOnlyPendingBalance] = useState(true);
@@ -1261,6 +1266,19 @@ export default function JobWorkStore({
                                     </span>
                                 </div>
 
+                                {/* Create Job Work PO Button */}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setJobWorkPOInitialChallan(null);
+                                        setIsJobWorkPOModalOpen(true);
+                                    }}
+                                    className="h-9 flex items-center justify-center gap-1.5 px-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                                >
+                                    <Plus size={14} />
+                                    <span>Create Job Work PO</span>
+                                </button>
+
                                 {/* Primary Action Button: Create Returnable DC */}
                                 <button
                                     onClick={() => handleCreateChallan()}
@@ -1824,6 +1842,18 @@ export default function JobWorkStore({
                                                                 <span>Return</span>
                                                             </button>
                                                         )}
+
+                                                        {/* Create / Link Job Work PO */}
+                                                        <button 
+                                                            onClick={() => {
+                                                                setJobWorkPOInitialChallan(challan);
+                                                                setIsJobWorkPOModalOpen(true);
+                                                            }}
+                                                            className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors cursor-pointer border border-emerald-200 dark:border-emerald-800" 
+                                                            title="Create Job Work PO from this Challan"
+                                                        >
+                                                            <FileText size={14} />
+                                                        </button>
 
                                                         {/* Direct Print PDF */}
                                                         <button 
@@ -2421,6 +2451,32 @@ export default function JobWorkStore({
                     onEdit={(c) => { setPrefillData(c); setIsPreviewOpen(false); setIsFormOpen(true); }}
                     onReceive={(c) => { setIsPreviewOpen(false); openReceiveModal(c); }}
                     onDelete={(id) => { setIsPreviewOpen(false); handleDelete(id, previewChallan.challanNumber); }}
+                    onCreatePO={(c) => {
+                        setJobWorkPOInitialChallan(c);
+                        setIsJobWorkPOModalOpen(true);
+                    }}
+                />
+            )}
+
+            {/* Job Work PO Modal */}
+            {isJobWorkPOModalOpen && (
+                <JobWorkPOModal
+                    isOpen={isJobWorkPOModalOpen}
+                    onClose={() => {
+                        setIsJobWorkPOModalOpen(false);
+                        setJobWorkPOInitialChallan(null);
+                    }}
+                    onSuccess={() => {
+                        showSuccessToast("Job Work PO created / linked successfully");
+                        fetchChallans();
+                    }}
+                    vendors={vendors}
+                    materials={materials}
+                    rawMaterials={rawMaterials}
+                    boughtOuts={boughtOuts}
+                    consumables={consumables}
+                    inHouseItems={inHouseItems}
+                    initialChallan={jobWorkPOInitialChallan}
                 />
             )}
         </div>

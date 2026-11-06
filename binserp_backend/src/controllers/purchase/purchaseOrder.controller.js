@@ -769,7 +769,8 @@ export const updatePO = asyncHandler(async (req, res) => {
     }
 
     // 2. Check timeLock governance from Prefix Settings
-    const governance = await checkTimeLockGovernance(req, 'purchasePo', existingPO.createdAt || existingPO.date, 'edit');
+    const entityKey = existingPO.poType === 'jobwork' ? 'jobWorkPo' : 'purchasePo';
+    const governance = await checkTimeLockGovernance(req, entityKey, existingPO.createdAt || existingPO.date, 'edit');
     if (!governance.allowed) {
       throw new ApiError(403, governance.message || "Purchase Order cannot be edited due to prefix policy time lock.");
     }
@@ -780,7 +781,9 @@ export const updatePO = asyncHandler(async (req, res) => {
     try {
       const StorePrefix = req.getModel('StorePrefix', storePrefixSchema);
       const prefixDoc = await StorePrefix.findOne({ company: companyId }).lean();
-      const poApproval = prefixDoc?.approvalSettings?.outwardPo;
+      const poApproval = existingPO.poType === 'jobwork'
+        ? (prefixDoc?.approvalSettings?.jobWorkPo || prefixDoc?.approvalSettings?.outwardPo)
+        : prefixDoc?.approvalSettings?.outwardPo;
 
       if (poApproval?.enabled && !poApproval.allowAllUsers) {
         const approvers = Array.isArray(poApproval.approvers) ? poApproval.approvers.map(String) : [];
@@ -1026,7 +1029,8 @@ export const deletePO = asyncHandler(async (req, res) => {
   }
 
   // 2. Check dynamic timeLock governance from Prefix Settings
-  const governance = await checkTimeLockGovernance(req, 'purchasePo', po.createdAt || po.date, 'delete');
+  const entityKey = po.poType === 'jobwork' ? 'jobWorkPo' : 'purchasePo';
+  const governance = await checkTimeLockGovernance(req, entityKey, po.createdAt || po.date, 'delete');
   if (!governance.allowed) {
     throw new ApiError(403, governance.message || "Purchase Order cannot be deleted due to prefix policy time lock.");
   }
