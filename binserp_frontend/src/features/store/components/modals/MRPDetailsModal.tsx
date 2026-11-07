@@ -534,14 +534,15 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
               Finished Goods (FG) Items Demand
             </h3>
 
-            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto shadow-xs">
               <table className="w-full text-xs text-left">
                 <thead className="bg-slate-50 dark:bg-slate-800/60 font-bold text-slate-500 border-b border-slate-200 dark:border-slate-700">
                   <tr>
                     <th className="p-3">FG Item Name & Description</th>
                     <th className="p-3 text-center">BOM Ref</th>
                     <th className="p-3 text-center">Order Target</th>
-                    <th className="p-3 text-right">Agreed Rate & Revenue</th>
+                    <th className="p-3 text-right">PO Price & Revenue</th>
+                    <th className="p-3 text-right">RM / BOM Cost</th>
                     <th className="p-3 text-center">PO Date</th>
                     <th className="p-3 text-center">Committed Date</th>
                     <th className="p-3 text-center">FG GRN Received</th>
@@ -559,6 +560,21 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
                     const itemDesc = fg.fgItem?.description || fg.fgItem?.descriptions || fg.description;
                     const hasNested = Array.isArray(fg.nestedMaterials) && fg.nestedMaterials.length > 0;
                     const isExpanded = Boolean(expandedFgBoms[idx]);
+
+                    // Compute or read per-FG-line-item RM/BOM cost
+                    const computedNestedTotal = hasNested
+                      ? fg.nestedMaterials.reduce((acc: number, nMat: any, nIdx: number) => {
+                          const nextMat = fg.nestedMaterials[nIdx + 1];
+                          const isParentExploded = Boolean(nextMat && Number(nextMat.level || 1) > Number(nMat.level || 1));
+                          if (isParentExploded) return acc;
+                          const gCost = Number(nMat.grossCost || (Number(nMat.totalRequired || 0) * Number(nMat.unitCost || 0)) || 0);
+                          return acc + gCost;
+                        }, 0)
+                      : 0;
+                    const lineRmTotalCost = Number(fg.rmTotalCost || 0) > 0 ? Number(fg.rmTotalCost) : Math.round(computedNestedTotal * 100) / 100;
+                    const lineRmUnitCost = Number(fg.rmUnitCost || 0) > 0 ? Number(fg.rmUnitCost) : (fgQty > 0 ? Math.round((lineRmTotalCost / fgQty) * 100) / 100 : 0);
+                    const lineRmOnly = Number(fg.rmOnlyCost || 0);
+                    const lineBoOnly = Number(fg.boOnlyCost || 0);
 
                     return (
                       <React.Fragment key={idx}>
@@ -643,6 +659,19 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
                               </span>
                             )}
                           </td>
+                          <td className="p-3 text-right font-mono" title={lineRmTotalCost > 0 ? `RM: ₹${lineRmOnly.toLocaleString('en-IN')} | BO: ₹${lineBoOnly.toLocaleString('en-IN')}` : undefined}>
+                            <div className="font-bold text-amber-700 dark:text-amber-400">
+                              ₹{lineRmTotalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              @ ₹{lineRmUnitCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{fg.unit || 'PCS'}
+                            </div>
+                            {(lineRmOnly > 0 || lineBoOnly > 0) && (
+                              <div className="text-[9px] text-slate-400 mt-0.5">
+                                RM: ₹{Math.round(lineRmOnly).toLocaleString('en-IN')} • BO: ₹{Math.round(lineBoOnly).toLocaleString('en-IN')}
+                              </div>
+                            )}
+                          </td>
                           <td className="p-3 text-center text-[11px] text-slate-500">
                             {fg.poDeliveryDate ? new Date(fg.poDeliveryDate).toLocaleDateString() : "-"}
                           </td>
@@ -672,16 +701,21 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
                         {/* Hierarchical Nested BOM Breakdown for this FG item */}
                         {isExpanded && hasNested && (
                           <tr className="bg-indigo-50/20 dark:bg-indigo-950/20">
-                            <td colSpan={9} className="p-3 pl-6 pr-6">
+                            <td colSpan={10} className="p-3 pl-6 pr-6">
                               <div className="rounded-xl border border-indigo-200/70 dark:border-indigo-800/60 bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
-                                <div className="p-2.5 bg-indigo-50/70 dark:bg-indigo-950/40 border-b border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between">
+                                <div className="p-2.5 bg-indigo-50/70 dark:bg-indigo-950/40 border-b border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between flex-wrap gap-2">
                                   <span className="font-bold text-xs text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
                                     <Layers size={13} className="text-indigo-600" />
                                     Exploded Nested BOM: {itemName} ({fg.bomNumber || "BOM-Active"})
                                   </span>
-                                  <span className="text-[10px] font-mono text-slate-500">
-                                    {fg.nestedMaterials.length} Component{fg.nestedMaterials.length > 1 ? 's' : ''} Exploded
-                                  </span>
+                                  <div className="flex items-center gap-3 text-[10px] font-mono">
+                                    <span className="text-slate-500">
+                                      {fg.nestedMaterials.length} Component{fg.nestedMaterials.length > 1 ? 's' : ''} Exploded
+                                    </span>
+                                    <span className="font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                      Total BOM Cost: ₹{lineRmTotalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (₹{lineRmUnitCost.toLocaleString('en-IN')}/{fg.unit || 'PCS'})
+                                    </span>
+                                  </div>
                                 </div>
                                 <table className="w-full text-xs text-left">
                                   <thead className="bg-slate-50/80 dark:bg-slate-800/50 font-bold text-slate-500 border-b border-slate-200 dark:border-slate-800 text-[10.5px]">
@@ -691,6 +725,8 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
                                       <th className="p-2 text-center">Type</th>
                                       <th className="p-2 text-center">Qty / FG</th>
                                       <th className="p-2 text-center">Gross Required</th>
+                                      <th className="p-2 text-right">Unit Rate</th>
+                                      <th className="p-2 text-right">Total Cost</th>
                                       <th className="p-2 text-center">Stock in Hand</th>
                                       <th className="p-2 text-center">Shortage</th>
                                     </tr>
@@ -698,6 +734,9 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
                                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                     {fg.nestedMaterials.map((nMat: any, nIdx: number) => {
                                       const indent = nMat.level ? (nMat.level - 1) * 16 : 0;
+                                      const nUnitCost = Number(nMat.unitCost || 0);
+                                      const nGrossReq = Number(nMat.totalRequired || nMat.requiredQuantity || 0);
+                                      const nGrossCost = Number(nMat.grossCost || (nGrossReq * nUnitCost) || 0);
                                       return (
                                         <tr key={nIdx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                                           <td className="p-2">
@@ -729,7 +768,13 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onPlanUpdate
                                             {nMat.quantityPerFG || 1} {nMat.unit || 'PCS'}
                                           </td>
                                           <td className="p-2 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
-                                            {nMat.totalRequired || nMat.requiredQuantity || 0} {nMat.unit || 'PCS'}
+                                            {nGrossReq} {nMat.unit || 'PCS'}
+                                          </td>
+                                          <td className="p-2 text-right font-mono text-slate-700 dark:text-slate-300">
+                                            {nUnitCost > 0 ? `₹${nUnitCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
+                                          </td>
+                                          <td className="p-2 text-right font-mono font-bold text-amber-700 dark:text-amber-400">
+                                            {nGrossCost > 0 ? `₹${nGrossCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
                                           </td>
                                           <td className="p-2 text-center font-mono text-slate-600 dark:text-slate-400">
                                             {nMat.currentStock || nMat.currentPhysicalStock || 0} {nMat.unit || 'PCS'}

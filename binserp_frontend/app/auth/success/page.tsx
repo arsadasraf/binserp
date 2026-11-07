@@ -12,6 +12,7 @@ function AuthSuccessContent() {
 
   useEffect(() => {
     const token = searchParams.get("token");
+    const refreshToken = searchParams.get("refreshToken") || undefined;
     const userType = searchParams.get("type");
     const encodedData = searchParams.get("data");
 
@@ -26,8 +27,10 @@ function AuthSuccessContent() {
 
         persistSession({
           token,
+          refreshToken,
+          accessMode: decodedData?.deviceInfo?.accessMode,
           userType: userType as any,
-          user: decodedData // The company object
+          user: decodedData // The company or saasadmin object
         });
 
         if (userType === "saasadmin") {

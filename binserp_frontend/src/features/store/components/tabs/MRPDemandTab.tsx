@@ -205,12 +205,12 @@ export default function MRPDemandTab({
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
   }, [customers, customerPOs]);
 
-  // Compute 6-month calendar buckets starting from current month + offset
+  // Compute 6-month calendar buckets starting from current month + monthStepOffset (in 1-month increments)
   const monthBuckets: MonthBucket[] = useMemo(() => {
     const buckets: MonthBucket[] = [];
     const baseDate = new Date();
-    // Start of current month
-    const startMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + monthStepOffset * 6, 1);
+    // Start of current month + offset in months
+    const startMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + monthStepOffset, 1);
 
     for (let i = 0; i < 6; i++) {
       const d = new Date(startMonth.getFullYear(), startMonth.getMonth() + i, 1);
@@ -230,6 +230,62 @@ export default function MRPDemandTab({
     }
     return buckets;
   }, [monthStepOffset]);
+
+  // Helper to jump the 6-month matrix viewport to any YYYY-MM key
+  const jumpToMonthKey = (targetMonthKey: string) => {
+    if (!targetMonthKey) return;
+    const [y, m] = targetMonthKey.split('-').map(Number);
+    if (!y || !m) return;
+    const now = new Date();
+    const diffMonths = (y - now.getFullYear()) * 12 + ((m - 1) - now.getMonth());
+    setMonthStepOffset(diffMonths);
+  };
+
+  // Format any YYYY-MM key into short label (e.g. "Oct 2026")
+  const formatMonthKeyShort = (key: string): string => {
+    const [y, m] = String(key || '').split('-').map(Number);
+    if (y && m) {
+      const d = new Date(y, m - 1, 1);
+      if (!isNaN(d.getTime())) return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    }
+    return key;
+  };
+
+  // All distinct delivery months across all Customer POs (past, current, and future) + current visible buckets
+  const allDeliveryMonthOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    const addKey = (k: string) => {
+      if (!k || !/^\d{4}-\d{2}$/.test(k)) return;
+      if (!map.has(k)) {
+        map.set(k, formatMonthKeyShort(k));
+      }
+    };
+    monthBuckets.forEach((b) => addKey(b.key));
+    (Array.isArray(customerPOs) ? customerPOs : []).forEach((po: any) => {
+      if (po.status === 'Cancelled') return;
+      const poDate = po.committedDispatchDate || po.date;
+      if (poDate) {
+        const d = new Date(poDate);
+        if (!isNaN(d.getTime())) {
+          addKey(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+        }
+      }
+      (po.items || []).forEach((it: any) => {
+        if (it?.expectedDeliveryDate) {
+          const d = new Date(it.expectedDeliveryDate);
+          if (!isNaN(d.getTime())) {
+            addKey(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+          }
+        }
+        (it?.deliverySchedule || []).forEach((s: any) => {
+          if (s?.monthKey && Number(s.quantity || 0) > 0) addKey(String(s.monthKey));
+        });
+      });
+    });
+    return Array.from(map.entries())
+      .map(([key, shortLabel]) => ({ key, shortLabel }))
+      .sort((a, b) => a.key.localeCompare(b.key));
+  }, [customerPOs, monthBuckets]);
 
   // Helper to determine PO's planning status relative to active MRP plans
   const getPoMRPStatus = (po: any): { status: 'Unplanned' | 'Partially Planned' | 'MRP Generated'; mrpNumber?: string; planId?: string } => {
@@ -270,6 +326,13 @@ export default function MRPDemandTab({
 
   // Filtered Customer POs
   const filteredCustomerPOs = useMemo(() => {
+    const toYearMonth = (dt: any): string => {
+      if (!dt) return '';
+      const d = new Date(dt);
+      if (isNaN(d.getTime())) return '';
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    };
+
     return (Array.isArray(customerPOs) ? customerPOs : []).filter((po) => {
       if (po.status === 'Cancelled') return false;
 
@@ -285,13 +348,16 @@ export default function MRPDemandTab({
         if (!filterCustomers.includes(custId)) return false;
       }
 
-      // Delivery Month Filter
+      // Delivery Month Filter (checks PO date, item expectedDeliveryDate, and item deliverySchedule)
       if (selectedMonthFilter !== 'all') {
         const poDate = po.committedDispatchDate || po.date;
-        const poMonth = poDate ? new Date(poDate).toISOString().slice(0, 7) : '';
+        const poMonth = toYearMonth(poDate);
         const itemHasMonth = (po.items || []).some((it: any) => {
+          if (Array.isArray(it.deliverySchedule) && it.deliverySchedule.length > 0) {
+            return it.deliverySchedule.some((s: any) => s?.monthKey === selectedMonthFilter && Number(s.quantity || 0) > 0);
+          }
           const itDate = it.expectedDeliveryDate || poDate;
-          return itDate && new Date(itDate).toISOString().slice(0, 7) === selectedMonthFilter;
+          return toYearMonth(itDate) === selectedMonthFilter;
         });
         if (poMonth !== selectedMonthFilter && !itemHasMonth) return false;
       }
@@ -647,6 +713,33 @@ export default function MRPDemandTab({
     return rows;
   }, [customerPOs, fgItems, mrpPlans, searchTerm, filterCustomers]);
 
+  // Identify earliest demand month across all matrix rows (especially earlier months before current visible window)
+  const earliestDemandMonthInfo = useMemo(() => {
+    let earliestAll = '';
+    let earliestUnfulfilled = '';
+    monthMatrixData.forEach((row) => {
+      Object.entries(row.monthlyQuantities).forEach(([mKey, q]) => {
+        if (q > 0 && /^\d{4}-\d{2}$/.test(mKey)) {
+          if (!earliestAll || mKey < earliestAll) earliestAll = mKey;
+          const planned = row.monthlyPlannedQuantities?.[mKey] || 0;
+          if (q > planned && (!earliestUnfulfilled || mKey < earliestUnfulfilled)) {
+            earliestUnfulfilled = mKey;
+          }
+        }
+      });
+    });
+    const targetKey = earliestUnfulfilled || earliestAll;
+    const firstVisibleKey = monthBuckets[0]?.key || '';
+    const hasEarlierHiddenDemand = Boolean(targetKey && firstVisibleKey && targetKey < firstVisibleKey);
+    return {
+      earliestAll,
+      earliestUnfulfilled,
+      targetKey,
+      targetLabel: targetKey ? formatMonthKeyShort(targetKey) : '',
+      hasEarlierHiddenDemand
+    };
+  }, [monthMatrixData, monthBuckets]);
+
   // Selection handlers
   const toggleSelectPo = (poId: string) => {
     setSelectedPoIds((prev) => (prev.includes(poId) ? prev.filter((id) => id !== poId) : [...prev, poId]));
@@ -817,6 +910,7 @@ export default function MRPDemandTab({
               description: row.description,
               unit: row.unit,
               quantity: 0,
+              valuation: 0,
               sellingPrice: 0,
               totalPrice: 0,
               hsnCode: row.hsnCode,
@@ -834,7 +928,9 @@ export default function MRPDemandTab({
           matchedPOs.forEach((c) => {
             if (c.poId) {
               poMap.set(String(c.poId), c.poRaw || { _id: c.poId, poNumber: c.poNumber, customerName: c.customerName });
-              itemEntry.sourceCustomerPOs.add(String(c.poId));
+            }
+            if (c.poNumber) {
+              itemEntry.sourceCustomerPOs.add(String(c.poNumber));
             }
             if (c.deliveryDate) {
               if (!itemEntry.earliestDate || c.deliveryDate < itemEntry.earliestDate) {
@@ -846,37 +942,81 @@ export default function MRPDemandTab({
               const fId = it.fgItem?._id || it.fgItem;
               return String(fId) === String(row.fgId) || it.productName === row.name;
             });
-            const rate = Number(poItemMatch?.rate || 0);
+            const rate = Number(
+              poItemMatch?.rate ||
+              (Number(poItemMatch?.quantity) > 0 ? Number(poItemMatch?.amount || 0) / Number(poItemMatch.quantity) : 0) ||
+              0
+            );
             const curr = (c.poRaw?.currency || 'INR').trim().toUpperCase();
-            const inrVal = convertToINR(rate * c.quantity, curr).inrAmount;
+            const cEffectiveQty = c.balanceQty != null && c.balanceQty > 0 ? c.balanceQty : c.quantity;
+            const convResult = convertToINR(1, curr);
+            const poExRate = curr === 'INR'
+              ? 1
+              : (Number(c.poRaw?.exchangeRate) > 0 ? Number(c.poRaw.exchangeRate) : (convResult.rate || 1));
+            const rateInINR = Math.round(rate * poExRate * 100) / 100;
+            const inrVal = Math.round(cEffectiveQty * rateInINR * 100) / 100;
             totalValuation += inrVal;
+            itemEntry.valuation = (itemEntry.valuation || 0) + inrVal;
 
             itemEntry.sourceBreakdown.push({
               customerPo: /^[0-9a-fA-F]{24}$/.test(String(c.poId || '')) ? c.poId : undefined,
               customerPoNumber: c.poNumber,
               customerName: c.customerName,
-              quantity: c.quantity,
+              quantity: cEffectiveQty,
               monthKey: mKey,
               currency: curr,
-              originalRate: rate
+              originalRate: rate,
+              exchangeRate: poExRate,
+              rateInINR,
+              amountInINR: inrVal
             });
           });
         }
       });
     });
 
-    const consolidatedFGItems = Array.from(itemMap.values()).map((it) => ({
-      fgItem: it.fgItem,
-      fgItemName: it.fgItemName,
-      description: it.description,
-      unit: it.unit,
-      quantity: it.quantity,
-      sellingPrice: it.quantity > 0 ? Math.round((totalValuation / totalQty) * 100) / 100 : 0,
-      totalPrice: Math.round((it.quantity * (it.quantity > 0 ? totalValuation / totalQty : 0)) * 100) / 100,
-      targetDate: it.earliestDate || new Date().toISOString().slice(0, 10),
-      sourceCustomerPOs: Array.from(it.sourceCustomerPOs),
-      sourceBreakdown: it.sourceBreakdown
-    }));
+    const consolidatedFGItems = Array.from(itemMap.values()).map((it) => {
+      const unitSellingPrice = it.quantity > 0 ? Math.round(((it.valuation || 0) / it.quantity) * 100) / 100 : 0;
+      const uniqueCurrs = Array.from(new Set((it.sourceBreakdown || []).map((b: any) => b.currency).filter(Boolean))) as string[];
+      let resolvedCurrency = 'INR';
+      let resolvedOriginalPrice = unitSellingPrice;
+      let resolvedExchangeRate = 1;
+      let resolvedPriceSource = unitSellingPrice > 0 ? 'Customer PO' : 'Unset';
+
+      if (uniqueCurrs.length === 1 && uniqueCurrs[0] !== 'INR') {
+        resolvedCurrency = uniqueCurrs[0];
+        resolvedOriginalPrice = Number(it.sourceBreakdown[0]?.originalRate || 0);
+        resolvedExchangeRate = Number(it.sourceBreakdown[0]?.exchangeRate || 1);
+        resolvedPriceSource = `Customer PO (${resolvedCurrency} @ ₹${resolvedExchangeRate})`;
+      } else if (uniqueCurrs.length > 1) {
+        resolvedCurrency = 'MIXED';
+        resolvedPriceSource = `Customer PO (Consolidated: ${uniqueCurrs.join(', ')})`;
+      }
+
+      const poNumbersList = Array.from(it.sourceCustomerPOs) as string[];
+      const customerNamesList = Array.from(
+        new Set((it.sourceBreakdown || []).map((b: any) => b.customerName).filter(Boolean))
+      ) as string[];
+
+      return {
+        fgItem: it.fgItem,
+        fgItemName: it.fgItemName,
+        description: it.description,
+        unit: it.unit,
+        quantity: parseFloat((Number(it.quantity) || 0).toFixed(4)),
+        sellingPrice: unitSellingPrice,
+        totalPrice: Math.round((it.valuation || (it.quantity * unitSellingPrice)) * 100) / 100,
+        currency: resolvedCurrency,
+        originalSellingPrice: resolvedOriginalPrice,
+        exchangeRate: resolvedExchangeRate,
+        priceSource: resolvedPriceSource,
+        customerPoNumber: poNumbersList.join(', '),
+        customerName: customerNamesList.join(', '),
+        targetDate: it.earliestDate || new Date().toISOString().slice(0, 10),
+        sourceCustomerPOs: poNumbersList,
+        sourceBreakdown: it.sourceBreakdown
+      };
+    });
 
     const contributingPoIds = Array.from(poMap.keys());
     const contributingPOsList = Array.from(poMap.values());
@@ -1100,11 +1240,17 @@ export default function MRPDemandTab({
           {/* Month Filter */}
           <select
             value={selectedMonthFilter}
-            onChange={(e) => setSelectedMonthFilter(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              setSelectedMonthFilter(val);
+              if (val !== 'all') {
+                jumpToMonthKey(val);
+              }
+            }}
             className="px-3 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 outline-none cursor-pointer"
           >
             <option value="all">All Delivery Months</option>
-            {monthBuckets.map((m) => (
+            {allDeliveryMonthOptions.map((m) => (
               <option key={m.key} value={m.key}>
                 {m.shortLabel}
               </option>
@@ -1454,15 +1600,26 @@ export default function MRPDemandTab({
           /* ========================================================= */
           <div className="flex-1 flex flex-col min-h-0">
             {/* Matrix Calendar Navigation Bar */}
-            <div className="shrink-0 p-2.5 sm:p-3 bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+            <div className="shrink-0 p-2.5 sm:p-3 bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setMonthStepOffset((prev) => prev - 6)}
+                  className="px-2 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-[11px] rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center gap-1 cursor-pointer"
+                  title="Jump back 6 months"
+                >
+                  <ArrowLeft size={12} />
+                  <span>-6M</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setMonthStepOffset((prev) => prev - 1)}
-                  className="px-2.5 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-[11px] rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center gap-1 cursor-pointer"
+                  title="Slide 1 month earlier"
                 >
-                  <ArrowLeft size={13} />
-                  <span>Prev 6 Months</span>
+                  <ArrowLeft size={12} />
+                  <span>Prev Month</span>
                 </button>
 
                 <div className="px-3 py-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-xs text-indigo-600 dark:text-indigo-400 shadow-2xs">
@@ -1472,22 +1629,47 @@ export default function MRPDemandTab({
                 <button
                   type="button"
                   onClick={() => setMonthStepOffset((prev) => prev + 1)}
-                  className="px-2.5 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-[11px] rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center gap-1 cursor-pointer"
+                  title="Slide 1 month forward"
                 >
-                  <span>Next 6 Months</span>
-                  <ArrowRight size={13} />
+                  <span>Next Month</span>
+                  <ArrowRight size={12} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setMonthStepOffset((prev) => prev + 6)}
+                  className="px-2 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-[11px] rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center gap-1 cursor-pointer"
+                  title="Jump forward 6 months"
+                >
+                  <span>+6M</span>
+                  <ArrowRight size={12} />
                 </button>
               </div>
 
-              {monthStepOffset !== 0 && (
-                <button
-                  type="button"
-                  onClick={() => setMonthStepOffset(0)}
-                  className="px-2.5 py-1 text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 rounded-lg cursor-pointer"
-                >
-                  Reset to Current
-                </button>
-              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                {earliestDemandMonthInfo.hasEarlierHiddenDemand && (
+                  <button
+                    type="button"
+                    onClick={() => jumpToMonthKey(earliestDemandMonthInfo.targetKey)}
+                    className="px-2.5 py-1 text-[11px] font-bold text-amber-800 dark:text-amber-300 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-lg flex items-center gap-1 cursor-pointer shadow-2xs"
+                    title={`Active demand exists in earlier month (${earliestDemandMonthInfo.targetLabel}) — click to view`}
+                  >
+                    <ArrowLeft size={11} />
+                    <span>Earlier Demand: {earliestDemandMonthInfo.targetLabel}</span>
+                  </button>
+                )}
+
+                {monthStepOffset !== 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setMonthStepOffset(0)}
+                    className="px-2.5 py-1 text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 rounded-lg cursor-pointer"
+                  >
+                    Today (Current Month)
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Matrix Table */}
@@ -1560,6 +1742,10 @@ export default function MRPDemandTab({
                       const activeMonthKeys = Object.entries(row.monthlyQuantities)
                         .filter(([_, q]) => q > 0)
                         .map(([mKey]) => mKey);
+                      const visibleKeysSet = new Set(monthBuckets.map((b) => b.key));
+                      const offScreenMonths = Object.entries(row.monthlyQuantities)
+                        .filter(([mKey, q]) => q > 0 && !visibleKeysSet.has(mKey))
+                        .sort(([a], [b]) => a.localeCompare(b));
                       const isRowFullySelected =
                         activeMonthKeys.length > 0 &&
                         activeMonthKeys.every((mKey) => selectedMatrixCells.has(`${row.fgId}::${mKey}`));
@@ -1622,6 +1808,31 @@ export default function MRPDemandTab({
                                   </div>
                                 ) : (
                                   <span className="text-[10px] text-slate-400 italic font-medium">Unplanned</span>
+                                )}
+                                {/* Off-screen Earlier / Later Month Demand Badges */}
+                                {offScreenMonths.length > 0 && (
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    {offScreenMonths.map(([mKey, mQty]) => {
+                                      const isEarlier = monthBuckets[0]?.key && mKey < monthBuckets[0].key;
+                                      const mPlanned = row.monthlyPlannedQuantities?.[mKey] || 0;
+                                      const isDone = mPlanned >= mQty && mQty > 0;
+                                      return (
+                                        <button
+                                          key={mKey}
+                                          type="button"
+                                          onClick={() => jumpToMonthKey(mKey)}
+                                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border cursor-pointer transition-colors ${
+                                            isDone
+                                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                              : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300'
+                                          }`}
+                                          title={`Scheduled in ${formatMonthKeyShort(mKey)} (${mQty} ${row.unit}) — Click to jump calendar to ${formatMonthKeyShort(mKey)}`}
+                                        >
+                                          <span>{isEarlier ? '◀' : '▶'} {formatMonthKeyShort(mKey)}: {mQty}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
                                 )}
                               </div>
                             </td>

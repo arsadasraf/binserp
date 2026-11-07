@@ -4,6 +4,7 @@ import { vendorSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, consu
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
+import { getUserAudit } from "../../utils/userAudit.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -13,6 +14,7 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
   req.getModel('Vendor', vendorSchema);
   const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
   const companyId = getCompanyId(req);
+  const { userId, userName } = getUserAudit(req);
 
   const { vendor, material, price, taxRate, validFrom, validUntil, remarks, isPreferred, pricingUnit, isSecondaryUnit } = req.body;
 
@@ -48,6 +50,11 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
     if (isPreferred !== undefined) existingPriceList.isPreferred = Boolean(isPreferred);
     if (pricingUnit !== undefined) existingPriceList.pricingUnit = pricingUnit;
     if (isSecondaryUnit !== undefined) existingPriceList.isSecondaryUnit = Boolean(isSecondaryUnit);
+    if (userId) existingPriceList.updatedBy = userId;
+    if (userName) {
+      existingPriceList.updatedByName = userName;
+      if (!existingPriceList.createdByName) existingPriceList.createdByName = userName;
+    }
     
     await existingPriceList.save();
     return res.status(200).json(new ApiResponse(200, existingPriceList, "Price List updated successfully"));
@@ -65,7 +72,10 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
     pricingUnit: pricingUnit || "",
     isSecondaryUnit: Boolean(isSecondaryUnit),
     remarks,
-    createdBy: req.user?.id || req.user?._id,
+    createdBy: userId || undefined,
+    createdByName: userName || "",
+    updatedBy: userId || undefined,
+    updatedByName: userName || "",
   });
 
   return res.status(201).json(new ApiResponse(201, newPriceList, "Price List created successfully"));
@@ -81,11 +91,25 @@ export const getVendorPriceLists = asyncHandler(async (req, res) => {
   const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
   const companyId = getCompanyId(req);
 
-  // Fetch price lists with populated vendor without relying on Mongoose RmBoItem schema ref for material
+  // Fetch price lists with populated vendor and user audit info
   const priceLists = await VendorPriceList.find({ company: companyId })
     .populate('vendor', 'name code vendorCode')
+    .populate('createdBy', 'name firstName lastName username email')
+    .populate('updatedBy', 'name firstName lastName username email')
     .sort({ isPreferred: -1, updatedAt: -1, createdAt: -1 })
     .lean();
+
+  priceLists.forEach((pl) => {
+    const resolveUserObjName = (u) => {
+      if (!u || typeof u !== 'object') return '';
+      const full = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+      return full || u.name || u.username || u.email || '';
+    };
+    const resolvedUpdatedName = pl.updatedByName || resolveUserObjName(pl.updatedBy) || pl.createdByName || resolveUserObjName(pl.createdBy) || '';
+    const resolvedCreatedName = pl.createdByName || resolveUserObjName(pl.createdBy) || '';
+    if (resolvedUpdatedName) pl.updatedByName = resolvedUpdatedName;
+    if (resolvedCreatedName) pl.createdByName = resolvedCreatedName;
+  });
 
   // Collect all unique material IDs
   const materialIds = [
@@ -153,10 +177,13 @@ export const updateVendorPriceList = asyncHandler(async (req, res) => {
   const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
   const { id } = req.params;
   const companyId = getCompanyId(req);
+  const { userId, userName } = getUserAudit(req);
 
   const { vendor, material, price, taxRate, validFrom, validUntil, remarks, isPreferred, pricingUnit, isSecondaryUnit } = req.body;
 
   const updateData = {};
+  if (userId) updateData.updatedBy = userId;
+  if (userName) updateData.updatedByName = userName;
   if (price !== undefined) updateData.price = Number(price);
   if (taxRate !== undefined) updateData.taxRate = Number(taxRate);
   if (vendor !== undefined) {

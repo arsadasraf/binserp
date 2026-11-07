@@ -81,10 +81,12 @@ const customBaseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryEr
       isRefreshing = true;
 
       try {
-        // Attempt to refresh token
+        // Attempt to refresh token (pass refreshToken from localStorage as fallback if cookie is blocked)
+        const storedRefreshToken = typeof window !== "undefined" ? localStorage.getItem("refreshToken") : null;
         const refreshResult = await baseQuery({
           url: '/api/auth/refresh',
           method: 'POST',
+          body: storedRefreshToken ? { refreshToken: storedRefreshToken } : undefined,
         }, api, extraOptions);
 
         if (refreshResult.data) {
@@ -112,7 +114,7 @@ const customBaseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryEr
         
         clearSession();
         
-        if (typeof window !== "undefined") {
+        if (typeof window !== "undefined" && !window.location.pathname.startsWith('/login')) {
           let alertTitle = 'Session Expired';
           let alertText = 'Your session has expired. Please log in again.';
           if (isAnotherDevice) {

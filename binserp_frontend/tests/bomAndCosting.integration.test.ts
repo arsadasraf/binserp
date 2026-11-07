@@ -156,11 +156,60 @@ describe('Multi-Level FG BOM Explosion, Dual-UOM & 3-Mode Costing Integration', 
     expect(bearingEntry?.totalCumulativeQuantity).toBe(7);
     expect(bearingEntry?.description).toBe('25x52x15mm Sealed Bearing');
 
-    // RM cumulative: 3 sub-assemblies * 2 brackets * 2.5 KG = 15 KG
+    // RM cumulative: 3 sub-assemblies * 2 brackets * 2.5 KG = 15 KG (= 0.75 SHEET)
     expect(rmEntry).toBeDefined();
     expect(rmEntry?.totalCumulativeQuantity).toBe(15);
     expect(rmEntry?.hasSecondaryUnit).toBe(true);
     expect(rmEntry?.secondaryUnit).toBe('SHEET');
+    expect(rmEntry?.totalSecondaryCumulativeQuantity).toBe(0.75);
+  });
+
+  it('preserves 4-decimal BOM quantities, secondary quantities, and foreign currency conversion to INR', () => {
+    const fineGoldWire = {
+      _id: 'rm-gold-99',
+      name: 'Fine Gold Bonding Wire',
+      code: 'RM-G99',
+      descriptions: '0.025mm High Purity Wire',
+      unit: 'KG',
+      hasSecondaryUnit: true,
+      secondaryUnit: 'MTR',
+      conversionFactor: 0.35,
+    };
+    const leafSensorComp = {
+      _id: 'fg-leaf-comp',
+      name: 'Precision Sensor Chip',
+      code: 'FG-SC1',
+      description: 'Imported Calibrated Sensor Module',
+      type: 'Component',
+      unit: 'NOS',
+      bom: [], // Leaf component with no child RM BOM
+    };
+    const microAssy = {
+      _id: 'fg-micro-1',
+      name: 'Micro Controller Unit',
+      code: 'FG-MCU',
+      type: 'Assembly',
+      unit: 'NOS',
+      bom: [
+        { itemType: 'RawMaterial', item: fineGoldWire._id, itemName: fineGoldWire.name, quantity: 0.005, unit: 'KG' },
+        { itemType: 'FGItem', item: leafSensorComp._id, itemName: leafSensorComp.name, quantity: 2, unit: 'NOS' },
+      ],
+    };
+
+    const exploded = explodeFGBOMHierarchy(microAssy, [leafSensorComp, microAssy], [fineGoldWire], []);
+    const consolidated = consolidateBOMItems(exploded.flatTree, 'ALL');
+    const wireItem = consolidated.find((c) => c.id === fineGoldWire._id);
+    expect(wireItem?.totalCumulativeQuantity).toBe(0.005);
+    expect(wireItem?.totalSecondaryCumulativeQuantity).toBe(0.0018);
+
+    // Price wire in Secondary Unit (MTR) and leafSensorComp in USD ($10 * 84 = ₹840)
+    const vpl = [{ _id: 'vpl-g', material: { _id: fineGoldWire._id, name: fineGoldWire.name }, price: 1000, pricingUnit: 'MTR', isSecondaryUnit: true }];
+    const spl = [{ _id: 'spl-s', fgItem: { _id: leafSensorComp._id, name: leafSensorComp.name }, price: 10, currency: 'USD' }];
+
+    const enrichedCons = enrichConsolidatedItemsWithPricing(consolidated, vpl, spl, [leafSensorComp, microAssy], 'RM_AND_BO');
+    const summary = calculateBOMCostingSummary([], enrichedCons, 'RM_AND_BO');
+    // 2 * ($10 * 84 = ₹840) = ₹1680 + (0.0018 MTR * ₹1000 = ₹1.80) = ₹1681.80
+    expect(summary.totalEstimatedCost).toBe(1681.8);
   });
 
   it('calculates 3-Mode BOM Costing (L2_ONLY, COMPONENT_AND_BO, RM_AND_BO) without double counting', () => {

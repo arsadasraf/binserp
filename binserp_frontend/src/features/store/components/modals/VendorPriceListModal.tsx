@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { X, Save, AlertCircle, Layers, Tag } from "lucide-react";
+import { X, Save, AlertCircle, Layers, Tag, User, Clock } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
 import { apiGet } from "@/src/lib/api";
 import { formatItemSelectLabel, getItemDescription } from "@/src/utils/itemDisplayHelper";
@@ -227,6 +227,30 @@ export default function VendorPriceListModal({
   const primaryUnit = selectedMaterialObj?.unit || initialData?.unit || 'PCS';
   const secondaryUnit = selectedMaterialObj?.secondaryUnit || initialData?.secondaryUnit || '';
   const factor = Number(selectedMaterialObj?.conversionFactor || initialData?.conversionFactor) || 1;
+
+  // Auto-resolve material ID by name/code if initialData had a legacy ID or only materialName/materialCode
+  useEffect(() => {
+    if (!isOpen || !initialData) return;
+    const pool = itemType === 'bo' ? boughtOutsList : itemType === 'consumable' ? consumablesList : rawMaterialsList;
+    if (!Array.isArray(pool) || pool.length === 0) return;
+
+    const currentId = String(formData.material || "");
+    const hasExactIdMatch = currentId && pool.some((m: any) => String(m?._id || m?.id) === currentId);
+    if (hasExactIdMatch) return;
+
+    const targetName = String(initialData.materialName || initialData.name || "").trim().toLowerCase();
+    const targetCode = String(initialData.materialCode || initialData.code || "").trim().toLowerCase();
+    if (!targetName && !targetCode) return;
+
+    const matched = pool.find((m: any) => {
+      const mName = String(m?.name || m?.materialName || "").trim().toLowerCase();
+      const mCode = String(m?.code || m?.materialCode || "").trim().toLowerCase();
+      return (targetCode && mCode && mCode === targetCode) || (targetName && mName && mName === targetName);
+    });
+    if (matched?._id) {
+      setFormData(prev => ({ ...prev, material: String(matched._id) }));
+    }
+  }, [isOpen, initialData, itemType, rawMaterialsList, boughtOutsList, consumablesList, formData.material]);
 
   // Keep isSecondaryUnit synchronized when dual-unit material finishes loading
   useEffect(() => {
@@ -578,6 +602,35 @@ export default function VendorPriceListModal({
                 placeholder="Optional notes or supplier quote reference..."
               />
             </div>
+
+            {initialData && (initialData.updatedAt || initialData.createdAt || initialData.updatedByName || initialData.createdByName) && (
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                <div className="flex items-center gap-1.5 font-semibold truncate">
+                  <User size={12} className="text-indigo-500 shrink-0" />
+                  <span>
+                    Last Updated By:{" "}
+                    <strong className="text-slate-900 dark:text-white">
+                      {initialData.updatedByName || initialData.createdByName || "Admin"}
+                    </strong>
+                  </span>
+                </div>
+                {(initialData.updatedAt || initialData.createdAt) && (
+                  <div className="flex items-center gap-1 font-mono text-[10px] text-slate-500 dark:text-slate-400 shrink-0">
+                    <Clock size={11} className="text-slate-400" />
+                    <span>
+                      {new Date(initialData.updatedAt || initialData.createdAt).toLocaleString("en-IN", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: true,
+                      })}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           </form>
         </div>
 

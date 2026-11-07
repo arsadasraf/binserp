@@ -22,11 +22,14 @@ import {
     ListFilter,
     Target,
     RefreshCw,
-    Calculator
+    Calculator,
+    SlidersHorizontal,
+    Edit3
 } from 'lucide-react';
 import { useExchangeRates } from '@/src/hooks/useExchangeRates';
 import { getExchangeRateToINR, getCurrencySymbol } from '@/src/utils/currencyHelper';
 import { apiGet, apiPost, apiPut } from '@/src/lib/api';
+import VendorPriceListModal from './VendorPriceListModal';
 import Swal from 'sweetalert2';
 
 interface MRPModalProps {
@@ -79,24 +82,83 @@ interface FGRow {
     sourceCustomerPOs?: string[];
 }
 
+interface BOMLineMaterial {
+    materialKey: string;
+    materialId?: string;
+    materialName: string;
+    materialCode?: string;
+    description?: string;
+    itemType: 'RM' | 'BO';
+    unit: string;
+    hasSecondaryUnit?: boolean;
+    secondaryUnit?: string;
+    conversionFactor?: number;
+    quantityPerFG: number;
+    requiredQuantity: number;
+    secondaryRequiredQuantity?: number;
+    unitCost: number;
+    rawPrice?: number;
+    pricingUnit?: string;
+    isSecondaryUnit?: boolean;
+    priceListId?: string;
+    vendorId?: string;
+    isPreferred?: boolean;
+    taxRate?: number;
+    remarks?: string;
+    updatedByName?: string;
+    updatedAt?: string;
+    grossCost: number;
+    costSource?: string;
+    preferredVendorName?: string;
+}
+
 interface BOMCostSummary {
     totalRmCost: number;
     totalBoCost: number;
     totalBOMCost: number;
     rmCount: number;
     boCount: number;
+    fgLineCosts?: Array<{
+        index?: number;
+        fgItem?: string;
+        fgItemName?: string;
+        fgItemCode?: string;
+        quantity: number;
+        rmUnitCost: number;
+        rmTotalCost: number;
+        rmOnlyCost: number;
+        boOnlyCost: number;
+        materials?: BOMLineMaterial[];
+    }>;
 }
 
 export default function MRPModal({ isOpen, onClose, onSuccess, token, initialData, preselectedPoIds, preselectedMonth, initialFgItems, initialMrpPlans }: MRPModalProps) {
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
-    const [selectedPlanningMonth, setSelectedPlanningMonth] = useState<string>(preselectedMonth || 'all');
+
+    const presentMonthKey = useMemo(() => {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    }, []);
+
+    const formatMonthKeyLabel = (mKey: string) => {
+        if (!mKey || !/^\d{4}-\d{2}$/.test(mKey)) return mKey;
+        const [y, m] = mKey.split('-').map(Number);
+        const d = new Date(y, m - 1, 1);
+        return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    };
+
+    const [selectedPlanningMonth, setSelectedPlanningMonth] = useState<string>(preselectedMonth || presentMonthKey);
 
     useEffect(() => {
         if (preselectedMonth) {
             setSelectedPlanningMonth(preselectedMonth);
+        } else if (initialData?.planningMonth) {
+            setSelectedPlanningMonth(initialData.planningMonth);
+        } else {
+            setSelectedPlanningMonth(presentMonthKey);
         }
-    }, [preselectedMonth]);
+    }, [preselectedMonth, initialData, presentMonthKey]);
 
     // Active Exchange Rates from Master > Store Settings
     const { exchangeRates } = useExchangeRates(token);
@@ -114,6 +176,16 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
     const [multiPoSearch, setMultiPoSearch] = useState('');
     const [multiPoCustomerFilter, setMultiPoCustomerFilter] = useState('all');
     const [multiPoMrpFilter, setMultiPoMrpFilter] = useState<'pending' | 'all' | 'mrp_done'>('pending');
+    const [isMultiPoSelectorExpanded, setIsMultiPoSelectorExpanded] = useState<boolean>(true);
+
+    // Custom RM / BO Material Price Overrides (keyed by materialKey / materialCode / materialName)
+    const [customMaterialPrices, setCustomMaterialPrices] = useState<Record<string, number>>({});
+    const [expandedRmRowIdxs, setExpandedRmRowIdxs] = useState<Record<number, boolean>>({});
+    const [showVendorPriceModal, setShowVendorPriceModal] = useState<boolean>(false);
+    const [vendorPriceInitialData, setVendorPriceInitialData] = useState<any>(null);
+    const [priceListRefreshTick, setPriceListRefreshTick] = useState<number>(0);
+    const [activeDatePopoverIdx, setActiveDatePopoverIdx] = useState<number | null>(null);
+    const datePopoverRef = useRef<HTMLDivElement>(null);
 
     // Form State
     const [mrpNumber, setMrpNumber] = useState('');
@@ -160,6 +232,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 setActiveFGSearchIdx(null);
                 setFgSearchQuery('');
             }
+            if (datePopoverRef.current && !datePopoverRef.current.contains(event.target as Node)) {
+                setActiveDatePopoverIdx(null);
+            }
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -183,7 +258,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         const cName = po.customerName || (typeof po.customer === 'object' ? po.customer?.name : '') || '';
 
         const poCurrency = (po.currency || 'INR').trim().toUpperCase();
-        const exRate = getExchangeRateToINR(poCurrency, undefined, exchangeRates);
+        const exRate = poCurrency !== 'INR' && Number(po.exchangeRate) > 0
+            ? Number(po.exchangeRate)
+            : getExchangeRateToINR(poCurrency, undefined, exchangeRates);
 
         const resultRows: FGRow[] = [];
 
@@ -244,7 +321,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 } else {
                     const itDate = item.expectedDeliveryDate || po.deliveryDate || po.date;
                     const itMonth = itDate ? new Date(itDate).toISOString().slice(0, 7) : '';
-                    if (itMonth === targetMonth) {
+                    if (itMonth === targetMonth || targetMonth === presentMonthKey) {
                         totalMonthDemanded = Number(item.quantity) || 1;
                         alreadyPlannedMonthQty = Number(item.plannedQuantity || 0);
                         if (item.mrpNumber && !previousMrpNumbers.includes(item.mrpNumber)) previousMrpNumbers.push(item.mrpNumber);
@@ -440,8 +517,35 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         return Array.from(itemMap.values());
     };
 
+    // Resolve best default planning month for a set of Customer POs (preferring presentMonthKey)
+    const resolveBestPlanningMonth = (pos: any[], explicitMonth?: string): string => {
+        if (explicitMonth && explicitMonth !== 'all') return explicitMonth;
+        const schedQtyByMonth = new Map<string, number>();
+        let hasUnscheduledItems = false;
+
+        (pos || []).forEach((po) => {
+            (po?.items || []).forEach((it: any) => {
+                if (Array.isArray(it.deliverySchedule) && it.deliverySchedule.length > 0) {
+                    it.deliverySchedule.forEach((s: any) => {
+                        if (s?.monthKey && Number(s.quantity || 0) > 0) {
+                            schedQtyByMonth.set(s.monthKey, (schedQtyByMonth.get(s.monthKey) || 0) + Number(s.quantity || 0));
+                        }
+                    });
+                } else {
+                    hasUnscheduledItems = true;
+                }
+            });
+        });
+
+        if (schedQtyByMonth.has(presentMonthKey) || hasUnscheduledItems || schedQtyByMonth.size === 0) {
+            return presentMonthKey;
+        }
+        const sortedMonths = Array.from(schedQtyByMonth.keys()).sort();
+        return sortedMonths.find((m) => m >= presentMonthKey) || sortedMonths[0] || presentMonthKey;
+    };
+
     // Helper: Sync multi-PO selected items into FG table without duplicating line items
-    const syncMultiPORows = (poIds: string[], posList = incomingPOs, fgs = fgItemList, boms = bomsList, targetMonth = selectedPlanningMonth) => {
+    const syncMultiPORows = (poIds: string[], posList = incomingPOs, fgs = fgItemList, boms = bomsList, targetMonth?: string) => {
         if (poIds.length === 0) {
             setFgRows([
                 { fgItem: '', fgItemName: '', fgItemCode: '', description: '', quantity: 1, unit: 'PCS', poDeliveryDate: '', targetDate }
@@ -451,13 +555,19 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             return;
         }
 
+        const selectedDocs = posList.filter((p) => poIds.some((id) => String(id) === String(p._id || p.id)));
+        const effectiveMonth = targetMonth !== undefined ? targetMonth : resolveBestPlanningMonth(selectedDocs, preselectedMonth);
+        if (effectiveMonth !== selectedPlanningMonth) {
+            setSelectedPlanningMonth(effectiveMonth);
+        }
+
         const rawRows: FGRow[] = [];
         let earliestDate = '';
 
         poIds.forEach((id) => {
             const po = posList.find((p) => String(p._id || p.id) === String(id));
             if (po) {
-                const rows = extractFGRowsFromPO(po, fgs, boms, targetMonth);
+                const rows = extractFGRowsFromPO(po, fgs, boms, effectiveMonth);
                 rows.forEach((r) => rawRows.push(r));
 
                 const cDate = po.committedDispatchDate || po.deliveryDate || po.date;
@@ -482,16 +592,23 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             setTargetDate(earliestDate);
         }
 
-        const selectedDocs = posList.filter((p) => poIds.some((id) => String(id) === String(p._id || p.id)));
         const custNames = [...new Set(selectedDocs.map((p) => p.customerName || (typeof p.customer === 'object' ? p.customer?.name : '')).filter(Boolean))];
         setCustomerName(custNames.join(', '));
         setCustomerPoNumber(selectedDocs.map((p) => p.poNumber).filter(Boolean).join(', '));
     };
 
-    // Scheduled months across currently selected PO(s)
+    // Scheduled months across currently selected PO(s) (always includes Present Month so it is selectable on top)
     const poScheduledMonths = useMemo(() => {
         const monthsMap = new Map<string, { monthKey: string; monthLabel: string; totalQty: number; plannedQty: number }>();
-        
+
+        // Ensure Present Month is always available on the top Target Delivery Month bar
+        monthsMap.set(presentMonthKey, {
+            monthKey: presentMonthKey,
+            monthLabel: `${formatMonthKeyLabel(presentMonthKey)} (Present)`,
+            totalQty: 0,
+            plannedQty: 0
+        });
+
         let targetPOs: any[] = [];
         if (planMode === 'single' && selectedPOId) {
             const p = incomingPOs.find((po) => String(po._id || po.id) === String(selectedPOId));
@@ -517,19 +634,29 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                             } else {
                                 monthsMap.set(sched.monthKey, {
                                     monthKey: sched.monthKey,
-                                    monthLabel: sched.monthLabel || sched.monthKey,
+                                    monthLabel: sched.monthKey === presentMonthKey
+                                        ? `${sched.monthLabel || formatMonthKeyLabel(sched.monthKey)} (Present)`
+                                        : (sched.monthLabel || formatMonthKeyLabel(sched.monthKey)),
                                     totalQty: Number(sched.quantity) || 0,
                                     plannedQty: pQ
                                 });
                             }
                         }
                     });
+                } else {
+                    const q = Number(item.quantity || 0);
+                    const pQ = Number(item.plannedQuantity || 0);
+                    const existing = monthsMap.get(presentMonthKey);
+                    if (existing) {
+                        existing.totalQty += q;
+                        existing.plannedQty += pQ;
+                    }
                 }
             });
         });
 
         return Array.from(monthsMap.values()).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
-    }, [planMode, selectedPOId, selectedMultiPoIds, incomingPOs]);
+    }, [planMode, selectedPOId, selectedMultiPoIds, incomingPOs, presentMonthKey]);
 
     // Handle Month Selection for planning
     const handleMonthFilterChange = (mKey: string) => {
@@ -559,11 +686,49 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
     useEffect(() => {
         if (isOpen) {
+            setActiveDatePopoverIdx(null);
+            setExpandedRmRowIdxs({});
+            const isFromMonthlyMatrix = Boolean(
+                preselectedMonth ||
+                initialData?.mrpNumber?.startsWith('MRP-DEMAND-') ||
+                initialData?.remarks?.includes('Month-Wise Item Matrix') ||
+                (initialData?.isConsolidated && Array.isArray(initialData?.fgItems) && initialData.fgItems.length > 0 && preselectedPoIds?.length)
+            );
+            setIsMultiPoSelectorExpanded(!isFromMonthlyMatrix);
+
+            const initialOverrides: Record<string, number> = {};
             if (initialData) {
-                const isMulti = Boolean(initialData.isConsolidated || (initialData.customerPOs && initialData.customerPOs.length > 1));
+                const collectOverrides = (list: any[], prefix: 'rm' | 'bo') => {
+                    (list || []).forEach((r: any) => {
+                        if (r && r.costSource === 'Manual Override' && Number(r.unitCost) >= 0) {
+                            const uCost = Number(r.unitCost);
+                            const mId = r.material?._id || r.material;
+                            const mCode = (r.materialCode || '').trim().toLowerCase();
+                            const mName = (r.materialName || '').trim().toLowerCase();
+                            if (mId) initialOverrides[`${prefix}_${String(mId)}`] = uCost;
+                            if (mCode) {
+                                initialOverrides[`${prefix}_${mCode}`] = uCost;
+                                initialOverrides[mCode] = uCost;
+                            }
+                            if (mName) {
+                                initialOverrides[`${prefix}_${mName}`] = uCost;
+                                initialOverrides[mName] = uCost;
+                            }
+                        }
+                    });
+                };
+                collectOverrides(initialData.rmRequirements, 'rm');
+                collectOverrides(initialData.boRequirements, 'bo');
+            }
+            setCustomMaterialPrices(initialOverrides);
+
+            if (initialData) {
+                const isMulti = Boolean(initialData.isConsolidated || (initialData.customerPOs && initialData.customerPOs.length > 1) || (preselectedPoIds && preselectedPoIds.length > 1));
                 setPlanMode(isMulti ? 'consolidated' : 'single');
-                if (isMulti && Array.isArray(initialData.customerPOs)) {
+                if (isMulti && Array.isArray(initialData.customerPOs) && initialData.customerPOs.length > 0) {
                     setSelectedMultiPoIds(initialData.customerPOs.map((p: any) => p.customerPo || p._id || p.id).filter(Boolean));
+                } else if (isMulti && Array.isArray(preselectedPoIds) && preselectedPoIds.length > 0) {
+                    setSelectedMultiPoIds(preselectedPoIds);
                 }
                 setMrpNumber(initialData.mrpNumber || '');
                 setSelectedCustomerId(initialData.customer || '');
@@ -612,6 +777,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                             unit: f.unit || 'PCS',
                             sellingPrice: Number(f.sellingPrice) || 0,
                             totalPrice: Number(f.totalPrice) || Math.round((Number(f.quantity) || 1) * (Number(f.sellingPrice) || 0) * 100) / 100,
+                            currency: f.currency || 'INR',
+                            originalSellingPrice: Number(f.originalSellingPrice || f.sellingPrice || 0),
+                            exchangeRate: Number(f.exchangeRate || 1),
                             priceSource: f.priceSource || '',
                             poDeliveryDate: f.poDeliveryDate ? new Date(f.poDeliveryDate).toISOString().split('T')[0] : '',
                             targetDate: f.targetDate ? new Date(f.targetDate).toISOString().split('T')[0] : '',
@@ -674,7 +842,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         }
     }, [isOpen, initialData, preselectedPoIds]);
 
-    // Live BOM Budget Calculation on FG rows change
+    // Live BOM Budget Calculation on FG rows or custom RM price changes
     useEffect(() => {
         if (!isOpen) {
             setBomCostSummary(null);
@@ -700,7 +868,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                         fgItemCode: r.fgItemCode || '',
                         quantity: Number(r.quantity) || 1,
                         bomId: r.bomId || undefined
-                    }))
+                    })),
+                    customMaterialPrices
                 };
                 const res = await apiPost('/api/purchase/mrp/preview-bom-budget', payload, token);
                 const data = res?.data || res;
@@ -715,7 +884,155 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         }, 350);
 
         return () => clearTimeout(timer);
-    }, [fgRows, isOpen, token]);
+    }, [fgRows, customMaterialPrices, priceListRefreshTick, isOpen, token]);
+
+    // Open Vendor Price List Modal (with Dual-Unit support) for an RM/BO material from MRP creation form
+    const handleOpenVendorPriceModal = (mat: BOMLineMaterial) => {
+        const displayPrice =
+            mat.rawPrice !== undefined && mat.rawPrice > 0
+                ? mat.rawPrice
+                : mat.unitCost !== undefined && mat.unitCost > 0
+                ? mat.unitCost
+                : '';
+
+        setVendorPriceInitialData({
+            _id: mat.priceListId || undefined,
+            material: mat.materialId || '',
+            materialName: mat.materialName || '',
+            materialCode: mat.materialCode || '',
+            itemCategory: mat.itemType === 'BO' ? 'bo' : 'rm',
+            vendor: mat.vendorId || '',
+            price: displayPrice,
+            taxRate: mat.taxRate !== undefined ? mat.taxRate : 18,
+            pricingUnit: mat.pricingUnit || mat.unit || '',
+            isSecondaryUnit: Boolean(mat.isSecondaryUnit),
+            isPreferred: Boolean(mat.isPreferred),
+            remarks: mat.remarks || '',
+            updatedByName: mat.updatedByName || '',
+            updatedAt: mat.updatedAt || undefined,
+            unit: mat.unit || 'PCS',
+            hasSecondaryUnit: Boolean(mat.hasSecondaryUnit),
+            secondaryUnit: mat.secondaryUnit || '',
+            conversionFactor: Number(mat.conversionFactor) || 1
+        });
+        setShowVendorPriceModal(true);
+    };
+
+    // Save updated RM/BO price (and Dual-Unit selection) directly to the Vendor Price List
+    const handleSaveVendorPrice = async (formData: any) => {
+        if (vendorPriceInitialData?._id) {
+            await apiPut(`/api/purchase/price-list/${vendorPriceInitialData._id}`, formData, token);
+        } else {
+            await apiPost('/api/purchase/price-list', formData, token);
+        }
+
+        // Clear any temporary manual override for this item so the saved Price List rate takes effect
+        if (vendorPriceInitialData) {
+            const prefix = vendorPriceInitialData.itemCategory === 'bo' ? 'bo' : 'rm';
+            const mId = String(formData.material || vendorPriceInitialData.material || '');
+            const mCode = String(vendorPriceInitialData.materialCode || '').trim().toLowerCase();
+            const mName = String(vendorPriceInitialData.materialName || '').trim().toLowerCase();
+            setCustomMaterialPrices((prev) => {
+                const next = { ...prev };
+                if (mId) {
+                    delete next[`${prefix}_${mId}`];
+                    delete next[mId];
+                }
+                if (mCode) {
+                    delete next[`${prefix}_${mCode}`];
+                    delete next[mCode];
+                }
+                if (mName) {
+                    delete next[`${prefix}_${mName}`];
+                    delete next[mName];
+                }
+                return next;
+            });
+        }
+
+        setShowVendorPriceModal(false);
+        setVendorPriceInitialData(null);
+        setPriceListRefreshTick((t) => t + 1);
+
+        Swal.fire({
+            icon: 'success',
+            title: 'Saved to Price List',
+            text: 'Item price & unit configuration have been saved to the Vendor Price List and updated in this MRP.',
+            timer: 1800,
+            showConfirmButton: false,
+            toast: true,
+            position: 'top-end'
+        });
+    };
+
+    // Handle inline editing of an RM/BO material's unit price for immediate recalculation
+    const handleMaterialPriceChange = (mat: BOMLineMaterial, rawVal: string) => {
+        const parsed = rawVal === '' ? 0 : Math.max(0, parseFloat(rawVal) || 0);
+        const prefix = mat.itemType === 'BO' ? 'bo' : 'rm';
+        const nextOverrides: Record<string, number> = { ...customMaterialPrices };
+        if (mat.materialKey) nextOverrides[mat.materialKey] = parsed;
+        if (mat.materialId) nextOverrides[`${prefix}_${mat.materialId}`] = parsed;
+        if (mat.materialCode) {
+            const cLower = mat.materialCode.trim().toLowerCase();
+            nextOverrides[`${prefix}_${cLower}`] = parsed;
+            nextOverrides[cLower] = parsed;
+        }
+        if (mat.materialName) {
+            const nLower = mat.materialName.trim().toLowerCase();
+            nextOverrides[`${prefix}_${nLower}`] = parsed;
+            nextOverrides[nLower] = parsed;
+        }
+        setCustomMaterialPrices(nextOverrides);
+
+        // Optimistically recalculate bomCostSummary immediately for zero-lag UI response
+        setBomCostSummary((prev) => {
+            if (!prev || !Array.isArray(prev.fgLineCosts)) return prev;
+            let newTotalRm = 0;
+            let newTotalBo = 0;
+            const updatedLines = prev.fgLineCosts.map((fc) => {
+                let lineRm = 0;
+                let lineBo = 0;
+                const updatedMats = (fc.materials || []).map((m) => {
+                    const isSameMat =
+                        (m.materialKey && mat.materialKey && m.materialKey === mat.materialKey) ||
+                        (m.materialId && mat.materialId && m.materialId === mat.materialId && m.itemType === mat.itemType) ||
+                        (m.materialCode && mat.materialCode && m.materialCode.toLowerCase() === mat.materialCode.toLowerCase() && m.itemType === mat.itemType) ||
+                        (m.materialName && mat.materialName && m.materialName.toLowerCase() === mat.materialName.toLowerCase() && m.itemType === mat.itemType);
+                    const uCost = isSameMat ? parsed : m.unitCost;
+                    const gCost = Math.round(m.requiredQuantity * uCost * 100) / 100;
+                    if (m.itemType === 'BO') {
+                        lineBo += gCost;
+                    } else {
+                        lineRm += gCost;
+                    }
+                    return isSameMat
+                        ? { ...m, unitCost: parsed, grossCost: gCost, costSource: 'Manual Override' }
+                        : m;
+                });
+                const rmOnlyCost = Math.round(lineRm * 100) / 100;
+                const boOnlyCost = Math.round(lineBo * 100) / 100;
+                const rmTotalCost = Math.round((rmOnlyCost + boOnlyCost) * 100) / 100;
+                const rmUnitCost = fc.quantity > 0 ? Math.round((rmTotalCost / fc.quantity) * 100) / 100 : 0;
+                newTotalRm += rmOnlyCost;
+                newTotalBo += boOnlyCost;
+                return {
+                    ...fc,
+                    rmOnlyCost,
+                    boOnlyCost,
+                    rmTotalCost,
+                    rmUnitCost,
+                    materials: updatedMats
+                };
+            });
+            return {
+                ...prev,
+                totalRmCost: Math.round(newTotalRm * 100) / 100,
+                totalBoCost: Math.round(newTotalBo * 100) / 100,
+                totalBOMCost: Math.round((newTotalRm + newTotalBo) * 100) / 100,
+                fgLineCosts: updatedLines
+            };
+        });
+    };
 
     const loadDropdownMasters = async () => {
         setLoading(true);
@@ -824,12 +1141,12 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                     if (preselectedPoIds.length === 1) {
                         const targetPO = loadedPOs.find((p) => String(p._id || p.id) === String(preselectedPoIds[0]));
                         if (targetPO) {
-                            handleSelectCustomerPO(targetPO, loadedFGs, loadedBOMs, selectedPlanningMonth);
+                            handleSelectCustomerPO(targetPO, loadedFGs, loadedBOMs, preselectedMonth || undefined);
                         } else {
-                            syncMultiPORows(preselectedPoIds, loadedPOs, loadedFGs, loadedBOMs, selectedPlanningMonth);
+                            syncMultiPORows(preselectedPoIds, loadedPOs, loadedFGs, loadedBOMs, preselectedMonth || undefined);
                         }
                     } else {
-                        syncMultiPORows(preselectedPoIds, loadedPOs, loadedFGs, loadedBOMs, selectedPlanningMonth);
+                        syncMultiPORows(preselectedPoIds, loadedPOs, loadedFGs, loadedBOMs, preselectedMonth || undefined);
                     }
                 }
             }
@@ -1004,7 +1321,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         po: any,
         fgs = fgItemList,
         boms = bomsList,
-        targetMonth = selectedPlanningMonth
+        targetMonth?: string
     ) => {
         if (!po) {
             setSelectedPOId('');
@@ -1021,13 +1338,16 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             return;
         }
 
+        const effectiveMonth = targetMonth !== undefined ? targetMonth : resolveBestPlanningMonth([po], preselectedMonth);
+        setSelectedPlanningMonth(effectiveMonth);
+
         setSelectedPOId(po._id);
         setCustomerPoNumber(po.poNumber || '');
         setPoSearch(`PO #${po.poNumber}`);
         setIsPoDropdownOpen(false);
 
-        if (targetMonth && targetMonth !== 'all') {
-            setMrpNumber(`${po.poNumber || 'MRP'}-${targetMonth}`);
+        if (effectiveMonth && effectiveMonth !== 'all') {
+            setMrpNumber(`${po.poNumber || 'MRP'}-${effectiveMonth}`);
         } else if (po.poNumber) {
             setMrpNumber(po.poNumber);
         }
@@ -1057,7 +1377,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             setTargetDate(resolvedCommittedDate);
         }
 
-        const rows = extractFGRowsFromPO(po, fgs, boms, targetMonth);
+        const rows = extractFGRowsFromPO(po, fgs, boms, effectiveMonth);
         const consolidated = consolidateFGRows(rows);
         if (consolidated.length > 0) {
             setFgRows(consolidated);
@@ -1253,6 +1573,39 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             row.totalPrice = Math.round(q * p * 100) / 100;
             if (field === 'sellingPrice') {
                 row.priceSource = 'Manual Override';
+                if (Array.isArray(row.sourceBreakdown) && row.sourceBreakdown.length > 0) {
+                    row.sourceBreakdown = row.sourceBreakdown.map((b: any) => {
+                        const bQty = Number(b.quantity) || 0;
+                        return {
+                            ...b,
+                            rateInINR: p,
+                            amountInINR: Math.round(bQty * p * 100) / 100
+                        };
+                    });
+                }
+            } else if (field === 'quantity' && Array.isArray(row.sourceBreakdown) && row.sourceBreakdown.length > 0) {
+                const oldTotalBreakdownQty = row.sourceBreakdown.reduce((s: number, b: any) => s + (Number(b.quantity) || 0), 0);
+                if (row.sourceBreakdown.length === 1 || oldTotalBreakdownQty <= 0) {
+                    const b0 = row.sourceBreakdown[0];
+                    const rInr = Number(b0.rateInINR || p) || 0;
+                    row.sourceBreakdown = [{
+                        ...b0,
+                        quantity: q,
+                        rateInINR: rInr,
+                        amountInINR: Math.round(q * rInr * 100) / 100
+                    }];
+                } else {
+                    const ratio = q / oldTotalBreakdownQty;
+                    row.sourceBreakdown = row.sourceBreakdown.map((b: any) => {
+                        const scaledQty = parseFloat(((Number(b.quantity) || 0) * ratio).toFixed(4));
+                        const rInr = Number(b.rateInINR || p) || 0;
+                        return {
+                            ...b,
+                            quantity: scaledQty,
+                            amountInINR: Math.round(scaledQty * rInr * 100) / 100
+                        };
+                    });
+                }
             }
         }
         updated[index] = row;
@@ -1326,7 +1679,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 remarks,
                 planningMonth: selectedPlanningMonth !== 'all' ? selectedPlanningMonth : undefined,
                 targetExpense: targetExpense ? Number(targetExpense) : undefined,
-                fgItems: sanitizedFgItems
+                fgItems: sanitizedFgItems,
+                customMaterialPrices: Object.keys(customMaterialPrices).length > 0 ? customMaterialPrices : undefined
             };
 
             if (isConsolidated && validMultiPoIds.length > 0) {
@@ -1689,196 +2043,229 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                             )}
                         </div>
                     ) : (
-                        /* Consolidated Multi-PO Selection Panel */
-                        <div className="bg-gradient-to-br from-indigo-50/90 via-purple-50/50 to-slate-50 dark:from-indigo-950/40 dark:via-purple-950/20 dark:to-slate-900 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-800/80 space-y-3">
+                        /* Consolidated Multi-PO Selection Panel (Collapsible when created from Monthly Matrix) */
+                        <div className="bg-gradient-to-br from-indigo-50/90 via-purple-50/50 to-slate-50 dark:from-indigo-950/40 dark:via-purple-950/20 dark:to-slate-900 p-3.5 sm:p-4 rounded-2xl border border-indigo-200 dark:border-indigo-800/80 space-y-3">
                             <div className="flex items-center justify-between flex-wrap gap-2">
-                                <div className="flex items-center gap-2">
-                                    <Boxes className="text-indigo-600 dark:text-indigo-400" size={16} />
-                                    <div>
-                                        <h3 className="text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wide">
-                                            Select Customer POs to Consolidate
-                                        </h3>
-                                        <p className="text-[11px] text-slate-500">
-                                            Check 2 or more customer POs. All FG requirements will be consolidated into a single procurement demand.
-                                        </p>
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                    <Boxes className="text-indigo-600 dark:text-indigo-400 shrink-0" size={16} />
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h3 className="text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wide">
+                                                Select Customer POs to Consolidate
+                                            </h3>
+                                            {selectedMultiPoIds.length > 0 && (
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-600 text-white shadow-2xs">
+                                                    {selectedMultiPoIds.length} PO(s) Consolidated
+                                                </span>
+                                            )}
+                                            {!isMultiPoSelectorExpanded && customerPoNumber && (
+                                                <span className="text-[11px] font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-white/80 dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-indigo-200 dark:border-indigo-700 truncate max-w-[360px]" title={customerPoNumber}>
+                                                    PO: {customerPoNumber}
+                                                </span>
+                                            )}
+                                        </div>
+                                        {isMultiPoSelectorExpanded && (
+                                            <p className="text-[11px] text-slate-500">
+                                                Check 2 or more customer POs. All FG requirements will be consolidated into a single procurement demand.
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
 
                                 <div className="flex items-center gap-2">
+                                    {isMultiPoSelectorExpanded && (
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={handleSelectAllMultiPOs}
+                                                className="px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-lg text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 cursor-pointer flex items-center gap-1 shadow-2xs"
+                                            >
+                                                <CheckSquare size={13} /> Select All Eligible
+                                            </button>
+                                            {selectedMultiPoIds.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleClearMultiPOs}
+                                                    className="px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-lg text-[11px] font-bold text-rose-600 hover:bg-rose-50 cursor-pointer flex items-center gap-1 shadow-2xs"
+                                                >
+                                                    <X size={13} /> Clear
+                                                </button>
+                                            )}
+                                        </>
+                                    )}
                                     <button
                                         type="button"
-                                        onClick={handleSelectAllMultiPOs}
-                                        className="px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-lg text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 cursor-pointer flex items-center gap-1 shadow-2xs"
+                                        onClick={() => setIsMultiPoSelectorExpanded((prev) => !prev)}
+                                        className="px-3 py-1 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-700 rounded-xl text-[11px] font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-750 cursor-pointer flex items-center gap-1.5 shadow-2xs transition-all"
                                     >
-                                        <CheckSquare size={13} /> Select All Eligible
+                                        <span>{isMultiPoSelectorExpanded ? 'Hide PO List' : 'Expand / Change POs'}</span>
+                                        <ChevronDown
+                                            size={13}
+                                            className={`transition-transform duration-200 ${isMultiPoSelectorExpanded ? 'rotate-180' : ''}`}
+                                        />
                                     </button>
-                                    {selectedMultiPoIds.length > 0 && (
+                                </div>
+                            </div>
+
+                            {isMultiPoSelectorExpanded && (
+                                <>
+                                    {/* Filters Bar for Multi-PO: Search, Customer Filter & MRP Generated Filter */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                                        <div className="relative">
+                                            <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                                            <input
+                                                type="text"
+                                                placeholder="Search PO #, customer, product..."
+                                                value={multiPoSearch}
+                                                onChange={(e) => setMultiPoSearch(e.target.value)}
+                                                className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-800/80 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
+                                            />
+                                        </div>
+
+                                        <div className="relative">
+                                            <Filter className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                                            <select
+                                                value={multiPoCustomerFilter}
+                                                onChange={(e) => setMultiPoCustomerFilter(e.target.value)}
+                                                className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-800/80 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
+                                            >
+                                                <option value="all">All Customers</option>
+                                                {customerList.map((c: any) => (
+                                                    <option key={c._id} value={c._id}>
+                                                        {c.name || c.companyName}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div className="relative">
+                                            <select
+                                                value={multiPoMrpFilter}
+                                                onChange={(e: any) => setMultiPoMrpFilter(e.target.value)}
+                                                className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-800/80 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs cursor-pointer text-slate-800 dark:text-slate-200"
+                                            >
+                                                <option value="pending">Pending MRP Only (Exclude Planned)</option>
+                                                <option value="all">All Open POs (Include MRP Done)</option>
+                                                <option value="mrp_done">MRP Done Only</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {/* Multi-PO Filter Stats & Quick Exclude Toggle */}
+                                    <div className="flex items-center justify-between text-[11px] text-slate-500 flex-wrap gap-2 px-1">
+                                        <span>
+                                            Showing <strong className="text-slate-800 dark:text-slate-200">{availableMultiPOs.length}</strong> of <strong className="text-slate-800 dark:text-slate-200">{multiPoStats.total}</strong> Customer POs
+                                            {multiPoMrpFilter === 'pending' && multiPoStats.mrpDoneCount > 0 && (
+                                                <span className="text-amber-600 dark:text-amber-400 font-medium ml-1">
+                                                    ({multiPoStats.mrpDoneCount} already planned excluded)
+                                                </span>
+                                            )}
+                                        </span>
+
                                         <button
                                             type="button"
-                                            onClick={handleClearMultiPOs}
-                                            className="px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-lg text-[11px] font-bold text-rose-600 hover:bg-rose-50 cursor-pointer flex items-center gap-1 shadow-2xs"
+                                            onClick={() => setMultiPoMrpFilter((prev) => (prev === 'pending' ? 'all' : 'pending'))}
+                                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-colors cursor-pointer border flex items-center gap-1 ${
+                                                multiPoMrpFilter === 'pending'
+                                                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300'
+                                                    : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-300'
+                                            }`}
                                         >
-                                            <X size={13} /> Clear
+                                            <span>{multiPoMrpFilter === 'pending' ? '✓ Exclude MRP Done (Active)' : 'Exclude MRP Done (Off)'}</span>
                                         </button>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Filters Bar for Multi-PO: Search, Customer Filter & MRP Generated Filter */}
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-                                <div className="relative">
-                                    <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
-                                    <input
-                                        type="text"
-                                        placeholder="Search PO #, customer, product..."
-                                        value={multiPoSearch}
-                                        onChange={(e) => setMultiPoSearch(e.target.value)}
-                                        className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-800/80 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
-                                    />
-                                </div>
-
-                                <div className="relative">
-                                    <Filter className="absolute left-3 top-2.5 text-slate-400" size={14} />
-                                    <select
-                                        value={multiPoCustomerFilter}
-                                        onChange={(e) => setMultiPoCustomerFilter(e.target.value)}
-                                        className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-800/80 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
-                                    >
-                                        <option value="all">All Customers</option>
-                                        {customerList.map((c: any) => (
-                                            <option key={c._id} value={c._id}>
-                                                {c.name || c.companyName}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div className="relative">
-                                    <select
-                                        value={multiPoMrpFilter}
-                                        onChange={(e: any) => setMultiPoMrpFilter(e.target.value)}
-                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-800/80 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs cursor-pointer text-slate-800 dark:text-slate-200"
-                                    >
-                                        <option value="pending">Pending MRP Only (Exclude Planned)</option>
-                                        <option value="all">All Open POs (Include MRP Done)</option>
-                                        <option value="mrp_done">MRP Done Only</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            {/* Multi-PO Filter Stats & Quick Exclude Toggle */}
-                            <div className="flex items-center justify-between text-[11px] text-slate-500 flex-wrap gap-2 px-1">
-                                <span>
-                                    Showing <strong className="text-slate-800 dark:text-slate-200">{availableMultiPOs.length}</strong> of <strong className="text-slate-800 dark:text-slate-200">{multiPoStats.total}</strong> Customer POs
-                                    {multiPoMrpFilter === 'pending' && multiPoStats.mrpDoneCount > 0 && (
-                                        <span className="text-amber-600 dark:text-amber-400 font-medium ml-1">
-                                            ({multiPoStats.mrpDoneCount} already planned excluded)
-                                        </span>
-                                    )}
-                                </span>
-
-                                <button
-                                    type="button"
-                                    onClick={() => setMultiPoMrpFilter((prev) => (prev === 'pending' ? 'all' : 'pending'))}
-                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-colors cursor-pointer border flex items-center gap-1 ${
-                                        multiPoMrpFilter === 'pending'
-                                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300'
-                                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-300'
-                                    }`}
-                                >
-                                    <span>{multiPoMrpFilter === 'pending' ? '✓ Exclude MRP Done (Active)' : 'Exclude MRP Done (Off)'}</span>
-                                </button>
-                            </div>
-
-                            {/* Multi-PO Selection Grid / Cards */}
-                            <div className="max-h-52 overflow-y-auto pr-1 space-y-1.5">
-                                {availableMultiPOs.length === 0 ? (
-                                    <div className="p-4 text-center text-xs text-slate-400 bg-white/60 dark:bg-slate-900/60 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
-                                        No open Customer POs found matching your search and filter criteria.
                                     </div>
-                                ) : (
-                                    availableMultiPOs.map((po: any) => {
-                                        const isChecked = selectedMultiPoIds.includes(po._id);
-                                        const hasMrp = isPoMrpGenerated(po);
-                                        const totalQty = (po.items || []).reduce((sum: number, it: any) => sum + (Number(it.quantity) || 0), 0);
 
-                                        return (
-                                            <div
-                                                key={po._id}
-                                                onClick={() => handleToggleMultiPO(po._id)}
-                                                className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                                                    isChecked
-                                                        ? 'bg-indigo-500/10 border-indigo-500/40 dark:bg-indigo-950/40 dark:border-indigo-700 shadow-xs'
-                                                        : 'bg-white dark:bg-slate-900/90 border-slate-200/80 dark:border-slate-800 hover:border-indigo-300'
-                                                }`}
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <div className="shrink-0 text-indigo-600 dark:text-indigo-400">
-                                                        {isChecked ? <CheckSquare size={18} /> : <Square size={18} className="text-slate-300 dark:text-slate-600" />}
-                                                    </div>
-                                                    <div>
-                                                        <div className="flex items-center gap-2 flex-wrap">
-                                                            <span className="font-mono font-black text-xs text-slate-900 dark:text-white">
-                                                                PO #{po.poNumber}
-                                                            </span>
-                                                            <span className="font-semibold text-xs text-slate-700 dark:text-slate-300">
-                                                                {po.customerName || po.customer?.name || 'Customer'}
-                                                            </span>
-                                                            {po.committedDispatchDate ? (
-                                                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                                                                    OA: {new Date(po.committedDispatchDate).toLocaleDateString()}
-                                                                </span>
-                                                            ) : null}
-                                                            {hasMrp && (
-                                                                <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                                                                    MRP Exists
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
-                                                            <span>Date: {po.date ? new Date(po.date).toLocaleDateString() : 'N/A'}</span>
-                                                            <span>•</span>
-                                                            <span>{po.items?.length || 0} Products ({totalQty} total units)</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="text-right shrink-0">
-                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                                        po.status === 'Accepted'
-                                                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                                                            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                                                    }`}>
-                                                        {po.status}
-                                                    </span>
-                                                </div>
+                                    {/* Multi-PO Selection Grid / Cards */}
+                                    <div className="max-h-52 overflow-y-auto pr-1 space-y-1.5">
+                                        {availableMultiPOs.length === 0 ? (
+                                            <div className="p-4 text-center text-xs text-slate-400 bg-white/60 dark:bg-slate-900/60 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                                                No open Customer POs found matching your search and filter criteria.
                                             </div>
-                                        );
-                                    })
-                                )}
-                            </div>
+                                        ) : (
+                                            availableMultiPOs.map((po: any) => {
+                                                const isChecked = selectedMultiPoIds.includes(po._id);
+                                                const hasMrp = isPoMrpGenerated(po);
+                                                const totalQty = (po.items || []).reduce((sum: number, it: any) => sum + (Number(it.quantity) || 0), 0);
 
-                            {/* Multi-PO Consolidated Summary Banner */}
-                            {selectedMultiPoIds.length > 0 && (
-                                <div className="p-2.5 bg-indigo-600/10 dark:bg-indigo-950/50 border border-indigo-500/30 rounded-xl flex items-center justify-between flex-wrap gap-2 text-xs">
-                                    <div className="flex items-center gap-2">
-                                        <CheckCircle2 size={15} className="text-indigo-600 dark:text-indigo-400" />
-                                        <span className="font-bold text-indigo-950 dark:text-indigo-200">
-                                            {selectedMultiPoIds.length} Customer PO(s) Consolidated
-                                        </span>
-                                        <span className="text-slate-500">•</span>
-                                        <span className="text-slate-600 dark:text-slate-300">
-                                            {fgRows.filter((r) => r.fgItemName || r.fgItem).length} FG item lines generated
-                                        </span>
+                                                return (
+                                                    <div
+                                                        key={po._id}
+                                                        onClick={() => handleToggleMultiPO(po._id)}
+                                                        className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                                                            isChecked
+                                                                ? 'bg-indigo-500/10 border-indigo-500/40 dark:bg-indigo-950/40 dark:border-indigo-700 shadow-xs'
+                                                                : 'bg-white dark:bg-slate-900/90 border-slate-200/80 dark:border-slate-800 hover:border-indigo-300'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="shrink-0 text-indigo-600 dark:text-indigo-400">
+                                                                {isChecked ? <CheckSquare size={18} /> : <Square size={18} className="text-slate-300 dark:text-slate-600" />}
+                                                            </div>
+                                                            <div>
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <span className="font-mono font-black text-xs text-slate-900 dark:text-white">
+                                                                        PO #{po.poNumber}
+                                                                    </span>
+                                                                    <span className="font-semibold text-xs text-slate-700 dark:text-slate-300">
+                                                                        {po.customerName || po.customer?.name || 'Customer'}
+                                                                    </span>
+                                                                    {po.committedDispatchDate ? (
+                                                                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                                                            OA: {new Date(po.committedDispatchDate).toLocaleDateString()}
+                                                                        </span>
+                                                                    ) : null}
+                                                                    {hasMrp && (
+                                                                        <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                                                                            MRP Exists
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
+                                                                    <span>Date: {po.date ? new Date(po.date).toLocaleDateString() : 'N/A'}</span>
+                                                                    <span>•</span>
+                                                                    <span>{po.items?.length || 0} Products ({totalQty} total units)</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="text-right shrink-0">
+                                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                                                po.status === 'Accepted'
+                                                                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                                                                    : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                                            }`}>
+                                                                {po.status}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => syncMultiPORows(selectedMultiPoIds)}
-                                        className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-                                    >
-                                        Reload All PO Items
-                                    </button>
-                                </div>
+
+                                    {/* Multi-PO Consolidated Summary Banner */}
+                                    {selectedMultiPoIds.length > 0 && (
+                                        <div className="p-2.5 bg-indigo-600/10 dark:bg-indigo-950/50 border border-indigo-500/30 rounded-xl flex items-center justify-between flex-wrap gap-2 text-xs">
+                                            <div className="flex items-center gap-2">
+                                                <CheckCircle2 size={15} className="text-indigo-600 dark:text-indigo-400" />
+                                                <span className="font-bold text-indigo-950 dark:text-indigo-200">
+                                                    {selectedMultiPoIds.length} Customer PO(s) Consolidated
+                                                </span>
+                                                <span className="text-slate-500">•</span>
+                                                <span className="text-slate-600 dark:text-slate-300">
+                                                    {fgRows.filter((r) => r.fgItemName || r.fgItem).length} FG item lines generated
+                                                </span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => syncMultiPORows(selectedMultiPoIds)}
+                                                className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                            >
+                                                Reload All PO Items
+                                            </button>
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     )}
@@ -2058,19 +2445,19 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                         )}
 
                         {/* Table */}
-                        <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-visible shadow-xs bg-white dark:bg-slate-900">
-                            <table className="w-full table-fixed min-w-[980px] text-xs text-left">
+                        <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto shadow-xs bg-white dark:bg-slate-900">
+                            <table className="w-full table-fixed min-w-[1120px] text-xs text-left">
                                 <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-300 uppercase border-b border-slate-200 dark:border-slate-700">
                                     <tr>
-                                        <th className="px-2.5 py-3 w-10 text-center">#</th>
-                                        <th className="px-3 py-3 w-[34%]">Finished Goods (FG) Item & Description</th>
-                                        <th className="px-2.5 py-3 w-24 text-center">Qty</th>
-                                        <th className="px-2.5 py-3 w-24 text-center">Unit</th>
-                                        <th className="px-3 py-3 w-40 text-right">Selling Rate</th>
-                                        <th className="px-3 py-3 w-44 text-right">Total Income</th>
-                                        <th className="px-2.5 py-3 w-34">PO Date</th>
-                                        <th className="px-2.5 py-3 w-34">Committed Date</th>
-                                        <th className="px-2 py-3 w-10 text-right"></th>
+                                        <th className="px-2 py-3 w-9 text-center">#</th>
+                                        <th className="px-3 py-3 w-[27%]">Finished Goods (FG) Item & Description</th>
+                                        <th className="px-2 py-3 w-18 text-center">Qty</th>
+                                        <th className="px-2 py-3 w-16 text-center">Unit</th>
+                                        <th className="px-2.5 py-3 w-32 text-right">PO Selling Rate</th>
+                                        <th className="px-2.5 py-3 w-34 text-right">Total Income</th>
+                                        <th className="px-3 py-3 w-[34%]">RM / BOM Items & Editable Price</th>
+                                        <th className="px-2 py-3 w-14 text-center" title="PO Delivery Date & Committed Date">Dates</th>
+                                        <th className="px-2 py-3 w-9 text-right"></th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -2345,33 +2732,279 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                 </div>
                                             </td>
 
-                                            {/* Row PO Date */}
-                                            <td className="px-2.5 py-3 align-top">
-                                                <input
-                                                    type="date"
-                                                    value={row.poDeliveryDate || ''}
-                                                    onChange={(e) => handleRowChange(idx, 'poDeliveryDate', e.target.value)}
-                                                    className="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                                />
+                                            {/* Attached RM / BOM Summary (Hidden by Default, Icon to Expand & Edit Price List) */}
+                                            <td className="px-3 py-2.5 align-top">
+                                                {(() => {
+                                                    const lineCost = bomCostSummary?.fgLineCosts?.[idx] ||
+                                                        bomCostSummary?.fgLineCosts?.find(
+                                                            (fc) =>
+                                                                (row.fgItem && fc.fgItem && String(fc.fgItem) === String(row.fgItem)) ||
+                                                                (row.fgItemName && fc.fgItemName && fc.fgItemName.trim().toLowerCase() === row.fgItemName.trim().toLowerCase())
+                                                        );
+                                                    const unitRm = Number(lineCost?.rmUnitCost || 0);
+                                                    const totalRm = Number(lineCost?.rmTotalCost || 0);
+                                                    const rmPart = Number(lineCost?.rmOnlyCost || 0);
+                                                    const boPart = Number(lineCost?.boOnlyCost || 0);
+                                                    const lineMaterials: BOMLineMaterial[] = Array.isArray(lineCost?.materials) ? lineCost!.materials! : [];
+                                                    const isRowExpanded = Boolean(expandedRmRowIdxs[idx]);
+
+                                                    // Summarize total required quantities across attached RM/BO materials by unit
+                                                    const qtyByUnitMap = new Map<string, number>();
+                                                    lineMaterials.forEach((m) => {
+                                                        const u = (m.unit || 'PCS').toUpperCase();
+                                                        qtyByUnitMap.set(u, Math.round(((qtyByUnitMap.get(u) || 0) + Number(m.requiredQuantity || 0)) * 1000) / 1000);
+                                                    });
+                                                    const totalRmQtyLabel = qtyByUnitMap.size > 0
+                                                        ? Array.from(qtyByUnitMap.entries()).map(([u, q]) => `${q} ${u}`).join(', ')
+                                                        : '0';
+
+                                                    return (
+                                                        <div className="space-y-1.5">
+                                                            {/* Compact Summary Bar: Number of RM, Total Qty, Total Price + Edit Price List Icon */}
+                                                            <div
+                                                                className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl bg-amber-50/70 dark:bg-amber-950/35 border border-amber-200/80 dark:border-amber-800/70"
+                                                                title={totalRm > 0 ? `Attached BOM: ${lineMaterials.length} item(s) | Qty: ${totalRmQtyLabel} | RM Cost: ₹${rmPart.toLocaleString('en-IN')} | BO Cost: ₹${boPart.toLocaleString('en-IN')}` : 'Attached RM/BO Summary'}
+                                                            >
+                                                                <div className="min-w-0 flex-1 space-y-0.5">
+                                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md text-[10px] font-black bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800">
+                                                                            {lineMaterials.length} RM/BO
+                                                                        </span>
+                                                                        <span className="text-[10.5px] font-mono font-bold text-slate-700 dark:text-slate-300 truncate">
+                                                                            Qty: {totalRmQtyLabel}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                                        <span className="font-mono font-black text-amber-900 dark:text-amber-200 text-xs">
+                                                                            ₹{totalRm.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                        </span>
+                                                                        <span className="text-[10px] font-mono text-amber-700/90 dark:text-amber-400/80">
+                                                                            (@ ₹{unitRm.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{row.unit || 'Unit'})
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Icon Button to View & Edit Attached RM/BO Price List */}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setExpandedRmRowIdxs((prev) => ({ ...prev, [idx]: !prev[idx] }))}
+                                                                    className={`p-2 rounded-xl border transition-all cursor-pointer shrink-0 flex items-center gap-1 ${
+                                                                        isRowExpanded
+                                                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                                                            : 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border-amber-300 dark:border-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-750'
+                                                                    }`}
+                                                                    title={isRowExpanded ? 'Hide RM/BO Price List' : `View & Edit RM/BO Price List (${lineMaterials.length} items)`}
+                                                                >
+                                                                    <Edit3 size={13} />
+                                                                </button>
+                                                            </div>
+
+                                                            {/* Expandable RM / BO Price List (Hidden by Default until Icon Clicked) */}
+                                                            {isRowExpanded && (
+                                                                <div className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800/80 shadow-md space-y-1.5 animate-in fade-in duration-150">
+                                                                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1 px-0.5">
+                                                                        <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                                                                            Attached RM / BO Price List ({lineMaterials.length})
+                                                                        </span>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setExpandedRmRowIdxs((prev) => ({ ...prev, [idx]: false }))}
+                                                                            className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                                                                            title="Close Price List"
+                                                                        >
+                                                                            <X size={12} />
+                                                                        </button>
+                                                                    </div>
+
+                                                                    {lineMaterials.length === 0 ? (
+                                                                        <div className="text-[10px] text-slate-400 italic px-1 py-1">
+                                                                            {calculatingBOM ? 'Loading BOM items...' : 'No BOM items linked to this FG'}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
+                                                                            {lineMaterials.map((mat, mIdx) => (
+                                                                                <div
+                                                                                    key={mat.materialKey || mIdx}
+                                                                                    className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-slate-50/90 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-750"
+                                                                                >
+                                                                                    <div className="min-w-0 flex-1">
+                                                                                        <div className="flex items-center gap-1.5 min-w-0">
+                                                                                            <span
+                                                                                                className={`px-1 py-0.2 rounded text-[8.5px] font-black uppercase shrink-0 ${
+                                                                                                    mat.itemType === 'BO'
+                                                                                                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                                                                                                        : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                                                                                                }`}
+                                                                                            >
+                                                                                                {mat.itemType}
+                                                                                            </span>
+                                                                                            <span
+                                                                                                className="font-bold text-[11px] text-slate-800 dark:text-slate-100 truncate"
+                                                                                                title={`${mat.materialName}${mat.description ? ` — ${mat.description}` : ''}`}
+                                                                                            >
+                                                                                                {mat.materialName}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                        {mat.description && (
+                                                                                            <div
+                                                                                                className="text-[10px] text-slate-500 dark:text-slate-400 italic truncate mt-0.5"
+                                                                                                title={mat.description}
+                                                                                            >
+                                                                                                {mat.description}
+                                                                                            </div>
+                                                                                        )}
+                                                                                        <div className="text-[9.5px] text-slate-500 font-mono mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                                                                            <span>
+                                                                                                Qty: <strong className="text-slate-700 dark:text-slate-200">{mat.requiredQuantity} {mat.unit}</strong>
+                                                                                                {mat.hasSecondaryUnit && mat.secondaryUnit && Number(mat.secondaryRequiredQuantity) > 0 && (
+                                                                                                    <span className="text-indigo-600 dark:text-indigo-400 font-bold ml-1">
+                                                                                                        ({mat.secondaryRequiredQuantity} {mat.secondaryUnit})
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </span>
+                                                                                            <span>•</span>
+                                                                                            <span className="text-amber-700 dark:text-amber-300 font-bold">
+                                                                                                = ₹{Number(mat.grossCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    {/* Clickable Button to Open Vendor Price List Form (with Dual Unit) */}
+                                                                                    <div className="shrink-0 text-right">
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => handleOpenVendorPriceModal(mat)}
+                                                                                            title={`Click to open Price List form for ${mat.materialName} (supports Dual Unit & saves to Price List)`}
+                                                                                            className="group/plbtn inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-amber-300 dark:border-amber-700 bg-white hover:bg-indigo-50 dark:bg-slate-900 dark:hover:bg-indigo-950/60 hover:border-indigo-400 transition-all cursor-pointer shadow-2xs"
+                                                                                        >
+                                                                                            <div className="text-right">
+                                                                                                <div className="font-mono font-bold text-[11px] text-slate-900 dark:text-white group-hover/plbtn:text-indigo-700 dark:group-hover/plbtn:text-indigo-300 flex items-center justify-end gap-1">
+                                                                                                    <span>
+                                                                                                        ₹{Number(mat.isSecondaryUnit && mat.rawPrice ? mat.rawPrice : (mat.unitCost || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                                                    </span>
+                                                                                                    <span className="text-[9px] text-slate-500 dark:text-slate-400 font-semibold">
+                                                                                                        /{mat.isSecondaryUnit && mat.pricingUnit ? mat.pricingUnit : mat.unit}
+                                                                                                    </span>
+                                                                                                </div>
+                                                                                                {mat.isSecondaryUnit && (
+                                                                                                    <div className="text-[8.5px] font-mono font-semibold text-indigo-600 dark:text-indigo-400">
+                                                                                                        (₹{Number(mat.unitCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{mat.unit})
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                            <Edit3 size={11} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                                                                        </button>
+                                                                                        <span className="text-[8.5px] text-slate-400 block mt-0.5 truncate max-w-[140px]" title={`${mat.preferredVendorName ? `${mat.preferredVendorName} (${mat.costSource})` : (mat.costSource || '')}${mat.updatedByName ? ` • Updated by ${mat.updatedByName}${mat.updatedAt ? ` on ${new Date(mat.updatedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}` : ''}` : ''}`}>
+                                                                                            {mat.hasSecondaryUnit && mat.secondaryUnit ? `Dual: ${mat.unit}/${mat.secondaryUnit} • ` : ''}
+                                                                                            {mat.updatedByName ? `By ${mat.updatedByName}` : (mat.preferredVendorName || mat.costSource || 'Set Price List')}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
 
-                                            {/* Row Committed Date */}
-                                            <td className="px-2.5 py-3 align-top">
-                                                <input
-                                                    type="date"
-                                                    value={row.targetDate}
-                                                    onChange={(e) => handleRowChange(idx, 'targetDate', e.target.value)}
-                                                    className={`w-full px-2.5 py-2 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 ${
-                                                        row.isFromOA
-                                                            ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/40 dark:bg-emerald-950/20 font-bold text-emerald-900 dark:text-emerald-200'
-                                                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
-                                                    }`}
-                                                />
-                                                {row.isFromOA && (
-                                                    <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 block mt-0.5">
-                                                        OA Committed
-                                                    </span>
-                                                )}
+                                            {/* Compact PO Date & Committed Date Icon + Popover */}
+                                            <td className="px-2 py-3 text-center align-top pt-3.5 relative">
+                                                <div className="relative inline-block group/dateicon">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setActiveDatePopoverIdx(activeDatePopoverIdx === idx ? null : idx)}
+                                                        className={`p-2 rounded-xl border transition-all cursor-pointer relative ${
+                                                            row.isFromOA
+                                                                ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
+                                                                : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-750'
+                                                        }`}
+                                                        title={`PO Date: ${row.poDeliveryDate ? new Date(row.poDeliveryDate).toLocaleDateString('en-IN') : 'Not Set'} | Committed Date: ${row.targetDate ? new Date(row.targetDate).toLocaleDateString('en-IN') : 'Not Set'}${row.isFromOA ? ' (OA Committed)' : ''}`}
+                                                    >
+                                                        <Calendar size={15} />
+                                                        {(row.poDeliveryDate || row.targetDate) && (
+                                                            <span
+                                                                className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-900 ${
+                                                                    row.isFromOA ? 'bg-emerald-500' : 'bg-indigo-500'
+                                                                }`}
+                                                            />
+                                                        )}
+                                                    </button>
+
+                                                    {/* Hover Tooltip showing PO Date & Committed Date */}
+                                                    {activeDatePopoverIdx !== idx && (
+                                                        <div className="hidden group-hover/dateicon:block absolute right-0 bottom-full mb-1.5 z-[85] w-52 p-2.5 rounded-xl bg-slate-900/95 dark:bg-slate-800 text-white text-left shadow-xl border border-slate-700 pointer-events-none animate-in fade-in duration-150">
+                                                            <div className="text-[10px] font-black uppercase tracking-wider text-indigo-300 mb-1">
+                                                                Line Item Schedule Dates
+                                                            </div>
+                                                            <div className="flex items-center justify-between text-[11px] py-0.5">
+                                                                <span className="text-slate-400">PO Date:</span>
+                                                                <span className="font-mono font-bold text-white">
+                                                                    {row.poDeliveryDate ? new Date(row.poDeliveryDate).toLocaleDateString('en-IN') : '—'}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between text-[11px] py-0.5 border-t border-slate-700/70 mt-0.5 pt-1">
+                                                                <span className="text-emerald-300">Committed:</span>
+                                                                <span className="font-mono font-bold text-emerald-300">
+                                                                    {row.targetDate ? new Date(row.targetDate).toLocaleDateString('en-IN') : '—'}
+                                                                </span>
+                                                            </div>
+                                                            {row.isFromOA && (
+                                                                <div className="text-[9px] font-bold text-emerald-400 mt-0.5">
+                                                                    ✓ OA Committed Date
+                                                                </div>
+                                                            )}
+                                                            <div className="text-[9px] text-slate-400 italic mt-1">
+                                                                Click icon to adjust dates
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Click Popover to View / Edit PO Date & Committed Date */}
+                                                    {activeDatePopoverIdx === idx && (
+                                                        <div
+                                                            ref={datePopoverRef}
+                                                            className="absolute right-0 top-full mt-1.5 z-[95] w-64 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl text-left space-y-2.5 animate-in fade-in zoom-in-95 duration-150"
+                                                        >
+                                                            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                                                                <span className="text-[11px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                                                                    Line #{idx + 1} Dates
+                                                                </span>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setActiveDatePopoverIdx(null)}
+                                                                    className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                                                                >
+                                                                    <X size={13} />
+                                                                </button>
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                                                                    PO Delivery Date
+                                                                </label>
+                                                                <input
+                                                                    type="date"
+                                                                    value={row.poDeliveryDate || ''}
+                                                                    onChange={(e) => handleRowChange(idx, 'poDeliveryDate', e.target.value)}
+                                                                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase block mb-1">
+                                                                    Committed Date {row.isFromOA ? '(OA)' : ''}
+                                                                </label>
+                                                                <input
+                                                                    type="date"
+                                                                    value={row.targetDate || ''}
+                                                                    onChange={(e) => handleRowChange(idx, 'targetDate', e.target.value)}
+                                                                    className="w-full px-2.5 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50/40 dark:bg-emerald-950/20 text-xs font-bold text-emerald-900 dark:text-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </td>
 
                                             {/* Delete Row */}
@@ -2612,6 +3245,17 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                     </div>
                 </form>
             </div>
+
+            {/* In-Place Vendor Price List Modal (Supports Dual-Unit Pricing & Saves Directly to Price List) */}
+            <VendorPriceListModal
+                isOpen={showVendorPriceModal}
+                onClose={() => {
+                    setShowVendorPriceModal(false);
+                    setVendorPriceInitialData(null);
+                }}
+                onSubmit={handleSaveVendorPrice}
+                initialData={vendorPriceInitialData}
+            />
         </div>
     );
 }

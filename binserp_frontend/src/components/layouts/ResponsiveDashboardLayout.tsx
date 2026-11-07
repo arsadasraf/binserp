@@ -249,7 +249,7 @@ function LayoutContent({ children }: { children: ReactNode }) {
   const [userSubtitle, setUserSubtitle] = useState("Dashboard");
   const [companyName, setCompanyName] = useState("");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [pythonOnline, setPythonOnline] = useState<boolean | null>(null);
 
@@ -349,15 +349,17 @@ function LayoutContent({ children }: { children: ReactNode }) {
         pathname?.startsWith("/auth");
 
       if (pathname === "/dashboard") {
-        if (items.length > 0) {
+        if (items.length > 0 && items[0].href !== "/dashboard") {
           router.replace(items[0].href);
           return;
         }
       } else if (!isAuthorized && !isGlobalRoute) {
         console.warn(`Unauthorized access attempt to ${pathname}. Redirecting...`);
-        const fallbackRoute = items.length > 0 ? items[0].href : "/dashboard/admin/overview";
-        router.replace(fallbackRoute);
-        return;
+        const fallbackRoute = items.length > 0 ? items[0].href : "/dashboard";
+        if (fallbackRoute !== pathname) {
+          router.replace(fallbackRoute);
+          return;
+        }
       }
     }
 
@@ -448,8 +450,10 @@ function LayoutContent({ children }: { children: ReactNode }) {
       <Link
         key={item.label}
         href={item.href}
+        title={!desktopSidebarOpen ? item.label : undefined}
         className={[
-          "group flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all font-medium text-sm w-full",
+          "group flex items-center rounded-xl transition-all font-medium text-sm w-full",
+          desktopSidebarOpen ? "gap-3 px-3.5 py-2.5" : "justify-center px-2 py-2.5",
           isActive
             ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400 font-bold shadow-sm"
             : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200",
@@ -457,11 +461,12 @@ function LayoutContent({ children }: { children: ReactNode }) {
       >
         <Icon
           size={18}
-          className={
+          className={[
+            "shrink-0",
             isActive
               ? "text-indigo-600 dark:text-indigo-400 stroke-[2.5]"
-              : "text-gray-500 group-hover:text-indigo-500 dark:text-gray-400 dark:group-hover:text-indigo-400"
-          }
+              : "text-gray-500 group-hover:text-indigo-500 dark:text-gray-400 dark:group-hover:text-indigo-400",
+          ].join(" ")}
         />
         <span className={desktopSidebarOpen ? "truncate" : "hidden"}>{item.label}</span>
       </Link>
@@ -476,7 +481,7 @@ function LayoutContent({ children }: { children: ReactNode }) {
           desktopSidebarOpen ? "w-64" : "hidden lg:flex w-20 overflow-hidden"
         } bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex-col transition-all duration-300 ease-in-out hidden lg:flex shrink-0`}
       >
-        <div className="h-16 flex items-center gap-3 px-6 border-b border-gray-100 dark:border-gray-800">
+        <div className={`h-16 flex items-center ${desktopSidebarOpen ? "gap-3 px-6" : "justify-center px-2"} border-b border-gray-100 dark:border-gray-800`}>
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-md shadow-indigo-200 dark:shadow-none shrink-0">
             <span className="text-white font-black text-xl">B</span>
           </div>

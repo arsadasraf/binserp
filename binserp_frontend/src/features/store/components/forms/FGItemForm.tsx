@@ -159,15 +159,16 @@ export default function FGItemForm({
         const newBOM = [...(formData.bom || [])];
         const sourceQty = Number(newBOM[sourceIdx]?.quantity) || 0;
         const targetQty = Number(newBOM[targetIdx]?.quantity) || 0;
-        const combinedQty = parseFloat((targetQty + sourceQty).toFixed(2));
+        const combinedQty = parseFloat((targetQty + sourceQty).toFixed(4));
         const targetFactor = Number(newBOM[targetIdx]?.conversionFactor) || 1;
         const hasSec = Boolean(newBOM[targetIdx]?.hasSecondaryUnit && newBOM[targetIdx]?.secondaryUnit && targetFactor > 0);
+        const combinedSecQty = hasSec ? parseFloat((combinedQty * targetFactor).toFixed(4)) : undefined;
         newBOM[targetIdx] = {
             ...newBOM[targetIdx],
             quantity: combinedQty,
-            secondaryQuantity: hasSec ? Math.round(combinedQty * targetFactor) : undefined,
+            secondaryQuantity: combinedSecQty,
             inputQuantity: newBOM[targetIdx]?.selectedUnit === newBOM[targetIdx]?.secondaryUnit && hasSec
-                ? Math.round(combinedQty * targetFactor)
+                ? combinedSecQty
                 : combinedQty
         };
         // Remove source duplicate row
@@ -258,11 +259,11 @@ export default function FGItemForm({
             
             const isTargetSec = isDual && Boolean(secUnit && target.selectedUnit && target.selectedUnit.toString().trim().toUpperCase() === secUnit.toUpperCase());
             if (isTargetSec) {
-                target.secondaryQuantity = isNaN(numVal) ? 0 : Math.round(numVal);
-                target.quantity = (isNaN(numVal) || factor <= 0) ? 0 : parseFloat(((Number(target.secondaryQuantity) || 0) / factor).toFixed(2));
+                target.secondaryQuantity = isNaN(numVal) ? 0 : parseFloat(numVal.toFixed(4));
+                target.quantity = (isNaN(numVal) || factor <= 0) ? 0 : parseFloat(((Number(target.secondaryQuantity) || 0) / factor).toFixed(4));
             } else {
-                target.quantity = isNaN(numVal) ? 0 : parseFloat(numVal.toFixed(2));
-                target.secondaryQuantity = (isNaN(numVal) || !isDual) ? undefined : Math.round(target.quantity * factor);
+                target.quantity = isNaN(numVal) ? 0 : parseFloat(numVal.toFixed(4));
+                target.secondaryQuantity = (isNaN(numVal) || !isDual) ? undefined : parseFloat((target.quantity * factor).toFixed(4));
             }
         }
 
@@ -302,10 +303,10 @@ export default function FGItemForm({
         target.unit = priUnit;
         target.selectedUnit = selectedUom;
 
-        const currentPriQty = parseFloat((Number(target.quantity) || 0).toFixed(2));
+        const currentPriQty = parseFloat((Number(target.quantity) || 0).toFixed(4));
         const currentSecQty = target.secondaryQuantity !== undefined && target.secondaryQuantity !== ''
-            ? Math.round(Number(target.secondaryQuantity))
-            : Math.round(currentPriQty * factor);
+            ? parseFloat(Number(target.secondaryQuantity).toFixed(4))
+            : parseFloat((currentPriQty * factor).toFixed(4));
 
         if (isSwitchToSec) {
             target.inputQuantity = currentSecQty;

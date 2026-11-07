@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Layers, Package, Cog, Wrench, Filter, Check, X, Star } from "lucide-react";
+import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Layers, Package, Cog, Wrench, Filter, Check, X, Star, User, Clock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getItemDescription, ItemNameAndDescription } from "@/src/utils/itemDisplayHelper";
 import { isSpaceFreeMatch } from "@/src/utils/spaceFreeSearchHelper";
@@ -286,6 +286,38 @@ export default function VendorPriceListTable({
       case 'consumable':
         return <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">Consumable</span>;
     }
+  };
+
+  const getAuditUserName = (config: any, item?: any): string => {
+    if (!config) return "";
+    const resolveObj = (u: any) => {
+      if (!u || typeof u !== "object") return "";
+      const full = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
+      return full || u.name || u.username || u.email || "";
+    };
+    return (
+      config.updatedByName ||
+      resolveObj(config.updatedBy) ||
+      config.createdByName ||
+      resolveObj(config.createdBy) ||
+      item?.updatedByName ||
+      item?.createdByName ||
+      "Admin"
+    );
+  };
+
+  const formatAuditDateTime = (dateVal: any): string => {
+    if (!dateVal) return "";
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
   };
 
   return (
@@ -615,13 +647,14 @@ export default function VendorPriceListTable({
 
               <th className="p-3.5 font-bold text-right w-36 bg-gray-50 dark:bg-gray-800">Price (₹)</th>
               <th className="p-3.5 font-bold text-center w-24 bg-gray-50 dark:bg-gray-800">Tax Rate</th>
+              <th className="p-3.5 font-bold w-44 bg-gray-50 dark:bg-gray-800">Last Updated</th>
               <th className="p-3.5 font-bold text-right last:pr-6 w-44 bg-gray-50 dark:bg-gray-800">Actions</th>
             </tr>
           </thead>
           <tbody className="text-sm divide-y divide-gray-100 dark:divide-gray-800">
             {filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={8} className="p-8 text-center text-gray-500">
+                <td colSpan={9} className="p-8 text-center text-gray-500">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <Tag className="w-8 h-8 text-gray-300" />
                     <p className="text-xs font-semibold">No items found matching the selected category & search query.</p>
@@ -721,6 +754,24 @@ export default function VendorPriceListTable({
                         <span className="text-gray-800 dark:text-gray-200 font-bold text-xs">
                           {Number(config.taxRate)}%
                         </span>
+                      ) : (
+                        <span className="text-gray-400 font-normal text-xs">-</span>
+                      )}
+                    </td>
+                    <td className="p-3.5">
+                      {hasPrice ? (
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1 text-xs font-bold text-slate-800 dark:text-slate-200 truncate max-w-[160px]" title={getAuditUserName(config, item)}>
+                            <User size={11} className="text-indigo-500 shrink-0" />
+                            <span className="truncate">{getAuditUserName(config, item)}</span>
+                          </div>
+                          {(config.updatedAt || config.createdAt) && (
+                            <div className="flex items-center gap-1 text-[10px] font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                              <Clock size={10} className="text-slate-400 shrink-0" />
+                              <span>{formatAuditDateTime(config.updatedAt || config.createdAt)}</span>
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-gray-400 font-normal text-xs">-</span>
                       )}
@@ -843,6 +894,15 @@ export default function VendorPriceListTable({
                       <span className="text-gray-400">-</span>
                     )}
                   </div>
+                  {hasPrice && (
+                    <div className="flex justify-between items-center pt-1 border-t border-gray-200/60 dark:border-gray-700/60">
+                      <span className="text-gray-500 font-medium">Last Updated:</span>
+                      <span className="text-slate-700 dark:text-slate-300 font-semibold text-[11px] text-right">
+                        {getAuditUserName(config, item)}
+                        {(config.updatedAt || config.createdAt) ? ` • ${formatAuditDateTime(config.updatedAt || config.createdAt)}` : ''}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2 pt-1" onClick={(e) => e.stopPropagation()}>

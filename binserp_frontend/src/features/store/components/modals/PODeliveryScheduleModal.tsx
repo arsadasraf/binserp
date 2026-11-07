@@ -52,23 +52,72 @@ export default function PODeliveryScheduleModal({
   const [loading, setLoading] = useState<boolean>(false);
   const [itemsSchedule, setItemsSchedule] = useState<ItemScheduleState[]>([]);
 
-  // Generate next rolling 12 months for quick selection
-  const availableMonths = useMemo(() => {
-    const list: { key: string; label: string; shortLabel: string }[] = [];
+  // Current month key helper
+  const currentMonthKey = useMemo(() => {
     const now = new Date();
-    // Start from current month
-    for (let i = 0; i < 12; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+
+  // Generate rolling months including past/earlier months (-6 months or earliest PO/schedule month) through +18 months
+  const availableMonths = useMemo(() => {
+    const map = new Map<string, { key: string; label: string; shortLabel: string }>();
+    const addMonth = (y: number, mZeroIndexed: number) => {
+      const d = new Date(y, mZeroIndexed, 1);
+      if (isNaN(d.getTime())) return;
       const yyyy = d.getFullYear();
       const mm = String(d.getMonth() + 1).padStart(2, '0');
-      list.push({
-        key: `${yyyy}-${mm}`,
-        label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-        shortLabel: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-      });
+      const key = `${yyyy}-${mm}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+          shortLabel: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+        });
+      }
+    };
+
+    const now = new Date();
+    // Include 6 months prior through 18 months ahead
+    for (let i = -6; i < 18; i++) {
+      addMonth(now.getFullYear(), now.getMonth() + i);
     }
-    return list;
-  }, []);
+
+    // Also include PO date / committed dispatch date month if earlier
+    const refDates = [customerPO?.date, customerPO?.committedDispatchDate];
+    refDates.forEach((dt) => {
+      if (dt) {
+        const dObj = new Date(dt);
+        if (!isNaN(dObj.getTime())) {
+          addMonth(dObj.getFullYear(), dObj.getMonth());
+        }
+      }
+    });
+
+    // Also include any existing schedule monthKey on the PO or current state
+    (customerPO?.items || []).forEach((it: any) => {
+      if (it?.expectedDeliveryDate) {
+        const dObj = new Date(it.expectedDeliveryDate);
+        if (!isNaN(dObj.getTime())) addMonth(dObj.getFullYear(), dObj.getMonth());
+      }
+      (it?.deliverySchedule || []).forEach((s: any) => {
+        if (s?.monthKey) {
+          const [y, m] = String(s.monthKey).split('-').map(Number);
+          if (y && m) addMonth(y, m - 1);
+        }
+      });
+    });
+
+    itemsSchedule.forEach((it) => {
+      (it.deliverySchedule || []).forEach((s) => {
+        if (s?.monthKey) {
+          const [y, m] = String(s.monthKey).split('-').map(Number);
+          if (y && m) addMonth(y, m - 1);
+        }
+      });
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
+  }, [customerPO, itemsSchedule]);
 
   const getMonthShortLabel = (key: string): string => {
     if (!key) return '';
@@ -182,7 +231,7 @@ export default function PODeliveryScheduleModal({
       const item = { ...next[itemIndex] };
       // Pick next sequential month or current month
       const lastMonth = item.deliverySchedule[item.deliverySchedule.length - 1]?.monthKey;
-      let nextMonthKey = availableMonths[0]?.key || '2026-10';
+      let nextMonthKey = currentMonthKey;
       if (lastMonth) {
         const [y, m] = lastMonth.split('-').map(Number);
         const nextD = new Date(y, m, 1);
@@ -214,8 +263,8 @@ export default function PODeliveryScheduleModal({
       if (item.deliverySchedule.length <= 1) {
         // Clear quantity instead of leaving empty
         item.deliverySchedule = [{
-          monthKey: availableMonths[0]?.key || '2026-10',
-          monthLabel: availableMonths[0]?.shortLabel || 'Oct 2026',
+          monthKey: currentMonthKey,
+          monthLabel: getMonthShortLabel(currentMonthKey),
           quantity: 0
         }];
       } else {
@@ -226,7 +275,7 @@ export default function PODeliveryScheduleModal({
     });
   };
 
-  // Helper: Split item quantity evenly across N months
+  // Helper: Split item quantity evenly across N months starting from first scheduled month or current month
   const handleSplitEvenly = (itemIndex: number, splitCount: number = 2) => {
     setItemsSchedule(prev => {
       const next = [...prev];
@@ -236,13 +285,17 @@ export default function PODeliveryScheduleModal({
       const baseQty = Math.floor(totalQty / count);
       const remainder = totalQty % count;
 
+      const startKey = item.deliverySchedule[0]?.monthKey || currentMonthKey;
+      const [startY, startM] = startKey.split('-').map(Number);
+
       const newSched: DeliveryScheduleEntry[] = [];
       for (let i = 0; i < count; i++) {
-        const mObj = availableMonths[i] || availableMonths[0];
+        const d = new Date(startY || new Date().getFullYear(), ((startM || (new Date().getMonth() + 1)) - 1) + i, 1);
+        const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         const rowQty = baseQty + (i === 0 ? remainder : 0);
         newSched.push({
-          monthKey: mObj.key,
-          monthLabel: mObj.shortLabel,
+          monthKey: mKey,
+          monthLabel: getMonthShortLabel(mKey),
           quantity: rowQty,
           notes: `Split batch #${i + 1}`
         });
@@ -258,7 +311,7 @@ export default function PODeliveryScheduleModal({
     setItemsSchedule(prev => {
       const next = [...prev];
       const item = { ...next[itemIndex] };
-      const firstMonth = item.deliverySchedule[0]?.monthKey || availableMonths[0]?.key;
+      const firstMonth = item.deliverySchedule[0]?.monthKey || currentMonthKey;
       item.deliverySchedule = [{
         monthKey: firstMonth,
         monthLabel: getMonthShortLabel(firstMonth),

@@ -6,6 +6,7 @@ import { Company } from "../../models/company/index.js";
 import { SaasAdmin } from "../../models/saasadmin/index.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { generateTokens, setTokenCookies } from "../../utils/token.js";
+import { clearCachedCompany } from "../../middlewares/auth.middleware.js";
 
 const clearAuthCookies = (res) => {
   const cookieOptions = {
@@ -94,6 +95,9 @@ export const refreshTokens = async (req, res, next) => {
       if (loggedInAt > 0 && Date.now() - loggedInAt >= 24 * 60 * 60 * 1000) {
         userInstance.refreshToken = null;
         await userInstance.save({ validateBeforeSave: false });
+        if (type === "company") {
+          clearCachedCompany(userInstance.companyId, String(userInstance._id));
+        }
         clearAuthCookies(res);
         throw new ApiError(401, "Web browser session expired after 24 hours. Please log in again.");
       }
@@ -108,6 +112,9 @@ export const refreshTokens = async (req, res, next) => {
     if (accessMode === "App") {
       userInstance.refreshToken = activeRefreshToken;
       await userInstance.save({ validateBeforeSave: false });
+      if (type === "company") {
+        clearCachedCompany(userInstance.companyId, String(userInstance._id));
+      }
     }
 
     // Set new cookies

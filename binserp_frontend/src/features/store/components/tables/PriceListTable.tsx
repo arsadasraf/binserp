@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Filter, Check, Globe, X } from "lucide-react";
+import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Filter, Check, Globe, X, User, Clock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getCurrencySymbol } from "@/src/utils/currencyHelper";
 import { getItemDescription } from "@/src/utils/itemDisplayHelper";
@@ -211,6 +211,38 @@ export default function PriceListTable({
     );
   };
 
+  const getAuditUserName = (config: any, item?: any): string => {
+    if (!config) return "";
+    const resolveObj = (u: any) => {
+      if (!u || typeof u !== "object") return "";
+      const full = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
+      return full || u.name || u.username || u.email || "";
+    };
+    return (
+      config.updatedByName ||
+      resolveObj(config.updatedBy) ||
+      config.createdByName ||
+      resolveObj(config.createdBy) ||
+      item?.updatedByName ||
+      item?.createdByName ||
+      "Admin"
+    );
+  };
+
+  const formatAuditDateTime = (dateVal: any): string => {
+    if (!dateVal) return "";
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
+
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden">
       {/* Search Bar, Type Tabs & Actions */}
@@ -415,13 +447,14 @@ export default function PriceListTable({
               <th className="p-4 font-medium">HSN Code (Master)</th>
               <th className="p-4 font-medium text-right">Selling Price</th>
               <th className="p-4 font-medium text-right">Tax Rate (%)</th>
+              <th className="p-4 font-medium w-44">Last Updated</th>
               <th className="p-4 font-medium text-right last:pr-6 w-48">Actions</th>
             </tr>
           </thead>
           <tbody className="text-sm divide-y divide-gray-100 dark:divide-gray-800">
             {filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={8} className="p-8 text-center text-gray-500">
+                <td colSpan={9} className="p-8 text-center text-gray-500">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <Tag className="w-8 h-8 text-gray-300" />
                     <p>No finished goods found matching filter.</p>
@@ -508,6 +541,24 @@ export default function PriceListTable({
                         <span className="text-amber-600 dark:text-amber-400 font-semibold">
                           {priceConfig.taxRate}%
                         </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="p-4">
+                      {isAssigned ? (
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1 text-xs font-bold text-slate-800 dark:text-slate-200 truncate max-w-[160px]" title={getAuditUserName(priceConfig, item)}>
+                            <User size={11} className="text-indigo-500 shrink-0" />
+                            <span className="truncate">{getAuditUserName(priceConfig, item)}</span>
+                          </div>
+                          {(priceConfig.updatedAt || priceConfig.createdAt) && (
+                            <div className="flex items-center gap-1 text-[10px] font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                              <Clock size={10} className="text-slate-400 shrink-0" />
+                              <span>{formatAuditDateTime(priceConfig.updatedAt || priceConfig.createdAt)}</span>
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
@@ -647,6 +698,15 @@ export default function PriceListTable({
                       <p className="font-semibold text-xs text-gray-400 mt-0.5">Price Not Configured</p>
                     )}
                   </div>
+                  {isAssigned && (
+                    <div className="col-span-2 pt-1.5 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between text-[11px]">
+                      <span className="text-gray-400 font-bold uppercase text-[10px]">Last Updated</span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 text-right">
+                        {getAuditUserName(priceConfig, item)}
+                        {(priceConfig.updatedAt || priceConfig.createdAt) ? ` • ${formatAuditDateTime(priceConfig.updatedAt || priceConfig.createdAt)}` : ""}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-2 border-t border-gray-100 dark:border-gray-700">

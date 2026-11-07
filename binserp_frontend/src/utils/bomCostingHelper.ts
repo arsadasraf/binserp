@@ -2,10 +2,26 @@ import { ExplodedBOMNode, ConsolidatedBOMItem } from './bomHierarchyHelper';
 
 export type BOMCostingMode = 'L2_ONLY' | 'COMPONENT_AND_BO' | 'RM_AND_BO';
 
+export const DEFAULT_BOM_CURRENCY_RATES: Record<string, number> = {
+  INR: 1,
+  USD: 84,
+  EUR: 91,
+  GBP: 108,
+  AED: 22.9,
+  SGD: 63,
+  JPY: 0.56,
+  CNY: 11.6,
+  AUD: 55,
+  CAD: 61
+};
+
 export interface ItemPriceInfo {
   hasPrice: boolean;
-  unitPrice: number;
+  unitPrice: number; // Always normalized to INR for accurate BOM rollup
   currency: string;
+  originalUnitPrice?: number;
+  originalCurrency?: string;
+  exchangeRateToINR?: number;
   vendorId?: string;
   vendorName?: string;
   vendorCode?: string;
@@ -16,7 +32,7 @@ export interface ItemPriceInfo {
   isSecondaryUnit?: boolean;
   taxRate?: number;
   remarks?: string;
-  extendedCost: number; // cumulativeQuantity * unitPrice
+  extendedCost: number; // cumulativeQuantity * unitPrice (in INR)
   isSubAssemblyPriced?: boolean;
   underPricedSubAssembly?: boolean;
   isCostedInActiveMode?: boolean;
@@ -44,13 +60,16 @@ export interface CostingDashboardSummary {
  * Determines whether a BOM item is included in the active costing calculation mode.
  *
  * Mode 1 ('L2_ONLY'): Price calculation based strictly on Level 2 (L2) direct items.
- * Mode 2 ('COMPONENT_AND_BO'): Price calculation based on In-House Components + Bought-Out (BO) items.
- * Mode 3 ('RM_AND_BO'): Price calculation based on Raw Materials (RM of In-House Components) + Bought-Out (BO) items.
+ * Mode 2 ('COMPONENT_AND_BO'): Price calculation based on In-House Components + Bought-Out (BO) items
+ *   (plus any direct L2 Raw Material attached directly to the root FG and not inside a Component).
+ * Mode 3 ('RM_AND_BO'): Price calculation based on Raw Materials (RM of In-House Components) + Bought-Out (BO) items
+ *   (plus any leaf In-House Component that has no child RM BOM defined).
  */
 export function evaluateCostingModeEligibility(
   itemType: 'SubAssembly' | 'Assembly' | 'Component' | 'BO' | 'RM',
   levels: number[],
-  costingMode: BOMCostingMode = 'L2_ONLY'
+  costingMode: BOMCostingMode = 'L2_ONLY',
+  hasChildren?: boolean
 ): { isCosted: boolean; exclusionReason?: string } {
   if (costingMode === 'L2_ONLY') {
     const isL2 = levels.includes(2);
@@ -66,6 +85,10 @@ export function evaluateCostingModeEligibility(
       return { isCosted: true };
     }
     if (itemType === 'RM') {
+      // If an RM is directly attached to the Root FG at Level 2, it is not inside any Component
+      if (levels.includes(2)) {
+        return { isCosted: true };
+      }
       return { isCosted: false, exclusionReason: 'Covered in Component' };
     }
     return { isCosted: false, exclusionReason: 'Parent Sub-Assy (Excluded)' };
@@ -77,9 +100,30 @@ export function evaluateCostingModeEligibility(
     return { isCosted: true };
   }
   if (itemType === 'Component') {
+    // If a leaf Component has no child BOM (no RM items under it), include its own price so cost isn't dropped
+    if (hasChildren === false) {
+      return { isCosted: true };
+    }
     return { isCosted: false, exclusionReason: 'Rolled into RM Cost' };
   }
   return { isCosted: false, exclusionReason: 'Parent Sub-Assy (Excluded)' };
+}
+
+function normalizeCurrencyRate(
+  rawPrice: number,
+  rawCurrency?: string,
+  currencyRates: Record<string, number> = DEFAULT_BOM_CURRENCY_RATES
+): { unitPriceINR: number; currency: string; originalUnitPrice: number; originalCurrency: string; exchangeRateToINR: number } {
+  const curr = (rawCurrency || 'INR').toString().trim().toUpperCase() || 'INR';
+  const rate = curr === 'INR' ? 1 : (Number(currencyRates[curr]) || DEFAULT_BOM_CURRENCY_RATES[curr] || 1);
+  const unitPriceINR = curr === 'INR' ? rawPrice : parseFloat((rawPrice * rate).toFixed(4));
+  return {
+    unitPriceINR,
+    currency: 'INR',
+    originalUnitPrice: rawPrice,
+    originalCurrency: curr,
+    exchangeRateToINR: rate
+  };
 }
 
 /**
@@ -95,11 +139,13 @@ export function resolveItemPriceInfo(
   },
   vendorPriceLists: any[] = [],
   salesPriceLists: any[] = [],
-  allFGItems: any[] = []
+  allFGItems: any[] = [],
+  currencyRates: Record<string, number> = DEFAULT_BOM_CURRENCY_RATES
 ): ItemPriceInfo {
   const isFGOrAssembly = item.itemType === 'SubAssembly' || item.itemType === 'Assembly' || item.itemType === 'Component';
   const rawId = (item.id || '').toString().trim();
   const rawName = (item.materialName || '').toLowerCase().trim();
+  const rawCode = (item.materialCode || '').toLowerCase().trim();
 
   // 1. If Sub-Assembly, Assembly, or Component: Check Sales Price List and FG Item Master
   if (isFGOrAssembly) {
@@ -108,6 +154,8 @@ export function resolveItemPriceInfo(
       const matchingSalesEntries = salesPriceLists.filter((pl: any) => {
         const plFgId = (pl.fgItem?._id || pl.fgItem?.id || pl.fgItem)?.toString();
         if (rawId && plFgId && rawId === plFgId) return true;
+        const plFgCode = (pl.fgItem?.code || '').toLowerCase().trim();
+        if (rawCode && plFgCode && rawCode === plFgCode) return true;
         const plFgName = (pl.fgItem?.name || '').toLowerCase().trim();
         return Boolean(rawName && plFgName && rawName === plFgName);
       });
@@ -123,10 +171,14 @@ export function resolveItemPriceInfo(
 
     if (matchedSalesPL && matchedSalesPL.price !== undefined && matchedSalesPL.price !== null && Number(matchedSalesPL.price) > 0) {
       const priceNum = Number(matchedSalesPL.price);
+      const norm = normalizeCurrencyRate(priceNum, matchedSalesPL.currency, currencyRates);
       return {
         hasPrice: true,
-        unitPrice: priceNum,
-        currency: matchedSalesPL.currency || 'INR',
+        unitPrice: norm.unitPriceINR,
+        currency: norm.originalCurrency,
+        originalUnitPrice: norm.originalUnitPrice,
+        originalCurrency: norm.originalCurrency,
+        exchangeRateToINR: norm.exchangeRateToINR,
         vendorName: 'Sales Catalog',
         priceSource: 'sales-price-list',
         priceListId: matchedSalesPL._id,
@@ -145,16 +197,22 @@ export function resolveItemPriceInfo(
       const matchedFG = allFGItems.find((fg: any) => {
         const fgId = (fg._id || fg.id)?.toString();
         if (rawId && fgId && rawId === fgId) return true;
+        const fgCode = (fg.code || '').toLowerCase().trim();
+        if (rawCode && fgCode && rawCode === fgCode) return true;
         const fgName = (fg.name || '').toLowerCase().trim();
         return rawName && fgName && rawName === fgName;
       });
 
       const fgPriceNum = Number(matchedFG?.sellingPrice || matchedFG?.rate || 0);
       if (matchedFG && fgPriceNum > 0) {
+        const norm = normalizeCurrencyRate(fgPriceNum, matchedFG.currency, currencyRates);
         return {
           hasPrice: true,
-          unitPrice: fgPriceNum,
-          currency: matchedFG.currency || 'INR',
+          unitPrice: norm.unitPriceINR,
+          currency: norm.originalCurrency,
+          originalUnitPrice: norm.originalUnitPrice,
+          originalCurrency: norm.originalCurrency,
+          exchangeRateToINR: norm.exchangeRateToINR,
           vendorName: 'FG Master Rate',
           priceSource: 'fg-master',
           pricingUnit: matchedFG.unit || item.unit,
@@ -174,6 +232,11 @@ export function resolveItemPriceInfo(
     vendorPriceLists.forEach((pl: any) => {
       const plMatId = (pl.material?._id || pl.material?.id || pl.material)?.toString();
       if (rawId && plMatId && rawId === plMatId) {
+        matchingEntries.push(pl);
+        return;
+      }
+      const plMatCode = (pl.material?.code || '').toLowerCase().trim();
+      if (rawCode && plMatCode && rawCode === plMatCode) {
         matchingEntries.push(pl);
         return;
       }
@@ -200,6 +263,7 @@ export function resolveItemPriceInfo(
       const selectedPL = matchingEntries[0];
 
       const priceNum = Number(selectedPL.price) || 0;
+      const norm = normalizeCurrencyRate(priceNum, selectedPL.currency, currencyRates);
       const vendorObj = typeof selectedPL.vendor === 'object' && selectedPL.vendor !== null ? selectedPL.vendor : null;
       const vendorId = vendorObj
         ? String(vendorObj._id || vendorObj.id || '')
@@ -211,8 +275,11 @@ export function resolveItemPriceInfo(
 
       return {
         hasPrice: priceNum > 0,
-        unitPrice: priceNum,
-        currency: 'INR',
+        unitPrice: norm.unitPriceINR,
+        currency: norm.originalCurrency,
+        originalUnitPrice: norm.originalUnitPrice,
+        originalCurrency: norm.originalCurrency,
+        exchangeRateToINR: norm.exchangeRateToINR,
         vendorId,
         vendorName,
         vendorCode,
@@ -259,7 +326,8 @@ export function enrichTreeWithPricing(
   vendorPriceLists: any[] = [],
   salesPriceLists: any[] = [],
   allFGItems: any[] = [],
-  costingMode: BOMCostingMode = 'L2_ONLY'
+  costingMode: BOMCostingMode = 'L2_ONLY',
+  currencyRates: Record<string, number> = DEFAULT_BOM_CURRENCY_RATES
 ): EnrichedExplodedBOMNode[] {
   return (nodes || []).map((node) => {
     const rawPriceInfo = resolveItemPriceInfo(
@@ -272,13 +340,16 @@ export function enrichTreeWithPricing(
       },
       vendorPriceLists,
       salesPriceLists,
-      allFGItems
+      allFGItems,
+      currencyRates
     );
 
+    const hasChildNodes = Boolean(node.hasChildren || (Array.isArray(node.children) && node.children.length > 0));
     const { isCosted, exclusionReason } = evaluateCostingModeEligibility(
       node.itemType,
       [node.level],
-      costingMode
+      costingMode,
+      hasChildNodes
     );
 
     const useSecQty = Boolean(
@@ -290,9 +361,9 @@ export function enrichTreeWithPricing(
     );
     const effectiveNodeQty = useSecQty
       ? (node.secondaryCumulativeQuantity !== undefined
-          ? Math.round(node.secondaryCumulativeQuantity)
-          : Math.round((node.cumulativeQuantity || 0) * (node.conversionFactor || 1)))
-      : parseFloat((node.cumulativeQuantity || 0).toFixed(2));
+          ? parseFloat(Number(node.secondaryCumulativeQuantity).toFixed(4))
+          : parseFloat(((node.cumulativeQuantity || 0) * (node.conversionFactor || 1)).toFixed(4)))
+      : parseFloat((node.cumulativeQuantity || 0).toFixed(4));
 
     const priceInfo: ItemPriceInfo = {
       ...rawPriceInfo,
@@ -307,7 +378,8 @@ export function enrichTreeWithPricing(
       vendorPriceLists,
       salesPriceLists,
       allFGItems,
-      costingMode
+      costingMode,
+      currencyRates
     );
 
     return {
@@ -326,7 +398,8 @@ export function enrichConsolidatedItemsWithPricing(
   vendorPriceLists: any[] = [],
   salesPriceLists: any[] = [],
   allFGItems: any[] = [],
-  costingMode: BOMCostingMode = 'L2_ONLY'
+  costingMode: BOMCostingMode = 'L2_ONLY',
+  currencyRates: Record<string, number> = DEFAULT_BOM_CURRENCY_RATES
 ): EnrichedConsolidatedBOMItem[] {
   return (items || []).map((item) => {
     const rawPriceInfo = resolveItemPriceInfo(
@@ -339,14 +412,29 @@ export function enrichConsolidatedItemsWithPricing(
       },
       vendorPriceLists,
       salesPriceLists,
-      allFGItems
+      allFGItems,
+      currencyRates
     );
+
+    // Check if matched FG item has child BOM (for Component leaf detection in RM_AND_BO mode)
+    let hasChildBOM: boolean | undefined = undefined;
+    if (item.itemType === 'Component' && Array.isArray(allFGItems) && allFGItems.length > 0) {
+      const matchedFG = allFGItems.find((fg: any) => {
+        const fgId = (fg._id || fg.id)?.toString();
+        if (item.id && fgId && item.id === fgId) return true;
+        return (fg.name || '').toLowerCase().trim() === (item.materialName || '').toLowerCase().trim();
+      });
+      if (matchedFG) {
+        hasChildBOM = Array.isArray(matchedFG.bom) && matchedFG.bom.length > 0;
+      }
+    }
 
     const usageLevels = Array.isArray(item.usages) ? item.usages.map((u) => u.level) : [];
     const { isCosted, exclusionReason } = evaluateCostingModeEligibility(
       item.itemType,
       usageLevels,
-      costingMode
+      costingMode,
+      hasChildBOM
     );
 
     const useSecQty = Boolean(
@@ -357,24 +445,29 @@ export function enrichConsolidatedItemsWithPricing(
             rawPriceInfo.pricingUnit.trim().toUpperCase() === item.secondaryUnit.trim().toUpperCase()))
     );
 
-    // If L2_ONLY mode and item appears at multiple levels, compute L2-specific quantity if applicable
+    // If L2_ONLY mode (or RM in COMPONENT_AND_BO mode where only L2 direct RM is costed), compute L2-specific quantity
+    const filterToL2UsagesOnly =
+      isCosted &&
+      (costingMode === 'L2_ONLY' || (costingMode === 'COMPONENT_AND_BO' && item.itemType === 'RM'));
+
     const basePrimaryQty = parseFloat(
-      (costingMode === 'L2_ONLY' && isCosted
+      (filterToL2UsagesOnly
         ? item.usages
             .filter((u) => u.level === 2)
             .reduce((acc, u) => acc + (Number(u.cumulativeQuantity) || 0), 0) || item.totalCumulativeQuantity
         : item.totalCumulativeQuantity
-      ).toFixed(2)
+      ).toFixed(4)
     );
 
-    const baseSecondaryQty = Math.round(
-      costingMode === 'L2_ONLY' && isCosted
+    const baseSecondaryQty = parseFloat(
+      (filterToL2UsagesOnly
         ? item.usages
             .filter((u) => u.level === 2)
             .reduce((acc, u) => acc + (Number(u.secondaryCumulativeQuantity) || 0), 0) ||
           item.totalSecondaryCumulativeQuantity ||
           (basePrimaryQty || 0) * (item.conversionFactor || 1)
-        : (item.totalSecondaryCumulativeQuantity || (basePrimaryQty || 0) * (item.conversionFactor || 1))
+        : (item.totalSecondaryCumulativeQuantity ?? (basePrimaryQty || 0) * (item.conversionFactor || 1))
+      ).toFixed(4)
     );
 
     const effectiveQty = useSecQty ? baseSecondaryQty : basePrimaryQty;
@@ -411,33 +504,53 @@ export function calculateBOMCostingSummary(
   let excludedChildPartsCount = 0;
 
   (enrichedFlatTree || []).forEach((node) => {
-    const price = node.priceInfo.unitPrice || 0;
-    const extended = node.priceInfo.extendedCost || 0;
-
     if (!node.priceInfo.isCostedInActiveMode) {
       excludedChildPartsCount++;
-      return;
-    }
-
-    if (price > 0) {
-      totalEstimatedCost += extended;
-
-      if (node.itemType === 'RM') {
-        rmCost += extended;
-      } else if (node.itemType === 'BO') {
-        boCost += extended;
-      } else if (node.itemType === 'Component') {
-        componentCost += extended;
-      } else if (node.itemType === 'SubAssembly' || node.itemType === 'Assembly') {
-        subAssemblyCost += extended;
-      }
     }
   });
 
-  // Calculate item coverage counts strictly for items active in the selected costing mode
+  // Calculate item coverage counts and cost breakdown strictly from consolidated items active in the selected costing mode
+  // so the Consolidated Table column sum and the Grand Total match to the exact paisa without per-node rounding drift.
   const activeModeConsolidated = (enrichedConsolidated || []).filter(
     (item) => item.priceInfo.isCostedInActiveMode
   );
+
+  if (Array.isArray(enrichedConsolidated) && enrichedConsolidated.length > 0) {
+    activeModeConsolidated.forEach((item) => {
+      const price = item.priceInfo.unitPrice || 0;
+      const extended = item.priceInfo.extendedCost || 0;
+      if (price > 0) {
+        totalEstimatedCost += extended;
+        if (item.itemType === 'RM') {
+          rmCost += extended;
+        } else if (item.itemType === 'BO') {
+          boCost += extended;
+        } else if (item.itemType === 'Component') {
+          componentCost += extended;
+        } else if (item.itemType === 'SubAssembly' || item.itemType === 'Assembly') {
+          subAssemblyCost += extended;
+        }
+      }
+    });
+  } else {
+    (enrichedFlatTree || []).forEach((node) => {
+      if (!node.priceInfo.isCostedInActiveMode) return;
+      const price = node.priceInfo.unitPrice || 0;
+      const extended = node.priceInfo.extendedCost || 0;
+      if (price > 0) {
+        totalEstimatedCost += extended;
+        if (node.itemType === 'RM') {
+          rmCost += extended;
+        } else if (node.itemType === 'BO') {
+          boCost += extended;
+        } else if (node.itemType === 'Component') {
+          componentCost += extended;
+        } else if (node.itemType === 'SubAssembly' || node.itemType === 'Assembly') {
+          subAssemblyCost += extended;
+        }
+      }
+    });
+  }
 
   const totalItems = activeModeConsolidated.length;
   let totalPricedItems = 0;
@@ -463,7 +576,7 @@ export function calculateBOMCostingSummary(
     totalMissingItems,
     totalItems,
     coveragePercentage,
-    totalCumulativeQty: Number(totalCumulativeQty.toFixed(2)),
+    totalCumulativeQty: parseFloat(totalCumulativeQty.toFixed(4)),
     rmCost: Number(rmCost.toFixed(2)),
     boCost: Number(boCost.toFixed(2)),
     componentCost: Number(componentCost.toFixed(2)),

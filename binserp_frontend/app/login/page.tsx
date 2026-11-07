@@ -160,23 +160,29 @@ export default function LoginPage() {
             }
 
             const department = (response.user.department || "").toUpperCase();
-            if (department.includes("ADMIN") || department.includes("GM")) {
-              router.push("/dashboard/admin/overview");
-            } else if (department.includes("HR")) {
+            if (department.includes("HR")) {
               router.push("/dashboard/hr?tab=home");
-            } else if (department.includes("STORE")) {
+            } else if (department.includes("STORE") || department.includes("PURCHASE") || department.includes("INVENTORY")) {
               router.push("/dashboard/store/inventory/rm-stock");
-            } else if (department.includes("PPC")) {
+            } else if (department.includes("PPC") || department.includes("PRODUCTION")) {
               router.push("/dashboard/ppc/overview");
-            } else if (department.includes("ACCOUNTS")) {
+            } else if (department.includes("ACCOUNTS") || department.includes("FINANCE")) {
               router.push("/dashboard/accounts");
-            } else if (department.includes("SECURITY")) {
+            } else if (department.includes("SECURITY") || department.includes("GATE")) {
               router.push("/dashboard/gate-entry?tab=overview");
+            } else if (department.includes("QUALITY") || department.includes("QC") || department.includes("QA")) {
+              router.push("/dashboard/quality");
+            } else if (department.includes("MAINTENANCE")) {
+              router.push("/dashboard/maintenance");
+            } else if (department.includes("CRM") || department.includes("SALES")) {
+              router.push("/dashboard/crm");
+            } else if (department.includes("ADMIN") || department.includes("GM")) {
+              router.push("/dashboard/hr?tab=home");
             } else {
-              router.push("/dashboard/admin/overview");
+              router.push("/dashboard");
             }
           } else {
-            router.push("/dashboard/admin/overview");
+            router.push("/dashboard");
           }
         };
 

@@ -175,8 +175,11 @@ export function explodeFGBOMHierarchy(
       const isExplicitFG = normRawType === 'fgitem' || normRawType === 'fg' || normRawType === 'component' || normRawType === 'subassembly' || normRawType === 'sub assembly' || normRawType === 'assembly';
       const isConsumable = normRawType.includes('consumable');
 
-      const perParentQty = parseFloat((Number(bItem.quantity) || 1).toFixed(2));
-      const cumulativeQty = parseFloat((perParentQty * parentCumulativeQty).toFixed(2));
+      const rawQtyVal = bItem.quantity !== undefined && bItem.quantity !== null && bItem.quantity !== ''
+        ? Number(bItem.quantity)
+        : 1;
+      const perParentQty = isNaN(rawQtyVal) ? 1 : parseFloat(rawQtyVal.toFixed(4));
+      const cumulativeQty = parseFloat((perParentQty * parentCumulativeQty).toFixed(4));
 
       // 1. Resolve matched master record strictly within declared category
       let matchedFG: any = null;
@@ -325,8 +328,8 @@ export function explodeFGBOMHierarchy(
         (typeof bItem.item === 'object' ? bItem.item?.conversionFactor : 1)
       ) || 1;
 
-      const secPerParent = hasSec ? Math.round(perParentQty * convFactor) : undefined;
-      const secCumulative = hasSec ? Math.round(cumulativeQty * convFactor) : undefined;
+      const secPerParent = hasSec ? parseFloat((perParentQty * convFactor).toFixed(4)) : undefined;
+      const secCumulative = hasSec ? parseFloat((cumulativeQty * convFactor).toFixed(4)) : undefined;
 
       const resolvedMasterId = String(
         (isFGType ? (matchedFG?._id || matchedFG?.id) : '') ||
@@ -469,15 +472,15 @@ export function consolidateBOMItems(
       map.set(key, existing);
     }
 
-    // Add cumulative quantities
+    // Add cumulative quantities (preserve up to 4 decimal places for small engineering weights/lengths)
     existing.totalCumulativeQuantity = parseFloat(
-      (existing.totalCumulativeQuantity + (Number(node.cumulativeQuantity) || 0)).toFixed(2)
+      (existing.totalCumulativeQuantity + (Number(node.cumulativeQuantity) || 0)).toFixed(4)
     );
 
     if (node.hasSecondaryUnit && node.secondaryCumulativeQuantity !== undefined) {
       const conv = Number(node.conversionFactor) > 0 ? Number(node.conversionFactor) : 1;
-      existing.totalSecondaryCumulativeQuantity = Math.round(
-        existing.totalCumulativeQuantity * conv
+      existing.totalSecondaryCumulativeQuantity = parseFloat(
+        (existing.totalCumulativeQuantity * conv).toFixed(4)
       );
     }
 

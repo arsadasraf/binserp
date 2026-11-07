@@ -40,6 +40,19 @@ const FULL_ACCESS_DEPTS = new Set([
   "ADMINISTRATOR",
 ]);
 
+const routeToModuleKey: Record<string, string> = {
+  "/dashboard/hr": "HR",
+  "/dashboard/store": "STORE",
+  "/dashboard/ppc": "PPC",
+  "/dashboard/accounts": "ACCOUNTS",
+  "/dashboard/reports": "REPORTS",
+  "/dashboard/maintenance": "MAINTENANCE",
+  "/dashboard/quality": "QUALITY",
+  "/dashboard/gate-entry": "SECURITY",
+  "/dashboard/crm": "CRM",
+  "/dashboard/material-requests": "MATERIALREQUESTS",
+};
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get("accessToken")?.value;
@@ -47,11 +60,19 @@ export function proxy(request: NextRequest) {
     request.cookies.get("refreshToken")?.value ||
     request.cookies.get("saasAdminToken")?.value;
   const userType = request.cookies.get("userType")?.value;
-  const department = (
+  const department = decodeURIComponent(
     request.cookies.get("department")?.value || ""
   )
     .toUpperCase()
     .trim();
+  const allowedModulesRaw = decodeURIComponent(
+    request.cookies.get("allowedModules")?.value || ""
+  )
+    .toUpperCase()
+    .trim();
+  const allowedModulesSet = new Set(
+    allowedModulesRaw ? allowedModulesRaw.split(",").map((m) => m.trim()).filter(Boolean) : []
+  );
 
   const isProtected = protectedRoutes.some((route) =>
     pathname.startsWith(route)
@@ -81,21 +102,32 @@ export function proxy(request: NextRequest) {
       return NextResponse.next();
     }
 
-    // ── 4. Full-access departments (GM, Admin, CEO…) → allow everything ────
-    if (!department || FULL_ACCESS_DEPTS.has(department)) {
-      return NextResponse.next();
-    }
-
-    // ── 5. Restrict /dashboard/admin to company/saasadmin only ─────────────
+    // ── 4. Restrict /dashboard/admin to company/saasadmin only ─────────────
     if (pathname.startsWith("/dashboard/admin")) {
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
 
-    // ── 6. Department-based access control ─────────────────────────────────
+    // ── 5. Full-access roles or departments (GM, Admin, CEO…) → allow all ──
+    if (
+      allowedModulesSet.has("ALL") ||
+      !department ||
+      FULL_ACCESS_DEPTS.has(department)
+    ) {
+      return NextResponse.next();
+    }
+
+    // ── 6. Role & Department-based access control ──────────────────────────
     for (const [route, allowedDepts] of Object.entries(departmentAccess)) {
       if (!pathname.startsWith(route)) continue;
       // Empty array means open to all authenticated users
       if (allowedDepts.length === 0) break;
+
+      // Allow if user's assigned RBAC role grants access to this module
+      const requiredModule = routeToModuleKey[route];
+      if (requiredModule && allowedModulesSet.has(requiredModule)) {
+        break;
+      }
+
       const isAllowed = allowedDepts.some(
         (allowed) =>
           department === allowed ||
@@ -119,6 +151,7 @@ export function proxy(request: NextRequest) {
       response.cookies.delete("saasAdminToken");
       response.cookies.delete("userType");
       response.cookies.delete("department");
+      response.cookies.delete("allowedModules");
       response.cookies.delete("displayName");
       return response;
     }

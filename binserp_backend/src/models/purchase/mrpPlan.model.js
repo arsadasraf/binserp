@@ -86,6 +86,10 @@ export const mrpPlanSchema = new mongoose.Schema(
         unit: { type: String, default: "PCS" },
         sellingPrice: { type: Number, default: 0 }, // Converted selling price in INR
         totalPrice: { type: Number, default: 0 }, // Converted total price in INR
+        rmUnitCost: { type: Number, default: 0 }, // Calculated BOM (RM + BO) unit cost per FG in INR
+        rmTotalCost: { type: Number, default: 0 }, // Calculated BOM (RM + BO) total cost for line item in INR
+        rmOnlyCost: { type: Number, default: 0 }, // Raw Material portion of total BOM cost
+        boOnlyCost: { type: Number, default: 0 }, // Bought-Out portion of total BOM cost
         currency: { type: String, default: "INR" },
         originalSellingPrice: { type: Number, default: 0 },
         exchangeRate: { type: Number, default: 1 },
@@ -107,6 +111,7 @@ export const mrpPlanSchema = new mongoose.Schema(
             customerPoNumber: { type: String, default: "" },
             customerName: { type: String, default: "" },
             quantity: { type: Number, default: 0 },
+            monthKey: { type: String, default: "" },
             currency: { type: String, default: "INR" },
             originalRate: { type: Number, default: 0 },
             exchangeRate: { type: Number, default: 1 },

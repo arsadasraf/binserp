@@ -66,7 +66,7 @@ type PersistArgs = {
   token: string;
   refreshToken?: string;
   accessMode?: "App" | "Browser";
-  userType: "company" | "user" | "employee";
+  userType: "company" | "user" | "employee" | "saasadmin";
   user?: Record<string, any>;
 };
 
@@ -92,9 +92,39 @@ export const persistSession = ({ token, refreshToken, accessMode, userType, user
     localStorage.setItem("userInfo", JSON.stringify(user));
     if (user.department) {
       setCookie("department", user.department, cookieMaxAge);
+    } else {
+      document.cookie = `department=; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; ${getCookieFlags()}`;
     }
     if (user.name || user.companyName) {
       setCookie("displayName", user.name || user.companyName, cookieMaxAge);
+    }
+
+    // Persist role-authorized modules cookie so Edge proxy/middleware respects RBAC roles
+    const roles = Array.isArray(user.roles) && user.roles.length > 0
+      ? user.roles
+      : user.role
+      ? [user.role]
+      : [];
+    let isFullRole = false;
+    const modSet = new Set<string>();
+    roles.forEach((r: any) => {
+      if (!r || r.isActive === false) return;
+      const rName = typeof r === "string" ? r.trim() : (r.name || "").trim();
+      const isDefaultRole = typeof r === "object" ? r?.isDefault !== false : true;
+      if ((rName === "GM" || rName === "Admin Default Role" || rName === "Company Management") && isDefaultRole) {
+        isFullRole = true;
+      }
+      if (typeof r === "object" && Array.isArray(r.policies)) {
+        r.policies.forEach((p: any) => {
+          if (p?.module) modSet.add(String(p.module).toUpperCase().trim());
+        });
+      }
+    });
+    const allowedModulesValue = isFullRole ? "ALL" : Array.from(modSet).join(",");
+    if (allowedModulesValue) {
+      setCookie("allowedModules", allowedModulesValue, cookieMaxAge);
+    } else {
+      document.cookie = `allowedModules=; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; ${getCookieFlags()}`;
     }
   }
 
@@ -134,6 +164,7 @@ export const clearSession = async () => {
     "token",
     "userType",
     "department",
+    "allowedModules",
     "displayName",
     "accessToken",
     "refreshToken",

@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { priceListSchema } from "../../models/sales/index.js";
 import { fgItemSchema, categorySchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
+import { getUserAudit } from "../../utils/userAudit.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -11,6 +12,7 @@ export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
   const PriceList = req.getModel("PriceList", priceListSchema);
   const FGItem = req.getModel("FGItem", fgItemSchema);
   const companyId = getCompanyId(req);
+  const { userId, userName } = getUserAudit(req);
   const { fgItem, price, taxRate, currency, hsnCode, remarks, pricingUnit, isSecondaryUnit } = req.body;
 
   if (!fgItem || price === undefined || taxRate === undefined) {
@@ -26,14 +28,22 @@ export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
 
   const priceListEntry = await PriceList.findOneAndUpdate(
     { company: companyId, fgItem: fgItemObjectId },
-    { 
-      price: Number(price), 
-      taxRate: Number(taxRate), 
-      currency: normalizedCurrency,
-      hsnCode: resolvedHsn, 
-      remarks,
-      pricingUnit: pricingUnit || "",
-      isSecondaryUnit: Boolean(isSecondaryUnit),
+    {
+      $set: {
+        price: Number(price),
+        taxRate: Number(taxRate),
+        currency: normalizedCurrency,
+        hsnCode: resolvedHsn,
+        remarks,
+        pricingUnit: pricingUnit || "",
+        isSecondaryUnit: Boolean(isSecondaryUnit),
+        ...(userId ? { updatedBy: userId } : {}),
+        ...(userName ? { updatedByName: userName } : {}),
+      },
+      $setOnInsert: {
+        ...(userId ? { createdBy: userId } : {}),
+        ...(userName ? { createdByName: userName } : {}),
+      },
     },
     { new: true, upsert: true }
   );
@@ -68,7 +78,22 @@ export const getAllPriceLists = asyncHandler(async (req, res) => {
       select: "name code partNumber hsnCode type description descriptions specification unit hasSecondaryUnit secondaryUnit conversionFactor sellingPrice taxRate currency category categoryId",
       populate: { path: "categoryId", select: "name code" }
     })
-    .sort({ updatedAt: -1 });
+    .populate("createdBy", "name firstName lastName username email")
+    .populate("updatedBy", "name firstName lastName username email")
+    .sort({ updatedAt: -1 })
+    .lean();
+
+  priceLists.forEach((pl) => {
+    const resolveUserObjName = (u) => {
+      if (!u || typeof u !== "object") return "";
+      const full = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
+      return full || u.name || u.username || u.email || "";
+    };
+    const resolvedUpdatedName = pl.updatedByName || resolveUserObjName(pl.updatedBy) || pl.createdByName || resolveUserObjName(pl.createdBy) || "";
+    const resolvedCreatedName = pl.createdByName || resolveUserObjName(pl.createdBy) || "";
+    if (resolvedUpdatedName) pl.updatedByName = resolvedUpdatedName;
+    if (resolvedCreatedName) pl.createdByName = resolvedCreatedName;
+  });
 
   res.status(200).json({ priceLists });
 });

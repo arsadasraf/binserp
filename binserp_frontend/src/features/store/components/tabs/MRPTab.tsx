@@ -891,6 +891,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
               setIsCreateModalOpen(true);
             }}
             onPlanMatrixDemand={(matrixPayload) => {
+              setPreselectedMonth(matrixPayload.selectedMonths?.[0] || '');
               setPreselectedPoIds(matrixPayload.poIds);
               setEditingPlan(matrixPayload.initialPlanData);
               setIsCreateModalOpen(true);
@@ -1667,10 +1668,14 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
                               {/* FG Demand Summary */}
                               <td className="p-3.5">
-                                <div className="space-y-1">
+                                <div className="space-y-1.5">
                                   {fgItems.slice(0, 2).map((fg: any, fgIdx: number) => {
                                     const itemName = fg.fgItem?.name || fg.fgItemName || "FG Item";
                                     const itemDesc = fg.fgItem?.description || fg.fgItem?.descriptions || fg.description;
+                                    const fgQty = Math.max(1, Number(fg.quantity) || 1);
+                                    const poRate = Number(fg.sellingPrice || 0);
+                                    const rmUnit = Number(fg.rmUnitCost || 0);
+                                    const rmTot = Number(fg.rmTotalCost || 0);
                                     return (
                                       <div key={fgIdx} className="leading-tight">
                                         <div className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-200">
@@ -1682,6 +1687,20 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                         {itemDesc && (
                                           <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
                                             {itemDesc}
+                                          </div>
+                                        )}
+                                        {(poRate > 0 || rmUnit > 0 || rmTot > 0) && (
+                                          <div className="flex items-center gap-1.5 flex-wrap mt-1 text-[9.5px] font-mono">
+                                            {poRate > 0 && (
+                                              <span className="px-1.5 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800 font-bold" title={`Total PO Value: ₹${(Number(fg.totalPrice) || (poRate * fgQty)).toLocaleString('en-IN')}`}>
+                                                PO: ₹{poRate.toLocaleString('en-IN')}/{fg.unit || 'PCS'}
+                                              </span>
+                                            )}
+                                            {(rmUnit > 0 || rmTot > 0) && (
+                                              <span className="px-1.5 py-0.2 rounded bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800 font-bold" title={`Total BOM/RM Cost: ₹${rmTot.toLocaleString('en-IN')}`}>
+                                                RM: ₹{rmUnit.toLocaleString('en-IN')}/{fg.unit || 'PCS'}
+                                              </span>
+                                            )}
                                           </div>
                                         )}
                                       </div>
@@ -1705,6 +1724,12 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                     <span className="text-slate-400 text-[10px]">Revenue:</span>
                                     <span className="font-bold text-emerald-600 dark:text-emerald-400">
                                       ₹{(plan.totalIncome || 0).toLocaleString('en-IN')}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-[11px] font-mono">
+                                    <span className="text-slate-400 text-[10px]">BOM/RM Cost:</span>
+                                    <span className="font-bold text-amber-700 dark:text-amber-400">
+                                      ₹{Number(plan.totalGrossMaterialCost || plan.totalEstimatedExpense || 0).toLocaleString('en-IN')}
                                     </span>
                                   </div>
                                   <div className="flex items-center justify-between text-[11px] font-mono">
@@ -2421,14 +2446,15 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
               <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
                 {/* Desktop Table View */}
                 <div className="hidden md:block flex-1 min-h-0 overflow-auto scroll-smooth">
-                  <table className="w-full min-w-[880px] text-xs text-left">
+                  <table className="w-full min-w-[980px] text-xs text-left">
                     <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700 shadow-2xs backdrop-blur-xs">
                       <tr>
                         <th className="p-3.5">Finished Good (FG) Item & Description</th>
                         <th className="p-3.5 text-center">BOM Number</th>
                         <th className="p-3.5 text-center">Target Quantity</th>
-                        <th className="p-3.5 text-right">Selling Rate</th>
+                        <th className="p-3.5 text-right">PO Selling Rate</th>
                         <th className="p-3.5 text-right">Total Revenue</th>
+                        <th className="p-3.5 text-right">RM / BOM Cost</th>
                         <th className="p-3.5 text-center">FG GRN Received</th>
                         <th className="p-3.5 text-center">Balance Remaining</th>
                         <th className="p-3.5 text-center">Completion Progress</th>
@@ -2446,6 +2472,11 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                         const allChildMats = [...(selectedDemandPlan.rmRequirements || []), ...(selectedDemandPlan.boRequirements || [])];
                         const hasShortages = allChildMats.some((m: any) => m.shortage > 0);
                         const isProcurementFulfilled = !hasShortages;
+
+                        const lineRmTotal = Number(fg.rmTotalCost || 0);
+                        const lineRmUnit = Number(fg.rmUnitCost || 0) || (fgQty > 0 ? Math.round((lineRmTotal / fgQty) * 100) / 100 : 0);
+                        const lineRmOnly = Number(fg.rmOnlyCost || 0);
+                        const lineBoOnly = Number(fg.boOnlyCost || 0);
 
                         return (
                           <tr key={fgIdx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
@@ -2506,7 +2537,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                   <span>₹{Number(fg.sellingPrice).toLocaleString('en-IN')}</span>
                                   {fg.priceSource && (
                                     <span className="block text-[9px] text-slate-400 font-normal">
-                                      {fg.priceSource === 'customer_po' ? 'PO Line Rate' : 'FG Master'}
+                                      {fg.priceSource === 'customer_po' || String(fg.priceSource).includes('Customer PO') ? 'Customer PO Rate' : fg.priceSource}
                                     </span>
                                   )}
                                 </div>
@@ -2521,6 +2552,22 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                 `₹${Number(fg.totalPrice).toLocaleString('en-IN')}`
                               ) : fg.sellingPrice ? (
                                 `₹${(Number(fg.sellingPrice) * fgQty).toLocaleString('en-IN')}`
+                              ) : (
+                                <span className="text-slate-400 font-normal">-</span>
+                              )}
+                            </td>
+
+                            {/* RM / BOM Cost */}
+                            <td className="p-3.5 text-right font-mono" title={lineRmTotal > 0 ? `RM Cost: ₹${lineRmOnly.toLocaleString('en-IN')} | BO Cost: ₹${lineBoOnly.toLocaleString('en-IN')}` : undefined}>
+                              {lineRmTotal > 0 || lineRmUnit > 0 ? (
+                                <div>
+                                  <div className="font-bold text-amber-700 dark:text-amber-400">
+                                    ₹{lineRmTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400">
+                                    @ ₹{lineRmUnit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{fg.unit || 'PCS'}
+                                  </div>
+                                </div>
                               ) : (
                                 <span className="text-slate-400 font-normal">-</span>
                               )}
@@ -2652,13 +2699,25 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                           </div>
                         </div>
 
-                        {/* Financial Revenue Info */}
-                        {(fg.sellingPrice || fg.totalPrice) && (
-                          <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-emerald-50/60 dark:bg-emerald-950/40 rounded-xl border border-emerald-100 dark:border-emerald-900/60">
-                            <span className="text-slate-500 font-medium">Rate: <strong className="font-mono text-slate-800 dark:text-slate-200">₹{Number(fg.sellingPrice || 0).toLocaleString('en-IN')}</strong></span>
-                            <span className="text-emerald-700 dark:text-emerald-400 font-bold font-mono">
-                              Total: ₹{Number(fg.totalPrice || (Number(fg.sellingPrice || 0) * fgQty)).toLocaleString('en-IN')}
-                            </span>
+                        {/* Financial Revenue & RM/BOM Cost Info */}
+                        {(fg.sellingPrice || fg.totalPrice || fg.rmTotalCost || fg.rmUnitCost) && (
+                          <div className="space-y-1.5">
+                            {(fg.sellingPrice || fg.totalPrice) && (
+                              <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-emerald-50/60 dark:bg-emerald-950/40 rounded-xl border border-emerald-100 dark:border-emerald-900/60">
+                                <span className="text-slate-500 font-medium">PO Rate: <strong className="font-mono text-slate-800 dark:text-slate-200">₹{Number(fg.sellingPrice || 0).toLocaleString('en-IN')}/{fg.unit || 'PCS'}</strong></span>
+                                <span className="text-emerald-700 dark:text-emerald-400 font-bold font-mono">
+                                  PO Total: ₹{Number(fg.totalPrice || (Number(fg.sellingPrice || 0) * fgQty)).toLocaleString('en-IN')}
+                                </span>
+                              </div>
+                            )}
+                            {(fg.rmTotalCost || fg.rmUnitCost) && (
+                              <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-amber-50/60 dark:bg-amber-950/40 rounded-xl border border-amber-100 dark:border-amber-900/60">
+                                <span className="text-slate-500 font-medium">RM Rate: <strong className="font-mono text-amber-800 dark:text-amber-300">₹{Number(fg.rmUnitCost || 0).toLocaleString('en-IN')}/{fg.unit || 'PCS'}</strong></span>
+                                <span className="text-amber-700 dark:text-amber-400 font-bold font-mono">
+                                  RM Total: ₹{Number(fg.rmTotalCost || 0).toLocaleString('en-IN')}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         )}
 

@@ -180,10 +180,10 @@ export default function MasterDetailPreviewModal({
         return filterEnrichedTree(enrichedFlatTree, priceFilterMode);
     }, [enrichedFlatTree, priceFilterMode]);
 
-    // 3. Dynamic Costing & Quantity Dashboard Summary
+    // 3. Dynamic Costing & Quantity Dashboard Summary (computed before priceFilterMode so clicking 'Missing Prices' never zeroes out KPI cards)
     const costingSummary = useMemo(() => {
-        return calculateBOMCostingSummary(priceFilteredFlatTree, priceFilteredConsolidated, costingMode);
-    }, [priceFilteredFlatTree, priceFilteredConsolidated, costingMode]);
+        return calculateBOMCostingSummary(enrichedFlatTree, enrichedConsolidated, costingMode);
+    }, [enrichedFlatTree, enrichedConsolidated, costingMode]);
 
     // Excel-style column filters state for BOM Workbench
     const [bomSearchQuery, setBomSearchQuery] = useState<string>('');
@@ -253,6 +253,30 @@ export default function MasterDetailPreviewModal({
         }
         return items;
     }, [priceFilteredConsolidated, colFilterMaterialName, colFilterSubCategory, colFilterClassification, bomSearchQuery, tableSortConfig, getNormalizedClassification]);
+
+    // Compute exact totals for the currently displayed rows in the Consolidated Table footer
+    const displayedTableTotals = useMemo(() => {
+        let totalCost = 0;
+        let totalQty = 0;
+        let pricedCount = 0;
+        let activeModeCount = 0;
+        finalDisplayConsolidated.forEach((cItem) => {
+            totalQty += Number(cItem.totalCumulativeQuantity) || 0;
+            if (cItem.priceInfo?.isCostedInActiveMode) {
+                activeModeCount++;
+                if (cItem.priceInfo?.hasPrice) {
+                    pricedCount++;
+                    totalCost += Number(cItem.priceInfo.extendedCost) || 0;
+                }
+            }
+        });
+        return {
+            totalCost: Number(totalCost.toFixed(2)),
+            totalQty: parseFloat(totalQty.toFixed(4)),
+            pricedCount,
+            activeModeCount
+        };
+    }, [finalDisplayConsolidated]);
 
     // Filter and sort for Multi-Level Nested Tree View
     const matchesExcelFiltersForNode = useCallback((node: EnrichedExplodedBOMNode): boolean => {
@@ -1684,38 +1708,31 @@ export default function MasterDetailPreviewModal({
                                                             <tr>
                                                                 <th className="px-3 py-2.5 text-center w-12">#</th>
                                                                 <th className="px-3 py-2.5 min-w-[260px]">
-                                                                    <div className="flex items-center justify-between gap-1">
-                                                                        <span>Component / Item Name & Description</span>
-                                                                        <ColumnFilter
-                                                                            column="materialName"
-                                                                            title="Item Name"
-                                                                            data={enrichedConsolidated}
-                                                                            currentFilters={colFilterMaterialName}
-                                                                            onFilterChange={setColFilterMaterialName}
-                                                                            getValue={(item) => item.materialName}
-                                                                            sortConfig={tableSortConfig}
-                                                                            onSortChange={handleSortChange}
-                                                                        />
-                                                                    </div>
+                                                                    <ColumnFilter
+                                                                        column="materialName"
+                                                                        title="Component / Item Name & Description"
+                                                                        data={enrichedConsolidated}
+                                                                        currentFilters={colFilterMaterialName}
+                                                                        onFilterChange={setColFilterMaterialName}
+                                                                        getValue={(item) => item.materialName}
+                                                                        sortConfig={tableSortConfig}
+                                                                        onSortChange={handleSortChange}
+                                                                    />
                                                                 </th>
                                                                 <th className="px-3 py-2.5 w-32">
-                                                                    <div className="flex items-center justify-between gap-1">
-                                                                        <span>Subcategory</span>
-                                                                        <ColumnFilter
-                                                                            column="subCategory"
-                                                                            title="Subcategory"
-                                                                            data={enrichedConsolidated}
-                                                                            currentFilters={colFilterSubCategory}
-                                                                            onFilterChange={setColFilterSubCategory}
-                                                                            getValue={(item) => item.subCategory || '-'}
-                                                                            sortConfig={tableSortConfig}
-                                                                            onSortChange={handleSortChange}
-                                                                        />
-                                                                    </div>
+                                                                    <ColumnFilter
+                                                                        column="subCategory"
+                                                                        title="Subcategory"
+                                                                        data={enrichedConsolidated}
+                                                                        currentFilters={colFilterSubCategory}
+                                                                        onFilterChange={setColFilterSubCategory}
+                                                                        getValue={(item) => item.subCategory || '-'}
+                                                                        sortConfig={tableSortConfig}
+                                                                        onSortChange={handleSortChange}
+                                                                    />
                                                                 </th>
                                                                 <th className="px-3 py-2.5 text-center w-36">
-                                                                    <div className="flex items-center justify-center gap-1">
-                                                                        <span>Classification</span>
+                                                                    <div className="flex items-center justify-center">
                                                                         <ColumnFilter
                                                                             column="classification"
                                                                             title="Classification"
@@ -1728,13 +1745,12 @@ export default function MasterDetailPreviewModal({
                                                                         />
                                                                     </div>
                                                                 </th>
-                                                                <th className="px-3 py-2.5 min-w-[180px]">Parent Usages</th>
+                                                                <th className="px-3 py-2.5 min-w-[180px] font-semibold text-gray-900 dark:text-gray-100">Parent Usages</th>
                                                                 <th className="px-3 py-2.5 text-right w-36">
-                                                                    <div className="flex items-center justify-end gap-1">
-                                                                        <span>Total Qty (1 FG)</span>
+                                                                    <div className="flex items-center justify-end">
                                                                         <ColumnFilter
                                                                             column="totalQty"
-                                                                            title="Total Required"
+                                                                            title="Total Qty (1 FG)"
                                                                             data={enrichedConsolidated}
                                                                             currentFilters={[]}
                                                                             onFilterChange={() => {}}
@@ -1745,11 +1761,10 @@ export default function MasterDetailPreviewModal({
                                                                     </div>
                                                                 </th>
                                                                 <th className="px-3 py-2.5 text-right w-44">
-                                                                    <div className="flex items-center justify-end gap-1">
-                                                                        <span>Unit Rate & Vendor</span>
+                                                                    <div className="flex items-center justify-end">
                                                                         <ColumnFilter
                                                                             column="unitPrice"
-                                                                            title="Unit Rate"
+                                                                            title="Unit Rate & Vendor"
                                                                             data={enrichedConsolidated}
                                                                             currentFilters={[]}
                                                                             onFilterChange={() => {}}
@@ -1760,11 +1775,10 @@ export default function MasterDetailPreviewModal({
                                                                     </div>
                                                                 </th>
                                                                 <th className="px-3 py-2.5 text-right w-40">
-                                                                    <div className="flex items-center justify-end gap-1">
-                                                                        <span>Extended Cost (₹)</span>
+                                                                    <div className="flex items-center justify-end">
                                                                         <ColumnFilter
                                                                             column="extendedCost"
-                                                                            title="Extended Cost"
+                                                                            title="Extended Cost (₹)"
                                                                             data={enrichedConsolidated}
                                                                             currentFilters={[]}
                                                                             onFilterChange={() => {}}
@@ -1774,7 +1788,7 @@ export default function MasterDetailPreviewModal({
                                                                         />
                                                                     </div>
                                                                 </th>
-                                                                <th className="px-3 py-2.5 text-center w-28">Action</th>
+                                                                <th className="px-3 py-2.5 text-center w-28 font-semibold text-gray-900 dark:text-gray-100">Action</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1864,6 +1878,11 @@ export default function MasterDetailPreviewModal({
                                                                                                 / {pInfo.pricingUnit || cItem.unit}
                                                                                             </span>
                                                                                         </div>
+                                                                                        {pInfo.originalCurrency && pInfo.originalCurrency !== 'INR' && (
+                                                                                            <div className="text-[10px] font-mono font-semibold text-amber-600 dark:text-amber-400">
+                                                                                                ({pInfo.originalCurrency} {pInfo.originalUnitPrice} × {pInfo.exchangeRateToINR})
+                                                                                            </div>
+                                                                                        )}
                                                                                         <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-end gap-1 mt-0.5">
                                                                                             {pInfo.isPreferredVendor && <span className="text-amber-500 font-bold" title="Preferred Vendor">★</span>}
                                                                                             <span className="truncate max-w-[140px]" title={pInfo.vendorName || ''}>{pInfo.vendorName || (pInfo.priceSource === 'sales-price-list' ? 'Sales Catalog' : 'Standard Base Price')}</span>
@@ -1928,16 +1947,16 @@ export default function MasterDetailPreviewModal({
                                                             <tfoot className="bg-slate-100/90 dark:bg-slate-800/90 border-t-2 border-slate-300 dark:border-slate-700 text-xs font-bold">
                                                                 <tr>
                                                                     <td colSpan={5} className="px-4 py-3 text-right uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                                                                        Grand Total BOM Estimated Cost ({finalDisplayConsolidated.length} filtered items):
+                                                                        {hasActiveFilters ? `Filtered BOM Subtotal (${finalDisplayConsolidated.length} items):` : `Grand Total BOM Estimated Cost (${finalDisplayConsolidated.length} items):`}
                                                                     </td>
                                                                     <td className="px-3 py-3 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                                                                        {costingSummary.totalCumulativeQty.toLocaleString()} Units
+                                                                        {displayedTableTotals.totalQty.toLocaleString('en-IN', { maximumFractionDigits: 4 })} Units
                                                                     </td>
                                                                     <td className="px-3 py-3 text-right text-slate-400 text-[11px] font-normal">
-                                                                        {costingSummary.totalPricedItems}/{costingSummary.totalItems} Priced
+                                                                        {displayedTableTotals.pricedCount}/{displayedTableTotals.activeModeCount} Priced
                                                                     </td>
                                                                     <td className="px-3 py-3 text-right font-mono font-black text-indigo-700 dark:text-indigo-300 text-sm">
-                                                                        ₹{costingSummary.totalEstimatedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                        ₹{displayedTableTotals.totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                                     </td>
                                                                     <td className="px-3 py-3"></td>
                                                                 </tr>
@@ -1952,8 +1971,7 @@ export default function MasterDetailPreviewModal({
                                                         <thead className="text-[10px] text-slate-500 dark:text-slate-400 uppercase bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700/80">
                                                             <tr>
                                                                 <th className="px-3 py-2.5 text-center w-16">
-                                                                    <div className="flex items-center justify-center gap-1">
-                                                                        <span>Level</span>
+                                                                    <div className="flex items-center justify-center">
                                                                         <ColumnFilter
                                                                             column="level"
                                                                             title="Level"
@@ -1965,34 +1983,27 @@ export default function MasterDetailPreviewModal({
                                                                     </div>
                                                                 </th>
                                                                 <th className="px-3 py-2.5 min-w-[280px]">
-                                                                    <div className="flex items-center justify-between gap-1">
-                                                                        <span>Component / Item Name & Description</span>
-                                                                        <ColumnFilter
-                                                                            column="materialName"
-                                                                            title="Item Name"
-                                                                            data={explodedBOM.flatTree}
-                                                                            currentFilters={colFilterMaterialName}
-                                                                            onFilterChange={setColFilterMaterialName}
-                                                                            getValue={(node) => node.materialName}
-                                                                        />
-                                                                    </div>
+                                                                    <ColumnFilter
+                                                                        column="materialName"
+                                                                        title="Component / Item Name & Description"
+                                                                        data={explodedBOM.flatTree}
+                                                                        currentFilters={colFilterMaterialName}
+                                                                        onFilterChange={setColFilterMaterialName}
+                                                                        getValue={(node) => node.materialName}
+                                                                    />
                                                                 </th>
                                                                 <th className="px-3 py-2.5 w-32">
-                                                                    <div className="flex items-center justify-between gap-1">
-                                                                        <span>Subcategory</span>
-                                                                        <ColumnFilter
-                                                                            column="subCategory"
-                                                                            title="Subcategory"
-                                                                            data={explodedBOM.flatTree}
-                                                                            currentFilters={colFilterSubCategory}
-                                                                            onFilterChange={setColFilterSubCategory}
-                                                                            getValue={(node) => node.subCategory || '-'}
-                                                                        />
-                                                                    </div>
+                                                                    <ColumnFilter
+                                                                        column="subCategory"
+                                                                        title="Subcategory"
+                                                                        data={explodedBOM.flatTree}
+                                                                        currentFilters={colFilterSubCategory}
+                                                                        onFilterChange={setColFilterSubCategory}
+                                                                        getValue={(node) => node.subCategory || '-'}
+                                                                    />
                                                                 </th>
                                                                 <th className="px-3 py-2.5 text-center w-36">
-                                                                    <div className="flex items-center justify-center gap-1">
-                                                                        <span>Classification</span>
+                                                                    <div className="flex items-center justify-center">
                                                                         <ColumnFilter
                                                                             column="classification"
                                                                             title="Classification"
@@ -2003,11 +2014,11 @@ export default function MasterDetailPreviewModal({
                                                                         />
                                                                     </div>
                                                                 </th>
-                                                                <th className="px-3 py-2.5 text-right w-28">Qty / Parent</th>
-                                                                <th className="px-3 py-2.5 text-right w-28">Cumulative Qty</th>
-                                                                <th className="px-3 py-2.5 text-right w-44">Unit Rate & Vendor</th>
-                                                                <th className="px-3 py-2.5 text-right w-40">Extended Cost (₹)</th>
-                                                                <th className="px-3 py-2.5 text-center w-28">Action</th>
+                                                                <th className="px-3 py-2.5 text-right w-28 font-semibold text-gray-900 dark:text-gray-100">Qty / Parent</th>
+                                                                <th className="px-3 py-2.5 text-right w-28 font-semibold text-gray-900 dark:text-gray-100">Cumulative Qty</th>
+                                                                <th className="px-3 py-2.5 text-right w-44 font-semibold text-gray-900 dark:text-gray-100">Unit Rate & Vendor</th>
+                                                                <th className="px-3 py-2.5 text-right w-40 font-semibold text-gray-900 dark:text-gray-100">Extended Cost (₹)</th>
+                                                                <th className="px-3 py-2.5 text-center w-28 font-semibold text-gray-900 dark:text-gray-100">Action</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -2140,6 +2151,11 @@ export default function MasterDetailPreviewModal({
                                                                                                         / {pInfo.pricingUnit || node.unit}
                                                                                                     </span>
                                                                                                 </div>
+                                                                                                {pInfo.originalCurrency && pInfo.originalCurrency !== 'INR' && (
+                                                                                                    <div className="text-[10px] font-mono font-semibold text-amber-600 dark:text-amber-400">
+                                                                                                        ({pInfo.originalCurrency} {pInfo.originalUnitPrice} × {pInfo.exchangeRateToINR})
+                                                                                                    </div>
+                                                                                                )}
                                                                                                 <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-end gap-1 mt-0.5">
                                                                                                     {pInfo.isPreferredVendor && <span className="text-amber-500 font-bold" title="Preferred Vendor">★</span>}
                                                                                                     <span className="truncate max-w-[140px]" title={pInfo.vendorName || ''}>{pInfo.vendorName || (pInfo.priceSource === 'sales-price-list' ? 'Sales Catalog' : 'Standard Base Price')}</span>
@@ -2261,13 +2277,15 @@ export default function MasterDetailPreviewModal({
                                                             <tfoot className="bg-slate-100/90 dark:bg-slate-800/90 border-t-2 border-slate-300 dark:border-slate-700 text-xs font-bold">
                                                                 <tr>
                                                                     <td colSpan={6} className="px-4 py-3 text-right uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                                                                        Grand Total BOM Estimated Cost:
+                                                                        {hasActiveFilters ? 'Filtered BOM Subtotal:' : 'Grand Total BOM Estimated Cost:'}
                                                                     </td>
                                                                     <td className="px-3 py-3 text-right text-slate-400 text-[11px] font-normal">
-                                                                        {costingSummary.totalPricedItems}/{costingSummary.totalItems} Priced
+                                                                        {hasActiveFilters
+                                                                            ? `${displayedTableTotals.pricedCount}/${displayedTableTotals.activeModeCount} Priced`
+                                                                            : `${costingSummary.totalPricedItems}/${costingSummary.totalItems} Priced`}
                                                                     </td>
                                                                     <td className="px-3 py-3 text-right font-mono font-black text-indigo-700 dark:text-indigo-300 text-sm">
-                                                                        ₹{costingSummary.totalEstimatedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                        ₹{(hasActiveFilters ? displayedTableTotals.totalCost : costingSummary.totalEstimatedCost).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                                     </td>
                                                                     <td className="px-3 py-3"></td>
                                                                 </tr>

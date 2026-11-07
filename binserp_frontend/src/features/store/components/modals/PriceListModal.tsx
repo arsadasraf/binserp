@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { X, Save, AlertCircle, Tag, Globe } from "lucide-react";
+import { X, Save, AlertCircle, Tag, Globe, User, Clock } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
 import { formatItemSelectLabel, getItemDescription } from "@/src/utils/itemDisplayHelper";
 import { CURRENCY_OPTIONS, getCurrencySymbol, normalizeCurrencyCode } from "@/src/utils/currencyHelper";
@@ -368,6 +368,35 @@ export default function PriceListModal({
                 placeholder="Optional notes or validity..."
               />
             </div>
+
+            {initialData && (initialData.updatedAt || initialData.createdAt || initialData.updatedByName || initialData.createdByName) && (
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                <div className="flex items-center gap-1.5 font-semibold truncate">
+                  <User size={12} className="text-indigo-500 shrink-0" />
+                  <span>
+                    Last Updated By:{" "}
+                    <strong className="text-slate-900 dark:text-white">
+                      {initialData.updatedByName || initialData.createdByName || "Admin"}
+                    </strong>
+                  </span>
+                </div>
+                {(initialData.updatedAt || initialData.createdAt) && (
+                  <div className="flex items-center gap-1 font-mono text-[10px] text-slate-500 dark:text-slate-400 shrink-0">
+                    <Clock size={11} className="text-slate-400" />
+                    <span>
+                      {new Date(initialData.updatedAt || initialData.createdAt).toLocaleString("en-IN", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: true,
+                      })}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           </form>
         </div>
 
