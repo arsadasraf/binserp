@@ -43,33 +43,33 @@ export interface DualUomCalculationResult {
 }
 
 /**
- * Standard Primary Quantity Formatter (Caps float at max 2 decimal places, stripping trailing zeros)
- * E.g. 12.3456 -> 12.35, 10.00 -> 10
+ * Standard Primary Quantity Formatter (Caps float at max 4 decimal places, stripping trailing zeros)
+ * E.g. 12.3456 -> 12.3456, 10.00 -> 10, 0.004 -> 0.004
  */
 export function formatPrimaryQty(val: any): number {
   const num = Number(val);
   if (isNaN(num) || !isFinite(num)) return 0;
-  return parseFloat(num.toFixed(2));
+  return parseFloat(num.toFixed(4));
 }
 
 /**
  * Primary -> Secondary Unit Quantity Conversion
- * Rounds to the nearest whole integer (e.g. 2.6 -> 3, 2.5 -> 3, 2.4 -> 2)
+ * Precision-safe up to 4 decimal places without forced whole-integer truncation
  */
 export function convertPrimaryToSecondaryQty(primaryQty: any, conversionFactor: any = 1): number {
   const factor = Number(conversionFactor) > 0 ? Number(conversionFactor) : 1;
   const num = Number(primaryQty) || 0;
-  return Math.round(num * factor);
+  return parseFloat((num * factor).toFixed(4));
 }
 
 /**
  * Secondary -> Primary Unit Quantity Conversion
- * Caps primary quantity at max 2 decimal places (.2)
+ * Precision-safe up to 4 decimal places
  */
 export function convertSecondaryToPrimaryQty(secondaryQty: any, conversionFactor: any = 1): number {
   const factor = Number(conversionFactor) > 0 ? Number(conversionFactor) : 1;
   const num = Number(secondaryQty) || 0;
-  return parseFloat((num / factor).toFixed(2));
+  return parseFloat((num / factor).toFixed(4));
 }
 
 /**
@@ -87,12 +87,12 @@ export function syncQuantities(
     const cleanPrimary = formatPrimaryQty(numVal);
     return {
       quantity: cleanPrimary,
-      secondaryQuantity: Math.round(cleanPrimary * factor),
+      secondaryQuantity: parseFloat((cleanPrimary * factor).toFixed(4)),
     };
   } else {
-    const cleanSecondary = Math.round(numVal);
+    const cleanSecondary = parseFloat(numVal.toFixed(4));
     return {
-      quantity: parseFloat((cleanSecondary / factor).toFixed(2)),
+      quantity: parseFloat((cleanSecondary / factor).toFixed(4)),
       secondaryQuantity: cleanSecondary,
     };
   }

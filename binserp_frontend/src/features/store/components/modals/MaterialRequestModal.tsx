@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { RmBoItem } from "@/src/features/store/types/store.types";
-import { X, Plus, Trash2, Package, ShoppingCart, Boxes, Layers, Sparkles, ListFilter, Search, Check } from "lucide-react";
+import { X, Plus, Trash2, Package, ShoppingCart, Boxes, Layers, Sparkles, ListFilter, Search, Check, AlertTriangle } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
 import { apiGet } from "@/src/lib/api";
 import { showWarningDialog, showWarningToast } from "@/src/features/store/utils/storeDialogHelper";
@@ -77,6 +77,8 @@ export default function MaterialRequestModal({
             hasSecondaryUnit: false,
             secondaryUnit: "",
             conversionFactor: 0,
+            primaryRatio: 1 as number | undefined,
+            secondaryRatio: 1 as number | undefined,
             secondaryQuantity: 0,
             selectedUnit: initialType === 'fg' ? "Nos" : "PCS",
             purpose: "",
@@ -105,6 +107,8 @@ export default function MaterialRequestModal({
             hasSecondaryUnit: false,
             secondaryUnit: "",
             conversionFactor: 0,
+            primaryRatio: 1,
+            secondaryRatio: 1,
             secondaryQuantity: 0,
             selectedUnit: defaultUnit,
             purpose: mrpNum ? `Demand for MRP: ${mrpNum}` : "",
@@ -304,7 +308,13 @@ export default function MaterialRequestModal({
                     const mat = searchList.find((m: any) => (m._id === r.material || m.name === r.materialName || (m.code && m.code === r.materialCode)));
                     const hasSec = Boolean(mat?.hasSecondaryUnit || r.hasSecondaryUnit);
                     const secUnit = mat?.secondaryUnit || r.secondaryUnit || "";
-                    const convFactor = Number(mat?.conversionFactor || r.conversionFactor) || 1;
+                    let convFactor = Number(mat?.conversionFactor || r.conversionFactor) || 0;
+                    const pRatio = Number(mat?.primaryRatio || r.primaryRatio || 1);
+                    const sRatio = Number(mat?.secondaryRatio || r.secondaryRatio || 1);
+                    if (convFactor <= 0 && pRatio > 0 && sRatio > 0) {
+                        convFactor = sRatio / pRatio;
+                    }
+                    if (convFactor <= 0) convFactor = 1;
                     
                     const totalNeeded = Number(r.requiredQuantity || r.totalRequired || 1);
                     const liveStock = Number(mat?.quantity ?? mat?.currentStock ?? r.currentStock ?? 0);
@@ -312,6 +322,8 @@ export default function MaterialRequestModal({
                     const secQty = (hasSec && convFactor > 0) ? convertPrimaryToSecondaryQty(qty, convFactor) : 0;
 
                     const itemUnit = (mat?.unit || r.unit || (defaultItemType === 'Raw Material' ? 'KG' : 'PCS')).toString().trim();
+                    // For RM, default to Secondary UOM (e.g. NOS) if secondary UOM exists
+                    const defaultUnit = (defaultItemType === 'Raw Material' && hasSec && secUnit) ? secUnit : itemUnit;
                     return {
                         material: mat?._id || r.material || '',
                         itemType: defaultItemType,
@@ -323,8 +335,10 @@ export default function MaterialRequestModal({
                         hasSecondaryUnit: hasSec,
                         secondaryUnit: secUnit,
                         conversionFactor: convFactor,
+                        primaryRatio: pRatio,
+                        secondaryRatio: sRatio,
                         secondaryQuantity: secQty,
-                        selectedUnit: itemUnit,
+                        selectedUnit: defaultUnit,
                         purpose: `Demand for MRP: ${selectedPlan.mrpNumber}`,
                         consumable: reqType === 'consumable' ? (mat?._id || r.material) : undefined,
                         component: undefined,
@@ -484,32 +498,9 @@ export default function MaterialRequestModal({
     };
 
     const getStock = (materialId: string, materialCode?: string, materialName?: string) => {
-        if (!materialId) return 0;
+        if (!materialId && !materialCode && !materialName) return 0;
 
-        if (formData.type === 'consumable') {
-            if (consumables && consumables.length > 0) {
-                const consumable = consumables.find((c: any) => c._id === materialId || c.code === materialCode || c.name === materialName);
-                if (consumable && consumable.quantity !== undefined) return Number(consumable.quantity) || 0;
-            }
-        }
-
-        if (formData.type === 'fg') {
-            if (effectiveFGList && effectiveFGList.length > 0) {
-                const comp = effectiveFGList.find((c: any) => c._id === materialId || c.code === materialCode || c.name === materialName);
-                return comp ? (Number(comp.quantity) || 0) : 0;
-            }
-        }
-
-        if (formData.type === 'rm') {
-            const rm = effectiveRMList.find((m: any) => m._id === materialId || m.code === materialCode || m.name === materialName);
-            if (rm && rm.quantity !== undefined) return Number(rm.quantity) || 0;
-        }
-
-        if (formData.type === 'bo') {
-            const bo = effectiveBOList.find((m: any) => m._id === materialId || m.code === materialCode || m.name === materialName);
-            if (bo && bo.quantity !== undefined) return Number(bo.quantity) || 0;
-        }
-
+        // 1. Authoritative Warehouse Live Stock in Inventory collection
         if (inventoryList && inventoryList.length > 0) {
             const stockItem = inventoryList.find((inv: any) => {
                 if (!inv) return false;
@@ -517,7 +508,7 @@ export default function MaterialRequestModal({
                     ? inv.materialId._id
                     : inv.materialId;
 
-                if (invMatId && invMatId.toString() === materialId.toString()) return true;
+                if (materialId && invMatId && invMatId.toString() === materialId.toString()) return true;
 
                 if (materialCode && inv.materialCode &&
                     inv.materialCode.toString().trim().toLowerCase() === materialCode.toString().trim().toLowerCase()) return true;
@@ -531,8 +522,44 @@ export default function MaterialRequestModal({
             if (stockItem && stockItem.currentStock !== undefined) return Number(stockItem.currentStock) || 0;
         }
 
+        // 2. FG Items / In-House Components
+        if (formData.type === 'fg') {
+            if (effectiveFGList && effectiveFGList.length > 0) {
+                const comp = effectiveFGList.find((c: any) => c._id === materialId || c.code === materialCode || c.name === materialName);
+                return comp ? (Number(comp.quantity ?? comp.currentStock) || 0) : 0;
+            }
+        }
+
+        // 3. Consumables
+        if (formData.type === 'consumable') {
+            if (consumables && consumables.length > 0) {
+                const consumable = consumables.find((c: any) => c._id === materialId || c.code === materialCode || c.name === materialName);
+                if (consumable && (consumable.quantity !== undefined || consumable.currentStock !== undefined)) {
+                    return Number(consumable.quantity ?? consumable.currentStock) || 0;
+                }
+            }
+        }
+
+        // 4. Raw Materials
+        if (formData.type === 'rm') {
+            const rm = effectiveRMList.find((m: any) => m._id === materialId || m.code === materialCode || m.name === materialName);
+            if (rm && (rm.quantity !== undefined || rm.currentStock !== undefined)) {
+                return Number(rm.quantity ?? rm.currentStock) || 0;
+            }
+        }
+
+        // 5. Bought Outs
+        if (formData.type === 'bo') {
+            const bo = effectiveBOList.find((m: any) => m._id === materialId || m.code === materialCode || m.name === materialName);
+            if (bo && (bo.quantity !== undefined || bo.currentStock !== undefined)) {
+                return Number(bo.quantity ?? bo.currentStock) || 0;
+            }
+        }
+
         const mat = (materials || []).find((m: any) => m._id === materialId) as any;
-        if (mat && mat.quantity !== undefined) return Number(mat.quantity) || 0;
+        if (mat && (mat.quantity !== undefined || mat.currentStock !== undefined)) {
+            return Number(mat.quantity ?? mat.currentStock) || 0;
+        }
 
         return 0;
     };
@@ -557,14 +584,27 @@ export default function MaterialRequestModal({
         const currentStock = getStock(materialId, selectedItem?.code || selectedItem?.componentCode, selectedItem?.name || selectedItem?.componentName);
         const materialDesc = selectedItem?.descriptions || selectedItem?.description || selectedItem?.specification || selectedItem?.grade || "";
         const hasSecondaryUnit = Boolean(selectedItem?.hasSecondaryUnit);
-        const secondaryUnit = selectedItem?.secondaryUnit || "";
-        const conversionFactor = Number(selectedItem?.conversionFactor) || 0;
+        const secondaryUnit = (selectedItem?.secondaryUnit || "").toString().trim();
+        
+        let conversionFactor = Number(selectedItem?.conversionFactor) || 0;
+        const pRatio = Number(selectedItem?.primaryRatio || 1);
+        const sRatio = Number(selectedItem?.secondaryRatio || 1);
+        if (conversionFactor <= 0 && pRatio > 0 && sRatio > 0) {
+            conversionFactor = sRatio / pRatio;
+        }
+        if (conversionFactor <= 0) conversionFactor = 1;
+
         const mrpReq = mrpRequirementMap.get(materialId) ||
                        (selectedItem?.code ? mrpRequirementMap.get(selectedItem.code.toLowerCase().trim()) : null) ||
                        (selectedItem?.name ? mrpRequirementMap.get(selectedItem.name.toLowerCase().trim()) : null);
         const plannedQty = mrpReq ? mrpReq.reqQty : 1;
         const existingQty = formData.items[index]?.quantity;
         const currentQty = formatPrimaryQty((existingQty && existingQty !== 1) ? existingQty : plannedQty);
+        
+        // For RM (Raw Material), if secondary UOM exists (e.g. NOS), default to secondary UOM first
+        const isRM = formData.type === 'rm' || (selectedItem?.code && selectedItem.code.toUpperCase().startsWith('RM-'));
+        const defaultSelectedUnit = (isRM && hasSecondaryUnit && secondaryUnit) ? secondaryUnit : unitVal;
+
         const secondaryQuantity = hasSecondaryUnit && conversionFactor ? convertPrimaryToSecondaryQty(currentQty, conversionFactor) : 0;
 
         const newItems = [...formData.items];
@@ -575,12 +615,15 @@ export default function MaterialRequestModal({
             materialName: selectedItem?.name || selectedItem?.componentName || "",
             materialCode: selectedItem?.code || selectedItem?.componentCode || "",
             materialDescription: materialDesc,
+            quantity: currentQty,
             unit: unitVal,
             hasSecondaryUnit,
             secondaryUnit,
             conversionFactor,
+            primaryRatio: pRatio,
+            secondaryRatio: sRatio,
             secondaryQuantity,
-            selectedUnit: unitVal,
+            selectedUnit: defaultSelectedUnit,
             currentStock,
             consumable: formData.type === 'consumable' ? materialId : undefined,
             component: formData.type === 'fg' ? materialId : undefined,
@@ -588,6 +631,33 @@ export default function MaterialRequestModal({
         };
         setFormData({ ...formData, items: newItems });
     };
+
+    const validationWarning = useMemo(() => {
+        if (isMrpMissing) {
+            return `MRP Plan is compulsory for ${formData.type.toUpperCase()} requests. Please select an active MRP Plan.`;
+        }
+        for (let i = 0; i < formData.items.length; i++) {
+            const item = formData.items[i];
+            if (!item.material && !item.materialName) continue;
+            const currentStock = getStock(item.material, item.materialCode, item.materialName);
+            const secStock = item.hasSecondaryUnit && item.conversionFactor ? currentStock * item.conversionFactor : 0;
+            const isSecondary = Boolean(item.hasSecondaryUnit && item.secondaryUnit && item.selectedUnit === item.secondaryUnit);
+            const exceeds = isSecondary 
+                ? ((item.secondaryQuantity - secStock) > 0.0005 || (item.quantity - currentStock) > 0.0005)
+                : ((item.quantity - currentStock) > 0.0005);
+            const isZeroOrNeg = isSecondary 
+                ? (!item.secondaryQuantity || item.secondaryQuantity <= 0)
+                : (!item.quantity || item.quantity <= 0);
+
+            if (isZeroOrNeg) {
+                return `Item #${i + 1} (${item.materialName || 'Item'}) requires a valid quantity greater than 0.`;
+            }
+            if (exceeds) {
+                return `Item #${i + 1} (${item.materialName || 'Item'}) exceeds live warehouse stock (Available: ${isSecondary ? `${formatPrimaryQty(secStock)} ${item.secondaryUnit}` : `${formatPrimaryQty(currentStock)} ${item.unit}`}).`;
+            }
+        }
+        return null;
+    }, [formData, isMrpMissing, inventoryList, rawMaterials, boughtOuts, effectiveRMList, effectiveBOList, effectiveFGList, consumables]);
 
     const updateItem = (index: number, field: string, value: any) => {
         const newItems = [...formData.items];
@@ -846,12 +916,12 @@ export default function MaterialRequestModal({
                             {formData.items.map((item: any, index) => {
                                 const currentStock = getStock(item.material, item.materialCode, item.materialName);
                                 const secStock = item.hasSecondaryUnit && item.conversionFactor ? currentStock * item.conversionFactor : 0;
-                                const isOperatingInSecondary = Boolean(item.hasSecondaryUnit && item.selectedUnit === item.secondaryUnit);
+                                const isOperatingInSecondary = Boolean(item.hasSecondaryUnit && item.secondaryUnit && item.selectedUnit === item.secondaryUnit);
                                 const isExceedingStock = Boolean(
                                     item.material && (
                                         isOperatingInSecondary
-                                            ? (item.secondaryQuantity > secStock || item.quantity > currentStock)
-                                            : (item.quantity > currentStock)
+                                            ? ((item.secondaryQuantity - secStock) > 0.0005 || (item.quantity - currentStock) > 0.0005)
+                                            : ((item.quantity - currentStock) > 0.0005)
                                     )
                                 );
 
@@ -979,17 +1049,41 @@ export default function MaterialRequestModal({
                                                             value={item.selectedUnit || item.unit}
                                                             onChange={(e) => {
                                                                 const newUnit = e.target.value;
+                                                                const isNowSec = (newUnit === item.secondaryUnit);
                                                                 const newItems = [...formData.items];
+                                                                let newQty = item.quantity;
+                                                                let newSecQty = item.secondaryQuantity;
+                                                                const conv = Number(item.conversionFactor) || 1;
+                                                                if (isNowSec) {
+                                                                    if ((!newSecQty || newSecQty === 0) && newQty > 0 && conv > 0) {
+                                                                        newSecQty = convertPrimaryToSecondaryQty(newQty, conv);
+                                                                    }
+                                                                } else {
+                                                                    if ((!newQty || newQty === 0) && newSecQty > 0 && conv > 0) {
+                                                                        newQty = convertSecondaryToPrimaryQty(newSecQty, conv);
+                                                                    }
+                                                                }
                                                                 newItems[index] = {
                                                                     ...newItems[index],
-                                                                    selectedUnit: newUnit
+                                                                    selectedUnit: newUnit,
+                                                                    quantity: newQty,
+                                                                    secondaryQuantity: newSecQty
                                                                 };
                                                                 setFormData({ ...formData, items: newItems });
                                                             }}
                                                             className="w-full h-10 px-3 bg-white dark:bg-gray-900 border border-indigo-300 dark:border-indigo-700 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-xs"
                                                         >
-                                                            <option value={item.unit}>{item.unit} (Primary)</option>
-                                                            <option value={item.secondaryUnit}>{item.secondaryUnit} (Secondary)</option>
+                                                            {formData.type === 'rm' ? (
+                                                                <>
+                                                                    <option value={item.secondaryUnit}>{item.secondaryUnit} (Secondary - Shop Floor Default)</option>
+                                                                    <option value={item.unit}>{item.unit} (Primary Stocking)</option>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <option value={item.unit}>{item.unit} (Primary)</option>
+                                                                    <option value={item.secondaryUnit}>{item.secondaryUnit} (Secondary)</option>
+                                                                </>
+                                                            )}
                                                         </select>
                                                     ) : (
                                                         <div className="w-full h-10 px-3 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center justify-between">
@@ -1012,28 +1106,32 @@ export default function MaterialRequestModal({
                                                             type="number"
                                                             value={
                                                                 isOperatingInSecondary
-                                                                    ? (isNaN(item.secondaryQuantity) ? '' : item.secondaryQuantity)
-                                                                    : (isNaN(item.quantity) ? '' : item.quantity)
+                                                                    ? (item.secondaryQuantity === undefined || isNaN(item.secondaryQuantity) || item.secondaryQuantity === 0 ? '' : item.secondaryQuantity)
+                                                                    : (item.quantity === undefined || isNaN(item.quantity) || item.quantity === 0 ? '' : item.quantity)
                                                             }
                                                             onChange={(e) => {
-                                                                const val = e.target.value === '' ? NaN : parseFloat(e.target.value);
+                                                                const rawVal = e.target.value;
+                                                                const val = rawVal === '' ? NaN : parseFloat(rawVal);
                                                                 const newItems = [...formData.items];
+                                                                const conv = Number(item.conversionFactor) || 1;
                                                                 if (isOperatingInSecondary) {
-                                                                    const priVal = (!isNaN(val) && item.conversionFactor > 0)
-                                                                        ? convertSecondaryToPrimaryQty(val, item.conversionFactor)
+                                                                    const secVal = isNaN(val) ? 0 : val;
+                                                                    const priVal = (!isNaN(val) && conv > 0)
+                                                                        ? convertSecondaryToPrimaryQty(val, conv)
                                                                         : 0;
                                                                     newItems[index] = {
                                                                         ...newItems[index],
-                                                                        secondaryQuantity: isNaN(val) ? val : Math.round(val),
+                                                                        secondaryQuantity: secVal,
                                                                         quantity: priVal
                                                                     };
                                                                 } else {
-                                                                    const secVal = (!isNaN(val) && item.hasSecondaryUnit && item.conversionFactor > 0)
-                                                                        ? convertPrimaryToSecondaryQty(val, item.conversionFactor)
+                                                                    const priVal = isNaN(val) ? 0 : val;
+                                                                    const secVal = (!isNaN(val) && item.hasSecondaryUnit && conv > 0)
+                                                                        ? convertPrimaryToSecondaryQty(val, conv)
                                                                         : 0;
                                                                     newItems[index] = {
                                                                         ...newItems[index],
-                                                                        quantity: isNaN(val) ? val : formatPrimaryQty(val),
+                                                                        quantity: priVal,
                                                                         secondaryQuantity: secVal
                                                                     };
                                                                 }
@@ -1047,7 +1145,7 @@ export default function MaterialRequestModal({
                                                         />
                                                         {isExceedingStock && (
                                                             <span className="text-[10px] text-red-500 font-medium block mt-1">
-                                                                Max Available: {isOperatingInSecondary ? `${Math.round(secStock)} ${item.secondaryUnit}` : `${formatPrimaryQty(currentStock)} ${item.unit}`}
+                                                                Max Available: {isOperatingInSecondary ? `${formatPrimaryQty(secStock)} ${item.secondaryUnit}` : `${formatPrimaryQty(currentStock)} ${item.unit}`}
                                                             </span>
                                                         )}
                                                     </div>
@@ -1058,7 +1156,7 @@ export default function MaterialRequestModal({
                                                             {isOperatingInSecondary ? (
                                                                 <span>↳ = <strong className="font-bold">{formatPrimaryQty(item.quantity || 0)}</strong> {item.unit}</span>
                                                             ) : (
-                                                                <span>↳ = <strong className="font-bold">{Math.round(item.secondaryQuantity || 0)}</strong> {item.secondaryUnit}</span>
+                                                                <span>↳ = <strong className="font-bold">{formatPrimaryQty(item.secondaryQuantity || 0)}</strong> {item.secondaryUnit}</span>
                                                             )}
                                                         </div>
                                                     )}
@@ -1119,6 +1217,14 @@ export default function MaterialRequestModal({
                     </div>
                 </div>
 
+                {/* Validation Warning Alert */}
+                {validationWarning && (
+                    <div className="mx-3 sm:mx-5 mb-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2 animate-in fade-in">
+                        <AlertTriangle size={16} className="shrink-0 text-amber-600 dark:text-amber-400" />
+                        <span className="font-semibold">{validationWarning}</span>
+                    </div>
+                )}
+
                 {/* Sticky Mobile App-Style Footer Action Bar */}
                 <div className="p-3 sm:p-5 border-t border-gray-100 dark:border-gray-800 bg-gray-50/90 dark:bg-gray-850/90 shrink-0 backdrop-blur-md flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
@@ -1156,18 +1262,7 @@ export default function MaterialRequestModal({
                                     items: cleanedItems
                                 });
                             }}
-                            disabled={loading || isMrpMissing || formData.items.some(item => {
-                                const currentStock = getStock(item.material, item.materialCode, item.materialName);
-                                const secStock = item.hasSecondaryUnit && item.conversionFactor ? currentStock * item.conversionFactor : 0;
-                                const isSecondary = item.hasSecondaryUnit && item.selectedUnit === item.secondaryUnit;
-                                const exceeds = isSecondary 
-                                    ? (item.secondaryQuantity > secStock || item.quantity > currentStock)
-                                    : (item.quantity > currentStock);
-                                const isZeroOrNegative = isSecondary 
-                                    ? (!item.secondaryQuantity || item.secondaryQuantity <= 0)
-                                    : (!item.quantity || item.quantity <= 0);
-                                return exceeds || isZeroOrNegative;
-                            })}
+                            disabled={loading || Boolean(validationWarning)}
                             className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-extrabold rounded-xl shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none cursor-pointer min-h-[42px] flex items-center justify-center gap-2"
                         >
                             {loading ? (

@@ -25,12 +25,13 @@ export default function SalesDCPage() {
         companyInfo={companyInfo}
         onCreateDC={() => { setEditingDC(null); setShowModal(true); }}
         onEdit={(dc) => { setEditingDC(dc); setShowModal(true); }}
-        onDelete={(id) => handleDelete(id)}
+        onDelete={(id) => handleDelete(id, true)}
       />
 
       {showModal && (
         <DCModal
           isOpen={showModal}
+          isEditing={!!editingDC}
           loading={loading}
           customers={customers || []}
           inHouseItems={fgItems || []}
@@ -47,10 +48,18 @@ export default function SalesDCPage() {
               setShowModal(false);
               setEditingDC(null);
               refetch();
+              return { ok: true };
             } catch (error: any) {
-              console.error("Failed to save DC:", error);
-              const errorMsg = error?.data?.message || error?.error || error?.message || "Failed to save Delivery Challan. Please verify server connection.";
-              Swal.fire("Save Error", typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg), "error");
+              const rawMsg = error?.data?.message || error?.response?.data?.message || error?.error || error?.message || "Failed to save Delivery Challan. Please verify server connection.";
+              const errorMsg = typeof rawMsg === 'string' ? rawMsg : JSON.stringify(rawMsg);
+              console.warn("Delivery Challan validation/save error:", errorMsg);
+              Swal.fire({
+                icon: "error",
+                title: "Cannot Save Delivery Challan",
+                text: errorMsg,
+                confirmButtonColor: "#4f46e5"
+              });
+              return { error: errorMsg };
             }
           }}
           initialData={editingDC}

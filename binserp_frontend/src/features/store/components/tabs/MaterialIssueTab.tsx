@@ -10,6 +10,7 @@ import MaterialIssueDetailsModal from '../modals/MaterialIssueDetailsModal';
 import EditMaterialIssueModal from '../modals/EditMaterialIssueModal';
 import { showDestructiveConfirm, showSuccessToast, showErrorDialog, showWarningDialog } from '@/src/features/store/utils/storeDialogHelper';
 import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
+import { formatPrimaryQty, convertPrimaryToSecondaryQty } from '@/src/utils/dualUomHelper';
 
 export type RequestTypeOption = 'rm' | 'bo' | 'consumable' | 'fg';
 
@@ -478,12 +479,20 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                     const hasSec = Boolean(item.hasSecondaryUnit);
                     const secUnit = item.secondaryUnit || '';
                     const convFactor = Number(item.conversionFactor) || 0;
-                    const priQty = parseFloat((Number(item.quantity) || 1).toFixed(2));
-                    const secQty = hasSec ? Math.round(Number(item.secondaryQuantity || (priQty * convFactor))) : 0;
+                    const priQty = formatPrimaryQty(Number(item.quantity) || 1);
+                    const secQty = hasSec 
+                        ? (item.secondaryQuantity != null && !isNaN(Number(item.secondaryQuantity)) && Number(item.secondaryQuantity) > 0
+                            ? formatPrimaryQty(item.secondaryQuantity)
+                            : convertPrimaryToSecondaryQty(priQty, convFactor || 1))
+                        : 0;
                     const itType = item.itemType || (isInhouse ? 'FG Item' : isConsumable ? 'Consumable' : (rType === 'bo' ? 'Bought Out' : ((item.materialCode || '').toUpperCase().startsWith('BO-') ? 'Bought Out' : 'Raw Material')));
+                    const defaultUnit = (rType === 'rm' && hasSec && secUnit) ? secUnit : (item.unit || 'PCS');
+                    const selectedUnit = item.selectedUnit || defaultUnit;
 
                     return {
                         material: !isInhouse && !isConsumable ? masterId : undefined,
+                        rawMaterial: rType === 'rm' ? masterId : undefined,
+                        boughtOut: rType === 'bo' ? masterId : undefined,
                         consumable: isConsumable ? masterId : undefined,
                         component: isInhouse ? masterId : undefined,
                         fgItem: isInhouse ? masterId : undefined,
@@ -492,12 +501,14 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                         requestedQuantity: priQty,
                         materialName: item.materialName || item.name || '',
                         materialCode: item.materialCode || item.code || '',
+                        materialDescription: item.materialDescription || item.description || item.descriptions || '',
                         quantity: priQty,
                         unit: item.unit || 'PCS',
                         hasSecondaryUnit: hasSec,
                         secondaryUnit: secUnit,
                         conversionFactor: convFactor,
                         secondaryQuantity: secQty,
+                        selectedUnit: selectedUnit,
                         purpose: item.purpose || ''
                     };
                 }),

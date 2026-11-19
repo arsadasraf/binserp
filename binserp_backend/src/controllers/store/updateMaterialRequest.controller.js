@@ -9,6 +9,7 @@ import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
 import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
+import { validateAndResolveDualUomQuantities } from "../../utils/dualUomHelper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -109,11 +110,26 @@ export const updateMaterialRequest = async (req, res) => {
         });
 
         const issuedQty = matchingOld ? Number(matchingOld.issuedQuantity) || 0 : 0;
-        const requestedQty = Number(it.quantity) || 0;
+        let resolvedUnits;
+        try {
+          resolvedUnits = validateAndResolveDualUomQuantities(it, null, it.unit || 'PCS');
+        } catch (e) {
+          resolvedUnits = {
+            priQty: Math.max(0, Number(it.quantity) || 1),
+            primaryUnit: it.unit || 'PCS',
+            hasSec: Boolean(it.hasSecondaryUnit),
+            secUnit: it.secondaryUnit || '',
+            convFactor: Number(it.conversionFactor) || 1,
+            secQty: Math.max(0, Number(it.secondaryQuantity) || 0),
+            selectedUnit: it.selectedUnit || it.unit || 'PCS'
+          };
+        }
+
+        const requestedQty = resolvedUnits.priQty;
 
         if (requestedQty < issuedQty) {
           return res.status(400).json({
-            message: `Cannot reduce requested quantity for "${it.materialName}" below the already issued quantity (${issuedQty} ${it.unit || 'PCS'}).`
+            message: `Cannot reduce requested quantity for "${it.materialName}" below the already issued quantity (${issuedQty} ${resolvedUnits.primaryUnit}).`
           });
         }
 
@@ -123,32 +139,29 @@ export const updateMaterialRequest = async (req, res) => {
         const cleanCons = extractCleanObjectId(it.consumable);
         const cleanComp = extractCleanObjectId(it.component);
         const cleanFg = extractCleanObjectId(it.fgItem);
-
-        const cleanPriQty = Number(Number(requestedQty).toFixed(2));
-        const cleanConv = Number(it.conversionFactor) || 0;
-        const cleanHasSec = Boolean(it.hasSecondaryUnit);
-        const cleanSecQty = cleanHasSec && cleanConv > 0
-          ? (it.secondaryQuantity !== undefined && !isNaN(Number(it.secondaryQuantity)) && Number(it.secondaryQuantity) > 0
-              ? Math.round(Number(it.secondaryQuantity))
-              : Math.round(cleanPriQty * cleanConv))
-          : 0;
+        const cleanRm = extractCleanObjectId(it.rawMaterial);
+        const cleanBo = extractCleanObjectId(it.boughtOut);
 
         updatedItems.push({
           material: cleanMat,
+          rawMaterial: cleanRm || cleanMat,
+          boughtOut: cleanBo || cleanMat,
           consumable: cleanCons,
           component: cleanComp,
           fgItem: cleanFg,
-          itemType: it.itemType || (cleanComp || cleanFg ? 'FG Item' : cleanCons ? 'Consumable' : 'Raw Material'),
+          itemType: it.itemType || (cleanComp || cleanFg ? 'FG Item' : cleanCons ? 'Consumable' : (cleanBo ? 'Bought Out' : 'Raw Material')),
           materialCode: it.materialCode || '',
           materialName: it.materialName || '',
           materialDescription: it.materialDescription || it.description || it.descriptions || '',
-          quantity: cleanPriQty,
-          unit: it.unit || 'PCS',
-          hasSecondaryUnit: cleanHasSec,
-          secondaryUnit: it.secondaryUnit || '',
-          conversionFactor: cleanConv,
-          secondaryQuantity: cleanSecQty,
-          selectedUnit: it.selectedUnit || it.unit || 'PCS',
+          quantity: resolvedUnits.priQty,
+          unit: resolvedUnits.primaryUnit,
+          hasSecondaryUnit: resolvedUnits.hasSec,
+          secondaryUnit: resolvedUnits.secUnit,
+          conversionFactor: resolvedUnits.convFactor,
+          primaryRatio: Number(it.primaryRatio || 1),
+          secondaryRatio: Number(it.secondaryRatio || 1),
+          secondaryQuantity: resolvedUnits.secQty,
+          selectedUnit: resolvedUnits.selectedUnit,
           purpose: it.purpose || '',
           issuedQuantity: issuedQty,
           pendingQuantity: pendingQty,

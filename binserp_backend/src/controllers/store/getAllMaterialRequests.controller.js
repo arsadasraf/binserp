@@ -83,21 +83,51 @@ export const getAllMaterialRequests = async (req, res) => {
       }
     }
 
-    req.getModel('ConsumableItem', consumableItemSchema);
-    req.getModel('FGItem', fgItemSchema);
-    req.getModel('RawMaterial', rawMaterialSchema);
-    req.getModel('BoughtOut', boughtOutSchema);
+    const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+    const FGItem = req.getModel('FGItem', fgItemSchema);
+    const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
+    const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
+    const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+    const Component = req.getModel('Component', componentSchema);
 
     const materialRequests = await MaterialRequest.find(query)
       .populate("requestedBy", "name userId department email")
       .populate("approvedBy", "name userId department")
       .populate("issuedBy", "name userId department")
       .populate("salesOrder", "orderNumber status customer poReference")
-      .populate("items.material", "name unit code descriptions hasSecondaryUnit secondaryUnit conversionFactor")
-      .populate("items.consumable", "name unit code descriptions hasSecondaryUnit secondaryUnit conversionFactor")
-      .populate("items.fgItem", "name unit code description hasSecondaryUnit secondaryUnit conversionFactor")
       .lean()
       .sort({ createdAt: -1 });
+
+    // Collect all unique item IDs across requests for parallel hydration
+    const allItemIds = new Set();
+    materialRequests.forEach(reqItem => {
+      (reqItem.items || []).forEach(it => {
+        const id = it.material || it.rawMaterial || it.boughtOut || it.consumable || it.fgItem || it.component;
+        if (id && mongoose.Types.ObjectId.isValid(String(id))) {
+          allItemIds.add(String(id));
+        }
+      });
+    });
+
+    const idList = Array.from(allItemIds);
+    const itemMap = new Map();
+
+    if (idList.length > 0) {
+      const [rmDocs, boDocs, legacyDocs, consDocs, fgDocs, compDocs] = await Promise.all([
+        RawMaterial.find({ _id: { $in: idList } }).lean(),
+        BoughtOut.find({ _id: { $in: idList } }).lean(),
+        RmBoItem.find({ _id: { $in: idList } }).lean(),
+        ConsumableItem.find({ _id: { $in: idList } }).lean(),
+        FGItem.find({ _id: { $in: idList } }).lean(),
+        Component.find({ _id: { $in: idList } }).lean(),
+      ]);
+
+      [...rmDocs, ...boDocs, ...legacyDocs, ...consDocs, ...fgDocs, ...compDocs].forEach(doc => {
+        if (doc && doc._id) {
+          itemMap.set(String(doc._id), doc);
+        }
+      });
+    }
 
     const formattedRequests = materialRequests.map((reqItem) => {
       if (!reqItem.requestedBy && (reqItem.createdBy || reqItem.createdByName)) {
@@ -110,21 +140,39 @@ export const getAllMaterialRequests = async (req, res) => {
         };
       }
 
-      // Ensure item UOM reflects current master UOM
+      // Ensure item UOM reflects current master UOM and descriptions are populated
       if (Array.isArray(reqItem.items)) {
         reqItem.items = reqItem.items.map((it) => {
-          const master = it.material || it.consumable || it.fgItem;
-          if (master && typeof master === 'object' && master.unit) {
-            return {
-              ...it,
+          const rawId = it.material || it.rawMaterial || it.boughtOut || it.consumable || it.fgItem || it.component;
+          const master = rawId ? itemMap.get(String(rawId)) : null;
+
+          const desc = master?.descriptions || master?.description || master?.specification || it.materialDescription || it.descriptions || it.description || '';
+          const hasSec = master?.hasSecondaryUnit !== undefined ? Boolean(master.hasSecondaryUnit) : Boolean(it.hasSecondaryUnit);
+          const secUnit = master?.secondaryUnit !== undefined ? master.secondaryUnit : (it.secondaryUnit || '');
+          const conv = Number(master?.conversionFactor ?? it.conversionFactor ?? 1);
+          const unit = master?.unit || it.unit || 'PCS';
+
+          return {
+            ...it,
+            material: master ? {
+              _id: master._id,
+              name: master.name,
+              code: master.code,
               unit: master.unit,
-              hasSecondaryUnit: master.hasSecondaryUnit ?? it.hasSecondaryUnit,
-              secondaryUnit: master.secondaryUnit ?? it.secondaryUnit,
-              conversionFactor: master.conversionFactor ?? it.conversionFactor,
-              descriptions: master.descriptions || master.description || it.descriptions
-            };
-          }
-          return it;
+              descriptions: desc,
+              description: desc,
+              hasSecondaryUnit: hasSec,
+              secondaryUnit: secUnit,
+              conversionFactor: conv
+            } : it.material,
+            materialDescription: desc,
+            descriptions: desc,
+            description: desc,
+            unit,
+            hasSecondaryUnit: hasSec,
+            secondaryUnit: secUnit,
+            conversionFactor: conv
+          };
         });
       }
 

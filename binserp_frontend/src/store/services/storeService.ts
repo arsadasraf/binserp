@@ -71,6 +71,7 @@ export const storeService = binsApi.injectEndpoints({
         };
       },
       invalidatesTags: (_result, _error, { tab }) => {
+        if (_error) return [];
         const endpoint = storeEndpoints.find((entry) => entry.key === tab);
         const tags = endpoint ? [endpoint.tag as any] : [];
         if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc" || tab === "invoice" || tab === "billing") {
@@ -99,6 +100,7 @@ export const storeService = binsApi.injectEndpoints({
         };
       },
       invalidatesTags: (_result, _error, { tab }) => {
+        if (_error) return [];
         const endpoint = storeEndpoints.find((entry) => entry.key === tab);
         const tags = endpoint ? [endpoint.tag as any] : [];
         if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc" || tab === "invoice" || tab === "billing") {
@@ -128,6 +130,7 @@ export const storeService = binsApi.injectEndpoints({
         };
       },
       invalidatesTags: (_result, _error, { tab }) => {
+        if (_error) return [];
         const endpoint = storeEndpoints.find((entry) => entry.key === tab);
         const tags = endpoint ? [endpoint.tag as any] : [];
         if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc" || tab === "invoice" || tab === "billing") {

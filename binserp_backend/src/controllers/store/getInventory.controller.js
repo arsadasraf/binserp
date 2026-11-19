@@ -158,10 +158,36 @@ export const getInventory = async (req, res) => {
 
     // Fetch current month's Stock Transactions for all allowed Inward and Outward streams
     const StockTransaction = req.getModel('StockTransaction', stockTransactionSchema);
-    const currentMonthTx = await StockTransaction.find({
-      company: companyId,
-      timestamp: { $gte: startOfMonth, $lte: endOfMonth }
-    }).select("item movementType quantity").lean();
+    const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
+    const Invoice = req.getModel('Invoice', invoiceSchema);
+
+    const [rawMonthTx, activeDCs, activeInvoices] = await Promise.all([
+      StockTransaction.find({
+        company: companyId,
+        timestamp: { $gte: startOfMonth, $lte: endOfMonth }
+      }).select("item itemName movementType quantity referenceDocType referenceDocId referenceDocNumber").lean(),
+      DeliveryChallan.find({ company: companyId, status: { $ne: "Cancelled" } }).select("_id dcNumber").lean(),
+      Invoice.find({ company: companyId, status: { $ne: "Cancelled" } }).select("_id invoiceNumber").lean(),
+    ]);
+
+    const activeDcIds = new Set(activeDCs.map(d => String(d._id)));
+    const activeDcNums = new Set(activeDCs.map(d => String(d.dcNumber || "")));
+    const activeInvIds = new Set(activeInvoices.map(i => String(i._id)));
+    const activeInvNums = new Set(activeInvoices.map(i => String(i.invoiceNumber || "")));
+
+    const currentMonthTx = rawMonthTx.filter(tx => {
+      if (tx.referenceDocType === "DeliveryChallan") {
+        const isActive = (tx.referenceDocId && activeDcIds.has(String(tx.referenceDocId))) ||
+                         (tx.referenceDocNumber && activeDcNums.has(String(tx.referenceDocNumber)));
+        return isActive && tx.movementType === "OUTWARD";
+      }
+      if (tx.referenceDocType === "Invoice") {
+        const isActive = (tx.referenceDocId && activeInvIds.has(String(tx.referenceDocId))) ||
+                         (tx.referenceDocNumber && activeInvNums.has(String(tx.referenceDocNumber)));
+        return isActive && tx.movementType === "OUTWARD";
+      }
+      return true;
+    });
 
     const txInwardMap = new Map();
     const txOutwardMap = new Map();

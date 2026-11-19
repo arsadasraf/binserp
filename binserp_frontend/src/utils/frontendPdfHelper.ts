@@ -2027,11 +2027,22 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
     const compEmail = masterCompany?.email || '';
     const compGst = masterCompany?.gstin || masterCompany?.gstNumber || masterCompany?.gst || 'N/A';
     const compPan = masterCompany?.panNumber || masterCompany?.pan || 'N/A';
+    const compLogo = masterCompany?.logo || '';
 
-    const bankName = masterCompany?.bankDetails?.bankName || masterCompany?.bankName || '-';
-    const accountNumber = masterCompany?.bankDetails?.accountNumber || masterCompany?.accountNumber || '-';
-    const ifscCode = masterCompany?.bankDetails?.ifscCode || masterCompany?.ifscCode || '-';
-    const branchName = masterCompany?.bankDetails?.branchName || masterCompany?.branchName || '';
+    const dcBank = doc.bankDetails || {};
+    const masterBank = masterCompany?.bankDetails || {};
+    const bankName = dcBank.bankName || masterBank.bankName || masterCompany?.bankName || '-';
+    const accountName = dcBank.accountName || masterBank.accountName || compName;
+    const accountNumber = dcBank.accountNumber || masterBank.accountNumber || masterCompany?.accountNumber || '-';
+    const ifscCode = dcBank.ifscCode || masterBank.ifscCode || masterCompany?.ifscCode || '-';
+    const branchName = dcBank.branch || dcBank.branchName || masterBank.branch || masterBank.branchName || masterCompany?.branchName || '';
+
+    const DEFAULT_DC_TERMS =
+`1. Material delivered against this Delivery Challan is subject to terms agreed in the purchase contract.
+2. Goods must be verified and acknowledged upon receipt by an authorized receiver.
+3. Any discrepancy or damage must be notified within 24 hours of delivery.
+4. Subject to local jurisdiction only.`;
+    const termsAndConditions = doc.termsAndConditions || masterCompany?.printSettings?.dc?.termsAndConditions || masterCompany?.commercialTerms || DEFAULT_DC_TERMS;
 
     // 2. Resolve Customer Details
     const custObj = typeof doc.customer === 'object' ? doc.customer : {};
@@ -2066,7 +2077,7 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
     else if (copyType === "duplicate") copyTypes = ['DUPLICATE FOR TRANSPORTER'];
     else if (copyType === "triplicate") copyTypes = ['TRIPLICATE FOR SUPPLIER'];
 
-    // 5. Line Items HTML
+    // 5. Line Items HTML (Item Name + Technical Description together in Column 2 — Rule 1)
     const items = doc.items || [];
     let itemsTableRowsHtml = '';
 
@@ -2074,58 +2085,55 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
         const qty = Number(item.quantity || item.qty || 0);
         const rate = Number(item.rate || item.unitPrice || item.price || 0);
         const amount = Number(item.amount || item.lineTotal || (qty * rate));
-        const itemName = item.materialName || item.productName || item.itemName || item.name || 'Item';
+        const refObj = item.fgItem || item.rawMaterial || item.boughtOut || item.consumableItem || item.material;
+        const itemName = item.materialName || item.productName || item.itemName || item.name || (typeof refObj === 'object' ? refObj?.name : '') || 'Item';
+        const itemDesc = item.description || item.descriptions || (typeof refObj === 'object' ? (refObj?.description || refObj?.descriptions || '') : '');
         const hsn = item.hsnCode || item.hsn || '-';
-        const remarks = item.remarks || item.description || item.specifications || '-';
+        const unit = (item.unit || item.uom || 'PCS').toUpperCase();
 
         itemsTableRowsHtml += `
             <tr>
                 <td style="text-align: center; padding: 6px;">${idx + 1}</td>
-                <td style="text-align: left; font-weight: bold; padding: 6px; color: #0f172a;">
-                    ${itemName}
+                <td style="text-align: left; padding: 6px; color: #0f172a;">
+                    <div style="font-weight: bold;">${itemName}</div>
+                    ${itemDesc ? `<div style="font-size: 9.5px; color: #475569; font-style: italic; margin-top: 2px;">${itemDesc}</div>` : ''}
                 </td>
                 <td style="text-align: center; padding: 6px; font-family: monospace;">${hsn}</td>
-                <td style="text-align: center; font-weight: bold; padding: 6px; color: #3730a3;">${qty} ${item.unit || item.uom || 'PCS'}</td>
-                <td style="text-align: right; padding: 6px; font-family: monospace;">${rate ? `${dcCurrSym}${rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
-                <td style="text-align: right; padding: 6px; font-weight: 800; font-family: monospace; color: #0f172a;">${amount ? `${dcCurrSym}${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
-                <td style="text-align: left; padding: 6px; color: #475569; font-size: 9.5px;">${remarks}</td>
+                <td style="text-align: center; font-weight: bold; padding: 6px; color: #3730a3;">${qty} ${unit}</td>
+                <td style="text-align: right; padding: 6px; font-family: monospace;">${dcCurrSym}${rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td style="text-align: right; padding: 6px; font-weight: 800; font-family: monospace; color: #0f172a;">${dcCurrSym}${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             </tr>
         `;
     });
-
-    // Pad blank rows if items < 5
-    for (let i = items.length; i < 5; i++) {
-        itemsTableRowsHtml += `
-            <tr>
-                <td style="height: 24px; padding: 6px;"></td>
-                <td></td><td></td><td></td><td></td><td></td><td></td>
-            </tr>
-        `;
-    }
 
     const subtotal = doc.subtotal || items.reduce((acc: number, i: any) => acc + (Number(i.quantity || 0) * Number(i.rate || 0)), 0);
     const transportCharges = Number(doc.transportationCharges || doc.freightCharges || 0);
     const packagingCharges = Number(doc.packagingCharges || 0);
     const discount = Number(doc.discount || 0);
-    const taxAmount = doc.taxAmount || items.reduce((acc: number, i: any) => acc + ((Number(i.quantity || 0) * Number(i.rate || 0)) * (Number(i.taxRate || 0) / 100)), 0);
-    const grandTotal = doc.totalAmount || (subtotal + taxAmount + transportCharges + packagingCharges - discount);
+    const rawExactTotal = parseFloat((subtotal + transportCharges + packagingCharges - discount).toFixed(2));
+    const isRoundOffEnabled = doc.isRoundOff !== undefined ? Boolean(doc.isRoundOff) : true;
+    const roundOff = doc.roundOff !== undefined ? Number(doc.roundOff) : (isRoundOffEnabled ? parseFloat((Math.round(rawExactTotal) - rawExactTotal).toFixed(2)) : 0);
+    const grandTotal = doc.totalAmount || (isRoundOffEnabled ? Math.round(rawExactTotal) : rawExactTotal);
 
     const pagesHtml = copyTypes.map((copyBadge) => `
         <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 11px; color: #111; margin-bottom: 20px; page-break-after: always; position: relative; box-sizing: border-box;">
             
-            <!-- Company Header & Copy Badge -->
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #4f46e5; padding-bottom: 10px; margin-bottom: 10px;">
-                <div>
-                    <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: #3730a3; text-transform: uppercase; letter-spacing: -0.5px;">${compName}</h1>
-                    <div style="font-size: 10px; color: #475569; margin-top: 4px; line-height: 1.4;">
-                        ${compAddress}<br>
-                        ${compPhone ? `Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}
-                    </div>
-                    <div style="font-size: 9.5px; color: #1e293b; font-weight: bold; margin-top: 4px;">
-                        GSTIN: <b>${compGst}</b> | PAN: <b>${compPan}</b>
+            <!-- Company Header & Copy Badge (Matches Sales Tax Invoice Indigo Design) -->
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #4f46e5; padding-bottom: 10px; margin-bottom: 10px; gap: 12px;">
+                <div style="display: flex; align-items: flex-start; gap: 12px;">
+                    ${compLogo ? `<img src="${compLogo}" alt="${compName}" style="max-height: 54px; max-width: 110px; object-fit: contain; flex-shrink: 0;" onerror="this.style.display='none'" />` : ''}
+                    <div>
+                        <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: #3730a3; text-transform: uppercase; letter-spacing: -0.5px;">${compName}</h1>
+                        <div style="font-size: 10px; color: #475569; margin-top: 4px; line-height: 1.4;">
+                            ${compAddress}<br>
+                            ${compPhone ? `Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}
+                        </div>
+                        <div style="font-size: 9.5px; color: #1e293b; font-weight: bold; margin-top: 4px;">
+                            GSTIN: <b>${compGst}</b> | PAN: <b>${compPan}</b>
+                        </div>
                     </div>
                 </div>
-                <div style="text-align: right;">
+                <div style="text-align: right; flex-shrink: 0;">
                     <span style="display: inline-block; background: #3730a3; color: #ffffff; font-size: 9px; font-weight: 900; padding: 4px 10px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">
                         ${copyBadge}
                     </span>
@@ -2151,35 +2159,14 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
                         ${custGst && custGst !== 'N/A' ? `<div style="margin-top: 6px; font-size: 10px; border-top: 1px dashed #cbd5e1; padding-top: 4px;"><b>GSTIN:</b> ${custGst}</div>` : ''}
                         ${custPoRef && custPoRef !== '-' ? `<div style="margin-top: 4px; font-size: 10px; color: #3730a3;"><b>PO Ref:</b> ${custPoRef} ${custPoDate !== '-' ? `(Date: ${custPoDate})` : ''}</div>` : ''}
                     </td>
-
                     <td style="width: 48%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 10px; background: #ffffff;">
                         <table style="width: 100%; font-size: 10.5px; border-collapse: collapse;">
-                            <tr>
-                                <td style="padding: 2.5px 0; color: #64748b;"><b>Challan Number:</b></td>
-                                <td style="padding: 2.5px 0; font-weight: 900; font-size: 12.5px; color: #3730a3; font-family: monospace;">${docNum}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 2.5px 0; color: #64748b;"><b>Creation Date & Time:</b></td>
-                                <td style="padding: 2.5px 0; font-weight: bold;">${creationDateTimeStr}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 2.5px 0; color: #64748b;"><b>Transport Mode:</b></td>
-                                <td style="padding: 2.5px 0; font-weight: bold;">${transportMode}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 2.5px 0; color: #64748b;"><b>Vehicle Number:</b></td>
-                                <td style="padding: 2.5px 0; font-weight: bold; font-family: monospace;">${vehicleNo}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 2.5px 0; color: #64748b;"><b>Packaging Type:</b></td>
-                                <td style="padding: 2.5px 0; font-weight: bold;">${packagingType}</td>
-                            </tr>
-                            ${eWayNo && eWayNo !== '-' ? `
-                            <tr>
-                                <td style="padding: 2.5px 0; color: #64748b;"><b>E-Way Bill No:</b></td>
-                                <td style="padding: 2.5px 0; font-weight: bold; font-family: monospace; color: #3730a3;">${eWayNo}</td>
-                            </tr>
-                            ` : ''}
+                            <tr><td style="padding: 2.5px 0; color: #64748b;"><b>Challan Number:</b></td><td style="padding: 2.5px 0; font-weight: 900; font-size: 12.5px; color: #3730a3; font-family: monospace;">${docNum}</td></tr>
+                            <tr><td style="padding: 2.5px 0; color: #64748b;"><b>Creation Date & Time:</b></td><td style="padding: 2.5px 0; font-weight: bold;">${creationDateTimeStr}</td></tr>
+                            <tr><td style="padding: 2.5px 0; color: #64748b;"><b>Transport Mode:</b></td><td style="padding: 2.5px 0; font-weight: bold;">${transportMode}</td></tr>
+                            <tr><td style="padding: 2.5px 0; color: #64748b;"><b>Vehicle Number:</b></td><td style="padding: 2.5px 0; font-weight: bold; font-family: monospace;">${vehicleNo}</td></tr>
+                            <tr><td style="padding: 2.5px 0; color: #64748b;"><b>Packaging Type:</b></td><td style="padding: 2.5px 0; font-weight: bold;">${packagingType}</td></tr>
+                            ${eWayNo && eWayNo !== '-' ? `<tr><td style="padding: 2.5px 0; color: #64748b;"><b>E-Way Bill No:</b></td><td style="padding: 2.5px 0; font-weight: bold; font-family: monospace; color: #3730a3;">${eWayNo}</td></tr>` : ''}
                         </table>
                     </td>
                 </tr>
@@ -2189,13 +2176,12 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10px;" border="1" bordercolor="#94a3b8">
                 <thead style="background: #eef2ff; text-transform: uppercase; font-weight: bold; color: #3730a3;">
                     <tr>
-                        <th style="width: 5%; padding: 6px 4px; text-align: center;">S.No</th>
-                        <th style="width: 32%; padding: 6px 8px; text-align: left;">Product / Item Description</th>
-                        <th style="width: 11%; padding: 6px 4px; text-align: center;">HSN</th>
-                        <th style="width: 10%; padding: 6px 4px; text-align: center;">Qty</th>
+                        <th style="width: 6%; padding: 6px 4px; text-align: center;">S.No</th>
+                        <th style="width: 44%; padding: 6px 8px; text-align: left;">Item Name &amp; Description</th>
+                        <th style="width: 12%; padding: 6px 4px; text-align: center;">HSN</th>
+                        <th style="width: 11%; padding: 6px 4px; text-align: center;">Qty</th>
                         <th style="width: 13%; padding: 6px 8px; text-align: right;">Unit Rate (${dcCurrCode})</th>
                         <th style="width: 14%; padding: 6px 8px; text-align: right;">Total Amount (${dcCurrCode})</th>
-                        <th style="width: 15%; padding: 6px 6px; text-align: left;">Remarks</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2203,51 +2189,27 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
                 </tbody>
             </table>
 
-            <!-- Bottom Docked Summary & Financial Calculations -->
+            <!-- Bottom Summary & Financial Calculations -->
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10px;">
                 <tr>
                     <td style="width: 55%; vertical-align: top; border: 1px solid #94a3b8; padding: 10px; background: #fafafa;">
-                        <div style="font-weight: bold; color: #3730a3; font-size: 9.5px; text-transform: uppercase; margin-bottom: 4px;">BANK DETAILS & REMARKS</div>
+                        <div style="font-weight: bold; color: #3730a3; font-size: 9.5px; text-transform: uppercase; margin-bottom: 4px;">BANK DETAILS &amp; REMARKS</div>
                         <div style="font-size: 9.5px; color: #334155; line-height: 1.4;">
                             Bank: <b>${bankName}</b> | A/c: <b>${accountNumber}</b> | IFSC: <b>${ifscCode}</b> ${branchName ? `| Branch: ${branchName}` : ''}<br>
                             ${doc.remarks || doc.otherDetails ? `Remarks: ${doc.remarks || doc.otherDetails}<br>` : ''}
-                            Terms: Subject to local jurisdiction. Goods dispatched in good condition.
+                            <div style="margin-top: 5px; font-size: 9px; color: #475569; white-space: pre-line;"><b>Terms &amp; Conditions:</b><br>${termsAndConditions}</div>
                         </div>
                         <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #cbd5e1; font-weight: bold; color: #0f172a; font-size: 10px; font-style: italic;">
                             Amount in Words: ${convertAmountToWords(grandTotal, doc.currency)}
                         </div>
                     </td>
-
                     <td style="width: 45%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 10px; background: #ffffff;">
                         <table style="width: 100%; font-size: 10.5px; border-collapse: collapse;">
-                            <tr>
-                                <td style="padding: 2.5px 0; color: #475569;">Subtotal:</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">${dcCurrSym}${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                            </tr>
-                            ${transportCharges > 0 ? `
-                            <tr>
-                                <td style="padding: 2.5px 0; color: #475569;">Freight / Transport:</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${dcCurrSym}${transportCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                            </tr>
-                            ` : ''}
-                            ${packagingCharges > 0 ? `
-                            <tr>
-                                <td style="padding: 2.5px 0; color: #475569;">Packaging Charges:</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${dcCurrSym}${packagingCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                            </tr>
-                            ` : ''}
-                            ${discount > 0 ? `
-                            <tr>
-                                <td style="padding: 2.5px 0; color: #475569;">Discount:</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">- ${dcCurrSym}${discount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                            </tr>
-                            ` : ''}
-                            ${taxAmount > 0 ? `
-                            <tr>
-                                <td style="padding: 2.5px 0; color: #475569;">Tax Amount (GST):</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">${dcCurrSym}${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                            </tr>
-                            ` : ''}
+                            <tr><td style="padding: 2.5px 0; color: #475569;">Subtotal:</td><td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">${dcCurrSym}${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
+                            ${transportCharges > 0 ? `<tr><td style="padding: 2.5px 0; color: #475569;">Freight / Transport:</td><td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${dcCurrSym}${transportCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>` : ''}
+                            ${packagingCharges > 0 ? `<tr><td style="padding: 2.5px 0; color: #475569;">Packaging Charges:</td><td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${dcCurrSym}${packagingCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>` : ''}
+                            ${discount > 0 ? `<tr><td style="padding: 2.5px 0; color: #065f46;">Discount:</td><td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace; color: #065f46;">- ${dcCurrSym}${discount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>` : ''}
+                            ${isRoundOffEnabled && Math.abs(roundOff) > 0.001 ? `<tr><td style="padding: 2.5px 0; color: #475569;">Round Off:</td><td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">${roundOff > 0 ? '+' : ''}${dcCurrSym}${roundOff.toFixed(2)}</td></tr>` : ''}
                             <tr style="background: #eef2ff; color: #3730a3; font-weight: 900; font-size: 11.5px;">
                                 <td style="padding: 6px 6px; border: 1px solid #c7d2fe;">GRAND TOTAL (${dcCurrCode}):</td>
                                 <td style="padding: 6px 6px; text-align: right; border: 1px solid #c7d2fe; font-family: monospace;">${dcCurrSym}${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -2261,19 +2223,14 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
             <table style="width: 100%; border: none; font-size: 10px; margin-top: 20px;">
                 <tr>
                     <td style="width: 50%; vertical-align: bottom;">
-                        <div style="font-size: 9px; color: #64748b;">
-                            Receiver's Signature / Seal
-                        </div>
+                        <div style="font-size: 9px; color: #64748b;">Receiver's Signature / Seal</div>
                     </td>
                     <td style="width: 50%; text-align: right; vertical-align: bottom;">
                         <div style="font-weight: bold; margin-bottom: 25px;">For ${compName}</div>
-                        <div style="border-top: 1px solid #333; width: 180px; display: inline-block; padding-top: 4px; text-align: center; font-size: 9.5px;">
-                            Authorized Signatory
-                        </div>
+                        <div style="border-top: 1px solid #333; width: 180px; display: inline-block; padding-top: 4px; text-align: center; font-size: 9.5px;">Authorized Signatory</div>
                     </td>
                 </tr>
             </table>
-
         </div>
     `).join('');
 
@@ -2356,6 +2313,7 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
     const compEmail = masterCompany?.email || '';
     const compGst = masterCompany?.gstin || masterCompany?.gstNumber || masterCompany?.gst || 'N/A';
     const compPan = masterCompany?.panNumber || masterCompany?.pan || 'N/A';
+    const compLogo = masterCompany?.logo || '';
 
     const docBank = doc.bankDetails || {};
     const bankName = docBank.bankName || masterCompany?.bankDetails?.bankName || masterCompany?.bankName || '-';
@@ -2406,13 +2364,18 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
         const amount = Number(item.amount || (qty * rate));
         const taxRate = Number(item.taxRate || 0);
         const totalAmt = amount + (amount * (taxRate / 100));
-        const itemName = item.materialName || item.productName || item.itemName || item.name || 'Item';
+        const refObj = item.fgItem || item.rawMaterial || item.boughtOut || item.consumableItem || item.material;
+        const itemName = item.materialName || item.productName || item.itemName || item.name || (typeof refObj === 'object' ? refObj?.name : '') || 'Item';
+        const itemDesc = item.description || item.descriptions || (typeof refObj === 'object' ? (refObj?.description || refObj?.descriptions || '') : '');
         const hsn = item.hsnCode || item.hsn || '-';
 
         itemsTableRowsHtml += `
             <tr>
                 <td style="text-align: center; padding: 6px;">${idx + 1}</td>
-                <td style="text-align: left; font-weight: bold; padding: 6px; color: #0f172a;">${itemName}</td>
+                <td style="text-align: left; padding: 6px; color: #0f172a;">
+                    <div style="font-weight: bold;">${itemName}</div>
+                    ${itemDesc ? `<div style="font-size: 9.5px; color: #475569; font-style: italic; margin-top: 2px;">${itemDesc}</div>` : ''}
+                </td>
                 <td style="text-align: center; padding: 6px; font-family: monospace;">${hsn}</td>
                 <td style="text-align: center; font-weight: bold; padding: 6px; color: #3730a3;">${qty} ${item.unit || item.uom || 'PCS'}</td>
                 <td style="text-align: right; padding: 6px; font-family: monospace;">${rate ? `${invCurrSym}${rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '0.00'}</td>
@@ -2435,26 +2398,40 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
     const subtotal = doc.subtotal || items.reduce((acc: number, i: any) => acc + (Number(i.quantity || 0) * Number(i.rate || 0)), 0);
     const transportCharges = Number(doc.transportationCharges || doc.freightCharges || 0);
     const packagingCharges = Number(doc.packagingCharges || 0);
+    const isTransportTaxable = Boolean(doc.isTransportTaxable);
+    const transportTaxRate = Number(doc.transportTaxRate ?? 18);
+    const isPackagingTaxable = Boolean(doc.isPackagingTaxable);
+    const packagingTaxRate = Number(doc.packagingTaxRate ?? 18);
     const discount = Number(doc.discount || 0);
-    const taxAmount = doc.taxAmount || items.reduce((acc: number, i: any) => acc + ((Number(i.quantity || 0) * Number(i.rate || 0)) * (Number(i.taxRate || 0) / 100)), 0);
-    const grandTotal = doc.totalAmount || (subtotal + taxAmount + transportCharges + packagingCharges - discount);
+    const taxAmount = doc.taxAmount !== undefined ? Number(doc.taxAmount) : items.reduce((acc: number, i: any) => acc + ((Number(i.quantity || 0) * Number(i.rate || 0)) * (Number(i.taxRate || 0) / 100)), 0);
+    const gstSupplyType = doc.gstSupplyType === 'inter' ? 'inter' : 'intra';
+    const cgstAmount = doc.cgstAmount !== undefined ? Number(doc.cgstAmount) : (gstSupplyType === 'intra' ? parseFloat((taxAmount / 2).toFixed(2)) : 0);
+    const sgstAmount = doc.sgstAmount !== undefined ? Number(doc.sgstAmount) : (gstSupplyType === 'intra' ? parseFloat((taxAmount - cgstAmount).toFixed(2)) : 0);
+    const igstAmount = doc.igstAmount !== undefined ? Number(doc.igstAmount) : (gstSupplyType === 'inter' ? parseFloat(taxAmount.toFixed(2)) : 0);
+    const rawExactTotal = parseFloat((subtotal + taxAmount + transportCharges + packagingCharges - discount).toFixed(2));
+    const isRoundOffEnabled = doc.isRoundOff !== undefined ? Boolean(doc.isRoundOff) : true;
+    const roundOff = doc.roundOff !== undefined ? Number(doc.roundOff) : (isRoundOffEnabled ? parseFloat((Math.round(rawExactTotal) - rawExactTotal).toFixed(2)) : 0);
+    const grandTotal = doc.totalAmount || (isRoundOffEnabled ? Math.round(rawExactTotal) : rawExactTotal);
 
     const pagesHtml = copyTypes.map((copyBadge) => `
         <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 11px; color: #111; margin-bottom: 20px; page-break-after: always; position: relative; box-sizing: border-box;">
             
             <!-- Company Header & Copy Badge -->
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #4f46e5; padding-bottom: 10px; margin-bottom: 10px;">
-                <div>
-                    <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: #3730a3; text-transform: uppercase; letter-spacing: -0.5px;">${compName}</h1>
-                    <div style="font-size: 10px; color: #475569; margin-top: 4px; line-height: 1.4;">
-                        ${compAddress}<br>
-                        ${compPhone ? `Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}
-                    </div>
-                    <div style="font-size: 9.5px; color: #1e293b; font-weight: bold; margin-top: 4px;">
-                        GSTIN: <b>${compGst}</b> | PAN: <b>${compPan}</b>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #4f46e5; padding-bottom: 10px; margin-bottom: 10px; gap: 12px;">
+                <div style="display: flex; align-items: flex-start; gap: 12px;">
+                    ${compLogo ? `<img src="${compLogo}" alt="${compName}" style="max-height: 54px; max-width: 110px; object-fit: contain; flex-shrink: 0;" onerror="this.style.display='none'" />` : ''}
+                    <div>
+                        <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: #3730a3; text-transform: uppercase; letter-spacing: -0.5px;">${compName}</h1>
+                        <div style="font-size: 10px; color: #475569; margin-top: 4px; line-height: 1.4;">
+                            ${compAddress}<br>
+                            ${compPhone ? `Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}
+                        </div>
+                        <div style="font-size: 9.5px; color: #1e293b; font-weight: bold; margin-top: 4px;">
+                            GSTIN: <b>${compGst}</b> | PAN: <b>${compPan}</b>
+                        </div>
                     </div>
                 </div>
-                <div style="text-align: right;">
+                <div style="text-align: right; flex-shrink: 0;">
                     <span style="display: inline-block; background: #3730a3; color: #ffffff; font-size: 9px; font-weight: 900; padding: 4px 10px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">
                         ${copyBadge}
                     </span>
@@ -2555,13 +2532,13 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
                             </tr>
                             ${transportCharges > 0 ? `
                             <tr>
-                                <td style="padding: 2.5px 0; color: #475569;">Freight / Transport:</td>
+                                <td style="padding: 2.5px 0; color: #475569;">Freight / Transport${isTransportTaxable ? ` (Taxable @ ${transportTaxRate}%)` : ''}:</td>
                                 <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${invCurrSym}${transportCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ` : ''}
                             ${packagingCharges > 0 ? `
                             <tr>
-                                <td style="padding: 2.5px 0; color: #475569;">Packaging Charges:</td>
+                                <td style="padding: 2.5px 0; color: #475569;">Packaging Charges${isPackagingTaxable ? ` (Taxable @ ${packagingTaxRate}%)` : ''}:</td>
                                 <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${invCurrSym}${packagingCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ` : ''}
@@ -2571,10 +2548,26 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
                                 <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">- ${invCurrSym}${discount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ` : ''}
-                            ${taxAmount > 0 ? `
+                            ${taxAmount > 0 && gstSupplyType === 'intra' ? `
                             <tr>
-                                <td style="padding: 2.5px 0; color: #475569;">Tax Amount (GST):</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">${invCurrSym}${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 2.5px 0; color: #475569;">CGST:</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${invCurrSym}${cgstAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">SGST:</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${invCurrSym}${sgstAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ` : ''}
+                            ${taxAmount > 0 && gstSupplyType === 'inter' ? `
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">IGST (Inter-State):</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${invCurrSym}${igstAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ` : ''}
+                            ${isRoundOffEnabled && Math.abs(roundOff) > 0.001 ? `
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">Round Off:</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">${roundOff > 0 ? '+' : ''}${invCurrSym}${roundOff.toFixed(2)}</td>
                             </tr>
                             ` : ''}
                             <tr style="background: #eef2ff; color: #3730a3; font-weight: 900; font-size: 11.5px;">

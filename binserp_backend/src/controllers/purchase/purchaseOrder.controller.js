@@ -17,7 +17,7 @@ const isValidObjectId = (id) => id && mongoose.Types.ObjectId.isValid(String(id)
 
 const syncJobWorkChallanPO = async (req, companyId, poDoc, prevChallanId = null, prevChallanNumber = "") => {
   try {
-    const JobWork = req.getModel('JobWork', jobWorkSchema);
+    const JobWork = req.getModel('JobWorkChallan', jobWorkSchema);
     const currChallanId = poDoc?.jobWorkChallan && isValidObjectId(poDoc.jobWorkChallan) ? String(poDoc.jobWorkChallan) : null;
     const currChallanNumber = poDoc?.challanNumber ? String(poDoc.challanNumber).trim() : "";
 
@@ -40,29 +40,152 @@ const syncJobWorkChallanPO = async (req, companyId, poDoc, prevChallanId = null,
 
       const challan = await JobWork.findOne(challanFilter).lean();
       if (challan) {
-        const updatedItems = Array.isArray(challan.items) ? [...challan.items] : [];
-        if (updatedItems.length > 0 && Array.isArray(poDoc.items) && poDoc.items.length > 0) {
-          updatedItems.forEach((cItem, idx) => {
-            const matchedPoItem =
-              poDoc.items.find(
-                (pIt) =>
-                  (pIt.material && cItem.item && String(pIt.material) === String(cItem.item)) ||
-                  (pIt.materialName && cItem.itemName && String(pIt.materialName).trim().toLowerCase() === String(cItem.itemName).trim().toLowerCase())
-              ) || poDoc.items[idx];
-            if (matchedPoItem) {
-              if (Number(matchedPoItem.rate || 0) > 0) {
-                cItem.processRate = Number(matchedPoItem.rate);
-              }
-              if (matchedPoItem.selectedUnit) {
-                cItem.selectedUnit = matchedPoItem.selectedUnit;
+        const poItems = Array.isArray(poDoc.items) ? poDoc.items : [];
+        const updatedItems = Array.isArray(challan.items) ? challan.items.map((it) => ({
+          ...it,
+          returningItems: Array.isArray(it.returningItems) ? it.returningItems.map((r) => ({ ...r })) : [],
+        })) : [];
+        const updatedAssemblyGroups = Array.isArray(challan.assemblyGroups)
+          ? challan.assemblyGroups.map((g) => ({
+              ...g,
+              assemblyOutputItem: g.assemblyOutputItem ? { ...g.assemblyOutputItem } : g.assemblyOutputItem,
+            }))
+          : [];
+        let updatedAssemblyOutput = challan.assemblyOutputItem ? { ...challan.assemblyOutputItem } : null;
+
+        let totalJobWorkCharges = Number(challan.totalJobWorkCharges || 0);
+
+        if (poItems.length > 0) {
+          // Case 1: Assembly mode — sync rates/units to assemblyGroups[].assemblyOutputItem or assemblyOutputItem
+          if (challan.operationMode === 'assembly') {
+            if (updatedAssemblyGroups.length > 0) {
+              updatedAssemblyGroups.forEach((grp, idx) => {
+                const out = grp.assemblyOutputItem;
+                if (!out) return;
+                const matchedPoItem =
+                  poItems.find(
+                    (pIt) =>
+                      (pIt.material && out.item && String(pIt.material) === String(out.item)) ||
+                      (pIt.materialName && out.itemName && String(pIt.materialName).trim().toLowerCase() === String(out.itemName).trim().toLowerCase())
+                  ) || poItems[idx];
+                if (matchedPoItem) {
+                  const rateVal = Number(matchedPoItem.rate || 0);
+                  if (rateVal > 0) {
+                    out.processRate = rateVal;
+                    out.processAmount = Number(matchedPoItem.amount || (Number(out.quantityToBeReceived || 1) * rateVal));
+                  }
+                  if (matchedPoItem.selectedUnit || matchedPoItem.unit) {
+                    out.selectedUnit = matchedPoItem.selectedUnit || matchedPoItem.unit;
+                  }
+                }
+              });
+              updatedAssemblyOutput = updatedAssemblyGroups[0]?.assemblyOutputItem || updatedAssemblyOutput;
+              totalJobWorkCharges = updatedAssemblyGroups.reduce((sum, g) => sum + Number(g.assemblyOutputItem?.processAmount || 0), 0);
+            } else if (updatedAssemblyOutput) {
+              const matchedPoItem = poItems[0];
+              if (matchedPoItem) {
+                const rateVal = Number(matchedPoItem.rate || 0);
+                if (rateVal > 0) {
+                  updatedAssemblyOutput.processRate = rateVal;
+                  updatedAssemblyOutput.processAmount = Number(matchedPoItem.amount || (Number(updatedAssemblyOutput.quantityToBeReceived || 1) * rateVal));
+                }
+                if (matchedPoItem.selectedUnit || matchedPoItem.unit) {
+                  updatedAssemblyOutput.selectedUnit = matchedPoItem.selectedUnit || matchedPoItem.unit;
+                }
+                totalJobWorkCharges = Number(updatedAssemblyOutput.processAmount || 0);
               }
             }
-          });
+          }
+          // Case 2: Discrete mode — sync to returningItems[] when present & matched, otherwise sent items[]
+          else if (updatedItems.length > 0) {
+            const hasAnyReturning = updatedItems.some((cItem) => Array.isArray(cItem.returningItems) && cItem.returningItems.length > 0);
+            const useOutputSync = hasAnyReturning && poDoc.pricingBasis !== 'input';
+
+            if (useOutputSync) {
+              let runningCharges = 0;
+              updatedItems.forEach((cItem) => {
+                if (Array.isArray(cItem.returningItems) && cItem.returningItems.length > 0) {
+                  let itemCharges = 0;
+                  cItem.returningItems.forEach((ret) => {
+                    const matchedPoItem = poItems.find(
+                      (pIt) =>
+                        (pIt.returningItemId && ret._id && String(pIt.returningItemId) === String(ret._id)) ||
+                        (pIt.material && ret.receivedItem && String(pIt.material) === String(ret.receivedItem)) ||
+                        (pIt.materialName && ret.receivedItemName && String(pIt.materialName).trim().toLowerCase() === String(ret.receivedItemName).trim().toLowerCase())
+                    );
+                    if (matchedPoItem) {
+                      const rateVal = Number(matchedPoItem.rate || 0);
+                      if (rateVal > 0) {
+                        ret.processRate = rateVal;
+                        ret.processAmount = Number(matchedPoItem.amount || (Number(ret.quantityToBeReceived || 1) * rateVal));
+                      }
+                      if (matchedPoItem.selectedUnit || matchedPoItem.unit) {
+                        ret.selectedUnit = matchedPoItem.selectedUnit || matchedPoItem.unit;
+                      }
+                    }
+                    itemCharges += Number(ret.processAmount || 0);
+                  });
+                  if (itemCharges > 0) {
+                    cItem.processAmount = Number(itemCharges.toFixed(2));
+                  }
+                  runningCharges += Number(cItem.processAmount || 0);
+                } else {
+                  const matchedPoItem = poItems.find(
+                    (pIt) =>
+                      (pIt.material && cItem.item && String(pIt.material) === String(cItem.item)) ||
+                      (pIt.materialName && cItem.itemName && String(pIt.materialName).trim().toLowerCase() === String(cItem.itemName).trim().toLowerCase())
+                  );
+                  if (matchedPoItem) {
+                    const rateVal = Number(matchedPoItem.rate || 0);
+                    if (rateVal > 0) {
+                      cItem.processRate = rateVal;
+                      cItem.processAmount = Number(matchedPoItem.amount || (Number(cItem.quantitySent || 1) * rateVal));
+                    }
+                    if (matchedPoItem.selectedUnit || matchedPoItem.unit) {
+                      cItem.selectedUnit = matchedPoItem.selectedUnit || matchedPoItem.unit;
+                    }
+                  }
+                  runningCharges += Number(cItem.processAmount || 0);
+                }
+              });
+              if (runningCharges > 0) totalJobWorkCharges = Number(runningCharges.toFixed(2));
+            } else {
+              let runningCharges = 0;
+              updatedItems.forEach((cItem, idx) => {
+                const matchedPoItem =
+                  poItems.find(
+                    (pIt) =>
+                      (pIt.material && cItem.item && String(pIt.material) === String(cItem.item)) ||
+                      (pIt.materialName && cItem.itemName && String(pIt.materialName).trim().toLowerCase() === String(cItem.itemName).trim().toLowerCase())
+                  ) || poItems[idx];
+                if (matchedPoItem) {
+                  const rateVal = Number(matchedPoItem.rate || 0);
+                  if (rateVal > 0) {
+                    cItem.processRate = rateVal;
+                    cItem.processAmount = Number(matchedPoItem.amount || (Number(cItem.quantitySent || 1) * rateVal));
+                  }
+                  if (matchedPoItem.selectedUnit || matchedPoItem.unit) {
+                    cItem.selectedUnit = matchedPoItem.selectedUnit || matchedPoItem.unit;
+                  }
+                }
+                runningCharges += Number(cItem.processAmount || 0);
+              });
+              if (runningCharges > 0) totalJobWorkCharges = Number(runningCharges.toFixed(2));
+            }
+          }
         }
+
+        const challanSetPayload = {
+          poNumber: poDoc.poNumber,
+          items: updatedItems,
+          totalJobWorkCharges,
+        };
+        if (updatedAssemblyGroups.length > 0) challanSetPayload.assemblyGroups = updatedAssemblyGroups;
+        if (updatedAssemblyOutput) challanSetPayload.assemblyOutputItem = updatedAssemblyOutput;
 
         await JobWork.updateOne(
           { _id: challan._id, company: companyId },
-          { $set: { poNumber: poDoc.poNumber, items: updatedItems } }
+          { $set: challanSetPayload }
         );
 
         // Ensure both jobWorkChallan and challanNumber are populated on the PO document if one was missing
@@ -97,7 +220,7 @@ export const createPO = asyncHandler(async (req, res) => {
     transportType, transportCharge, packingType, packingCharge, subtotal, totalTax, grandTotal, remarks, description,
     gstType, cgstAmount, sgstAmount, igstAmount,
     poType, processType, sacCode, expectedDeliveryDate,
-    jobWorkChallan, challanNumber
+    jobWorkChallan, challanNumber, pricingBasis
   } = req.body;
 
   if (!poNumber) {
@@ -108,6 +231,25 @@ export const createPO = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Vendor is required to create PO");
   }
 
+  // Prevent duplicate active Job Work PO for the same Job Work Challan (once deleted/cancelled, a new PO can be created)
+  const cleanChallanNum = challanNumber ? String(challanNumber).trim() : "";
+  if (isValidObjectId(jobWorkChallan) || cleanChallanNum) {
+    const dupOr = [];
+    if (isValidObjectId(jobWorkChallan)) dupOr.push({ jobWorkChallan });
+    if (cleanChallanNum) dupOr.push({ challanNumber: cleanChallanNum });
+    const existingChallanPO = await PurchaseOrder.findOne({
+      company: companyId,
+      status: { $ne: "Cancelled" },
+      $or: dupOr,
+    }).lean();
+    if (existingChallanPO) {
+      throw new ApiError(
+        409,
+        `A Job Work PO (${existingChallanPO.poNumber}) already exists for Challan ${cleanChallanNum || existingChallanPO.challanNumber || ""}. Please edit the existing PO instead of creating a duplicate.`
+      );
+    }
+  }
+
   const userName = req.user?.name || req.user?.username || req.user?.email || 'Admin';
 
   const poData = {
@@ -116,6 +258,7 @@ export const createPO = asyncHandler(async (req, res) => {
     poType: poType || 'standard',
     jobWorkChallan: isValidObjectId(jobWorkChallan) ? jobWorkChallan : undefined,
     challanNumber: challanNumber ? String(challanNumber).trim() : '',
+    pricingBasis: pricingBasis === 'input' ? 'input' : 'output',
     processType: processType || '',
     sacCode: sacCode || '',
     expectedDeliveryDate: expectedDeliveryDate ? new Date(expectedDeliveryDate) : undefined,
@@ -831,6 +974,30 @@ export const updatePO = asyncHandler(async (req, res) => {
     updateData.challanNumber = req.body.challanNumber ? String(req.body.challanNumber).trim() : '';
   }
 
+  // Prevent linking this PO to a Challan that already has another active Job Work PO
+  const nextChallanId = updateData.jobWorkChallan !== undefined ? updateData.jobWorkChallan : existingPO.jobWorkChallan;
+  const nextChallanNum = updateData.challanNumber !== undefined ? updateData.challanNumber : existingPO.challanNumber;
+  if ((isValidObjectId(nextChallanId) || (nextChallanNum && String(nextChallanNum).trim())) && (req.body.status || existingPO.status) !== "Cancelled") {
+    const dupOr = [];
+    if (isValidObjectId(nextChallanId)) dupOr.push({ jobWorkChallan: nextChallanId });
+    if (nextChallanNum && String(nextChallanNum).trim()) dupOr.push({ challanNumber: String(nextChallanNum).trim() });
+    const conflictingPO = await PurchaseOrder.findOne({
+      company: companyId,
+      _id: { $ne: id },
+      status: { $ne: "Cancelled" },
+      $or: dupOr,
+    }).lean();
+    if (conflictingPO) {
+      throw new ApiError(
+        409,
+        `Challan ${String(nextChallanNum || conflictingPO.challanNumber || "").trim()} is already linked to Job Work PO (${conflictingPO.poNumber}). Please edit that PO or delete it before linking a new one.`
+      );
+    }
+  }
+  if (req.body.pricingBasis !== undefined) {
+    updateData.pricingBasis = req.body.pricingBasis === 'input' ? 'input' : 'output';
+  }
+
   // Handle explicit or manual MRP Plan linking
   if (req.body.mrpNumber !== undefined || req.body.mrpPlanId !== undefined) {
     const rawNum = req.body.mrpNumber ? String(req.body.mrpNumber).trim() : "";
@@ -1040,13 +1207,16 @@ export const deletePO = asyncHandler(async (req, res) => {
 
   await PurchaseOrder.deleteOne({ _id: id, company: companyId });
 
-  if (po.jobWorkChallan || po.challanNumber) {
+  if (po.jobWorkChallan || po.challanNumber || po.poNumber) {
     try {
-      const JobWork = req.getModel('JobWork', jobWorkSchema);
-      const challanFilter = { company: companyId, poNumber: po.poNumber };
-      if (isValidObjectId(po.jobWorkChallan)) challanFilter._id = po.jobWorkChallan;
-      else if (po.challanNumber) challanFilter.challanNumber = po.challanNumber;
-      await JobWork.updateMany(challanFilter, { $set: { poNumber: "" } });
+      const JobWork = req.getModel('JobWorkChallan', jobWorkSchema);
+      const unlinkOr = [];
+      if (po.poNumber) unlinkOr.push({ poNumber: po.poNumber });
+      if (isValidObjectId(po.jobWorkChallan)) unlinkOr.push({ _id: po.jobWorkChallan, poNumber: po.poNumber });
+      if (po.challanNumber) unlinkOr.push({ challanNumber: po.challanNumber, poNumber: po.poNumber });
+      if (unlinkOr.length > 0) {
+        await JobWork.updateMany({ company: companyId, $or: unlinkOr }, { $set: { poNumber: "" } });
+      }
     } catch (e) {
       console.warn("Failed to unlink JobWork Challan on PO deletion:", e.message);
     }

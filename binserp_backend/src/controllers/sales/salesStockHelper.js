@@ -6,7 +6,9 @@ import {
   consumableItemSchema,
   rmBoItemSchema,
   inventorySchema,
-  fgInventoryMonthlySchema
+  rmInventoryMonthlySchema,
+  fgInventoryMonthlySchema,
+  stockTransactionSchema
 } from "../../models/store/index.js";
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 
@@ -160,7 +162,8 @@ export const deductSalesItemsStock = async (req, items, options) => {
     refDocId,
     refDocNumber,
     recipientName = "Customer",
-    performedBy
+    performedBy,
+    docDate
   } = options;
 
   if (!Array.isArray(items) || items.length === 0) return;
@@ -170,10 +173,12 @@ export const deductSalesItemsStock = async (req, items, options) => {
   const BoughtOut = req.getModel("BoughtOut", boughtOutSchema);
   const ConsumableItem = req.getModel("ConsumableItem", consumableItemSchema);
   const Inventory = req.getModel("Inventory", inventorySchema);
+  const RMInventoryMonthly = req.getModel("RMInventoryMonthly", rmInventoryMonthlySchema);
   const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
 
-  const currentDate = new Date();
-  const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;
+  const parsedDate = docDate ? new Date(docDate) : new Date();
+  const effectiveDate = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+  const currentMonthStr = `${effectiveDate.getFullYear()}-${String(effectiveDate.getMonth() + 1).padStart(2, "0")}`;
   const txCategory = refDocType === "Invoice" ? "INVOICE_OUTWARD" : "SALES_DC_OUTWARD";
 
   for (const item of items) {
@@ -196,6 +201,18 @@ export const deductSalesItemsStock = async (req, items, options) => {
 
       if (invDoc) {
         await Inventory.findByIdAndUpdate(invDoc._id, { $set: { currentStock: newStock } });
+        const monthlyMatId = invDoc.materialId || rmId;
+        if (monthlyMatId && mongoose.Types.ObjectId.isValid(monthlyMatId)) {
+          try {
+            await RMInventoryMonthly.findOneAndUpdate(
+              { company: companyId, material: monthlyMatId, month: currentMonthStr },
+              { $inc: { totalOutwardQuantity: qty }, $set: { closingStock: newStock } },
+              { new: true, upsert: true }
+            );
+          } catch (mErr) {
+            console.error("Monthly RM outward update err:", mErr);
+          }
+        }
       }
 
       await recordStockTransaction(req, {
@@ -231,6 +248,18 @@ export const deductSalesItemsStock = async (req, items, options) => {
 
       if (invDoc) {
         await Inventory.findByIdAndUpdate(invDoc._id, { $set: { currentStock: newStock } });
+        const monthlyMatId = invDoc.materialId || boId;
+        if (monthlyMatId && mongoose.Types.ObjectId.isValid(monthlyMatId)) {
+          try {
+            await RMInventoryMonthly.findOneAndUpdate(
+              { company: companyId, material: monthlyMatId, month: currentMonthStr },
+              { $inc: { totalOutwardQuantity: qty }, $set: { closingStock: newStock } },
+              { new: true, upsert: true }
+            );
+          } catch (mErr) {
+            console.error("Monthly BO outward update err:", mErr);
+          }
+        }
       }
 
       await recordStockTransaction(req, {
@@ -266,6 +295,18 @@ export const deductSalesItemsStock = async (req, items, options) => {
 
       if (invDoc) {
         await Inventory.findByIdAndUpdate(invDoc._id, { $set: { currentStock: newStock } });
+        const monthlyMatId = invDoc.materialId || conId;
+        if (monthlyMatId && mongoose.Types.ObjectId.isValid(monthlyMatId)) {
+          try {
+            await RMInventoryMonthly.findOneAndUpdate(
+              { company: companyId, material: monthlyMatId, month: currentMonthStr },
+              { $inc: { totalOutwardQuantity: qty }, $set: { closingStock: newStock } },
+              { new: true, upsert: true }
+            );
+          } catch (mErr) {
+            console.error("Monthly Consumable outward update err:", mErr);
+          }
+        }
       }
 
       await recordStockTransaction(req, {
@@ -302,7 +343,7 @@ export const deductSalesItemsStock = async (req, items, options) => {
           try {
             await FGInventoryMonthly.findOneAndUpdate(
               { company: companyId, fgItem: fgId, month: currentMonthStr },
-              { $inc: { totalOutwardQuantity: qty } },
+              { $inc: { totalOutwardQuantity: qty }, $set: { closingStock: newStock } },
               { new: true, upsert: true }
             );
           } catch (mErr) {
@@ -343,17 +384,46 @@ export const reverseSalesItemsStock = async (req, items, options) => {
     refDocId,
     refDocNumber,
     recipientName = "Customer",
-    performedBy
+    performedBy,
+    docDate,
+    actionType = "delete" // "edit" | "delete" | "cancel"
   } = options;
 
   if (!Array.isArray(items) || items.length === 0) return;
 
   const FGItem = req.getModel("FGItem", fgItemSchema);
   const Inventory = req.getModel("Inventory", inventorySchema);
+  const RMInventoryMonthly = req.getModel("RMInventoryMonthly", rmInventoryMonthlySchema);
   const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
+  const StockTransaction = req.getModel("StockTransaction", stockTransactionSchema);
 
-  const currentDate = new Date();
-  const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;
+  const parsedDate = docDate ? new Date(docDate) : new Date();
+  const effectiveDate = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+  const currentMonthStr = `${effectiveDate.getFullYear()}-${String(effectiveDate.getMonth() + 1).padStart(2, "0")}`;
+
+  // Remove existing StockTransaction entries for this DC/Invoice so deleted/cancelled/edited
+  // records do not appear in Inventory Review (Material Issue & Outward Movement History)
+  // and do not inflate Monthly Outward or Monthly Inward aggregates.
+  if (refDocType && (refDocId || refDocNumber)) {
+    const deleteOr = [];
+    if (refDocId && mongoose.Types.ObjectId.isValid(refDocId)) {
+      deleteOr.push({ referenceDocId: refDocId });
+    }
+    if (refDocNumber) {
+      deleteOr.push({ referenceDocNumber: refDocNumber });
+    }
+    if (deleteOr.length > 0) {
+      try {
+        await StockTransaction.deleteMany({
+          company: companyId,
+          referenceDocType: refDocType,
+          $or: deleteOr
+        });
+      } catch (txDelErr) {
+        console.error(`Error removing StockTransaction entries for ${refDocType} #${refDocNumber}:`, txDelErr);
+      }
+    }
+  }
 
   for (const item of items) {
     const itemType = (item.itemType || "fg").toLowerCase();
@@ -376,24 +446,24 @@ export const reverseSalesItemsStock = async (req, items, options) => {
 
         await Inventory.findByIdAndUpdate(invDoc._id, { $set: { currentStock: newStock } });
 
-        await recordStockTransaction(req, {
-          itemType: itemType === "rm" ? "RawMaterial" : itemType === "bo" ? "BoughtOut" : "Consumable",
-          item: targetId || invDoc._id,
-          itemCode: item.itemCode || invDoc.materialCode || "",
-          itemName,
-          unit: item.unit || invDoc.unit || "PCS",
-          movementType: "INWARD",
-          transactionCategory: "STOCK_ADJUSTMENT",
-          quantity: qty,
-          previousStock,
-          newStock,
-          referenceDocType: refDocType,
-          referenceDocId: refDocId,
-          referenceDocNumber: refDocNumber,
-          recipientOrSource: recipientName,
-          purpose: `Reversal of ${refDocType} #${refDocNumber} cancellation`,
-          performedBy
-        });
+        const monthlyMatId = invDoc.materialId || targetId;
+        if (monthlyMatId && mongoose.Types.ObjectId.isValid(monthlyMatId)) {
+          try {
+            const existingMonthly = await RMInventoryMonthly.findOne({
+              company: companyId,
+              material: monthlyMatId,
+              month: currentMonthStr
+            });
+            const nextOutward = Math.max(0, Number(existingMonthly?.totalOutwardQuantity || 0) - qty);
+            await RMInventoryMonthly.findOneAndUpdate(
+              { company: companyId, material: monthlyMatId, month: currentMonthStr },
+              { $set: { totalOutwardQuantity: nextOutward, closingStock: newStock } },
+              { new: true, upsert: true }
+            );
+          } catch (mErr) {
+            console.error("Monthly RM/BO/Consumable outward reversal err:", mErr);
+          }
+        }
       }
     }
 
@@ -409,32 +479,20 @@ export const reverseSalesItemsStock = async (req, items, options) => {
           await FGItem.findByIdAndUpdate(fgId, { $set: { quantity: newStock } });
 
           try {
+            const existingFgMonthly = await FGInventoryMonthly.findOne({
+              company: companyId,
+              fgItem: fgId,
+              month: currentMonthStr
+            });
+            const nextOutward = Math.max(0, Number(existingFgMonthly?.totalOutwardQuantity || 0) - qty);
             await FGInventoryMonthly.findOneAndUpdate(
               { company: companyId, fgItem: fgId, month: currentMonthStr },
-              { $inc: { totalOutwardQuantity: -qty } }
+              { $set: { totalOutwardQuantity: nextOutward, closingStock: newStock } },
+              { new: true, upsert: true }
             );
           } catch (mErr) {
             console.error("Monthly FG outward reversal err:", mErr);
           }
-
-          await recordStockTransaction(req, {
-            itemType: "FGItem",
-            item: fgId,
-            itemCode: fgDoc.code || item.itemCode || "",
-            itemName,
-            unit: item.unit || fgDoc.unit || "PCS",
-            movementType: "INWARD",
-            transactionCategory: "STOCK_ADJUSTMENT",
-            quantity: qty,
-            previousStock,
-            newStock,
-            referenceDocType: refDocType,
-            referenceDocId: refDocId,
-            referenceDocNumber: refDocNumber,
-            recipientOrSource: recipientName,
-            purpose: `Reversal of ${refDocType} #${refDocNumber} cancellation`,
-            performedBy
-          });
         }
       }
     }

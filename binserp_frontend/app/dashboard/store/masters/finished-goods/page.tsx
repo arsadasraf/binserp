@@ -8,7 +8,7 @@ import Modal from '@/src/components/Modal';
 import FGItemForm from '@/src/features/store/components/forms/FGItemForm';
 import MasterDetailPreviewModal from '@/src/features/store/components/modals/MasterDetailPreviewModal';
 import { StoreFormData } from '@/src/features/store/types/store.types';
-import { AlertCircle, CheckCircle2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, X, Copy } from 'lucide-react';
 import { showDestructiveConfirm, showDeactivatePrompt, showSuccessToast } from '@/src/features/store/utils/storeDialogHelper';
 
 const extractErrorMessage = (error: any, fallback = "Failed to save Finished Good. Please check required fields."): string => {
@@ -40,6 +40,7 @@ export default function FinishedGoodsPage() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [duplicatingFrom, setDuplicatingFrom] = useState<{ name: string; type: string; bomCount: number } | null>(null);
   const [previewItem, setPreviewItem] = useState<any>(null);
   const [previewTab, setPreviewTab] = useState<'overview' | 'bom'>('overview');
   const [formData, setFormData] = useState<StoreFormData>({ type: 'Component', unit: 'Nos' });
@@ -72,10 +73,7 @@ export default function FinishedGoodsPage() {
     return () => clearTimeout(timer);
   }, [rowNotice]);
 
-  const handleEdit = (item: any) => {
-    setEditingItem(item);
-
-    // Enrich existing BOM items with dual-unit metadata from matched master records
+  const buildEnrichedFGFormData = (item: any, stripSubdocIds = false) => {
     const enrichedBOM = Array.isArray(item.bom) ? item.bom.map((b: any) => {
       const rawId = typeof b.item === 'object' && b.item !== null ? (b.item._id || b.item.id) : b.item;
       const bType = b.itemType || 'RawMaterial';
@@ -123,7 +121,7 @@ export default function FinishedGoodsPage() {
         ? Number(b.inputQuantity)
         : (isSecActive && secQty !== undefined ? secQty : priQty);
 
-      return {
+      const clonedRow: any = {
         ...b,
         item: rawId,
         itemName: b.itemName || matchedMaster?.name || (typeof b.item === 'object' ? b.item?.name : '') || '',
@@ -139,9 +137,14 @@ export default function FinishedGoodsPage() {
         selectedUnit: selUnit,
         inputQuantity: inQty
       };
+      if (stripSubdocIds) {
+        delete clonedRow._id;
+        delete clonedRow.id;
+      }
+      return clonedRow;
     }) : [];
 
-    setFormData({
+    return {
       ...item,
       bom: enrichedBOM,
       category: typeof item.category === 'object' ? (item.category?._id || item.category?.name) : (item.category || item.categoryId?._id || item.categoryId || ''),
@@ -151,8 +154,46 @@ export default function FinishedGoodsPage() {
       unit: item.unit || 'Nos',
       hasSecondaryUnit: Boolean(item.hasSecondaryUnit),
       secondaryUnit: item.secondaryUnit || '',
+      primaryRatio: item.primaryRatio !== undefined ? item.primaryRatio : 1,
+      secondaryRatio: item.secondaryRatio !== undefined ? item.secondaryRatio : 1,
       conversionFactor: item.conversionFactor !== undefined ? item.conversionFactor : 1
+    };
+  };
+
+  const handleEdit = (item: any) => {
+    setEditingItem(item);
+    setDuplicatingFrom(null);
+    setFormData(buildEnrichedFGFormData(item, false));
+    setPhotos([]);
+    setFormError(null);
+    setIsModalOpen(true);
+  };
+
+  const handleDuplicate = (item: any) => {
+    const baseData: any = buildEnrichedFGFormData(item, true);
+    // Strip identity, code, stock, audit & photo references so a clean new FG item is created
+    delete baseData._id;
+    delete baseData.id;
+    delete baseData.code;
+    delete baseData.createdAt;
+    delete baseData.updatedAt;
+    delete baseData.createdBy;
+    delete baseData.updatedBy;
+    delete baseData.photos;
+
+    const originalName = (item.name || 'FG Item').toString().trim();
+    baseData.name = `${originalName} (Copy)`;
+    baseData.quantity = 0;
+    baseData.status = 'Active';
+    baseData.isActive = true;
+
+    setEditingItem(null);
+    setDuplicatingFrom({
+      name: originalName,
+      type: item.type || 'Component',
+      bomCount: Array.isArray(baseData.bom) ? baseData.bom.length : 0
     });
+    setFormData(baseData);
     setPhotos([]);
     setFormError(null);
     setIsModalOpen(true);
@@ -336,6 +377,7 @@ export default function FinishedGoodsPage() {
       setFormData({ type: 'Component', unit: 'Nos', hasSecondaryUnit: false, secondaryUnit: '', conversionFactor: 1, category: '', categoryId: '' });
       setPhotos([]);
       setEditingItem(null);
+      setDuplicatingFrom(null);
       setFormError(null);
     } catch (error: any) {
       const errMsg = extractErrorMessage(error);
@@ -412,6 +454,7 @@ export default function FinishedGoodsPage() {
           categories={categories}
           onAdd={() => {
             setEditingItem(null);
+            setDuplicatingFrom(null);
             setFormData({ type: 'Component', unit: 'Nos', category: '', categoryId: '' });
             setPhotos([]);
             setFormError(null);
@@ -440,6 +483,7 @@ export default function FinishedGoodsPage() {
         allRMItems={rawMaterials}
         allBOItems={boughtOuts}
         onEdit={(item) => handleEdit(item)}
+        onDuplicate={(item) => handleDuplicate(item)}
         onDelete={(id) => handleDelete(id)}
       />
 
@@ -447,12 +491,24 @@ export default function FinishedGoodsPage() {
         isOpen={isModalOpen}
         onClose={() => {
           setIsModalOpen(false);
+          setDuplicatingFrom(null);
           setFormError(null);
         }}
-        title={editingItem ? "Edit FG Item" : "Add FG Item"}
+        title={editingItem ? "Edit FG Item" : (duplicatingFrom ? "Duplicate FG Item (with BOM)" : "Add FG Item")}
         maxWidth="full"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Duplicate Context Banner */}
+          {duplicatingFrom && !editingItem && (
+            <div className="flex items-start gap-2.5 p-3.5 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 rounded-xl text-indigo-900 dark:text-indigo-200 text-xs shadow-2xs">
+              <Copy className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+              <div className="leading-relaxed">
+                Duplicating from <strong>{duplicatingFrom.name}</strong> ({duplicatingFrom.type}) with{" "}
+                <strong>{duplicatingFrom.bomCount}</strong> attached BOM item{duplicatingFrom.bomCount === 1 ? "" : "s"}. Update the{" "}
+                <strong>Item Name / Revision</strong> and adjust any BOM rows before saving as a new FG Item.
+              </div>
+            </div>
+          )}
           {/* Modal Error Banner */}
           {formError && (
             <div className="flex items-start justify-between gap-3 p-3.5 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 rounded-xl text-rose-800 dark:text-rose-200 text-sm shadow-xs animate-in fade-in slide-in-from-top-1 duration-200">
@@ -498,6 +554,7 @@ export default function FinishedGoodsPage() {
               type="button"
               onClick={() => {
                 setIsModalOpen(false);
+                setDuplicatingFrom(null);
                 setFormError(null);
               }}
               className="px-4 py-2 text-xs sm:text-sm font-medium text-gray-700 dark:text-slate-300 bg-gray-100 dark:bg-slate-800 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors"
@@ -509,7 +566,7 @@ export default function FinishedGoodsPage() {
               disabled={isCreating || isUpdating}
               className="px-5 py-2 text-xs sm:text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-xs"
             >
-              {isCreating || isUpdating ? "Saving..." : (editingItem ? "Update FG Item" : "Save FG Item")}
+              {isCreating || isUpdating ? "Saving..." : (editingItem ? "Update FG Item" : (duplicatingFrom ? "Create Duplicate FG Item" : "Save FG Item"))}
             </button>
           </div>
         </form>

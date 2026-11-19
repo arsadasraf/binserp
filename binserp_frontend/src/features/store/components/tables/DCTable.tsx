@@ -3,9 +3,11 @@ import { Edit2, Trash2, Download, Truck, FileText, Search, User, Calendar, X, Ey
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { download4CopyPDF, downloadFrontendExcel, downloadDCExcelDocument } from '@/src/utils/frontendDocumentHelper';
 import DCPreviewModal from '../modals/DCPreviewModal';
+import EWayBillHelperModal from '../modals/EWayBillHelperModal';
 import SearchableMultiSelect from '../SearchableMultiSelect';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
-import { showDestructiveConfirm, showInfoDialog } from '@/src/features/store/utils/storeDialogHelper';
+import { showDestructiveConfirm } from '@/src/features/store/utils/storeDialogHelper';
+import { matchesAnyField } from '@/src/utils/spaceFreeSearchHelper';
 
 interface DCTableProps {
     data: any[];
@@ -14,10 +16,6 @@ interface DCTableProps {
     onDelete: (id: string) => void;
     onCreateDC?: () => void;
 }
-
-const generateEWayBill = (dc: any) => {
-    showInfoDialog("E-Way Bill", `Generating E-Way Bill for DC: ${dc.dcNumber}`);
-};
 
 const formatDateTime = (dateStr?: string | Date) => {
     if (!dateStr) return "-";
@@ -51,6 +49,7 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
     const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth);
     const [selectedDay, setSelectedDay] = useState("");
     const [selectedDCPreview, setSelectedDCPreview] = useState<any | null>(null);
+    const [selectedDCEWay, setSelectedDCEWay] = useState<any | null>(null);
     const [showDashboard, setShowDashboard] = useState<boolean>(false);
     const [showFilters, setShowFilters] = useState<boolean>(false);
 
@@ -139,15 +138,42 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                 }
             }
 
-            if (searchTerm) {
-                const term = searchTerm.toLowerCase();
-                const dcNum = (item.dcNumber || '').toLowerCase();
-                const custName = (item.customerName || item.customer?.name || '').toLowerCase();
-                const poRef = (item.customerPoReference || '').toLowerCase();
-                const matchItems = Array.isArray(item.items) && item.items.some((it: any) =>
-                    (it.productName || it.name || it.description || it.fgItem?.name || '').toLowerCase().includes(term)
+            if (searchTerm.trim()) {
+                const topLevelMatch = matchesAnyField(
+                    item,
+                    [
+                        'dcNumber',
+                        'customerName',
+                        (d: any) => d.customer?.name,
+                        (d: any) => d.customer?.companyName,
+                        'customerPoReference',
+                        'vehicleNumber',
+                    ],
+                    searchTerm
                 );
-                if (!dcNum.includes(term) && !custName.includes(term) && !poRef.includes(term) && !matchItems) {
+                const matchItems = Array.isArray(item.items) && item.items.some((it: any) =>
+                    matchesAnyField(
+                        it,
+                        [
+                            'materialName',
+                            'productName',
+                            'name',
+                            'description',
+                            'descriptions',
+                            (x: any) => x.fgItem?.name,
+                            (x: any) => x.fgItem?.description,
+                            (x: any) => x.rawMaterial?.name,
+                            (x: any) => x.rawMaterial?.descriptions,
+                            (x: any) => x.boughtOut?.name,
+                            (x: any) => x.boughtOut?.descriptions,
+                            (x: any) => x.consumableItem?.name,
+                            (x: any) => x.consumableItem?.descriptions,
+                            'hsnCode',
+                        ],
+                        searchTerm
+                    )
+                );
+                if (!topLevelMatch && !matchItems) {
                     return false;
                 }
             }
@@ -234,27 +260,27 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
             {showDashboard && (
                 <div className="space-y-3">
                     {/* Top Dashboard Header with Title and Accessible Hide / Collapse Button */}
-                        <div className="flex items-center justify-between pb-1 px-1">
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">Executive Delivery Challan Dashboard</span>
-                                {hasActiveFilters && (
-                                    <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300">
-                                        Filtered ({filteredData.length} of {data.length})
-                                    </span>
-                                )}
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setShowDashboard(false)}
-                                className="px-2.5 py-1 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1 cursor-pointer border border-slate-200 dark:border-slate-700"
-                                title="Hide Executive KPI Dashboard"
-                            >
-                                <ChevronUp size={14} />
-                                <span>Hide</span>
-                            </button>
+                    <div className="flex items-center justify-between pb-1 px-1">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">Executive Delivery Challan Dashboard</span>
+                            {hasActiveFilters && (
+                                <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300">
+                                    Filtered ({filteredData.length} of {data.length})
+                                </span>
+                            )}
                         </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowDashboard(false)}
+                            className="px-2.5 py-1 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1 cursor-pointer border border-slate-200 dark:border-slate-700"
+                            title="Hide Executive KPI Dashboard"
+                        >
+                            <ChevronUp size={14} />
+                            <span>Hide</span>
+                        </button>
+                    </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
                         {/* Card 1: Total Dispatches */}
                         <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-xs relative overflow-hidden">
                             <div className="flex items-center justify-between text-blue-600 dark:text-blue-400 mb-2">
@@ -431,11 +457,10 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                         <button
                             type="button"
                             onClick={() => setShowFilters(prev => !prev)}
-                            className={`lg:hidden p-2 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer border ${
-                                showFilters || hasActiveFilters
-                                    ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/60 dark:border-blue-800 dark:text-blue-300'
-                                    : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
-                            }`}
+                            className={`lg:hidden p-2 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer border ${showFilters || hasActiveFilters
+                                ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/60 dark:border-blue-800 dark:text-blue-300'
+                                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                                }`}
                             title={showFilters ? "Hide Filters" : "Show Filters"}
                             aria-label="Toggle Filters"
                         >
@@ -451,11 +476,10 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                         <button
                             type="button"
                             onClick={() => setShowDashboard(prev => !prev)}
-                            className={`p-2 sm:px-2.5 sm:py-1.5 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
-                                showDashboard
-                                    ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/60 dark:border-blue-800 dark:text-blue-300'
-                                    : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
-                            }`}
+                            className={`p-2 sm:px-2.5 sm:py-1.5 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${showDashboard
+                                ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/60 dark:border-blue-800 dark:text-blue-300'
+                                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                                }`}
                             title={showDashboard ? "Hide Delivery Challan Dashboard" : "Show Delivery Challan Dashboard"}
                             aria-label="Toggle Dashboard"
                         >
@@ -644,17 +668,17 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex justify-end items-center gap-1.5">
-                                                <button 
-                                                    onClick={() => setSelectedDCPreview(item)} 
-                                                    className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-600 text-blue-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 border border-blue-200 dark:border-blue-800 shadow-xs cursor-pointer" 
+                                                <button
+                                                    onClick={() => setSelectedDCPreview(item)}
+                                                    className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-600 text-blue-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 border border-blue-200 dark:border-blue-800 shadow-xs cursor-pointer"
                                                     title="Preview DC (PDF, Excel, Details)"
                                                 >
                                                     <Eye size={14} /> Preview
                                                 </button>
                                                 <button 
-                                                    onClick={() => generateEWayBill(item)} 
+                                                    onClick={() => setSelectedDCEWay(item)} 
                                                     className="px-3 py-1.5 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 text-amber-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 border border-amber-200 dark:border-amber-800 shadow-xs cursor-pointer" 
-                                                    title="Generate E-Way Bill"
+                                                    title="Copy Details & Open Official E-Way Bill Portal (ewaybillgst.gov.in)"
                                                 >
                                                     <Truck size={14} /> E-Way
                                                 </button>
@@ -666,7 +690,7 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                                     return isWithinLimit ? (
                                                         <div className="flex items-center gap-1 shrink-0 ml-0.5">
                                                             {remainingSecs === Infinity ? (
-                                                                <span 
+                                                                <span
                                                                     title="Unlimited editing window configured by company policy"
                                                                     className="px-2 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-xl font-mono text-[10px] font-bold border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1 shrink-0"
                                                                 >
@@ -674,7 +698,7 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                                                     Unlimited
                                                                 </span>
                                                             ) : (
-                                                                <span 
+                                                                <span
                                                                     title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
                                                                     className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
                                                                 >
@@ -683,15 +707,15 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                                                 </span>
                                                             )}
 
-                                                            <button 
-                                                                onClick={() => onEdit(item)} 
-                                                                className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer border border-blue-200 dark:border-blue-800" 
+                                                            <button
+                                                                onClick={() => onEdit(item)}
+                                                                className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer border border-blue-200 dark:border-blue-800"
                                                                 title={`Edit Delivery Challan (${formatRemainingTime(remainingSecs)} left)`}
                                                             >
                                                                 <Edit2 size={13} />
                                                             </button>
 
-                                                            <button 
+                                                            <button
                                                                 onClick={async () => {
                                                                     const confirmed = await showDestructiveConfirm({
                                                                         title: "Delete Delivery Challan",
@@ -701,15 +725,15 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                                                     if (confirmed) {
                                                                         onDelete(item._id);
                                                                     }
-                                                                }} 
-                                                                className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer border border-rose-200 dark:border-rose-800" 
+                                                                }}
+                                                                className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer border border-rose-200 dark:border-rose-800"
                                                                 title={`Delete Delivery Challan (${formatRemainingTime(remainingSecs)} left)`}
                                                             >
                                                                 <Trash2 size={13} />
                                                             </button>
                                                         </div>
                                                     ) : (
-                                                        <span 
+                                                        <span
                                                             title={`Action window expired (Allowed within ${getPolicyHours('deliveryChallan')} hours of creation)`}
                                                             className="px-2 py-1 bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 rounded-xl text-[10px] font-semibold inline-flex items-center gap-1 border border-slate-200 dark:border-slate-700"
                                                         >
@@ -743,11 +767,11 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
 
                                 <div className="text-xs space-y-1.5 text-slate-600 dark:text-slate-300">
                                     <div className="flex justify-between">
-                                        <span className="text-slate-400 font-medium">Creation Date & Time:</span> 
+                                        <span className="text-slate-400 font-medium">Creation Date & Time:</span>
                                         <span className="font-semibold text-slate-700 dark:text-slate-200">{formatDateTime(item.createdAt || item.date)}</span>
                                     </div>
                                     <div className="flex justify-between">
-                                        <span className="text-slate-400 font-medium">Items:</span> 
+                                        <span className="text-slate-400 font-medium">Items:</span>
                                         <div className="text-right">
                                             <span className="font-bold text-slate-800 dark:text-slate-100 block">
                                                 {item.items?.[0]?.materialName || '-'}
@@ -761,7 +785,7 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                         </div>
                                     </div>
                                     <div className="flex justify-between">
-                                        <span className="text-slate-400 font-medium">Prepared By:</span> 
+                                        <span className="text-slate-400 font-medium">Prepared By:</span>
                                         <span className="text-slate-600 dark:text-slate-400 font-medium">{item.createdBy?.name || item.preparedBy?.name || item.updatedBy?.name || 'Admin User'}</span>
                                     </div>
                                 </div>
@@ -769,7 +793,7 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                                     <div className="flex items-center gap-1.5 flex-1">
                                         <button onClick={() => setSelectedDCPreview(item)} className="flex-1 py-1.5 text-blue-600 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1 border border-blue-200 dark:border-blue-800 transition-all"><Eye size={13} /> Preview</button>
-                                        <button onClick={() => generateEWayBill(item)} className="flex-1 py-1.5 text-amber-600 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1 border border-amber-200 dark:border-amber-800 transition-all"><Truck size={13} /> E-Way</button>
+                                        <button onClick={() => setSelectedDCEWay(item)} className="flex-1 py-1.5 text-amber-600 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1 border border-amber-200 dark:border-amber-800 transition-all"><Truck size={13} /> E-Way</button>
                                     </div>
 
                                     {(() => {
@@ -823,6 +847,16 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                     companyInfo={companyInfo}
                     onEdit={onEdit}
                     onDelete={onDelete}
+                />
+            )}
+
+            {/* E-Way Bill Assistant & Portal Launcher Modal */}
+            {selectedDCEWay && (
+                <EWayBillHelperModal
+                    isOpen={!!selectedDCEWay}
+                    onClose={() => setSelectedDCEWay(null)}
+                    dc={selectedDCEWay}
+                    companyInfo={companyInfo}
                 />
             )}
         </div>

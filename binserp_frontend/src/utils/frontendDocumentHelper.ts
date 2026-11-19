@@ -3,6 +3,82 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { generateFrontendDcPDF, generateFrontendInvoicePDF } from "./frontendPdfHelper";
 import { getCurrencySymbol, convertAmountToWords } from "./currencyHelper";
+import { API_BASE_URL } from "./config";
+
+interface LoadedPdfLogo {
+  dataUrl: string;
+  format: "PNG" | "JPEG" | "WEBP";
+  widthMm: number;
+  heightMm: number;
+}
+
+const loadPdfLogoInfo = async (logoUrl?: string | null): Promise<LoadedPdfLogo | null> => {
+  if (!logoUrl || typeof window === "undefined") return null;
+
+  let dataUrl: string | null = null;
+  if (logoUrl.startsWith("data:image")) {
+    dataUrl = logoUrl;
+  } else {
+    // 1. Express backend proxy (bypasses S3/external CORS cleanly)
+    try {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`${API_BASE_URL}/api/company/image-to-base64`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ url: logoUrl }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.dataUrl) dataUrl = data.dataUrl;
+      }
+    } catch {
+      // fall through
+    }
+
+    // 2. Next.js local route fallback
+    if (!dataUrl) {
+      try {
+        const res = await fetch("/api/image-to-base64", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: logoUrl }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.dataUrl) dataUrl = data.dataUrl;
+        }
+      } catch {
+        // fall through
+      }
+    }
+  }
+
+  if (!dataUrl) return null;
+
+  // Measure natural dimensions to preserve aspect ratio inside max 26mm x 16mm box
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxW = 26;
+      const maxH = 16;
+      const natW = img.naturalWidth || maxW;
+      const natH = img.naturalHeight || maxH;
+      const ratio = Math.min(maxW / natW, maxH / natH);
+      const widthMm = Math.max(8, Number((natW * ratio).toFixed(2)));
+      const heightMm = Math.max(8, Number((natH * ratio).toFixed(2)));
+      const format: "PNG" | "JPEG" | "WEBP" = dataUrl!.includes("image/jpeg") || dataUrl!.includes("image/jpg")
+        ? "JPEG"
+        : dataUrl!.includes("image/webp")
+        ? "WEBP"
+        : "PNG";
+      resolve({ dataUrl: dataUrl!, format, widthMm, heightMm });
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl!;
+  });
+};
 
 const formatDateTime = (dateStr?: string | Date) => {
   if (!dateStr) return "-";
@@ -24,6 +100,535 @@ export interface DocumentOptions {
   copyType?: "all" | "original" | "duplicate" | "triplicate";
 }
 
+export const downloadDirectDcPDF = async ({ doc, companyInfo, copyType = "all" }: DocumentOptions) => {
+  try {
+    if (!doc) {
+      alert("No Delivery Challan data provided for PDF generation");
+      return;
+    }
+
+    const pdf = new jsPDF("p", "mm", "a4");
+    const pageW = 210;
+    const marginX = 12;
+    const contentW = pageW - marginX * 2; // 186mm
+
+    let copies = [
+      "ORIGINAL FOR RECIPIENT",
+      "DUPLICATE FOR TRANSPORTER",
+      "TRIPLICATE FOR SUPPLIER"
+    ];
+    if (copyType === "original") copies = ["ORIGINAL FOR RECIPIENT"];
+    else if (copyType === "duplicate") copies = ["DUPLICATE FOR TRANSPORTER"];
+    else if (copyType === "triplicate") copies = ["TRIPLICATE FOR SUPPLIER"];
+
+    // 1. Resolve Company Master Details (same order as DCPreviewModal)
+    let masterCompany = companyInfo;
+    if (!masterCompany || !masterCompany.companyName) {
+      try {
+        const storeCached = localStorage.getItem("storeCompanyInfo");
+        const storedCompany = localStorage.getItem("companyInfo");
+        const storedUser = localStorage.getItem("userInfo");
+        if (storeCached) masterCompany = { ...JSON.parse(storeCached), ...companyInfo };
+        else if (storedCompany) masterCompany = { ...JSON.parse(storedCompany), ...companyInfo };
+        else if (storedUser) masterCompany = { ...JSON.parse(storedUser), ...companyInfo };
+      } catch (e) {
+        console.warn("Could not parse cached company info:", e);
+      }
+    }
+
+    const compName = masterCompany?.companyName || masterCompany?.name || "BINSERP ENTERPRISE";
+    const compAddressRaw = masterCompany?.billingAddress || masterCompany?.address || masterCompany?.location || "";
+    const compCityState = [masterCompany?.city, masterCompany?.state, masterCompany?.pincode ? `- ${masterCompany.pincode}` : ""].filter(Boolean).join(" ");
+    const compAddress = [compAddressRaw, compCityState].filter(Boolean).join(", ");
+    const compGst = masterCompany?.gstin || masterCompany?.gstNumber || masterCompany?.gst || "N/A";
+    const compPan = masterCompany?.panNumber || masterCompany?.pan || "N/A";
+    const compPhone = masterCompany?.contactNumber || masterCompany?.phone || "";
+    const compEmail = masterCompany?.email || "";
+
+    // 2. Bank Details (prefer DC-specific override, fallback to master)
+    const dcBank = doc.bankDetails || {};
+    const masterBank = masterCompany?.bankDetails || {};
+    const bankName = dcBank.bankName || masterBank.bankName || masterCompany?.bankName || "-";
+    const accountName = dcBank.accountName || masterBank.accountName || compName;
+    const accountNumber = dcBank.accountNumber || masterBank.accountNumber || masterCompany?.accountNumber || "-";
+    const ifscCode = dcBank.ifscCode || masterBank.ifscCode || masterCompany?.ifscCode || "-";
+    const branch = dcBank.branch || dcBank.branchName || masterBank.branch || masterBank.branchName || masterCompany?.branchName || "-";
+
+    // 3. Terms & Conditions (prefer DC-specific override, fallback to master)
+    const DEFAULT_DC_TERMS =
+      "1. Material delivered against this Delivery Challan is subject to terms agreed in the purchase contract.\n" +
+      "2. Goods must be verified and acknowledged upon receipt by an authorized receiver.\n" +
+      "3. Any discrepancy or damage must be notified within 24 hours of delivery.\n" +
+      "4. Subject to local jurisdiction only.";
+    const termsAndConditions =
+      doc.termsAndConditions ||
+      masterCompany?.printSettings?.dc?.termsAndConditions ||
+      masterCompany?.commercialTerms ||
+      DEFAULT_DC_TERMS;
+
+    // 4. Customer Details
+    const custObj = typeof doc.customer === "object" && doc.customer !== null ? doc.customer : {};
+    const custName = doc.customerName || custObj?.name || custObj?.companyName || "Internal / Cash Customer";
+    const custAddressRaw = doc.customerAddress || custObj?.address || custObj?.billingAddress || custObj?.shippingAddress || "-";
+    const custCityState = [custObj?.city, custObj?.state, custObj?.pincode].filter(Boolean).join(" ");
+    const custAddress = custAddressRaw !== "-" && custCityState && !custAddressRaw.includes(custObj?.city || "___")
+      ? `${custAddressRaw}, ${custCityState}`
+      : custAddressRaw;
+    const custGst = doc.customerGST || custObj?.gstin || custObj?.gstNumber || custObj?.gst || "-";
+    const custPhone = doc.customerPhone || custObj?.phone || custObj?.contactNumber || custObj?.mobile || "-";
+    const custEmail = doc.customerEmail || custObj?.email || "-";
+    const custPoRef = doc.customerPoReference || doc.poNumber || "-";
+
+    // 5. Logistics & Financials
+    const docNum = doc.dcNumber || "DC-001";
+    const creationDateTimeStr = formatDateTime(doc.createdAt || doc.date);
+    const vehicleNo = (doc.vehicleNumber || doc.vehicleNo || "-").toUpperCase();
+    const transportMode = doc.transportationType || doc.transportType || "Road Transport";
+    const packagingType = doc.packagingType || "Standard Packaging";
+    const eWayNo = doc.eWayBillNo || doc.eWayNo || "";
+    const currCode = doc.currency || "INR";
+
+    const items = Array.isArray(doc.items) ? doc.items : [];
+    const subtotal = doc.subtotal || items.reduce((acc: number, i: any) => acc + (Number(i.quantity || 0) * Number(i.rate || 0)), 0);
+    const transportCharges = Number(doc.transportationCharges || doc.freightCharges || 0);
+    const packagingCharges = Number(doc.packagingCharges || 0);
+    const discount = Number(doc.discount || 0);
+    const rawExactTotal = parseFloat((subtotal + transportCharges + packagingCharges - discount).toFixed(2));
+    const isRoundOffEnabled = doc.isRoundOff !== undefined ? Boolean(doc.isRoundOff) : true;
+    const roundOff = doc.roundOff !== undefined ? Number(doc.roundOff) : (isRoundOffEnabled ? parseFloat((Math.round(rawExactTotal) - rawExactTotal).toFixed(2)) : 0);
+    const grandTotal = doc.totalAmount || (isRoundOffEnabled ? Math.round(rawExactTotal) : rawExactTotal);
+
+    // Prepare line items with Name + Description together in Column 2 (Rule 1)
+    const itemMetaList = items.map((item: any) => {
+      const refObj = item.fgItem || item.rawMaterial || item.boughtOut || item.consumableItem || item.material;
+      const itemName = item.materialName || item.productName || item.name || (typeof refObj === "object" ? refObj?.name : "") || "Item";
+      const itemDesc = item.description || item.descriptions || (typeof refObj === "object" ? (refObj?.description || refObj?.descriptions || "") : "");
+      return { itemName, itemDesc };
+    });
+
+    const tableRows = items.map((item: any, idx: number) => {
+      const { itemName, itemDesc } = itemMetaList[idx];
+      const qty = Number(item.quantity || 0);
+      const rate = Number(item.rate || 0);
+      const lineAmt = Number(item.amount || (qty * rate));
+      const unit = (item.unit || item.uom || "PCS").toUpperCase();
+      const combinedCell = itemDesc ? `${itemName}\n${itemDesc}` : itemName;
+
+      return [
+        String(idx + 1),
+        combinedCell,
+        item.hsnCode || item.hsn || "-",
+        `${qty} ${unit}`,
+        rate.toFixed(2),
+        lineAmt.toFixed(2)
+      ];
+    });
+
+    // Sales Tax Invoice Indigo Palette
+    const INDIGO_DARK: [number, number, number] = [55, 48, 163];   // #3730a3
+    const INDIGO_MAIN: [number, number, number] = [79, 70, 229];   // #4f46e5
+    const INDIGO_SOFT: [number, number, number] = [238, 242, 255]; // #eef2ff
+    const INDIGO_BDR: [number, number, number] = [199, 210, 254];  // #c7d2fe
+    const SLATE_BDR: [number, number, number] = [148, 163, 184];   // #94a3b8
+    const SLATE_BG: [number, number, number] = [248, 250, 252];    // #f8fafc
+    const SLATE_DARK: [number, number, number] = [15, 23, 42];     // #0f172a
+    const SLATE_MID: [number, number, number] = [71, 85, 105];     // #475569
+
+    const compLogoUrl = masterCompany?.logo || "";
+    const loadedLogo = compLogoUrl ? await loadPdfLogoInfo(compLogoUrl) : null;
+
+    copies.forEach((copyTitle, pageIndex) => {
+      if (pageIndex > 0) pdf.addPage();
+
+      let curY = 12;
+      const headerTopY = curY;
+
+      // 1. Company Header (Left: Optional Logo + Company Info) & Solid Indigo Copy Badge (Right) — Matches Sales Tax Invoice
+      pdf.setFillColor(...INDIGO_DARK);
+      const badgeW = 58;
+      pdf.roundedRect(pageW - marginX - badgeW, curY, badgeW, 6.5, 1.2, 1.2, "F");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(7);
+      pdf.setTextColor(255, 255, 255);
+      pdf.text(copyTitle, pageW - marginX - badgeW / 2, curY + 4.3, { align: "center" });
+
+      let textStartX = marginX;
+      let maxCompTextW = 122;
+      if (loadedLogo) {
+        try {
+          pdf.addImage(loadedLogo.dataUrl, loadedLogo.format, marginX, headerTopY, loadedLogo.widthMm, loadedLogo.heightMm);
+          textStartX = marginX + loadedLogo.widthMm + 3.5;
+          maxCompTextW = 122 - loadedLogo.widthMm - 3.5;
+        } catch (logoErr) {
+          console.warn("Could not embed company logo in DC PDF:", logoErr);
+        }
+      }
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(15);
+      pdf.setTextColor(...INDIGO_DARK);
+      pdf.text(compName.toUpperCase(), textStartX, curY + 4.5);
+      curY += 8.5;
+
+      if (compAddress) {
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        pdf.setTextColor(...SLATE_MID);
+        const addrLines = pdf.splitTextToSize(compAddress, maxCompTextW);
+        pdf.text(addrLines, textStartX, curY);
+        curY += addrLines.length * 3.4;
+      }
+
+      const contactLine = [compPhone ? `Ph: ${compPhone}` : "", compEmail ? `Email: ${compEmail}` : ""].filter(Boolean).join(" | ");
+      if (contactLine) {
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        pdf.setTextColor(...SLATE_MID);
+        pdf.text(contactLine, textStartX, curY + 0.5);
+        curY += 3.8;
+      }
+
+      const taxLineParts = [`GSTIN: ${compGst}`];
+      if (compPan !== "N/A") taxLineParts.push(`PAN: ${compPan}`);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(8);
+      pdf.setTextColor(...SLATE_DARK);
+      pdf.text(taxLineParts.join("  |  "), textStartX, curY + 0.5);
+      curY += 3.5;
+
+      if (loadedLogo) {
+        curY = Math.max(curY, headerTopY + loadedLogo.heightMm + 2.5);
+      }
+
+      // 2px Indigo Accent Bottom Border
+      pdf.setDrawColor(...INDIGO_MAIN);
+      pdf.setLineWidth(0.7);
+      pdf.line(marginX, curY, pageW - marginX, curY);
+      curY += 3;
+
+      // 2. Soft Indigo Title Banner — DELIVERY CHALLAN
+      pdf.setFillColor(...INDIGO_SOFT);
+      pdf.setDrawColor(...INDIGO_BDR);
+      pdf.setLineWidth(0.35);
+      pdf.rect(marginX, curY, contentW, 7.5, "FD");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(11);
+      pdf.setTextColor(...INDIGO_DARK);
+      pdf.text("DELIVERY CHALLAN", pageW / 2, curY + 5.2, { align: "center" });
+      curY += 10.5;
+
+      // 3. Buyer & Logistics 2-Column Grid (52% Left #f8fafc | 48% Right White)
+      const metaTopY = curY;
+      const leftColW = contentW * 0.52;
+      const midX = marginX + leftColW;
+      const leftTextW = leftColW - 6;
+
+      // Pre-measure heights
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(10);
+      const custNameLines = pdf.splitTextToSize(custName, leftTextW);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      const custAddrLines = custAddress && custAddress !== "-" ? pdf.splitTextToSize(`Address: ${custAddress}`, leftTextW) : [];
+      const leftExtraLines =
+        (custPhone && custPhone !== "-" ? 1 : 0) +
+        (custEmail && custEmail !== "-" ? 1 : 0) +
+        (custGst && custGst !== "-" && custGst !== "N/A" ? 1 : 0) +
+        (custPoRef && custPoRef !== "-" ? 1 : 0);
+      const leftNeededH = 9 + custNameLines.length * 4 + custAddrLines.length * 3.5 + leftExtraLines * 4 + 4;
+      const rightRowCount = 5 + (eWayNo ? 1 : 0);
+      const rightNeededH = 6 + rightRowCount * 4.5 + 3;
+      const metaBoxH = Math.max(leftNeededH, rightNeededH, 28);
+
+      // Draw boxes
+      pdf.setFillColor(...SLATE_BG);
+      pdf.rect(marginX, metaTopY, leftColW, metaBoxH, "F");
+      pdf.setDrawColor(...SLATE_BDR);
+      pdf.setLineWidth(0.3);
+      pdf.rect(marginX, metaTopY, contentW, metaBoxH);
+      pdf.line(midX, metaTopY, midX, metaTopY + metaBoxH);
+
+      // Left Panel Text
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(...INDIGO_MAIN);
+      pdf.text("CONSIGNEE / BUYER DETAILS", marginX + 3, metaTopY + 4.5);
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(10);
+      pdf.setTextColor(...SLATE_DARK);
+      pdf.text(custNameLines, marginX + 3, metaTopY + 9);
+      let leftY = metaTopY + 9 + custNameLines.length * 4;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      pdf.setTextColor(...SLATE_MID);
+      if (custAddrLines.length > 0) {
+        pdf.text(custAddrLines, marginX + 3, leftY);
+        leftY += custAddrLines.length * 3.5 + 0.5;
+      }
+      if (custPhone && custPhone !== "-") {
+        pdf.text(`Contact: ${custPhone}`, marginX + 3, leftY);
+        leftY += 3.8;
+      }
+      if (custEmail && custEmail !== "-") {
+        pdf.text(`Email: ${custEmail}`, marginX + 3, leftY);
+        leftY += 3.8;
+      }
+      if (custGst && custGst !== "-" && custGst !== "N/A") {
+        pdf.setFont("helvetica", "bold");
+        pdf.setTextColor(...SLATE_DARK);
+        pdf.text(`GSTIN: ${custGst}`, marginX + 3, leftY + 0.5);
+        leftY += 4;
+      }
+      if (custPoRef && custPoRef !== "-") {
+        pdf.setFont("helvetica", "bold");
+        pdf.setTextColor(...INDIGO_DARK);
+        pdf.text(`PO Ref: ${custPoRef}`, marginX + 3, leftY + 0.5);
+      }
+
+      // Right Panel Logistics Metadata
+      let rightY = metaTopY + 5;
+      const drawMetaRow = (label: string, val: string, isHighlight = false) => {
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(8);
+        pdf.setTextColor(100, 116, 139);
+        pdf.text(label, midX + 3, rightY);
+        pdf.setFont("helvetica", "bold");
+        pdf.setTextColor(...(isHighlight ? INDIGO_DARK : SLATE_DARK));
+        pdf.text(val, pageW - marginX - 3, rightY, { align: "right" });
+        rightY += 4.5;
+      };
+      drawMetaRow("Challan Number:", docNum, true);
+      drawMetaRow("Creation Date & Time:", creationDateTimeStr);
+      drawMetaRow("Transport Mode:", transportMode);
+      drawMetaRow("Vehicle Number:", vehicleNo);
+      drawMetaRow("Packaging Type:", packagingType);
+      if (eWayNo) drawMetaRow("E-Way Bill No:", eWayNo, true);
+
+      curY = metaTopY + metaBoxH + 3.5;
+
+      // 4. Itemized Table (Matches Sales Tax Invoice Indigo Header & Columns)
+      autoTable(pdf, {
+        startY: curY,
+        head: [["S.No", "Item Name & Description", "HSN", "Qty", `Unit Rate (${currCode})`, `Total Amount (${currCode})`]],
+        body: tableRows,
+        theme: "grid",
+        headStyles: {
+          fillColor: INDIGO_SOFT,
+          textColor: INDIGO_DARK,
+          fontStyle: "bold",
+          fontSize: 8,
+          halign: "center",
+          lineColor: SLATE_BDR,
+          lineWidth: 0.3
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: SLATE_DARK,
+          lineColor: SLATE_BDR,
+          lineWidth: 0.25,
+          cellPadding: 2.3,
+          valign: "top"
+        },
+        columnStyles: {
+          0: { halign: "center", cellWidth: 11 },
+          1: { halign: "left", cellWidth: 83 },
+          2: { halign: "center", cellWidth: 22 },
+          3: { halign: "center", cellWidth: 22, fontStyle: "bold", textColor: INDIGO_DARK },
+          4: { halign: "right", cellWidth: 23 },
+          5: { halign: "right", cellWidth: 25, fontStyle: "bold" }
+        },
+        margin: { left: marginX, right: marginX },
+        didParseCell: (hookData) => {
+          if (hookData.section === "body" && hookData.column.index === 1) {
+            hookData.cell.styles.textColor = [255, 255, 255];
+          }
+        },
+        didDrawCell: (hookData) => {
+          if (hookData.section === "body" && hookData.column.index === 1) {
+            const meta = itemMetaList[hookData.row.index];
+            if (!meta) return;
+            const cellX = hookData.cell.x + 2.3;
+            const maxTextW = hookData.cell.width - 4.6;
+            let textY = hookData.cell.y + 4.4;
+
+            // Bold Item Name
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(8.2);
+            pdf.setTextColor(...SLATE_DARK);
+            const nameLines = pdf.splitTextToSize(meta.itemName, maxTextW);
+            pdf.text(nameLines, cellX, textY);
+            textY += nameLines.length * 3.5;
+
+            // Italic Technical Description directly below
+            if (meta.itemDesc) {
+              pdf.setFont("helvetica", "italic");
+              pdf.setFontSize(7.3);
+              pdf.setTextColor(...SLATE_MID);
+              const descLines = pdf.splitTextToSize(meta.itemDesc, maxTextW);
+              pdf.text(descLines, cellX, textY + 0.5);
+            }
+          }
+        }
+      });
+
+      curY = ((pdf as any).lastAutoTable?.finalY || curY + 50) + 3.5;
+
+      if (curY > 224) {
+        pdf.addPage();
+        curY = 14;
+      }
+
+      // 5. Bottom 2-Column Summary Grid (55% Left Bank & Terms + Words | 45% Right Financial Totals)
+      const bottomTopY = curY;
+      const sumLeftW = contentW * 0.55;
+      const sumMidX = marginX + sumLeftW;
+      const sumLeftTextW = sumLeftW - 6;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7.5);
+      const bankLineStr = `Bank: ${bankName} | A/c: ${accountNumber} | IFSC: ${ifscCode}${branch && branch !== "-" ? ` | Branch: ${branch}` : ""}`;
+      const bankWrapped = pdf.splitTextToSize(bankLineStr, sumLeftTextW);
+      const remarkWrapped = (doc.remarks || doc.otherDetails) ? pdf.splitTextToSize(`Remarks: ${doc.remarks || doc.otherDetails}`, sumLeftTextW) : [];
+      pdf.setFontSize(7);
+      const termsWrapped = pdf.splitTextToSize(termsAndConditions, sumLeftTextW);
+      pdf.setFont("helvetica", "bolditalic");
+      pdf.setFontSize(8);
+      const wordsWrapped = pdf.splitTextToSize(`Amount in Words: ${convertAmountToWords(grandTotal, doc.currency)}`, sumLeftTextW);
+
+      const leftSumH =
+        7 +
+        bankWrapped.length * 3.5 +
+        (remarkWrapped.length > 0 ? remarkWrapped.length * 3.4 + 1 : 0) +
+        4.5 +
+        termsWrapped.length * 3.1 +
+        3.5 +
+        wordsWrapped.length * 3.6 +
+        4;
+
+      const rightLineCount =
+        1 +
+        (transportCharges > 0 ? 1 : 0) +
+        (packagingCharges > 0 ? 1 : 0) +
+        (discount > 0 ? 1 : 0) +
+        (isRoundOffEnabled && Math.abs(roundOff) > 0.001 ? 1 : 0);
+      const rightSumH = 5 + rightLineCount * 4.5 + 12;
+      const bottomBoxH = Math.max(leftSumH, rightSumH, 38);
+
+      // Draw Summary Box
+      pdf.setFillColor(250, 250, 250);
+      pdf.rect(marginX, bottomTopY, sumLeftW, bottomBoxH, "F");
+      pdf.setDrawColor(...SLATE_BDR);
+      pdf.setLineWidth(0.3);
+      pdf.rect(marginX, bottomTopY, contentW, bottomBoxH);
+      pdf.line(sumMidX, bottomTopY, sumMidX, bottomTopY + bottomBoxH);
+
+      // Left Content
+      let bLeftY = bottomTopY + 4.5;
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(...INDIGO_DARK);
+      pdf.text("BANK DETAILS & REMARKS", marginX + 3, bLeftY);
+      bLeftY += 4;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(...SLATE_DARK);
+      pdf.text(bankWrapped, marginX + 3, bLeftY);
+      bLeftY += bankWrapped.length * 3.5 + 0.5;
+
+      if (remarkWrapped.length > 0) {
+        pdf.setTextColor(...SLATE_MID);
+        pdf.text(remarkWrapped, marginX + 3, bLeftY);
+        bLeftY += remarkWrapped.length * 3.4 + 0.5;
+      }
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(7);
+      pdf.setTextColor(...SLATE_MID);
+      pdf.text("Terms & Conditions:", marginX + 3, bLeftY + 1);
+      bLeftY += 4;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(6.8);
+      pdf.text(termsWrapped, marginX + 3, bLeftY);
+      bLeftY += termsWrapped.length * 3.1 + 2;
+
+      pdf.setDrawColor(203, 213, 225);
+      pdf.setLineWidth(0.2);
+      pdf.line(marginX + 3, bLeftY - 1, sumMidX - 3, bLeftY - 1);
+
+      pdf.setFont("helvetica", "bolditalic");
+      pdf.setFontSize(7.8);
+      pdf.setTextColor(...SLATE_DARK);
+      pdf.text(wordsWrapped, marginX + 3, bLeftY + 2.5);
+
+      // Right Content: Financial Totals + Indigo Highlighted GRAND TOTAL
+      let rY = bottomTopY + 5.5;
+      const drawTotalLine = (label: string, valStr: string, isGreen = false) => {
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        pdf.setTextColor(...(isGreen ? [6, 95, 70] as [number, number, number] : SLATE_MID));
+        pdf.text(label, sumMidX + 3, rY);
+        pdf.setFont("helvetica", "bold");
+        pdf.setTextColor(...(isGreen ? [6, 95, 70] as [number, number, number] : SLATE_DARK));
+        pdf.text(valStr, pageW - marginX - 3, rY, { align: "right" });
+        rY += 4.5;
+      };
+
+      drawTotalLine("Subtotal:", subtotal.toFixed(2));
+      if (transportCharges > 0) drawTotalLine("Freight / Transport:", `+ ${transportCharges.toFixed(2)}`);
+      if (packagingCharges > 0) drawTotalLine("Packaging Charges:", `+ ${packagingCharges.toFixed(2)}`);
+      if (discount > 0) drawTotalLine("Discount:", `- ${discount.toFixed(2)}`, true);
+      if (isRoundOffEnabled && Math.abs(roundOff) > 0.001) {
+        drawTotalLine("Round Off:", `${roundOff > 0 ? "+" : ""}${roundOff.toFixed(2)}`);
+      }
+
+      // Indigo Grand Total Box docked at bottom of right panel
+      const gtBoxY = bottomTopY + bottomBoxH - 10;
+      pdf.setFillColor(...INDIGO_SOFT);
+      pdf.setDrawColor(...INDIGO_BDR);
+      pdf.setLineWidth(0.35);
+      pdf.rect(sumMidX + 2.5, gtBoxY, contentW - sumLeftW - 5, 7.5, "FD");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(8.8);
+      pdf.setTextColor(...INDIGO_DARK);
+      pdf.text(`GRAND TOTAL (${currCode}):`, sumMidX + 4.5, gtBoxY + 5);
+      pdf.text(grandTotal.toFixed(2), pageW - marginX - 4.5, gtBoxY + 5, { align: "right" });
+
+      // 6. Signatures Pinned at Bottom
+      const signY = Math.max(bottomTopY + bottomBoxH + 14, 266);
+      pdf.setDrawColor(...SLATE_BDR);
+      pdf.setLineWidth(0.3);
+      pdf.line(marginX, signY + 8, marginX + 45, signY + 8);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(100, 116, 139);
+      pdf.text("Receiver's Signature / Seal", marginX, signY + 12);
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(...SLATE_DARK);
+      pdf.text(`For ${compName}`, pageW - marginX, signY - 2, { align: "right" });
+
+      pdf.setDrawColor(51, 65, 85);
+      pdf.line(pageW - marginX - 48, signY + 8, pageW - marginX, signY + 8);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(...SLATE_DARK);
+      pdf.text("Authorized Signatory", pageW - marginX - 24, signY + 12, { align: "center" });
+    });
+
+    const sanitizedDocNum = String(docNum).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const copySuffix = copyType && copyType !== "all" ? `_${copyType.toUpperCase()}` : "_3COPY";
+    pdf.save(`DELIVERY_CHALLAN_${sanitizedDocNum}${copySuffix}.pdf`);
+  } catch (error) {
+    console.error("Failed to generate Delivery Challan PDF:", error);
+    alert("Failed to generate Delivery Challan PDF. Please try again.");
+  }
+};
+
 export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo, copyType = "all" }: DocumentOptions) => {
   try {
     if (!doc) {
@@ -32,7 +637,7 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo, cop
     }
 
     if (type === "dc") {
-      generateFrontendDcPDF({ doc, companyInfo, copyType });
+      downloadDirectDcPDF({ doc, companyInfo, copyType });
       return;
     }
 

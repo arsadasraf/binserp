@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
+import { purchaseOrderSchema } from "../../models/purchase/purchaseOrder.model.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { userSchema } from "../../models/user/index.js";
@@ -62,9 +63,60 @@ export const getAllJobWorkChallans = async (req, res) => {
       .populate("vendor")
       .populate("createdBy", "name userId email username")
       .populate("updatedBy", "name userId email username")
-      .sort({ date: -1 });
+      .sort({ date: -1 })
+      .lean();
 
-    res.status(200).json({ challans });
+    // Dynamically resolve active linked Job Work POs so existing & newly created POs always reflect accurately (and deleted POs clear immediately)
+    let enrichedChallans = challans;
+    try {
+      const PurchaseOrder = req.getModel("PurchaseOrder", purchaseOrderSchema);
+      const activeJwPos = await PurchaseOrder.find({
+        company: companyId,
+        status: { $ne: "Cancelled" },
+        $or: [
+          { poType: "jobwork" },
+          { jobWorkChallan: { $exists: true, $ne: null } },
+          { challanNumber: { $exists: true, $ne: "" } }
+        ]
+      })
+        .select("_id poNumber jobWorkChallan challanNumber")
+        .sort({ createdAt: -1 })
+        .lean();
+
+      const poByChallanId = new Map();
+      const poByChallanNum = new Map();
+      const activePoNumSet = new Set();
+
+      for (const po of activeJwPos) {
+        if (po.poNumber) activePoNumSet.add(String(po.poNumber).trim().toLowerCase());
+        if (po.jobWorkChallan && !poByChallanId.has(String(po.jobWorkChallan))) {
+          poByChallanId.set(String(po.jobWorkChallan), po.poNumber || "");
+        }
+        const cNum = String(po.challanNumber || "").trim().toLowerCase();
+        if (cNum && !poByChallanNum.has(cNum)) {
+          poByChallanNum.set(cNum, po.poNumber || "");
+        }
+      }
+
+      enrichedChallans = challans.map((c) => {
+        const byId = c._id ? poByChallanId.get(String(c._id)) : "";
+        const byNum = c.challanNumber ? poByChallanNum.get(String(c.challanNumber).trim().toLowerCase()) : "";
+        const livePoNum = byId || byNum || "";
+        if (livePoNum) {
+          return { ...c, poNumber: livePoNum };
+        }
+        // If challan had a stale poNumber whose PO was deleted, keep it only if it's still an active PO
+        const existingPo = String(c.poNumber || "").trim();
+        if (existingPo && !activePoNumSet.has(existingPo.toLowerCase())) {
+          return { ...c, poNumber: "" };
+        }
+        return c;
+      });
+    } catch (poErr) {
+      console.warn("JobWork Challans PO enrichment warning:", poErr.message);
+    }
+
+    res.status(200).json({ challans: enrichedChallans });
   } catch (error) {
     console.error("JobWork Fetch Error", error);
     res.status(500).json({ message: error.message, stack: error.stack });

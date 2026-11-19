@@ -42,6 +42,9 @@ interface JobWorkPOTableProps {
   companyInfo?: any;
   loading: boolean;
   onRefresh: () => void;
+  initialPoNumber?: string;
+  autoOpenEdit?: boolean;
+  onClearQueryParams?: () => void;
 }
 
 export default function JobWorkPOTable({
@@ -54,7 +57,10 @@ export default function JobWorkPOTable({
   consumables = [],
   companyInfo,
   loading,
-  onRefresh
+  onRefresh,
+  initialPoNumber = '',
+  autoOpenEdit = false,
+  onClearQueryParams
 }: JobWorkPOTableProps) {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
   const { isTimeLockExpired, formatRemainingTime } = useTimeLockPolicy(token);
@@ -83,6 +89,25 @@ export default function JobWorkPOTable({
   // Modal States
   const [isPOModalOpen, setIsPOModalOpen] = useState<boolean>(false);
   const [editingPO, setEditingPO] = useState<any | null>(null);
+  const autoOpenedPoRef = useRef<string>('');
+
+  // When routed from Job Work Challan with ?poNumber=...&edit=true, filter to that PO and open Edit modal
+  useEffect(() => {
+    const targetPo = (initialPoNumber || '').trim();
+    if (!targetPo) return;
+    setSearchTerm(targetPo);
+    if (autoOpenEdit && autoOpenedPoRef.current !== targetPo && Array.isArray(data) && data.length > 0) {
+      const matched = data.find(
+        (po) => String(po.poNumber || '').trim().toLowerCase() === targetPo.toLowerCase()
+      );
+      if (matched) {
+        autoOpenedPoRef.current = targetPo;
+        setEditingPO(matched);
+        setIsPOModalOpen(true);
+        if (onClearQueryParams) onClearQueryParams();
+      }
+    }
+  }, [initialPoNumber, autoOpenEdit, data, onClearQueryParams]);
 
   // Close Excel filter dropdown on outside click
   useEffect(() => {

@@ -9,6 +9,7 @@ import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { download4CopyPDF, downloadInvoiceExcelDocument } from '@/src/utils/frontendDocumentHelper';
 import { getCurrencySymbol, convertAmountToWords } from '@/src/utils/currencyHelper';
 import { showDestructiveConfirm } from '@/src/features/store/utils/storeDialogHelper';
+import EWayBillHelperModal from './EWayBillHelperModal';
 
 interface InvoicePreviewModalProps {
     isOpen: boolean;
@@ -50,6 +51,7 @@ export default function InvoicePreviewModal({
     const [showCustomerDetails, setShowCustomerDetails] = useState(false);
     const [showPoDetails, setShowPoDetails] = useState(false);
     const [selectedItemIndex, setSelectedItemIndex] = useState<number | null>(null);
+    const [showEWayModal, setShowEWayModal] = useState(false);
 
     useEffect(() => {
         const timer = setInterval(() => setNowTime(Date.now()), 1000);
@@ -116,6 +118,14 @@ export default function InvoicePreviewModal({
     const transportCharges = Number(invoice.transportationCharges || invoice.freightCharges || 0);
     const packagingCharges = Number(invoice.packagingCharges || 0);
     const taxAmount = invoice.taxAmount || items.reduce((acc: number, i: any) => acc + ((Number(i.quantity || 0) * Number(i.rate || 0)) * (Number(i.taxRate || 0) / 100)), 0);
+    const gstSupplyType: "intra" | "inter" = invoice.gstSupplyType === "inter" ? "inter" : "intra";
+    const cgstAmount = invoice.cgstAmount !== undefined ? Number(invoice.cgstAmount) : (gstSupplyType === "intra" ? parseFloat((taxAmount / 2).toFixed(2)) : 0);
+    const sgstAmount = invoice.sgstAmount !== undefined ? Number(invoice.sgstAmount) : (gstSupplyType === "intra" ? parseFloat((taxAmount - cgstAmount).toFixed(2)) : 0);
+    const igstAmount = invoice.igstAmount !== undefined ? Number(invoice.igstAmount) : (gstSupplyType === "inter" ? parseFloat(taxAmount.toFixed(2)) : 0);
+    const isTransportTaxable = Boolean(invoice.isTransportTaxable);
+    const transportTaxRate = Number(invoice.transportTaxRate ?? 18);
+    const isPackagingTaxable = Boolean(invoice.isPackagingTaxable);
+    const packagingTaxRate = Number(invoice.packagingTaxRate ?? 18);
     const discount = Number(invoice.discount || 0);
     const rawExactTotal = parseFloat((subtotal + taxAmount + transportCharges + packagingCharges - discount).toFixed(2));
     const isRoundOffEnabled = invoice.isRoundOff !== undefined ? Boolean(invoice.isRoundOff) : true;
@@ -569,11 +579,27 @@ export default function InvoicePreviewModal({
                                             </span>
                                         </div>
                                     )}
-                                    {taxAmount > 0 && (
+                                    {taxAmount > 0 && gstSupplyType === "intra" && (
+                                        <>
+                                            <div>
+                                                <span className="text-slate-400 block text-[10px]">CGST:</span>
+                                                <span className="font-mono font-bold text-sm text-emerald-600">
+                                                    +{getCurrencySymbol(invoice.currency)}{cgstAmount.toFixed(2)}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-slate-400 block text-[10px]">SGST:</span>
+                                                <span className="font-mono font-bold text-sm text-emerald-600">
+                                                    +{getCurrencySymbol(invoice.currency)}{sgstAmount.toFixed(2)}
+                                                </span>
+                                            </div>
+                                        </>
+                                    )}
+                                    {taxAmount > 0 && gstSupplyType === "inter" && (
                                         <div>
-                                            <span className="text-slate-400 block text-[10px]">GST / Tax Amount:</span>
+                                            <span className="text-slate-400 block text-[10px]">IGST (Inter-State):</span>
                                             <span className="font-mono font-bold text-sm text-emerald-600">
-                                                +{getCurrencySymbol(invoice.currency)}{taxAmount.toFixed(2)}
+                                                +{getCurrencySymbol(invoice.currency)}{igstAmount.toFixed(2)}
                                             </span>
                                         </div>
                                     )}
@@ -635,20 +661,30 @@ export default function InvoicePreviewModal({
                                 className="bg-white text-slate-950 p-6 sm:p-10 border border-slate-400 shadow-xl max-w-[210mm] mx-auto text-xs font-sans space-y-4"
                             >
                                 {/* Header */}
-                                <div className="flex justify-between items-start border-b-2 border-slate-900 pb-3">
-                                    <div>
-                                        <h1 className="text-xl font-black uppercase text-slate-950 tracking-tight">
-                                            {compName}
-                                        </h1>
-                                        <p className="text-[11px] text-slate-700 mt-0.5 max-w-md leading-relaxed">
-                                            {compAddress}
-                                        </p>
-                                        <p className="text-[11px] font-bold text-slate-800 mt-1">
-                                            GSTIN: <span className="font-mono">{compGst}</span> | PAN: <span className="font-mono">{compPan}</span>
-                                        </p>
+                                <div className="flex justify-between items-start border-b-2 border-slate-900 pb-3 gap-3">
+                                    <div className="flex items-start gap-3">
+                                        {compLogo && (
+                                            <img
+                                                src={compLogo}
+                                                alt={compName}
+                                                className="h-14 w-auto max-w-[110px] object-contain shrink-0 rounded"
+                                                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                                            />
+                                        )}
+                                        <div>
+                                            <h1 className="text-xl font-black uppercase text-slate-950 tracking-tight">
+                                                {compName}
+                                            </h1>
+                                            <p className="text-[11px] text-slate-700 mt-0.5 max-w-md leading-relaxed">
+                                                {compAddress}
+                                            </p>
+                                            <p className="text-[11px] font-bold text-slate-800 mt-1">
+                                                GSTIN: <span className="font-mono">{compGst}</span> | PAN: <span className="font-mono">{compPan}</span>
+                                            </p>
+                                        </div>
                                     </div>
 
-                                    <div className="text-right">
+                                    <div className="text-right shrink-0">
                                         <span className="inline-block border border-slate-900 bg-slate-900 text-white text-[10px] font-black px-3 py-1 uppercase tracking-wider">
                                             {selectedCopyType === "all" ? "ORIGINAL FOR RECIPIENT" : copyBadgeLabel}
                                         </span>
@@ -783,13 +819,13 @@ export default function InvoicePreviewModal({
                                             </div>
                                             {transportCharges > 0 && (
                                                 <div className="flex justify-between">
-                                                    <span className="text-slate-600">Freight:</span>
+                                                    <span className="text-slate-600">Freight{isTransportTaxable ? ` (Taxable @ ${transportTaxRate}%)` : ""}:</span>
                                                     <span className="font-mono">+{transportCharges.toFixed(2)}</span>
                                                 </div>
                                             )}
                                             {packagingCharges > 0 && (
                                                 <div className="flex justify-between">
-                                                    <span className="text-slate-600">Packaging:</span>
+                                                    <span className="text-slate-600">Packaging{isPackagingTaxable ? ` (Taxable @ ${packagingTaxRate}%)` : ""}:</span>
                                                     <span className="font-mono">+{packagingCharges.toFixed(2)}</span>
                                                 </div>
                                             )}
@@ -799,10 +835,22 @@ export default function InvoicePreviewModal({
                                                     <span className="font-mono">-{discount.toFixed(2)}</span>
                                                 </div>
                                             )}
-                                            {taxAmount > 0 && (
+                                            {taxAmount > 0 && gstSupplyType === "intra" && (
+                                                <>
+                                                    <div className="flex justify-between">
+                                                        <span className="text-slate-600">CGST:</span>
+                                                        <span className="font-mono">+{cgstAmount.toFixed(2)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span className="text-slate-600">SGST:</span>
+                                                        <span className="font-mono">+{sgstAmount.toFixed(2)}</span>
+                                                    </div>
+                                                </>
+                                            )}
+                                            {taxAmount > 0 && gstSupplyType === "inter" && (
                                                 <div className="flex justify-between">
-                                                    <span className="text-slate-600">Tax Amount (GST):</span>
-                                                    <span className="font-mono">+{taxAmount.toFixed(2)}</span>
+                                                    <span className="text-slate-600">IGST (Inter-State):</span>
+                                                    <span className="font-mono">+{igstAmount.toFixed(2)}</span>
                                                 </div>
                                             )}
                                             {roundOff !== 0 && (
@@ -854,6 +902,13 @@ export default function InvoicePreviewModal({
                         >
                             <FileText size={16} /> Export Excel
                         </button>
+                        <button
+                            onClick={() => setShowEWayModal(true)}
+                            className="px-4 py-2.5 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-600 text-amber-700 dark:text-amber-300 hover:text-white font-bold text-xs rounded-xl border border-amber-200 dark:border-amber-800 transition-all flex items-center gap-2 cursor-pointer"
+                            title="Open E-Way Bill Assistant (Copy & Open GST Portal)"
+                        >
+                            <Truck size={16} /> E-Way Bill
+                        </button>
                         {isWithin24h ? (
                             <>
                                 {onEdit && (
@@ -899,6 +954,14 @@ export default function InvoicePreviewModal({
                 </div>
 
             </div>
+
+            <EWayBillHelperModal
+                isOpen={showEWayModal}
+                onClose={() => setShowEWayModal(false)}
+                invoice={invoice}
+                documentType="invoice"
+                companyInfo={companyInfo}
+            />
         </div>
     );
 }

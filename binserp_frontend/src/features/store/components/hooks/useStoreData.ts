@@ -392,13 +392,15 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     /**
      * Handles delete action with confirmation
      */
-    const handleDelete = async (id: string) => {
-        const confirmed = await showDestructiveConfirm({
-            title: "Delete Record",
-            text: "Are you sure you want to delete this record? This action cannot be undone.",
-            confirmButtonText: "Yes, Delete"
-        });
-        if (!confirmed) return;
+    const handleDelete = async (id: string, skipConfirm = false) => {
+        if (!skipConfirm) {
+            const confirmed = await showDestructiveConfirm({
+                title: "Delete Record",
+                text: "Are you sure you want to delete this record? This action cannot be undone.",
+                confirmButtonText: "Yes, Delete"
+            });
+            if (!confirmed) return;
+        }
         
         try {
             let tab: any = activeTab === "masters" ? masterTab : activeTab;

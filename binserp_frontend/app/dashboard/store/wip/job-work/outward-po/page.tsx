@@ -1,14 +1,17 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useStoreData } from '@/src/features/store/components/hooks/useStoreData';
 import JobWorkPOTable from '@/src/features/store/components/tables/JobWorkPOTable';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import { apiGet } from '@/src/lib/api';
 
-export default function JobWorkOutwardPOPage() {
+function JobWorkOutwardPOContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialPoNumber = searchParams.get("poNumber") || "";
+  const autoOpenEdit = searchParams.get("edit") === "true";
   const [token, setToken] = useState<string | null>(null);
   const [jobWorkPOs, setJobWorkPOs] = useState<any[]>([]);
   const [loadingPOs, setLoadingPOs] = useState<boolean>(true);
@@ -61,7 +64,18 @@ export default function JobWorkOutwardPOPage() {
         companyInfo={storeData.companyInfo}
         loading={loadingPOs}
         onRefresh={fetchJobWorkPOs}
+        initialPoNumber={initialPoNumber}
+        autoOpenEdit={autoOpenEdit}
+        onClearQueryParams={() => router.replace("/dashboard/store/wip/job-work/outward-po")}
       />
     </div>
+  );
+}
+
+export default function JobWorkOutwardPOPage() {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <JobWorkOutwardPOContent />
+    </Suspense>
   );
 }

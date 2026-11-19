@@ -165,9 +165,22 @@ export function validateAndResolveDualUomQuantities(item, doc = null, defaultUni
   );
   const secUnit = (item?.secondaryUnit || doc?.secondaryUnit || '').toString().trim();
 
-  const rawFactor = Number(item?.conversionFactor ?? doc?.conversionFactor ?? 1);
-  const convFactor = (!isNaN(rawFactor) && rawFactor > 0) ? rawFactor : 1;
-  const selectedUnit = (item?.selectedUnit || primaryUnit).toString().trim();
+  let convFactor = Number(item?.conversionFactor ?? doc?.conversionFactor ?? 0);
+  const pRatio = Number(item?.primaryRatio ?? doc?.primaryRatio ?? 1);
+  const sRatio = Number(item?.secondaryRatio ?? doc?.secondaryRatio ?? 1);
+  if ((!convFactor || convFactor <= 0) && pRatio > 0 && sRatio > 0) {
+    convFactor = sRatio / pRatio;
+  }
+  if (!convFactor || convFactor <= 0) convFactor = 1;
+
+  // For Raw Material (RM), if secondary UOM exists (e.g. NOS), default to secondary UOM first
+  const isRM = Boolean(
+    (item?.itemType && item.itemType.toString().toLowerCase().includes('raw')) ||
+    (item?.type && (item.type.toString().toLowerCase() === 'rm' || item.type.toString().toLowerCase() === 'raw-material')) ||
+    primaryUnit.toLowerCase() === 'kg'
+  );
+  const fallbackUnit = (isRM && hasSec && secUnit) ? secUnit : primaryUnit;
+  const selectedUnit = (item?.selectedUnit || fallbackUnit).toString().trim();
 
   let rawPriQty = Number(item?.quantity);
   let rawSecQty = Number(item?.secondaryQuantity);

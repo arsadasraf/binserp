@@ -52,6 +52,10 @@ export const mrbDispositionSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    technicalDescription: {
+      type: String,
+      default: "",
+    },
     itemType: {
       type: String,
       enum: ["Raw Material", "Bought Out", "Consumable", "Finished Goods", "Component", "WIP"],
@@ -123,9 +127,37 @@ export const mrbDispositionSchema = new mongoose.Schema(
         "Internal Rework",
         "External Rework",
         "Scrap & Write-Off",
-        "Accept on Deviation"
+        "Accept on Deviation",
+        "Added to Main Stock"
       ],
       default: "Pending",
+    },
+    // Streamlined Rejection Resolution Fields
+    resolutionType: {
+      type: String,
+      enum: ["ADD_TO_INVENTORY", "RETURN_TO_VENDOR", "OTHER"],
+      default: "ADD_TO_INVENTORY",
+    },
+    resolutionReasonCategory: {
+      type: String,
+      default: "Deviation",
+    },
+    resolutionReason: {
+      type: String,
+      default: "",
+    },
+    returnDocType: {
+      type: String,
+      default: "",
+    },
+    returnDocNumber: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    isAddedToMainStock: {
+      type: Boolean,
+      default: false,
     },
     status: {
       type: String,
@@ -180,7 +212,7 @@ export const mrbDispositionSchema = new mongoose.Schema(
     // Document Engine (Return Invoice vs Replacement DC)
     documentType: {
       type: String,
-      enum: ["ReturnInvoice", "ReplacementDC", "ReworkJobCard", "ScrapCertificate", "ConcessionNote", "None"],
+      enum: ["ReturnInvoice", "ReplacementDC", "ReworkJobCard", "ScrapCertificate", "ConcessionNote", "MainStockCredit", "None"],
       default: "None",
     },
     documentNumber: {

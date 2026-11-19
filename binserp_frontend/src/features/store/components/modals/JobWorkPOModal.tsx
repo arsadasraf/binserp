@@ -24,11 +24,31 @@ const COMMON_PROCESSES = [
   "Assembly & Testing"
 ];
 
+const COMMON_JOBWORK_UNITS = [
+  "PCS",
+  "NOS",
+  "KGS",
+  "GMS",
+  "MTR",
+  "MM",
+  "SQ.FT",
+  "SQ.MTR",
+  "LTR",
+  "SET",
+  "PAIR",
+  "BOX",
+  "LOT",
+  "JOB",
+  "HRS"
+];
+
 interface JobWorkLineItem {
   id: string;
   material?: string;
   materialName: string;
   description: string;
+  sourceMaterialName?: string;
+  returningItemId?: string;
   processType: string;
   processNote?: string;
   sacCode: string;
@@ -98,6 +118,7 @@ export default function JobWorkPOModal({
   const [loadingChallans, setLoadingChallans] = useState<boolean>(false);
   const [selectedChallanId, setSelectedChallanId] = useState<string>('');
   const [selectedChallanNumber, setSelectedChallanNumber] = useState<string>('');
+  const [pricingBasis, setPricingBasis] = useState<'output' | 'input'>('output');
 
   // Line Items
   const [items, setItems] = useState<JobWorkLineItem[]>([
@@ -222,18 +243,29 @@ export default function JobWorkPOModal({
   }, [allChallans, selectedVendorId, selectedVendorObj]);
 
   const challanOptions = useMemo(() => {
-    return vendorChallans.map(c => {
-      const id = String(c._id || c.id);
-      const dateStr = c.date ? new Date(c.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
-      const itemCount = Array.isArray(c.items) ? c.items.length : 0;
-      const proc = c.processType || (c.items?.[0]?.processType) || 'Job Work';
-      const existingPoTag = c.poNumber ? ` • Linked PO: ${c.poNumber}` : '';
-      return {
-        value: id,
-        label: `${c.challanNumber}${dateStr ? ` (${dateStr})` : ''} — ${proc} • ${itemCount} item${itemCount === 1 ? '' : 's'}${existingPoTag}`
-      };
-    });
-  }, [vendorChallans]);
+    const currentPoNum = isEditing ? (initialData?.poNumber || poNumber || '').trim() : '';
+    return vendorChallans
+      .filter(c => {
+        const linkedPo = (c.poNumber || '').trim();
+        if (!linkedPo) return true;
+        // Allow keeping the currently edited PO's own linked challan
+        if (isEditing && (linkedPo === currentPoNum || String(c._id || c.id) === String(selectedChallanId))) {
+          return true;
+        }
+        return false;
+      })
+      .map(c => {
+        const id = String(c._id || c.id);
+        const dateStr = c.date ? new Date(c.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+        const itemCount = Array.isArray(c.items) ? c.items.length : 0;
+        const proc = c.processType || (c.items?.[0]?.processType) || 'Job Work';
+        const existingPoTag = c.poNumber ? ` • Linked PO: ${c.poNumber}` : '';
+        return {
+          value: id,
+          label: `${c.challanNumber}${dateStr ? ` (${dateStr})` : ''} — ${proc} • ${itemCount} item${itemCount === 1 ? '' : 's'}${existingPoTag}`
+        };
+      });
+  }, [vendorChallans, isEditing, initialData, poNumber, selectedChallanId]);
 
   // Process type options for SearchableSelect
   const processOptions = useMemo(() => {
@@ -242,6 +274,216 @@ export default function JobWorkPOModal({
       label: p
     }));
   }, []);
+
+  const selectedChallanObj = useMemo(() => {
+    if (!selectedChallanId && !selectedChallanNumber) return null;
+    return (
+      allChallans.find(
+        c =>
+          (selectedChallanId && String(c._id || c.id) === String(selectedChallanId)) ||
+          (selectedChallanNumber && c.challanNumber === selectedChallanNumber)
+      ) || null
+    );
+  }, [allChallans, selectedChallanId, selectedChallanNumber]);
+
+  const challanHasOutputItems = useMemo(() => {
+    if (!selectedChallanObj) return false;
+    if (selectedChallanObj.operationMode === 'assembly') return true;
+    return (
+      Array.isArray(selectedChallanObj.items) &&
+      selectedChallanObj.items.some(
+        (it: any) => Array.isArray(it.returningItems) && it.returningItems.length > 0
+      )
+    );
+  }, [selectedChallanObj]);
+
+  // Sent materials from the linked Job Work Challan (displayed as reference above chargeable PO line items)
+  const sentMaterialsFromChallan = useMemo(() => {
+    if (!selectedChallanObj) return [];
+    const rawSent: any[] = [];
+    if (Array.isArray(selectedChallanObj.items) && selectedChallanObj.items.length > 0) {
+      rawSent.push(...selectedChallanObj.items);
+    } else if (selectedChallanObj.operationMode === 'assembly' && Array.isArray(selectedChallanObj.assemblyGroups)) {
+      selectedChallanObj.assemblyGroups.forEach((g: any) => {
+        if (Array.isArray(g.items)) rawSent.push(...g.items);
+      });
+    }
+    return rawSent.map((s: any, idx: number) => {
+      const sId = s.item?._id || s.item;
+      const matched = sId
+        ? allSelectableItems.find(m => String(m._id || m.id) === String(sId))
+        : allSelectableItems.find(m => (m.name || '').trim().toLowerCase() === (s.itemName || '').trim().toLowerCase());
+      const name = s.itemName || s.materialName || matched?.name || 'Sent Material';
+      const desc =
+        s.description ||
+        s.item?.descriptions ||
+        s.item?.description ||
+        (matched ? getItemDescription(matched) : '') ||
+        '';
+      const qty = Number(s.quantitySent ?? s.quantity ?? 0);
+      const unit = (s.unit || matched?.unit || 'PCS').trim();
+      const hasSec = Boolean(s.hasSecondaryUnit && s.secondaryUnit);
+      const secQty = Number(s.secondaryQuantitySent || 0);
+      const secUnit = (s.secondaryUnit || '').trim();
+      return {
+        key: `${sId || name}-${idx}`,
+        name,
+        description: desc,
+        qty,
+        unit,
+        hasSec,
+        secQty,
+        secUnit,
+        processType: s.processType || selectedChallanObj.processType || ''
+      };
+    });
+  }, [selectedChallanObj, allSelectableItems]);
+
+  // Build PO line items from a Job Work Challan according to selected pricing basis ('output' = converted/returning items, 'input' = sent materials)
+  const buildItemsFromChallan = (challan: any, basis: 'output' | 'input'): JobWorkLineItem[] => {
+    const headerProc = challan.processType || challan.items?.[0]?.processType || processType || COMMON_PROCESSES[0];
+    const defaultSac = sacCode || '9988';
+    let rawItems: any[] = [];
+
+    if (basis === 'output') {
+      if (challan.operationMode === 'assembly') {
+        if (Array.isArray(challan.assemblyGroups) && challan.assemblyGroups.length > 0) {
+          rawItems = challan.assemblyGroups.map((g: any) => ({
+            itemName: g.assemblyOutputItem?.itemName || g.groupName || 'Assembly Item',
+            item: g.assemblyOutputItem?.item,
+            quantitySent: g.assemblyOutputItem?.quantityToBeReceived || 1,
+            unit: g.assemblyOutputItem?.receivingUnit || 'PCS',
+            hasSecondaryUnit: g.assemblyOutputItem?.hasSecondaryUnit,
+            secondaryUnit: g.assemblyOutputItem?.secondaryUnit,
+            conversionFactor: g.assemblyOutputItem?.conversionFactor,
+            secondaryQuantitySent: g.assemblyOutputItem?.secondaryQuantityToBeReceived,
+            selectedUnit: g.assemblyOutputItem?.selectedUnit || g.assemblyOutputItem?.receivingUnit,
+            processRate: g.assemblyOutputItem?.processRate || 0,
+            processType: g.assemblyOutputItem?.processType || headerProc || 'Assembly',
+            description: g.assemblyOutputItem?.description || ''
+          }));
+        } else if (challan.assemblyOutputItem) {
+          rawItems = [{
+            itemName: challan.assemblyOutputItem.itemName || 'Assembly Item',
+            item: challan.assemblyOutputItem.item,
+            quantitySent: challan.assemblyOutputItem.quantityToBeReceived || 1,
+            unit: challan.assemblyOutputItem.receivingUnit || 'PCS',
+            hasSecondaryUnit: challan.assemblyOutputItem.hasSecondaryUnit,
+            secondaryUnit: challan.assemblyOutputItem.secondaryUnit,
+            conversionFactor: challan.assemblyOutputItem.conversionFactor,
+            secondaryQuantitySent: challan.assemblyOutputItem.secondaryQuantityToBeReceived,
+            selectedUnit: challan.assemblyOutputItem.selectedUnit || challan.assemblyOutputItem.receivingUnit,
+            processRate: challan.assemblyOutputItem.processRate || 0,
+            processType: challan.assemblyOutputItem.processType || headerProc || 'Assembly',
+            description: challan.assemblyOutputItem.description || ''
+          }];
+        }
+      } else if (Array.isArray(challan.items) && challan.items.length > 0) {
+        // Expand single-to-multiple (and 1-to-1) returningItems into individual chargeable PO line items
+        challan.items.forEach((cItem: any) => {
+          if (Array.isArray(cItem.returningItems) && cItem.returningItems.length > 0) {
+            cItem.returningItems.forEach((ret: any) => {
+              rawItems.push({
+                item: ret.receivedItem || cItem.item,
+                itemName: ret.receivedItemName || cItem.itemName || 'Converted Item',
+                sourceMaterialName: cItem.itemName || '',
+                returningItemId: ret._id ? String(ret._id) : undefined,
+                quantitySent: Number(ret.quantityToBeReceived || 1),
+                unit: ret.receivingUnit || cItem.unit || 'PCS',
+                hasSecondaryUnit: ret.hasSecondaryUnit,
+                secondaryUnit: ret.secondaryUnit,
+                conversionFactor: ret.conversionFactor,
+                secondaryQuantitySent: ret.secondaryQuantityToBeReceived,
+                selectedUnit: ret.selectedUnit || ret.receivingUnit || 'PCS',
+                processRate: Number(ret.processRate ?? cItem.processRate ?? 0),
+                processType: cItem.processType || headerProc || COMMON_PROCESSES[0],
+                description: ret.description || '',
+                remarks: cItem.remarks || '',
+                sacCode: cItem.sacCode || defaultSac
+              });
+            });
+          } else {
+            rawItems.push(cItem);
+          }
+        });
+      }
+    } else {
+      // 'input' basis — charge on sent materials
+      if (Array.isArray(challan.items) && challan.items.length > 0) {
+        rawItems = challan.items;
+      } else if (challan.operationMode === 'assembly' && Array.isArray(challan.assemblyGroups)) {
+        challan.assemblyGroups.forEach((g: any) => {
+          if (Array.isArray(g.items)) rawItems.push(...g.items);
+        });
+      }
+    }
+
+    return rawItems.map((cItem: any, idx: number) => {
+      const itemId = cItem.item?._id || cItem.item || undefined;
+      const matchedMaster = itemId
+        ? allSelectableItems.find(m => String(m._id || m.id) === String(itemId))
+        : allSelectableItems.find(
+            m => (m.name || '').trim().toLowerCase() === (cItem.itemName || '').trim().toLowerCase()
+          );
+
+      const matName = cItem.itemName || cItem.materialName || matchedMaster?.name || 'Job Work Item';
+      const desc =
+        cItem.description ||
+        cItem.item?.descriptions ||
+        cItem.item?.description ||
+        (matchedMaster ? getItemDescription(matchedMaster) : '') ||
+        cItem.remarks ||
+        '';
+      const itemProc = cItem.processType || headerProc || COMMON_PROCESSES[0];
+      const priQty = Number(cItem.quantitySent ?? cItem.quantity ?? 1) || 1;
+      const priUnit = (cItem.unit || cItem.receivingUnit || matchedMaster?.unit || 'PCS').trim();
+
+      const hasSec = Boolean(
+        cItem.hasSecondaryUnit ||
+        (cItem.secondaryUnit && (Number(cItem.secondaryQuantitySent) > 0 || Number(cItem.conversionFactor) > 0)) ||
+        matchedMaster?.hasSecondaryUnit ||
+        (matchedMaster?.secondaryUnit && Number(matchedMaster?.conversionFactor) > 0)
+      );
+      const secUnit = hasSec ? String(cItem.secondaryUnit || matchedMaster?.secondaryUnit || '').trim() : '';
+      const convFactor = Number(cItem.conversionFactor || matchedMaster?.conversionFactor || 1) || 1;
+      const secQty = hasSec
+        ? (Number(cItem.secondaryQuantitySent || 0) > 0
+            ? Number(cItem.secondaryQuantitySent)
+            : Number((priQty * convFactor).toFixed(3)))
+        : 0;
+
+      const dcUnit = (cItem.selectedUnit || '').trim();
+      const isSecSelected = Boolean(hasSec && secUnit && dcUnit.toLowerCase() === secUnit.toLowerCase());
+      const selectedUnit = isSecSelected ? secUnit : priUnit;
+      const rateUnit: 'primary' | 'secondary' = isSecSelected ? 'secondary' : 'primary';
+      const activeQty = isSecSelected ? secQty : priQty;
+
+      const rate = Number(cItem.processRate ?? cItem.rate ?? 0) || 0;
+
+      return {
+        id: `jw-challan-item-${basis}-${idx}-${Date.now()}`,
+        material: itemId ? String(itemId) : (matchedMaster?._id ? String(matchedMaster._id) : undefined),
+        materialName: matName,
+        description: desc,
+        sourceMaterialName: cItem.sourceMaterialName || undefined,
+        returningItemId: cItem.returningItemId || undefined,
+        processType: itemProc,
+        processNote: cItem.remarks || '',
+        sacCode: cItem.sacCode || defaultSac,
+        quantity: priQty,
+        unit: priUnit,
+        hasSecondaryUnit: hasSec && Boolean(secUnit),
+        secondaryUnit: secUnit,
+        conversionFactor: convFactor,
+        secondaryQuantity: secQty,
+        selectedUnit,
+        rateUnit,
+        rate,
+        taxRate: 18,
+        amount: Number((activeQty * rate).toFixed(2))
+      };
+    });
+  };
 
   // Populate line items from a selected Job Work Challan
   const handleSelectChallan = (challanId: string) => {
@@ -263,111 +505,26 @@ export default function JobWorkPOModal({
       setExpectedDeliveryDate(new Date(challan.expectedReturnDate).toISOString().slice(0, 10));
     }
 
-        const defaultSac = sacCode || '9988';
-    let rawItems: any[] = Array.isArray(challan.items) && challan.items.length > 0
-      ? challan.items
-      : [];
+    const hasReturning =
+      challan.operationMode === 'assembly' ||
+      (Array.isArray(challan.items) &&
+        challan.items.some((it: any) => Array.isArray(it.returningItems) && it.returningItems.length > 0));
+    const defaultBasis: 'output' | 'input' = hasReturning ? 'output' : 'input';
+    setPricingBasis(defaultBasis);
 
-    if (rawItems.length === 0 && challan.operationMode === 'assembly') {
-      if (Array.isArray(challan.assemblyGroups) && challan.assemblyGroups.length > 0) {
-        rawItems = challan.assemblyGroups.map((g: any) => ({
-          itemName: g.assemblyOutputItem?.itemName || g.groupName || 'Assembly Item',
-          item: g.assemblyOutputItem?.item,
-          quantitySent: g.assemblyOutputItem?.quantityToBeReceived || 1,
-          unit: g.assemblyOutputItem?.receivingUnit || 'PCS',
-          hasSecondaryUnit: g.assemblyOutputItem?.hasSecondaryUnit,
-          secondaryUnit: g.assemblyOutputItem?.secondaryUnit,
-          conversionFactor: g.assemblyOutputItem?.conversionFactor,
-          secondaryQuantitySent: g.assemblyOutputItem?.secondaryQuantityToBeReceived,
-          selectedUnit: g.assemblyOutputItem?.selectedUnit || g.assemblyOutputItem?.receivingUnit,
-          processRate: g.assemblyOutputItem?.processRate || 0,
-          processType: g.assemblyOutputItem?.processType || headerProc || 'Assembly',
-          description: g.assemblyOutputItem?.description || ''
-        }));
-      } else if (challan.assemblyOutputItem) {
-        rawItems = [{
-          itemName: challan.assemblyOutputItem.itemName || 'Assembly Item',
-          item: challan.assemblyOutputItem.item,
-          quantitySent: challan.assemblyOutputItem.quantityToBeReceived || 1,
-          unit: challan.assemblyOutputItem.receivingUnit || 'PCS',
-          hasSecondaryUnit: challan.assemblyOutputItem.hasSecondaryUnit,
-          secondaryUnit: challan.assemblyOutputItem.secondaryUnit,
-          conversionFactor: challan.assemblyOutputItem.conversionFactor,
-          secondaryQuantitySent: challan.assemblyOutputItem.secondaryQuantityToBeReceived,
-          selectedUnit: challan.assemblyOutputItem.selectedUnit || challan.assemblyOutputItem.receivingUnit,
-          processRate: challan.assemblyOutputItem.processRate || 0,
-          processType: challan.assemblyOutputItem.processType || headerProc || 'Assembly',
-          description: challan.assemblyOutputItem.description || ''
-        }];
-      }
-    }
-
-    if (rawItems.length > 0) {
-      const mappedItems: JobWorkLineItem[] = rawItems.map((cItem: any, idx: number) => {
-        const itemId = cItem.item?._id || cItem.item || undefined;
-        const matchedMaster = itemId
-          ? allSelectableItems.find(m => String(m._id || m.id) === String(itemId))
-          : allSelectableItems.find(
-              m => (m.name || '').trim().toLowerCase() === (cItem.itemName || '').trim().toLowerCase()
-            );
-
-        const matName = cItem.itemName || cItem.materialName || matchedMaster?.name || 'Job Work Item';
-        const desc =
-          cItem.description ||
-          cItem.item?.descriptions ||
-          cItem.item?.description ||
-          (matchedMaster ? getItemDescription(matchedMaster) : '') ||
-          cItem.remarks ||
-          '';
-        const itemProc = cItem.processType || headerProc || COMMON_PROCESSES[0];
-        const priQty = Number(cItem.quantitySent ?? cItem.quantity ?? 1) || 1;
-        const priUnit = (cItem.unit || cItem.receivingUnit || matchedMaster?.unit || 'PCS').trim();
-
-        const hasSec = Boolean(
-          cItem.hasSecondaryUnit ||
-          (cItem.secondaryUnit && (Number(cItem.secondaryQuantitySent) > 0 || Number(cItem.conversionFactor) > 0)) ||
-          matchedMaster?.hasSecondaryUnit ||
-          (matchedMaster?.secondaryUnit && Number(matchedMaster?.conversionFactor) > 0)
-        );
-        const secUnit = hasSec ? String(cItem.secondaryUnit || matchedMaster?.secondaryUnit || '').trim() : '';
-        const convFactor = Number(cItem.conversionFactor || matchedMaster?.conversionFactor || 1) || 1;
-        const secQty = hasSec
-          ? (Number(cItem.secondaryQuantitySent || 0) > 0
-              ? Number(cItem.secondaryQuantitySent)
-              : Number((priQty * convFactor).toFixed(3)))
-          : 0;
-
-        // Exact unit preservation from Challan:
-        const dcUnit = (cItem.selectedUnit || '').trim();
-        const isSecSelected = Boolean(hasSec && secUnit && dcUnit.toLowerCase() === secUnit.toLowerCase());
-        const selectedUnit = isSecSelected ? secUnit : priUnit;
-        const rateUnit: 'primary' | 'secondary' = isSecSelected ? 'secondary' : 'primary';
-        const activeQty = isSecSelected ? secQty : priQty;
-
-        const rate = Number(cItem.processRate ?? cItem.rate ?? 0) || 0;
-
-        return {
-          id: `jw-challan-item-${idx}-${Date.now()}`,
-          material: itemId ? String(itemId) : (matchedMaster?._id ? String(matchedMaster._id) : undefined),
-          materialName: matName,
-          description: desc,
-          processType: itemProc,
-          processNote: cItem.remarks || '',
-          sacCode: cItem.sacCode || defaultSac,
-          quantity: priQty,
-          unit: priUnit,
-          hasSecondaryUnit: hasSec && Boolean(secUnit),
-          secondaryUnit: secUnit,
-          conversionFactor: convFactor,
-          secondaryQuantity: secQty,
-          selectedUnit,
-          rateUnit,
-          rate,
-          taxRate: 18,
-          amount: Number((activeQty * rate).toFixed(2))
-        };
-      });
+    const mappedItems = buildItemsFromChallan(challan, defaultBasis);
+    if (mappedItems.length > 0) {
       setItems(mappedItems);
+    }
+  };
+
+  const handleSwitchPricingBasis = (nextBasis: 'output' | 'input') => {
+    setPricingBasis(nextBasis);
+    if (selectedChallanObj) {
+      const mappedItems = buildItemsFromChallan(selectedChallanObj, nextBasis);
+      if (mappedItems.length > 0) {
+        setItems(mappedItems);
+      }
     }
   };
 
@@ -396,6 +553,7 @@ export default function JobWorkPOModal({
       setRemarks(initialData.remarks || initialData.description || '');
       setSelectedChallanId(initialData.jobWorkChallan?._id || initialData.jobWorkChallan || '');
       setSelectedChallanNumber(initialData.challanNumber || initialData.jobWorkChallan?.challanNumber || '');
+      setPricingBasis(initialData.pricingBasis === 'input' ? 'input' : 'output');
 
       if (Array.isArray(initialData.items) && initialData.items.length > 0) {
         setItems(initialData.items.map((it: any, idx: number) => {
@@ -431,6 +589,8 @@ export default function JobWorkPOModal({
             material: matId,
             materialName: it.materialName || it.material?.name || '',
             description: it.description || it.descriptions || it.material?.descriptions || '',
+            sourceMaterialName: it.sourceMaterialName || undefined,
+            returningItemId: it.returningItemId || undefined,
             processType: it.processType || initialData.processType || COMMON_PROCESSES[0],
             processNote: it.processNote || '',
             sacCode: it.sacCode || it.hsnCode || initialData.sacCode || '9988',
@@ -554,6 +714,38 @@ export default function JobWorkPOModal({
 
       const activeQty = isSec ? (Number(item.secondaryQuantity) || 0) : (Number(item.quantity) || 0);
       item.amount = Number((activeQty * (Number(item.rate) || 0)).toFixed(2));
+
+      updated[index] = item;
+      return updated;
+    });
+  };
+
+  // Edit active billing unit freely on any line item (works for both Challan-linked & standalone POs)
+  const handleEditableUnitChange = (index: number, rawUnit: string) => {
+    const cleanUnit = rawUnit.toUpperCase();
+    setItems(prev => {
+      const updated = [...prev];
+      const item = { ...updated[index] };
+
+      if (item.hasSecondaryUnit && item.secondaryUnit && cleanUnit.trim() === item.secondaryUnit.trim().toUpperCase()) {
+        item.selectedUnit = item.secondaryUnit;
+        item.rateUnit = 'secondary';
+        const activeQty = Number(item.secondaryQuantity) || 0;
+        item.amount = Number((activeQty * (Number(item.rate) || 0)).toFixed(2));
+      } else if (item.hasSecondaryUnit && cleanUnit.trim() === item.unit.trim().toUpperCase()) {
+        item.selectedUnit = item.unit;
+        item.rateUnit = 'primary';
+        const activeQty = Number(item.quantity) || 0;
+        item.amount = Number((activeQty * (Number(item.rate) || 0)).toFixed(2));
+      } else {
+        if (item.rateUnit === 'secondary' && item.hasSecondaryUnit) {
+          item.secondaryUnit = cleanUnit;
+          item.selectedUnit = cleanUnit;
+        } else {
+          item.unit = cleanUnit;
+          item.selectedUnit = cleanUnit;
+        }
+      }
 
       updated[index] = item;
       return updated;
@@ -724,6 +916,7 @@ export default function JobWorkPOModal({
       poType: 'jobwork',
       jobWorkChallan: selectedChallanId || null,
       challanNumber: selectedChallanNumber || '',
+      pricingBasis,
       date: date || new Date(),
       expectedDeliveryDate: expectedDeliveryDate || undefined,
       vendor: selectedVendorId,
@@ -756,6 +949,8 @@ export default function JobWorkPOModal({
         material: it.material,
         materialName: it.materialName,
         description: it.description,
+        returningItemId: it.returningItemId || '',
+        sourceMaterialName: it.sourceMaterialName || '',
         processType: it.processType || finalProcess,
         processNote: it.processNote,
         sacCode: it.sacCode || sacCode || '9988',
@@ -1040,30 +1235,112 @@ export default function JobWorkPOModal({
             </div>
           )}
 
+          {/* Sent Material(s) Reference Strip from Linked Challan */}
+          {isChallanLinked && sentMaterialsFromChallan.length > 0 && (
+            <div className="bg-amber-50/60 dark:bg-amber-950/20 rounded-2xl p-3.5 sm:p-4 border border-amber-200/80 dark:border-amber-900/50 space-y-2.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-4 bg-amber-500 rounded-full shrink-0" />
+                  <Package size={14} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span className="text-xs font-black uppercase tracking-wider text-amber-900 dark:text-amber-200">
+                    Material(s) Sent on Challan #{selectedChallanNumber} ({sentMaterialsFromChallan.length})
+                  </span>
+                </div>
+                <span className="text-[11px] font-semibold text-amber-700/80 dark:text-amber-300/80">
+                  Outward material reference for this Job Work PO
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {sentMaterialsFromChallan.map((sent) => (
+                  <div
+                    key={sent.key}
+                    className="flex items-start justify-between gap-2.5 px-3 py-2 rounded-xl bg-white dark:bg-slate-900/90 border border-amber-200/70 dark:border-amber-900/50 shadow-2xs"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <ItemNameAndDescription name={sent.name} description={sent.description} />
+                      {sent.processType && (
+                        <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                          {sent.processType}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 font-black text-xs whitespace-nowrap">
+                        {sent.qty} {sent.unit}
+                      </div>
+                      {sent.hasSec && sent.secQty > 0 && (
+                        <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
+                          ({sent.secQty} {sent.secUnit})
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Line Items Table */}
           <div className="space-y-2">
+            <datalist id="jw-po-common-units">
+              {COMMON_JOBWORK_UNITS.map(u => (
+                <option key={u} value={u} />
+              ))}
+            </datalist>
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-400">
                   Job Work Items & Rates ({items.length})
                 </h3>
                 {isChallanLinked && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300">
-                    <Lock size={10} />
-                    <span>Items, Qty & UOM fetched from {selectedChallanNumber} — Switch Primary/Secondary UOM or enter Price, SAC & Tax</span>
+                    <Link2 size={10} />
+                    <span>Linked to {selectedChallanNumber} — Edit Unit, Qty, Price, SAC &amp; Tax as per billing</span>
                   </span>
                 )}
               </div>
-              {!isChallanLinked && (
-                <button
-                  type="button"
-                  onClick={handleAddItem}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl hover:bg-indigo-100 transition-colors cursor-pointer"
-                >
-                  <Plus size={14} />
-                  <span>Add Item</span>
-                </button>
-              )}
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {isChallanLinked && challanHasOutputItems && (
+                  <div className="inline-flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchPricingBasis('output')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                        pricingBasis === 'output'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                      title="Charge job work per converted / returning output item"
+                    >
+                      Converted / Output Items
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchPricingBasis('input')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                        pricingBasis === 'input'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                      title="Charge job work per sent / input raw material"
+                    >
+                      Sent Materials
+                    </button>
+                  </div>
+                )}
+
+                {!isChallanLinked && (
+                  <button
+                    type="button"
+                    onClick={handleAddItem}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl hover:bg-indigo-100 transition-colors cursor-pointer"
+                  >
+                    <Plus size={14} />
+                    <span>Add Item</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto shadow-2xs">
@@ -1099,13 +1376,18 @@ export default function JobWorkPOModal({
                         <td className="py-2.5 px-3 min-w-[280px] sm:min-w-[320px] align-top">
                           {isChallanLinked ? (
                             <div 
-                              className="p-2.5 rounded-xl bg-slate-50/90 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 min-w-0 max-w-full"
+                              className="p-2.5 rounded-xl bg-slate-50/90 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 min-w-0 max-w-full space-y-1"
                               title={`${item.materialName}${item.description ? `\n\nTechnical Description:\n${item.description}` : ''}`}
                             >
                               <ItemNameAndDescription
                                 name={item.materialName}
                                 description={item.description}
                               />
+                              {item.sourceMaterialName && (
+                                <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/70 dark:border-indigo-800/70 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300 max-w-full truncate">
+                                  <span>From: {item.sourceMaterialName}</span>
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <div className="w-full max-w-[340px] min-w-0 space-y-1.5">
@@ -1157,75 +1439,46 @@ export default function JobWorkPOModal({
                           )}
                         </td>
 
-                        {/* Quantity & UOM (DC-fetched UOM with Primary / Secondary unit switcher) */}
+                        {/* Quantity & Editable UOM (Supports Dual-UOM Pri/Sec switch + Editable Billing Unit) */}
                         <td className="py-2.5 px-3 align-top text-center">
-                          {isChallanLinked ? (
-                            <div className="flex flex-col items-center gap-1">
-                              <div className="flex items-center justify-center gap-1.5 w-full">
-                                <span className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-black text-xs text-slate-900 dark:text-white min-w-[54px] text-center">
-                                  {activeQty}
-                                </span>
-                                {item.hasSecondaryUnit && item.secondaryUnit ? (
-                                  <select
-                                    value={activeUnit}
-                                    onChange={e => handleUnitSwitch(index, e.target.value)}
-                                    className="px-2 py-1.5 text-xs font-bold rounded-lg border border-indigo-300 dark:border-indigo-700 bg-indigo-50/70 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                                    title="Switch between Primary and Secondary Unit from Challan"
-                                  >
-                                    <option value={item.unit}>{item.unit} (Pri)</option>
-                                    <option value={item.secondaryUnit}>{item.secondaryUnit} (Sec)</option>
-                                  </select>
-                                ) : (
-                                  <span className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase">
-                                    {item.unit}
-                                  </span>
-                                )}
-                              </div>
-                              {item.hasSecondaryUnit && item.secondaryUnit && (
-                                <div className="text-[10px] font-mono font-semibold text-indigo-600 dark:text-indigo-400">
-                                  ↳ = {altQty} {altUnit}
-                                </div>
-                              )}
+                          <div className="flex flex-col items-center gap-1">
+                            <div className="flex items-center justify-center gap-1 w-full">
+                              <input
+                                type="number"
+                                min="0.001"
+                                step="any"
+                                value={activeQty || ''}
+                                onChange={e =>
+                                  handleUpdateItem(
+                                    index,
+                                    isSecSelected ? 'secondaryQuantity' : 'quantity',
+                                    parseFloat(e.target.value) || 0
+                                  )
+                                }
+                                title="Billing quantity"
+                                className="w-16 px-2 py-1.5 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              />
+                              <input
+                                type="text"
+                                list="jw-po-common-units"
+                                value={activeUnit}
+                                onChange={e => handleEditableUnitChange(index, e.target.value)}
+                                placeholder="Unit"
+                                title="Edit or select billing unit (e.g. PCS, KGS, SQ.FT, HRS, JOB)"
+                                className="w-20 px-2 py-1.5 text-xs font-bold uppercase rounded-lg border border-indigo-300 dark:border-indigo-700 bg-indigo-50/50 dark:bg-indigo-950/50 text-indigo-800 dark:text-indigo-200 text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              />
                             </div>
-                          ) : (
-                            <div className="flex flex-col items-center gap-1">
-                              <div className="flex items-center gap-1">
-                                <input
-                                  type="number"
-                                  min="0.001"
-                                  step="any"
-                                  value={activeQty || ''}
-                                  onChange={e =>
-                                    handleUpdateItem(
-                                      index,
-                                      isSecSelected ? 'secondaryQuantity' : 'quantity',
-                                      parseFloat(e.target.value) || 0
-                                    )
-                                  }
-                                  className="w-16 px-2 py-1.5 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-center"
-                                />
-                                {item.hasSecondaryUnit && item.secondaryUnit ? (
-                                  <select
-                                    value={activeUnit}
-                                    onChange={e => handleUnitSwitch(index, e.target.value)}
-                                    className="px-1.5 py-1.5 text-xs font-bold rounded-lg border border-indigo-300 dark:border-indigo-700 bg-indigo-50/70 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 cursor-pointer"
-                                  >
-                                    <option value={item.unit}>{item.unit} (Pri)</option>
-                                    <option value={item.secondaryUnit}>{item.secondaryUnit} (Sec)</option>
-                                  </select>
-                                ) : (
-                                  <span className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase">
-                                    {item.unit}
-                                  </span>
-                                )}
-                              </div>
-                              {item.hasSecondaryUnit && item.secondaryUnit && (
-                                <div className="text-[10px] font-mono font-semibold text-indigo-600 dark:text-indigo-400">
-                                  ↳ = {altQty} {altUnit}
-                                </div>
-                              )}
-                            </div>
-                          )}
+                            {item.hasSecondaryUnit && item.secondaryUnit && (
+                              <button
+                                type="button"
+                                onClick={() => handleUnitSwitch(index, altUnit)}
+                                className="text-[10px] font-mono font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                title={`Click to switch billing unit to ${altUnit}`}
+                              >
+                                ⇄ {altQty} {altUnit}
+                              </button>
+                            )}
+                          </div>
                         </td>
 
                         {/* SAC Code */}

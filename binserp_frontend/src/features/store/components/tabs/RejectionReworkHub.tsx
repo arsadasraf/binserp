@@ -76,10 +76,18 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
   // Disposition Action Modal State
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
   const [actionType, setActionType] = useState<
-    'Return to Vendor' | 'Vendor Replacement' | 'Internal Rework' | 'External Rework' | 'Scrap & Write-Off' | 'Accept on Deviation'
+    'Return to Vendor' | 'Vendor Replacement' | 'Internal Rework' | 'External Rework' | 'Scrap & Write-Off' | 'Accept on Deviation' | 'Added to Main Stock'
   >('Return to Vendor');
   const [actionNotes, setActionNotes] = useState<string>('');
   const [submittingAction, setSubmittingAction] = useState<boolean>(false);
+
+  // Streamlined Rejection Bin States (Store Context)
+  const [resolutionReasonCategory, setResolutionReasonCategory] = useState<string>('Deviation');
+  const [resolutionReason, setResolutionReason] = useState<string>('');
+  const [returnDocType, setReturnDocType] = useState<'Delivery Challan' | 'Invoice'>('Delivery Challan');
+  const [returnDocNumber, setReturnDocNumber] = useState<string>('');
+  const [vendorDocs, setVendorDocs] = useState<{ dcs: any[]; invoices: any[] }>({ dcs: [], invoices: [] });
+  const [loadingVendorDocs, setLoadingVendorDocs] = useState<boolean>(false);
 
   // Edit Action Modal State (24-Hour Edit Window)
   const [editTicket, setEditTicket] = useState<any | null>(null);
@@ -126,6 +134,48 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
     const timer = setTimeout(() => setNotification(null), 6000);
     return () => clearTimeout(timer);
   }, [notification]);
+
+  const fetchVendorDocs = async (vendorName: string) => {
+    if (!vendorName || !token) return;
+    setLoadingVendorDocs(true);
+    try {
+      const config = { headers: { Authorization: `Bearer ${token}` } };
+      const [dcRes, invRes] = await Promise.allSettled([
+        axios.get(`${API_BASE_URL}/api/sales/dc`, config),
+        axios.get(`${API_BASE_URL}/api/sales/invoice`, config),
+      ]);
+      const norm = (s: string) => s.toLowerCase().trim();
+      const vKey = norm(vendorName);
+
+      let dcs: any[] = [];
+      if (dcRes.status === 'fulfilled') {
+        const allDcs = Array.isArray(dcRes.value.data?.data) ? dcRes.value.data.data : [];
+        dcs = allDcs.filter((d: any) => {
+          const cName = norm(d.customerName || d.customer?.name || d.vendor?.name || d.vendorName || '');
+          return cName && (cName.includes(vKey) || vKey.includes(cName));
+        });
+        if (dcs.length === 0) dcs = allDcs.slice(0, 15);
+      }
+
+      let invoices: any[] = [];
+      if (invRes.status === 'fulfilled') {
+        const allInvs = Array.isArray(invRes.value.data?.data)
+          ? invRes.value.data.data
+          : (Array.isArray(invRes.value.data?.data?.invoices) ? invRes.value.data.data.invoices : []);
+        invoices = allInvs.filter((i: any) => {
+          const cName = norm(i.customerName || i.customer?.name || i.vendor?.name || i.vendorName || '');
+          return cName && (cName.includes(vKey) || vKey.includes(cName));
+        });
+        if (invoices.length === 0) invoices = allInvs.slice(0, 15);
+      }
+
+      setVendorDocs({ dcs, invoices });
+    } catch (e) {
+      console.error("Error fetching vendor documents:", e);
+    } finally {
+      setLoadingVendorDocs(false);
+    }
+  };
 
   const fetchHubData = async () => {
     setLoading(true);
@@ -328,11 +378,14 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
     let rtvAndReplacementCount = 0;
     let scrapAndWriteOffCount = 0;
     let deviationCount = 0;
+    let addedToMainStockCount = 0;
 
     currentList.forEach((item: any) => {
       const isPending = !item.dispositionAction || item.dispositionAction === 'Pending' || item.status === 'Pending Disposition';
       if (isPending) {
         pendingActionCount++;
+      } else if (item.dispositionAction === 'Added to Main Stock' || item.isAddedToMainStock) {
+        addedToMainStockCount++;
       } else if (item.dispositionAction === 'Return to Vendor' || item.dispositionAction === 'Vendor Replacement') {
         rtvAndReplacementCount++;
       } else if (item.dispositionAction === 'Accept on Deviation') {
@@ -347,19 +400,32 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
       pendingActionCount,
       rtvAndReplacementCount,
       scrapAndWriteOffCount,
-      deviationCount
+      deviationCount,
+      addedToMainStockCount
     };
   }, [currentList]);
 
   // Open Disposition Modal with presets based on QC type
   const handleOpenActionModal = (ticket: any) => {
     setSelectedTicket(ticket);
-    const defaultAction = context === 'store' || ticket.sourceType === 'IncomingQC' 
-      ? 'Return to Vendor' 
-      : (ticket.sourceType === 'JobWorkQC' ? 'External Rework' : 'Internal Rework');
+    const defaultAction = context === 'store' 
+      ? 'Added to Main Stock' 
+      : (ticket.sourceType === 'IncomingQC' 
+          ? 'Return to Vendor' 
+          : (ticket.sourceType === 'JobWorkQC' ? 'External Rework' : 'Internal Rework'));
     
     setActionType(defaultAction as any);
     setActionNotes('');
+    setResolutionReasonCategory('Deviation');
+    setResolutionReason(ticket.rejectionReason || '');
+    setReturnDocType('Delivery Challan');
+    setReturnDocNumber('');
+
+    const vName = ticket.vendorName || ticket.supplierName || '';
+    if (context === 'store' && vName) {
+      fetchVendorDocs(vName);
+    }
+
     setRtvPayload({
       challanNumber: `RET-INV-${Date.now().toString().slice(-4)}`,
       debitNoteNumber: `DN-${Date.now().toString().slice(-4)}`,
@@ -391,6 +457,16 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
     setEditTicket(ticket);
     setActionType(ticket.dispositionAction || 'Return to Vendor');
     setActionNotes(ticket.history?.[ticket.history.length - 1]?.notes || '');
+    setResolutionReasonCategory(ticket.resolutionReasonCategory || 'Deviation');
+    setResolutionReason(ticket.resolutionReason || '');
+    setReturnDocType((ticket.returnDocType as any) || 'Delivery Challan');
+    setReturnDocNumber(ticket.returnDocNumber || '');
+
+    const vName = ticket.vendorName || ticket.supplierName || '';
+    if (context === 'store' && vName) {
+      fetchVendorDocs(vName);
+    }
+
     setRtvPayload({
       vehicleNumber: ticket.rtvDetails?.vehicleNumber || '',
       debitNoteNumber: ticket.rtvDetails?.debitNoteNumber || '',
@@ -417,10 +493,29 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
     e.preventDefault();
     if (!selectedTicket) return;
 
+    if (context === 'store') {
+      if (actionType === 'Added to Main Stock' && !resolutionReason.trim()) {
+        setNotification({
+          type: 'error',
+          title: 'Reason Required',
+          message: 'Please provide the resolution reason before adding item to main stock.'
+        });
+        return;
+      }
+      if (actionType === 'Return to Vendor' && !resolutionReason.trim()) {
+        setNotification({
+          type: 'error',
+          title: 'Return Reason Required',
+          message: 'Please provide the return reason before processing return to vendor.'
+        });
+        return;
+      }
+    }
+
     setSubmittingAction(true);
     try {
       const config = { headers: { Authorization: `Bearer ${token}` } };
-      const payload = {
+      const payload: any = {
         ticketId: selectedTicket._id,
         sourceType: selectedTicket.sourceType,
         sourceDocId: selectedTicket.sourceDocId,
@@ -429,6 +524,7 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
         materialId: selectedTicket.materialId,
         materialName: selectedTicket.materialName,
         materialCode: selectedTicket.materialCode,
+        technicalDescription: selectedTicket.technicalDescription || selectedTicket.materialDescription || selectedTicket.description || "",
         itemType: selectedTicket.itemType,
         unit: selectedTicket.unit,
         rejectedQuantity: selectedTicket.rejectedQuantity,
@@ -437,20 +533,42 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
         defectCategory: selectedTicket.defectCategory,
         vendorName: selectedTicket.vendorName,
         dispositionAction: actionType,
-        actionNotes,
-        rtvPayload,
-        replacementPayload,
-        reworkPayload,
-        scrapPayload,
-        concessionPayload,
+        actionNotes: actionNotes || resolutionReason,
       };
+
+      if (context === 'store') {
+        if (actionType === 'Added to Main Stock') {
+          payload.resolutionType = 'ADD_TO_INVENTORY';
+          payload.resolutionReasonCategory = resolutionReasonCategory;
+          payload.resolutionReason = resolutionReason;
+        } else if (actionType === 'Return to Vendor') {
+          payload.resolutionType = 'RETURN_TO_VENDOR';
+          payload.resolutionReason = resolutionReason;
+          payload.returnDocType = returnDocType;
+          payload.returnDocNumber = returnDocNumber;
+          payload.rtvPayload = {
+            ...rtvPayload,
+            returnDocType,
+            returnDocNumber,
+            vehicleNumber: rtvPayload.vehicleNumber || '',
+          };
+        }
+      } else {
+        payload.rtvPayload = rtvPayload;
+        payload.replacementPayload = replacementPayload;
+        payload.reworkPayload = reworkPayload;
+        payload.scrapPayload = scrapPayload;
+        payload.concessionPayload = concessionPayload;
+      }
 
       const res = await axios.post(`${API_BASE_URL}/api/store/mrb/disposition`, payload, config);
       setSelectedTicket(null);
       setNotification({
         type: 'success',
         title: 'Action Processed Successfully',
-        message: res.data?.message || `Disposition action "${actionType}" executed successfully.`
+        message: res.data?.message || (actionType === 'Added to Main Stock'
+          ? `Item successfully credited to Main Inventory (${resolutionReasonCategory}).`
+          : `Return to Vendor processed and linked to ${returnDocType} ${returnDocNumber || ''}.`)
       });
       await fetchHubData();
     } catch (err: any) {
@@ -473,9 +591,13 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
     setSubmittingAction(true);
     try {
       const config = { headers: { Authorization: `Bearer ${token}` } };
-      const payload = {
+      const payload: any = {
         dispositionAction: actionType,
         actionNotes,
+        resolutionReasonCategory,
+        resolutionReason,
+        returnDocType,
+        returnDocNumber,
         rtvPayload,
         reworkPayload,
         scrapPayload,
@@ -631,12 +753,44 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
       );
     }
 
+    if (item.isAddedToMainStock || item.dispositionAction === 'Added to Main Stock') {
+      return (
+        <div className="flex flex-col gap-0.5">
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-emerald-50 text-emerald-800 border border-emerald-200 block w-fit shadow-2xs">
+            🟢 Added to Main Stock
+          </span>
+          {(item.resolutionReasonCategory || item.resolutionReason) && (
+            <span className="text-[10px] text-emerald-700 italic font-medium line-clamp-1" title={item.resolutionReason}>
+              {item.resolutionReasonCategory ? `[${item.resolutionReasonCategory}] ` : ''}
+              {item.resolutionReason || 'Cleared to main inventory'}
+            </span>
+          )}
+        </div>
+      );
+    }
+
     switch (item.dispositionAction) {
       case 'Return to Vendor':
         return (
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-rose-50 text-rose-800 border border-rose-200 block w-fit">
-            🔵 RTV Debit Note ({item.rtvDetails?.debitNoteNumber || item.documentNumber || 'Issued'})
-          </span>
+          <div className="flex flex-col gap-0.5">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-rose-50 text-rose-800 border border-rose-200 block w-fit shadow-2xs">
+              🔵 Returned to Vendor
+            </span>
+            {item.returnDocNumber ? (
+              <span className="text-[10px] font-mono text-indigo-700 font-bold">
+                {item.returnDocType || 'Doc'}: #{item.returnDocNumber}
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono text-slate-500">
+                {item.rtvDetails?.debitNoteNumber || item.documentNumber || 'Issued'}
+              </span>
+            )}
+            {item.resolutionReason && (
+              <span className="text-[10px] text-slate-500 italic line-clamp-1" title={item.resolutionReason}>
+                {item.resolutionReason}
+              </span>
+            )}
+          </div>
         );
       case 'Vendor Replacement':
         const isFullyReplaced = item.replacementDetails?.isFullyReplaced || item.status === 'Completed';
@@ -885,14 +1039,14 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
             <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 p-3.5 rounded-2xl border border-emerald-100 shadow-2xs relative overflow-hidden">
               <div className="flex items-center justify-between text-emerald-700 mb-1.5">
                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
-                  {context === 'store' ? 'Approved on Deviation' : 'Scrap & Write-Off'}
+                  {context === 'store' ? 'Restocked to Main Stock' : 'Scrap & Write-Off'}
                 </span>
                 <div className="w-7 h-7 rounded-xl bg-emerald-100 flex items-center justify-center">
                   {context === 'store' ? <CheckCircle2 size={15} /> : <Trash2 size={15} />}
                 </div>
               </div>
               <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
-                {context === 'store' ? rejectionKpis.deviationCount : rejectionKpis.scrapAndWriteOffCount} <span className="text-xs font-semibold text-slate-500 font-sans">Tickets</span>
+                {context === 'store' ? (rejectionKpis.addedToMainStockCount + rejectionKpis.deviationCount) : rejectionKpis.scrapAndWriteOffCount} <span className="text-xs font-semibold text-slate-500 font-sans">Tickets</span>
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
                 <span className="font-bold text-emerald-700 font-mono">
@@ -1109,7 +1263,8 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
             >
               <option value="all">All Statuses</option>
               <option value="pending">Pending Action</option>
-              <option value="rtv">Return to Vendor (Debit Note)</option>
+              <option value="main-stock">Added to Main Stock</option>
+              <option value="rtv">Return to Vendor (Debit Note / DC)</option>
               <option value="replacement">Vendor Replacement</option>
               <option value="rework">Rework</option>
               <option value="scrap">Scrapped & Written Off</option>
@@ -1310,7 +1465,8 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
                   >
                     <option value="all">All Statuses</option>
                     <option value="pending">Pending Action</option>
-                    <option value="rtv">Return to Vendor (Debit Note)</option>
+                    <option value="main-stock">Added to Main Stock</option>
+                    <option value="rtv">Return to Vendor (Debit Note / DC)</option>
                     <option value="replacement">Vendor Replacement</option>
                     <option value="rework">Rework</option>
                     <option value="scrap">Scrapped & Written Off</option>
@@ -1559,9 +1715,13 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
                           {isPending ? (
                             <button
                               onClick={() => handleOpenActionModal(item)}
-                              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-2xs transition-all cursor-pointer text-[11px] flex items-center gap-1 ml-auto"
+                              className={`px-2.5 py-1.5 text-white font-bold rounded-lg shadow-2xs transition-all cursor-pointer text-[11px] flex items-center gap-1 ml-auto ${
+                                context === 'store'
+                                  ? 'bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700'
+                                  : 'bg-blue-600 hover:bg-blue-700'
+                              }`}
                             >
-                              <span>Action</span>
+                              <span>{context === 'store' ? 'Take Action' : 'Action'}</span>
                               <ArrowRight size={12} />
                             </button>
                           ) : item.dispositionAction === 'Vendor Replacement' && !item.replacementDetails?.isFullyReplaced && item.status !== 'Completed' ? (
@@ -1795,9 +1955,13 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
                       {isPending ? (
                         <button
                           onClick={() => handleOpenActionModal(item)}
-                          className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-2xs transition-all cursor-pointer text-xs flex items-center justify-center gap-1.5"
+                          className={`w-full py-2 text-white font-bold rounded-lg shadow-2xs transition-all cursor-pointer text-xs flex items-center justify-center gap-1.5 ${
+                            context === 'store'
+                              ? 'bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700'
+                              : 'bg-blue-600 hover:bg-blue-700'
+                          }`}
                         >
-                          <span>Action Pathway</span>
+                          <span>{context === 'store' ? 'Take Action' : 'Action Pathway'}</span>
                           <ArrowRight size={13} />
                         </button>
                       ) : item.dispositionAction === 'Vendor Replacement' && !item.replacementDetails?.isFullyReplaced && item.status !== 'Completed' ? (
@@ -1942,222 +2106,445 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
               </div>
 
               <form onSubmit={handleSubmitAction} className="p-3.5 sm:p-4 space-y-3.5 text-xs overflow-y-auto flex-1">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Select Action Pathway:
-                  </label>
-                  <div className={`grid gap-2 ${context === 'store' ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'}`}>
-                    {(context === 'store'
-                      ? [
-                          { id: 'Return to Vendor', label: '1. Return to Vendor (RTV)', desc: 'Tax Return Bill + Debit Note', icon: Truck },
-                          { id: 'Vendor Replacement', label: '2. Vendor Replacement', desc: 'Warranty Replacement Challan (DC)', icon: RotateCcw },
-                          { id: 'Accept on Deviation', label: '3. Accept on Deviation', desc: 'Concession Note & Add to Main Stock', icon: CheckCircle2 },
-                        ]
-                      : [
+                {context === 'store' ? (
+                  /* STREAMLINED STORE GRN REJECTION RESOLUTION */
+                  <div className="space-y-3.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                        Select Rejection Resolution:
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {/* Pathway 1: Add to Main Stock */}
+                        <div
+                          onClick={() => setActionType('Added to Main Stock')}
+                          className={`p-3 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                            actionType === 'Added to Main Stock'
+                              ? 'border-emerald-600 bg-emerald-50/70 shadow-sm'
+                              : 'border-slate-200 hover:border-emerald-300 bg-slate-50/60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className={`p-2 rounded-lg ${actionType === 'Added to Main Stock' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-700'}`}>
+                              <CheckCircle2 size={16} />
+                            </div>
+                            <div>
+                              <span className="text-xs font-extrabold text-slate-900 block">
+                                1. Add to Main Stock
+                              </span>
+                              <span className="text-[11px] text-slate-500">
+                                Restock to usable store inventory
+                              </span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-semibold text-emerald-800 mt-2 bg-emerald-100/70 px-2 py-0.5 rounded w-fit">
+                            Requires verified reason (Deviation / Rework)
+                          </span>
+                        </div>
+
+                        {/* Pathway 2: Return to Vendor */}
+                        <div
+                          onClick={() => setActionType('Return to Vendor')}
+                          className={`p-3 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                            actionType === 'Return to Vendor'
+                              ? 'border-rose-600 bg-rose-50/70 shadow-sm'
+                              : 'border-slate-200 hover:border-rose-300 bg-slate-50/60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className={`p-2 rounded-lg ${actionType === 'Return to Vendor' ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-700'}`}>
+                              <Truck size={16} />
+                            </div>
+                            <div>
+                              <span className="text-xs font-extrabold text-slate-900 block">
+                                2. Return to Vendor (RTV)
+                              </span>
+                              <span className="text-[11px] text-slate-500">
+                                Deduct & attach Return DC / Invoice
+                              </span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-semibold text-rose-800 mt-2 bg-rose-100/70 px-2 py-0.5 rounded w-fit">
+                            Links Delivery Challan or Invoice #
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Subform: Add to Main Stock */}
+                    {actionType === 'Added to Main Stock' && (
+                      <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                            <CheckCircle2 size={14} className="text-emerald-700" />
+                            Main Inventory Stock Credit
+                          </span>
+                          <span className="text-[11px] font-mono font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                            +{selectedTicket.rejectedQuantity} {selectedTicket.unit} to Main Stock
+                          </span>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                            Reason Category <span className="text-rose-500">*</span>
+                          </label>
+                          <select
+                            value={resolutionReasonCategory}
+                            onChange={e => setResolutionReasonCategory(e.target.value)}
+                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          >
+                            <option value="Deviation">Deviation (Approved Deviation / Use As Is)</option>
+                            <option value="Rework Done & Cleared">Rework Done & Cleared (Defect Corrected)</option>
+                            <option value="QC Concession">QC Concession (Minor Non-Critical Variation)</option>
+                            <option value="Packaging / Transit Issue Resolved">Packaging / Transit Issue Resolved</option>
+                            <option value="Other">Other Operational Clearance</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                            Reason & Detailed Remarks <span className="text-rose-500">*</span>
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={resolutionReason}
+                            onChange={e => setResolutionReason(e.target.value)}
+                            placeholder="State justification: e.g. Rework done and verified, approved on deviation by QC Lead..."
+                            className="w-full p-2 border border-slate-300 rounded-lg bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
+                            required
+                          />
+                        </div>
+
+                        <div className="p-2 bg-emerald-100/70 rounded-lg text-[11px] text-emerald-900 font-medium flex items-center gap-1.5">
+                          <CheckCircle2 size={14} className="text-emerald-700 shrink-0" />
+                          <span>
+                            Submitting will remove this item from the rejection bin and immediately credit <strong>{selectedTicket.rejectedQuantity} {selectedTicket.unit}</strong> into <strong>Main Inventory Available Stock</strong>.
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Subform: Return to Vendor */}
+                    {actionType === 'Return to Vendor' && (
+                      <div className="p-3 bg-rose-50/50 rounded-xl border border-rose-200 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-rose-900 flex items-center gap-1.5">
+                            <Truck size={14} className="text-rose-700" />
+                            Vendor Return Details
+                          </span>
+                          <span className="text-[11px] font-mono font-bold text-rose-800 bg-rose-100 px-2 py-0.5 rounded">
+                            Vendor: {selectedTicket.vendorName || selectedTicket.supplierName || 'Supplier'}
+                          </span>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                            Return Reason / Defect Justification <span className="text-rose-500">*</span>
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={resolutionReason}
+                            onChange={e => setResolutionReason(e.target.value)}
+                            placeholder="State return reason: e.g. Defect beyond rework tolerance, vendor material specification mismatch..."
+                            className="w-full p-2 border border-slate-300 rounded-lg bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-rose-500"
+                            required
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                              Return Document Type
+                            </label>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => { setReturnDocType('Delivery Challan'); setReturnDocNumber(''); }}
+                                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
+                                  returnDocType === 'Delivery Challan'
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                                }`}
+                              >
+                                Delivery Challan (DC)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setReturnDocType('Invoice'); setReturnDocNumber(''); }}
+                                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
+                                  returnDocType === 'Invoice'
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                                }`}
+                              >
+                                Invoice / Debit Note
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                              Attached {returnDocType === 'Delivery Challan' ? 'DC #' : 'Invoice #'}:
+                            </label>
+                            {loadingVendorDocs ? (
+                              <div className="text-[11px] text-slate-400 py-1.5 italic">Loading existing vendor documents...</div>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {(returnDocType === 'Delivery Challan' ? vendorDocs.dcs : vendorDocs.invoices).length > 0 && (
+                                  <select
+                                    value={returnDocNumber}
+                                    onChange={e => setReturnDocNumber(e.target.value)}
+                                    className="w-full px-2 py-1.5 border border-slate-300 rounded-lg bg-white text-xs font-semibold text-slate-800"
+                                  >
+                                    <option value="">-- Select Existing {returnDocType} --</option>
+                                    {(returnDocType === 'Delivery Challan' ? vendorDocs.dcs : vendorDocs.invoices).map((doc: any, dIdx: number) => {
+                                      const num = doc.dcNumber || doc.invoiceNumber || doc._id;
+                                      const dt = new Date(doc.date || doc.invoiceDate || doc.createdAt || Date.now()).toLocaleDateString('en-GB');
+                                      const amt = doc.totalAmount || doc.grandTotal || 0;
+                                      return (
+                                        <option key={doc._id || dIdx} value={num}>
+                                          {num} ({dt}) - ₹{Number(amt).toLocaleString('en-IN')}
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                )}
+                                <input
+                                  type="text"
+                                  value={returnDocNumber}
+                                  onChange={e => setReturnDocNumber(e.target.value)}
+                                  placeholder={`Or enter custom ${returnDocType === 'Delivery Challan' ? 'DC' : 'Invoice'} # (e.g. DC-2026-001)`}
+                                  className="w-full px-2 py-1.5 border border-slate-300 rounded-lg bg-white font-mono text-xs text-slate-800 placeholder:font-sans"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="p-2 bg-rose-100/70 rounded-lg text-[11px] text-rose-900 font-medium flex items-center gap-1.5">
+                          <Truck size={14} className="text-rose-700 shrink-0" />
+                          <span>
+                            Submitting will remove <strong>{selectedTicket.rejectedQuantity} {selectedTicket.unit}</strong> from the rejection bin and link it to return document <strong>{returnDocNumber || '(Auto-Generated RET-INV)'}</strong>.
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* ORIGINAL 6-PATHWAY UI FOR NON-STORE CONTEXT (QUALITY / WIP) */
+                  <>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Select Action Pathway:
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {[
                           { id: 'Return to Vendor', label: '1. Return Bill (RTV)', desc: 'Tax Return Bill + Debit Note', icon: Truck },
                           { id: 'Vendor Replacement', label: '2. Replacement DC', desc: 'Warranty Replacement Challan', icon: RotateCcw },
                           { id: 'External Rework', label: '3. Subcontractor Rework', desc: 'FOC Rework Delivery Challan', icon: Wrench },
                           { id: 'Internal Rework', label: '4. Internal Rework', desc: 'Shopfloor Correction Routing', icon: ToolIcon },
                           { id: 'Scrap & Write-Off', label: '5. Scrap Bin', desc: 'Scrap Yard Disposal & Write-Off', icon: Trash2 },
                           { id: 'Accept on Deviation', label: '6. Deviation', desc: 'Quality Concession / Use As Is', icon: CheckCircle2 },
-                        ]
-                    ).map(act => {
-                      const Icon = act.icon;
-                      const isSel = actionType === act.id;
-                      return (
-                        <div
-                          key={act.id}
-                          onClick={() => setActionType(act.id as any)}
-                          className={`p-2.5 rounded-lg border transition-all cursor-pointer flex flex-col justify-between ${
-                            isSel
-                              ? 'border-blue-600 bg-blue-50/60 shadow-2xs font-semibold'
-                              : 'border-slate-200 hover:border-slate-300 bg-slate-50/50'
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5 text-slate-900 font-bold">
-                            <Icon size={14} className={isSel ? 'text-blue-600' : 'text-slate-400'} />
-                            <span className="text-xs">{act.label}</span>
+                        ].map(act => {
+                          const Icon = act.icon;
+                          const isSel = actionType === act.id;
+                          return (
+                            <div
+                              key={act.id}
+                              onClick={() => setActionType(act.id as any)}
+                              className={`p-2.5 rounded-lg border transition-all cursor-pointer flex flex-col justify-between ${
+                                isSel
+                                  ? 'border-blue-600 bg-blue-50/60 shadow-2xs font-semibold'
+                                  : 'border-slate-200 hover:border-slate-300 bg-slate-50/50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-1.5 text-slate-900 font-bold">
+                                <Icon size={14} className={isSel ? 'text-blue-600' : 'text-slate-400'} />
+                                <span className="text-xs">{act.label}</span>
+                              </div>
+                              <span className="text-[10px] text-slate-500 mt-1">{act.desc}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Return to Vendor Subform */}
+                    {actionType === 'Return to Vendor' && (
+                      <div className="p-3 bg-rose-50/40 rounded-lg border border-rose-200 space-y-2">
+                        <h4 className="font-bold text-rose-900 text-xs">Tax Return Bill & Debit Note Parameters</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Vehicle / Carrier #</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. MH-12-AB-1234"
+                              value={rtvPayload.vehicleNumber}
+                              onChange={e => setRtvPayload({ ...rtvPayload, vehicleNumber: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
+                            />
                           </div>
-                          <span className="text-[10px] text-slate-500 mt-1">{act.desc}</span>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">GST Tax Rate (%)</label>
+                            <select
+                              value={rtvPayload.taxRate}
+                              onChange={e => setRtvPayload({ ...rtvPayload, taxRate: Number(e.target.value) })}
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
+                            >
+                              <option value={18}>18% GST (Standard)</option>
+                              <option value={12}>12% GST</option>
+                              <option value={5}>5% GST</option>
+                              <option value={28}>28% GST</option>
+                              <option value={0}>0% (Exempt)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Debit Note Ref #</label>
+                            <input
+                              type="text"
+                              value={rtvPayload.debitNoteNumber}
+                              onChange={e => setRtvPayload({ ...rtvPayload, debitNoteNumber: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
+                            />
+                          </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                        <div className="p-2 bg-rose-100/70 rounded text-[11px] text-rose-900 font-medium">
+                          Submitting RTV will deduct {selectedTicket.rejectedQuantity} {selectedTicket.unit} from this rejection bin and generate an official Gate Pass Delivery Challan and GST Debit Note.
+                        </div>
+                      </div>
+                    )}
 
-                {/* Return to Vendor Subform */}
-                {actionType === 'Return to Vendor' && (
-                  <div className="p-3 bg-rose-50/40 rounded-lg border border-rose-200 space-y-2">
-                    <h4 className="font-bold text-rose-900 text-xs">Tax Return Bill & Debit Note Parameters</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Vehicle / Carrier #</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. MH-12-AB-1234"
-                          value={rtvPayload.vehicleNumber}
-                          onChange={e => setRtvPayload({ ...rtvPayload, vehicleNumber: e.target.value })}
-                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
-                        />
+                    {/* Vendor Replacement Subform */}
+                    {actionType === 'Vendor Replacement' && (
+                      <div className="p-3 bg-blue-50/40 rounded-lg border border-blue-200 space-y-2">
+                        <h4 className="font-bold text-blue-900 text-xs">Warranty Replacement Delivery Challan Parameters</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Vehicle / Carrier #</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. MH-12-AB-1234"
+                              value={replacementPayload.vehicleNumber}
+                              onChange={e => setReplacementPayload({ ...replacementPayload, vehicleNumber: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Expected Delivery Date</label>
+                            <input
+                              type="date"
+                              value={replacementPayload.expectedDate}
+                              onChange={e => setReplacementPayload({ ...replacementPayload, expectedDate: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
+                            />
+                          </div>
+                        </div>
+                        <div className="p-2 bg-blue-100/70 rounded text-[11px] text-blue-900 font-medium">
+                          Generating this Replacement DC will reduce the rejected stock in this bin by {selectedTicket.rejectedQuantity} {selectedTicket.unit}. When the vendor delivers the replacement with their DC, you can click &quot;Receive Replacement&quot; to restock it directly into main inventory.
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">GST Tax Rate (%)</label>
-                        <select
-                          value={rtvPayload.taxRate}
-                          onChange={e => setRtvPayload({ ...rtvPayload, taxRate: Number(e.target.value) })}
-                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
-                        >
-                          <option value={18}>18% GST (Standard)</option>
-                          <option value={12}>12% GST</option>
-                          <option value={5}>5% GST</option>
-                          <option value={28}>28% GST</option>
-                          <option value={0}>0% (Exempt)</option>
-                        </select>
+                    )}
+
+                    {/* Scrap Bin Subform */}
+                    {actionType === 'Scrap & Write-Off' && (
+                      <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                        <h4 className="font-bold text-slate-800 text-xs">Scrap Bin Allocation & Salvage Rate</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Scrap Bin Location / Bay</label>
+                            <input
+                              type="text"
+                              value={scrapPayload.scrapLocation}
+                              onChange={e => setScrapPayload({ ...scrapPayload, scrapLocation: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Expected Salvage Rate (₹/KG)</label>
+                            <input
+                              type="number"
+                              value={scrapPayload.salvageRatePerKg}
+                              onChange={e => setScrapPayload({ ...scrapPayload, salvageRatePerKg: Number(e.target.value) })}
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
+                            />
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Debit Note Ref #</label>
-                        <input
-                          type="text"
-                          value={rtvPayload.debitNoteNumber}
-                          onChange={e => setRtvPayload({ ...rtvPayload, debitNoteNumber: e.target.value })}
-                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
-                        />
+                    )}
+
+                    {/* Rework Subform */}
+                    {(actionType === 'Internal Rework' || actionType === 'External Rework') && (
+                      <div className="p-3 bg-blue-50/40 rounded-lg border border-blue-200 space-y-2">
+                        <h4 className="font-bold text-blue-900 text-xs">Rework Routing & Instructions</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Assigned Station / Operator</label>
+                            <input
+                              type="text"
+                              value={reworkPayload.assignedWorkstation}
+                              onChange={e => setReworkPayload({ ...reworkPayload, assignedWorkstation: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Rework Instructions</label>
+                            <input
+                              type="text"
+                              value={reworkPayload.reworkInstructions}
+                              onChange={e => setReworkPayload({ ...reworkPayload, reworkInstructions: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
+                            />
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="p-2 bg-rose-100/70 rounded text-[11px] text-rose-900 font-medium">
-                      Submitting RTV will deduct {selectedTicket.rejectedQuantity} {selectedTicket.unit} from this rejection bin and generate an official Gate Pass Delivery Challan and GST Debit Note.
-                    </div>
-                  </div>
+                    )}
+
+                    {/* Deviation Subform */}
+                    {actionType === 'Accept on Deviation' && (
+                      <div className="p-3 bg-emerald-50/40 rounded-lg border border-emerald-200 space-y-2">
+                        <h4 className="font-bold text-emerald-900 text-xs">Quality Concession Approval</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Deviation Ref #</label>
+                            <input
+                              type="text"
+                              value={concessionPayload.deviationRefNumber}
+                              onChange={e => setConcessionPayload({ ...concessionPayload, deviationRefNumber: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Concession Reason</label>
+                            <input
+                              type="text"
+                              value={concessionPayload.concessionReason}
+                              onChange={e => setConcessionPayload({ ...concessionPayload, concessionReason: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
+                            />
+                          </div>
+                        </div>
+                        <div className="p-2 bg-emerald-100/70 rounded text-[11px] text-emerald-900 font-medium flex items-center gap-1.5">
+                          <CheckCircle2 size={15} className="text-emerald-700 shrink-0" />
+                          <span>Approving this deviation will deduct {selectedTicket.rejectedQuantity} {selectedTicket.unit} from this rejection bin and add it directly into <strong>Main Inventory Available Stock</strong>.</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
 
-                {/* Vendor Replacement Subform */}
-                {actionType === 'Vendor Replacement' && (
-                  <div className="p-3 bg-blue-50/40 rounded-lg border border-blue-200 space-y-2">
-                    <h4 className="font-bold text-blue-900 text-xs">Warranty Replacement Delivery Challan Parameters</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Vehicle / Carrier #</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. MH-12-AB-1234"
-                          value={replacementPayload.vehicleNumber}
-                          onChange={e => setReplacementPayload({ ...replacementPayload, vehicleNumber: e.target.value })}
-                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Expected Delivery Date</label>
-                        <input
-                          type="date"
-                          value={replacementPayload.expectedDate}
-                          onChange={e => setReplacementPayload({ ...replacementPayload, expectedDate: e.target.value })}
-                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
-                        />
-                      </div>
-                    </div>
-                    <div className="p-2 bg-blue-100/70 rounded text-[11px] text-blue-900 font-medium">
-                      Generating this Replacement DC will reduce the rejected stock in this bin by {selectedTicket.rejectedQuantity} {selectedTicket.unit}. When the vendor delivers the replacement with their DC, you can click &quot;Receive Replacement&quot; to restock it directly into main inventory.
-                    </div>
+                {context !== 'store' && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Action Notes & Auditor Remarks:
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={actionNotes}
+                      onChange={e => setActionNotes(e.target.value)}
+                      placeholder="Enter root cause notes or operational instructions..."
+                      className="w-full p-2 border border-slate-200 rounded-lg bg-white outline-none text-xs text-slate-800"
+                    />
                   </div>
                 )}
-
-                {/* Scrap Bin Subform */}
-                {actionType === 'Scrap & Write-Off' && (
-                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
-                    <h4 className="font-bold text-slate-800 text-xs">Scrap Bin Allocation & Salvage Rate</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Scrap Bin Location / Bay</label>
-                        <input
-                          type="text"
-                          value={scrapPayload.scrapLocation}
-                          onChange={e => setScrapPayload({ ...scrapPayload, scrapLocation: e.target.value })}
-                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Expected Salvage Rate (₹/KG)</label>
-                        <input
-                          type="number"
-                          value={scrapPayload.salvageRatePerKg}
-                          onChange={e => setScrapPayload({ ...scrapPayload, salvageRatePerKg: Number(e.target.value) })}
-                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Rework Subform */}
-                {(actionType === 'Internal Rework' || actionType === 'External Rework') && (
-                  <div className="p-3 bg-blue-50/40 rounded-lg border border-blue-200 space-y-2">
-                    <h4 className="font-bold text-blue-900 text-xs">Rework Routing & Instructions</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Assigned Station / Operator</label>
-                        <input
-                          type="text"
-                          value={reworkPayload.assignedWorkstation}
-                          onChange={e => setReworkPayload({ ...reworkPayload, assignedWorkstation: e.target.value })}
-                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Rework Instructions</label>
-                        <input
-                          type="text"
-                          value={reworkPayload.reworkInstructions}
-                          onChange={e => setReworkPayload({ ...reworkPayload, reworkInstructions: e.target.value })}
-                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Deviation Subform */}
-                {actionType === 'Accept on Deviation' && (
-                  <div className="p-3 bg-emerald-50/40 rounded-lg border border-emerald-200 space-y-2">
-                    <h4 className="font-bold text-emerald-900 text-xs">Quality Concession Approval</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Deviation Ref #</label>
-                        <input
-                          type="text"
-                          value={concessionPayload.deviationRefNumber}
-                          onChange={e => setConcessionPayload({ ...concessionPayload, deviationRefNumber: e.target.value })}
-                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Concession Reason</label>
-                        <input
-                          type="text"
-                          value={concessionPayload.concessionReason}
-                          onChange={e => setConcessionPayload({ ...concessionPayload, concessionReason: e.target.value })}
-                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-slate-800"
-                        />
-                      </div>
-                    </div>
-                    <div className="p-2 bg-emerald-100/70 rounded text-[11px] text-emerald-900 font-medium flex items-center gap-1.5">
-                      <CheckCircle2 size={15} className="text-emerald-700 shrink-0" />
-                      <span>Approving this deviation will deduct {selectedTicket.rejectedQuantity} {selectedTicket.unit} from this rejection bin and add it directly into <strong>Main Inventory Available Stock</strong>.</span>
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Action Notes & Auditor Remarks:
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={actionNotes}
-                    onChange={e => setActionNotes(e.target.value)}
-                    placeholder="Enter root cause notes or operational instructions..."
-                    className="w-full p-2 border border-slate-200 rounded-lg bg-white outline-none text-xs text-slate-800"
-                  />
-                </div>
 
                 <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 shrink-0">
                   <button
@@ -2170,9 +2557,31 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
                   <button
                     type="submit"
                     disabled={submittingAction}
-                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-2xs cursor-pointer disabled:opacity-50"
+                    className={`px-4 py-1.5 text-white font-bold rounded-lg shadow-2xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5 ${
+                      context === 'store'
+                        ? actionType === 'Added to Main Stock'
+                          ? 'bg-emerald-600 hover:bg-emerald-700'
+                          : 'bg-rose-600 hover:bg-rose-700'
+                        : 'bg-blue-600 hover:bg-blue-700'
+                    }`}
                   >
-                    {submittingAction ? 'Executing...' : 'Execute Disposition'}
+                    {submittingAction ? (
+                      <span>Executing...</span>
+                    ) : context === 'store' ? (
+                      actionType === 'Added to Main Stock' ? (
+                        <>
+                          <CheckCircle2 size={14} />
+                          <span>Add to Main Stock</span>
+                        </>
+                      ) : (
+                        <>
+                          <Truck size={14} />
+                          <span>Confirm Return to Vendor</span>
+                        </>
+                      )
+                    ) : (
+                      <span>Execute Disposition</span>
+                    )}
                   </button>
                 </div>
               </form>
@@ -2212,68 +2621,155 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
               </div>
 
               <form onSubmit={handleSubmitEditAction} className="p-3.5 sm:p-4 space-y-3.5 text-xs overflow-y-auto flex-1">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Corrective Action Pathway:
-                  </label>
-                  <select
-                    value={actionType}
-                    onChange={e => setActionType(e.target.value as any)}
-                    className="w-full p-2 border border-slate-200 rounded-lg bg-white font-bold text-xs text-slate-800"
-                  >
-                    <option value="Return to Vendor">Return to Vendor (Return Bill)</option>
-                    <option value="Vendor Replacement">Vendor Replacement (Replacement DC)</option>
-                    <option value="External Rework">Subcontractor Rework (FOC Rework DC)</option>
-                    <option value="Internal Rework">Internal Rework</option>
-                    <option value="Scrap & Write-Off">Scrap & Write-Off (Scrap Bin)</option>
-                    <option value="Accept on Deviation">Accept on Deviation (Concession)</option>
-                  </select>
-                </div>
+                {context === 'store' ? (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        Resolution Pathway:
+                      </label>
+                      <select
+                        value={actionType}
+                        onChange={e => setActionType(e.target.value as any)}
+                        className="w-full p-2 border border-slate-200 rounded-lg bg-white font-bold text-xs text-slate-800"
+                      >
+                        <option value="Added to Main Stock">1. Add to Main Stock (Restock Available Inventory)</option>
+                        <option value="Return to Vendor">2. Return to Vendor (RTV)</option>
+                      </select>
+                    </div>
 
-                {actionType === 'Return to Vendor' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Vehicle #</label>
-                      <input
-                        type="text"
-                        value={rtvPayload.vehicleNumber}
-                        onChange={e => setRtvPayload({ ...rtvPayload, vehicleNumber: e.target.value })}
-                        className="w-full p-2 border border-slate-200 rounded-lg bg-white text-slate-800"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Debit Note #</label>
-                      <input
-                        type="text"
-                        value={rtvPayload.debitNoteNumber}
-                        onChange={e => setRtvPayload({ ...rtvPayload, debitNoteNumber: e.target.value })}
-                        className="w-full p-2 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
-                      />
-                    </div>
-                  </div>
-                )}
+                    {actionType === 'Added to Main Stock' && (
+                      <div className="space-y-2 p-3 bg-emerald-50/50 rounded-xl border border-emerald-200">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Reason Category</label>
+                          <select
+                            value={resolutionReasonCategory}
+                            onChange={e => setResolutionReasonCategory(e.target.value)}
+                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-xs font-semibold text-slate-800"
+                          >
+                            <option value="Deviation">Deviation (Approved Deviation / Use As Is)</option>
+                            <option value="Rework Done & Cleared">Rework Done & Cleared (Defect Corrected)</option>
+                            <option value="QC Concession">QC Concession (Minor Non-Critical Variation)</option>
+                            <option value="Packaging / Transit Issue Resolved">Packaging / Transit Issue Resolved</option>
+                            <option value="Other">Other Operational Clearance</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Resolution Reason & Justification</label>
+                          <textarea
+                            rows={2}
+                            value={resolutionReason}
+                            onChange={e => setResolutionReason(e.target.value)}
+                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-xs text-slate-800"
+                            placeholder="State reason..."
+                          />
+                        </div>
+                      </div>
+                    )}
 
-                {actionType === 'Scrap & Write-Off' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Scrap Bin Location</label>
-                      <input
-                        type="text"
-                        value={scrapPayload.scrapLocation}
-                        onChange={e => setScrapPayload({ ...scrapPayload, scrapLocation: e.target.value })}
-                        className="w-full p-2 border border-slate-200 rounded-lg bg-white text-slate-800"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Salvage Rate (₹/KG)</label>
-                      <input
-                        type="number"
-                        value={scrapPayload.salvageRatePerKg}
-                        onChange={e => setScrapPayload({ ...scrapPayload, salvageRatePerKg: Number(e.target.value) })}
-                        className="w-full p-2 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
-                      />
-                    </div>
+                    {actionType === 'Return to Vendor' && (
+                      <div className="space-y-2 p-3 bg-rose-50/50 rounded-xl border border-rose-200">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Return Reason</label>
+                          <textarea
+                            rows={2}
+                            value={resolutionReason}
+                            onChange={e => setResolutionReason(e.target.value)}
+                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-xs text-slate-800"
+                            placeholder="State return reason..."
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">Document Type</label>
+                            <select
+                              value={returnDocType}
+                              onChange={e => setReturnDocType(e.target.value as any)}
+                              className="w-full p-2 border border-slate-200 rounded-lg bg-white text-xs font-semibold text-slate-800"
+                            >
+                              <option value="Delivery Challan">Delivery Challan</option>
+                              <option value="Invoice">Invoice / Debit Note</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">Attached Doc #</label>
+                            <input
+                              type="text"
+                              value={returnDocNumber}
+                              onChange={e => setReturnDocNumber(e.target.value)}
+                              placeholder="e.g. DC-2026-001"
+                              className="w-full p-2 border border-slate-200 rounded-lg bg-white font-mono text-xs text-slate-800"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        Corrective Action Pathway:
+                      </label>
+                      <select
+                        value={actionType}
+                        onChange={e => setActionType(e.target.value as any)}
+                        className="w-full p-2 border border-slate-200 rounded-lg bg-white font-bold text-xs text-slate-800"
+                      >
+                        <option value="Return to Vendor">Return to Vendor (Return Bill)</option>
+                        <option value="Vendor Replacement">Vendor Replacement (Replacement DC)</option>
+                        <option value="External Rework">Subcontractor Rework (FOC Rework DC)</option>
+                        <option value="Internal Rework">Internal Rework</option>
+                        <option value="Scrap & Write-Off">Scrap & Write-Off (Scrap Bin)</option>
+                        <option value="Accept on Deviation">Accept on Deviation (Concession)</option>
+                      </select>
+                    </div>
+
+                    {actionType === 'Return to Vendor' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">Vehicle #</label>
+                          <input
+                            type="text"
+                            value={rtvPayload.vehicleNumber}
+                            onChange={e => setRtvPayload({ ...rtvPayload, vehicleNumber: e.target.value })}
+                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-slate-800"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">Debit Note #</label>
+                          <input
+                            type="text"
+                            value={rtvPayload.debitNoteNumber}
+                            onChange={e => setRtvPayload({ ...rtvPayload, debitNoteNumber: e.target.value })}
+                            className="w-full p-2 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {actionType === 'Scrap & Write-Off' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">Scrap Bin Location</label>
+                          <input
+                            type="text"
+                            value={scrapPayload.scrapLocation}
+                            onChange={e => setScrapPayload({ ...scrapPayload, scrapLocation: e.target.value })}
+                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-slate-800"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">Salvage Rate (₹/KG)</label>
+                          <input
+                            type="number"
+                            value={scrapPayload.salvageRatePerKg}
+                            onChange={e => setScrapPayload({ ...scrapPayload, salvageRatePerKg: Number(e.target.value) })}
+                            className="w-full p-2 border border-slate-200 rounded-lg bg-white font-mono text-slate-800"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 <div>

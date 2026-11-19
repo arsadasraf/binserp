@@ -63,15 +63,20 @@ export const deleteDC = async (req, res) => {
       return res.status(403).json({ message: lockCheck.message });
     }
 
-    // If DC had deducted stock (not Cancelled), restore stock across FG, RM, BO, and Consumables
-    if (dc.status !== "Cancelled" && Array.isArray(dc.items)) {
+    // Only restore stock if this DC had actually deducted stock
+    const wasStockDeducted = dc.stockDeducted !== undefined
+      ? Boolean(dc.stockDeducted)
+      : (dc.reduceStock !== false && dc.status !== "Cancelled");
+    if (wasStockDeducted && Array.isArray(dc.items) && dc.items.length > 0) {
       await reverseSalesItemsStock(req, dc.items, {
         companyId,
         refDocType: "DeliveryChallan",
         refDocId: dc._id,
         refDocNumber: dc.dcNumber,
         recipientName: dc.customerName || "Customer",
-        performedBy: req.user?.id || req.user?._id
+        performedBy: req.user?.id || req.user?._id,
+        docDate: dc.date || dc.createdAt,
+        actionType: "delete"
       });
     }
 
@@ -100,7 +105,7 @@ export const deleteDC = async (req, res) => {
         const totalOrdered = po.items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
         const totalDispatched = po.items.reduce((acc, item) => acc + (Number(item.dispatchedQuantity) || 0), 0);
         if (totalDispatched <= 0) {
-          po.status = "Open";
+          po.status = po.salesOrderGenerated ? "Sales Order Generated" : "Received";
         } else if (totalDispatched < totalOrdered) {
           po.status = "Partially Dispatched";
         }

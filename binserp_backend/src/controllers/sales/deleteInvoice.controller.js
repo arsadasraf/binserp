@@ -27,15 +27,17 @@ export const deleteInvoice = async (req, res) => {
     // Check if invoice was a direct standalone invoice (not created from DC)
     const isLinkedToDC = !!(invoice.deliveryChallan || invoice.dcNumber || invoice.isLinkedToDC || invoice.deliveryChallanId);
 
-    // If direct invoice had deducted stock, reverse stock across FG, RM, BO, and Consumables
-    if (!isLinkedToDC && invoice.status !== "Cancelled" && Array.isArray(invoice.items)) {
+    // If direct invoice had deducted stock, reverse stock across FG, RM, BO, and Consumables (including Monthly Flow & Issue History)
+    if (!isLinkedToDC && invoice.status !== "Cancelled" && Array.isArray(invoice.items) && invoice.items.length > 0) {
       await reverseSalesItemsStock(req, invoice.items, {
         companyId,
         refDocType: "Invoice",
         refDocId: invoice._id,
         refDocNumber: invoice.invoiceNumber,
         recipientName: invoice.customerName || "Customer",
-        performedBy: req.user?.id || req.user?._id
+        performedBy: req.user?.id || req.user?._id,
+        docDate: invoice.date || invoice.createdAt,
+        actionType: "delete"
       });
     }
 

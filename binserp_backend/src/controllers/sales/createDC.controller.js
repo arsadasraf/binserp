@@ -56,8 +56,19 @@ export const createDC = async (req, res) => {
 
     console.log("Creating DC:", { dcNumber, companyId });
 
+    const shouldReduceStock = req.body.reduceStock !== false && req.body.reduceStock !== 'false';
+
+    // Validate inventory stock across FG, RM, BO, and Consumables BEFORE mutating Customer PO
+    if (shouldReduceStock && status !== "Cancelled" && Array.isArray(items)) {
+      const validation = await validateSalesItemsStock(req, items, companyId);
+      if (!validation.valid) {
+        return res.status(400).json({ message: validation.message });
+      }
+    }
+
     let finalPoReference = customerPoReference || "";
     let incomingPoDocId = null;
+    let linkedPO = null;
 
     if (customerPoReference) {
       const IncomingPO = req.getModel('IncomingPO', incomingPOSchema);
@@ -70,6 +81,7 @@ export const createDC = async (req, res) => {
       });
       
       if (po) {
+        linkedPO = po;
         incomingPoDocId = po._id;
         finalPoReference = po.poNumber || customerPoReference;
 
@@ -101,17 +113,7 @@ export const createDC = async (req, res) => {
       }
     }
 
-    const shouldReduceStock = req.body.reduceStock !== false && req.body.reduceStock !== 'false';
-
-    // Validate inventory stock across FG, RM, BO, and Consumables
-    if (shouldReduceStock && Array.isArray(items)) {
-      const validation = await validateSalesItemsStock(req, items, companyId);
-      if (!validation.valid) {
-        return res.status(400).json({ message: validation.message });
-      }
-    }
-
-    const dcCurrency = req.body.currency || (typeof po !== 'undefined' && po ? po.currency : undefined) || 'INR';
+    const dcCurrency = req.body.currency || (linkedPO ? linkedPO.currency : undefined) || 'INR';
 
     // Resolve Company Master defaults if bankDetails or termsAndConditions are not supplied
     let dcBankDetails = req.body.bankDetails;
@@ -197,7 +199,8 @@ export const createDC = async (req, res) => {
         refDocId: dc._id,
         refDocNumber: dcNumber,
         recipientName: req.body.customerName || "Customer",
-        performedBy: req.user?.id || req.user?._id
+        performedBy: req.user?.id || req.user?._id,
+        docDate: dc.date || dc.createdAt
       });
     }
 

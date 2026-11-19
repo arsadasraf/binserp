@@ -90,6 +90,8 @@ export default function DCModal({
     const [isRoundOffEnabled, setIsRoundOffEnabled] = useState<boolean>(true);
     const [roundingMode, setRoundingMode] = useState<RoundingMode>('nearest');
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+    const [submitError, setSubmitError] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Company Master Resolution & Defaults
     const [fetchedCompany, setFetchedCompany] = useState<any>(null);
@@ -196,14 +198,11 @@ export default function DCModal({
     const [customerPOs, setCustomerPOs] = useState<any[]>([]);
     const [isLoadingCustomerPOs, setIsLoadingCustomerPOs] = useState(false);
 
-    // Item options cache per category & selected items cache
-    const [categoryInitialOptions, setCategoryInitialOptions] = useState<Record<ItemCategoryType, SearchableOption[]>>({
-        fg: [],
-        rm: [],
-        bo: [],
-        consumable: []
-    });
+    // Unified all-material search state (FG, RM, BO, Consumables — no category switcher needed)
+    const [initialItemOptions, setInitialItemOptions] = useState<SearchableOption[]>([]);
     const itemDetailsCacheRef = useRef<Map<string, any>>(new Map());
+    const searchCacheRef = useRef<Map<string, SearchableOption[]>>(new Map());
+    const searchAbortRef = useRef<AbortController | null>(null);
 
     const clearError = (key: string) => {
         setFormErrors(prev => {
@@ -236,89 +235,81 @@ export default function DCModal({
         return `DC/${year}${month}${day}-${hours}${mins}`;
     };
 
-    // Fast keyword search using backend search endpoint
-    const searchItemsAsync = useCallback(async (type: ItemCategoryType, query: string): Promise<SearchableOption[]> => {
+    // Performance-optimized unified keyword search across FG, RM, BO, and Consumables
+    const searchItemsAsync = useCallback(async (query: string): Promise<SearchableOption[]> => {
+        const cleanQ = (query || '').trim().toLowerCase();
+        const cachedResults = searchCacheRef.current.get(cleanQ);
+        if (cachedResults) return cachedResults;
+
+        if (searchAbortRef.current) {
+            searchAbortRef.current.abort();
+        }
+        const controller = new AbortController();
+        searchAbortRef.current = controller;
+
+        const formatTypeBadge = (cat?: string) => {
+            const c = (cat || 'fg').toLowerCase();
+            if (c === 'rm') return 'RM';
+            if (c === 'bo') return 'BO';
+            if (c === 'consumable') return 'Consumable';
+            return 'FG';
+        };
+
         try {
-            const res = await apiRequest(`/api/store/items/search?type=${type}&query=${encodeURIComponent(query)}&limit=30`);
+            const res = await apiRequest(
+                `/api/store/items/search?type=all&lite=1&query=${encodeURIComponent(query)}&limit=36&_t=${Date.now()}`,
+                { signal: controller.signal }
+            );
             if (!res.ok) return [];
             const data = await res.json();
             const fetched = (data.items || []).map((item: any) => {
                 const descStr = item.description || item.descriptions || '';
+                const cat = (item.itemCategory || 'fg').toLowerCase() as ItemCategoryType;
+                const stockVal = item.currentStock !== undefined ? item.currentStock : (item.quantity || 0);
+                const unitStr = item.unit || 'PCS';
                 const option: SearchableOption = {
                     value: String(item.value || item._id),
-                    label: descStr ? `${item.name} — ${descStr}` : item.name,
+                    label: item.name,
                     description: descStr,
-                    code: item.code || '',
+                    code: '',
                     name: item.name,
-                    unit: item.unit || 'PCS',
+                    unit: unitStr,
                     hsnCode: item.hsnCode || '',
-                    currentStock: item.currentStock !== undefined ? item.currentStock : (item.quantity || 0),
+                    currentStock: stockVal,
                     rate: Number(item.rate || item.price || item.sellingPrice || 0),
-                    badge: item.badge,
-                    subBadge: item.subBadge,
+                    badge: formatTypeBadge(cat),
+                    subBadge: stockVal > 0 ? `Stock: ${stockVal} ${unitStr}` : 'Out of Stock',
+                    itemCategory: cat,
                     rawItem: item
                 };
                 itemDetailsCacheRef.current.set(String(option.value), option);
                 return option;
             });
+            searchCacheRef.current.set(cleanQ, fetched);
             return fetched;
-        } catch (err) {
-            console.error("Error searching store items for DC:", err);
+        } catch (err: any) {
+            if (err?.name === 'AbortError') return [];
+            console.warn("Error searching store items for DC:", err?.message || err);
             return [];
         }
     }, []);
 
-    // Preload top 30 items for category if not already loaded
-    const preloadCategoryOptions = useCallback(async (category: ItemCategoryType) => {
-        if (categoryInitialOptions[category]?.length > 0) return;
-        const initial = await searchItemsAsync(category, "");
-        setCategoryInitialOptions(prev => ({
-            ...prev,
-            [category]: initial
-        }));
-    }, [categoryInitialOptions, searchItemsAsync]);
+    // Load fresh balanced top items (FG + RM + BO + Consumable) with live stock on modal open
+    const preloadAllOptions = useCallback(async () => {
+        searchCacheRef.current.clear();
+        const initial = await searchItemsAsync("");
+        setInitialItemOptions(initial);
+    }, [searchItemsAsync]);
 
-    // Preload default category on modal open
+    // Preload unified options on modal open
     useEffect(() => {
         if (isOpen) {
-            preloadCategoryOptions(dcMaterialType);
+            preloadAllOptions();
         }
-    }, [isOpen, dcMaterialType, preloadCategoryOptions]);
-
-    // Top-Level Material Category Switcher: Only one type of material per DC
-    const handleDcMaterialTypeChange = async (newType: ItemCategoryType) => {
-        if (newType === dcMaterialType) return;
-
-        const hasEnteredData = items.some(i => i.materialName || i.fgItem || i.rawMaterial || i.boughtOut || i.consumableItem);
-        if (hasEnteredData) {
-            const confirmed = await showConfirmDialog({
-                title: "Switch Material Category?",
-                text: `Switching material category to ${newType.toUpperCase()} will reset all current line items, as only one material type can be included per Delivery Challan. Proceed?`,
-                confirmButtonText: "Yes, Switch",
-                confirmButtonColor: "#f59e0b"
-            });
-            if (!confirmed) return;
-        }
-
-        setDcMaterialType(newType);
-        preloadCategoryOptions(newType);
-
-        // Reset items to single blank row with the new material type
-        setItems([{
-            itemType: newType,
-            fgItem: "",
-            rawMaterial: "",
-            boughtOut: "",
-            consumableItem: "",
-            materialName: "",
-            hsnCode: "",
-            quantity: 1,
-            unit: newType === 'rm' ? 'KGS' : 'PCS',
-            rate: 0,
-            amount: 0,
-            description: ""
-        }]);
-    };
+        return () => {
+            if (searchAbortRef.current) searchAbortRef.current.abort();
+        };
+    }, [isOpen, preloadAllOptions]);
 
     // Fetch customer open POs when customer is selected
     const fetchOpenCustomerPOs = useCallback(async (customerId: string) => {
@@ -391,7 +382,6 @@ export default function DCModal({
         else if (firstPoItem.consumableItem) detectedType = 'consumable';
 
         setDcMaterialType(detectedType);
-        preloadCategoryOptions(detectedType);
 
         // Auto-fill DC items
         const newItems: DCItemEntry[] = undispatchedItems.map(({ poItem, remainingQty }: { poItem: any; remainingQty: number }) => {
@@ -409,7 +399,7 @@ export default function DCModal({
                     description: desc,
                     unit: poItem.unit || "PCS",
                     hsnCode: poItem.hsnCode || "",
-                    currentStock: 999,
+                    currentStock: poItem.fgItem?.quantity !== undefined ? Number(poItem.fgItem.quantity) : undefined,
                     rate
                 });
             }
@@ -429,7 +419,7 @@ export default function DCModal({
                 rate: rate,
                 amount: amt,
                 description: desc,
-                availableStock: 999
+                availableStock: poItem.fgItem?.quantity !== undefined ? Number(poItem.fgItem.quantity) : undefined
             };
         });
 
@@ -470,7 +460,6 @@ export default function DCModal({
             const firstType = (initialData.items?.[0] as any)?.itemType?.toLowerCase();
             const detectedType: ItemCategoryType = (firstType === "rm" || firstType === "bo" || firstType === "consumable") ? firstType : "fg";
             setDcMaterialType(detectedType);
-            preloadCategoryOptions(detectedType);
 
             if (custId) {
                 fetchOpenCustomerPOs(custId);
@@ -493,7 +482,7 @@ export default function DCModal({
                             description: desc,
                             unit: i.unit || "PCS",
                             hsnCode: i.hsnCode || "",
-                            currentStock: 999
+                            currentStock: i.fgItem?.quantity !== undefined ? Number(i.fgItem.quantity) : undefined
                         });
                     }
 
@@ -512,7 +501,7 @@ export default function DCModal({
                         rate: rate,
                         amount: amt,
                         description: desc,
-                        availableStock: 999
+                        availableStock: i.fgItem?.quantity !== undefined ? Number(i.fgItem.quantity) : undefined
                     };
                 }));
             } else {
@@ -559,8 +548,7 @@ export default function DCModal({
             setCustomerPOs([]);
             setBankDetails(getMasterBankDetails());
             setTermsAndConditions(getMasterTerms());
-            setDcMaterialType('fg');
-            preloadCategoryOptions('fg');
+            setSubmitError(null);
             setItems([{
                 itemType: 'fg', fgItem: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, description: ""
             }]);
@@ -568,14 +556,15 @@ export default function DCModal({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialData, isOpen]);
 
-    // Item Selection Handler
+    // Item Selection Handler (automatically detects itemType per row: fg | rm | bo | consumable)
     const handleItemSelection = (index: number, selectedId: string) => {
         const newItems = [...items];
         const currentItem = newItems[index];
 
         const cached = itemDetailsCacheRef.current.get(String(selectedId));
+        const resolvedType: ItemCategoryType = (cached?.itemCategory || cached?.rawItem?.itemCategory || currentItem.itemType || 'fg') as ItemCategoryType;
         const name = cached?.name || "";
-        const code = cached?.code || "";
+        const code = cached?.rawItem?.code || cached?.code || "";
         const hsn = cached?.hsnCode || "";
         const unit = cached?.unit || "PCS";
         const desc = cached?.description || "";
@@ -586,10 +575,11 @@ export default function DCModal({
 
         newItems[index] = {
             ...currentItem,
-            fgItem: dcMaterialType === 'fg' ? selectedId : undefined,
-            rawMaterial: dcMaterialType === 'rm' ? selectedId : undefined,
-            boughtOut: dcMaterialType === 'bo' ? selectedId : undefined,
-            consumableItem: dcMaterialType === 'consumable' ? selectedId : undefined,
+            itemType: resolvedType,
+            fgItem: resolvedType === 'fg' ? selectedId : undefined,
+            rawMaterial: resolvedType === 'rm' ? selectedId : undefined,
+            boughtOut: resolvedType === 'bo' ? selectedId : undefined,
+            consumableItem: resolvedType === 'consumable' ? selectedId : undefined,
             materialName: name,
             itemCode: code,
             hsnCode: hsn,
@@ -601,6 +591,7 @@ export default function DCModal({
         };
 
         setItems(newItems);
+        if (submitError) setSubmitError(null);
         clearError(`item_${index}_id`);
     };
 
@@ -616,6 +607,7 @@ export default function DCModal({
         }
 
         setItems(newItems);
+        if (submitError) setSubmitError(null);
         clearError(`item_${index}_${field}`);
     };
 
@@ -693,9 +685,18 @@ export default function DCModal({
 
     const validateForm = () => {
         const errors: Record<string, string> = {};
+        let stockErrorMsg: string | null = null;
+
         if (!customer) errors.customer = "Customer selection is required";
         if (!dcNumber.trim()) errors.dcNumber = "DC number is required";
         if (!date) errors.date = "DC date is required";
+
+        const categoryLabelMap: Record<ItemCategoryType, string> = {
+            fg: "FG inventory",
+            rm: "Raw Material (RM)",
+            bo: "Bought-Out (BO)",
+            consumable: "Consumable"
+        };
 
         items.forEach((item, idx) => {
             const hasId = item.fgItem || item.rawMaterial || item.boughtOut || item.consumableItem;
@@ -704,15 +705,24 @@ export default function DCModal({
             }
             if (Number(item.quantity) <= 0) {
                 errors[`item_${idx}_quantity`] = "Quantity must be greater than 0";
+            } else if (!isEditing && reduceStock && status !== "Cancelled" && item.availableStock !== undefined && Number(item.quantity) > Number(item.availableStock)) {
+                const msg = `Requested quantity (${Number(item.quantity)} ${item.unit || 'PCS'}) exceeds available ${categoryLabelMap[item.itemType || 'fg'] || 'inventory'} stock (${Number(item.availableStock)} ${item.unit || 'PCS'}) for '${item.materialName || 'Item'}'.`;
+                errors[`item_${idx}_quantity`] = `Max available: ${Number(item.availableStock)} ${item.unit || 'PCS'}`;
+                if (!stockErrorMsg) stockErrorMsg = msg;
             }
         });
 
         setFormErrors(errors);
-        return Object.keys(errors).length === 0;
+        if (Object.keys(errors).length > 0) {
+            setSubmitError(stockErrorMsg || "Please fill all required fields highlighted in red before saving.");
+            return false;
+        }
+        return true;
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setSubmitError(null);
         if (!validateForm()) return;
 
         const payloadItems = items.map(entry => {
@@ -766,7 +776,18 @@ export default function DCModal({
 
         if (customer) payload.customer = customer;
 
-        onSubmit(payload);
+        try {
+            setIsSubmitting(true);
+            const result = await onSubmit(payload);
+            if (result && typeof result === "object" && "error" in result && result.error) {
+                setSubmitError(String(result.error));
+            }
+        } catch (err: any) {
+            const rawMsg = err?.data?.message || err?.response?.data?.message || err?.error || err?.message || "Failed to save Delivery Challan.";
+            setSubmitError(typeof rawMsg === "string" ? rawMsg : JSON.stringify(rawMsg));
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -799,67 +820,6 @@ export default function DCModal({
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-3.5 sm:p-6 space-y-4 sm:space-y-6">
-
-                    {/* TOP SECTION: Material Types Selector on Top (Single Type per DC) */}
-                    <div className="bg-gradient-to-r from-slate-50 via-blue-50/30 to-slate-50 dark:from-slate-800/60 dark:via-blue-950/20 dark:to-slate-800/60 p-4 rounded-2xl border border-blue-100 dark:border-slate-700 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                            <Layers size={16} className="text-blue-600 dark:text-blue-400" />
-                            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                                Material Type:
-                            </span>
-                        </div>
-
-                        {/* Segmented Buttons for Material Type */}
-                        <div className="flex flex-wrap items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={() => handleDcMaterialTypeChange('fg')}
-                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                                    dcMaterialType === 'fg'
-                                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25 ring-2 ring-blue-500/20'
-                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                }`}
-                            >
-                                <Package size={14} /> Finished Goods (FG)
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => handleDcMaterialTypeChange('rm')}
-                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                                    dcMaterialType === 'rm'
-                                        ? 'bg-amber-600 text-white shadow-md shadow-amber-600/25 ring-2 ring-amber-500/20'
-                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                }`}
-                            >
-                                <Cog size={14} /> Raw Material (RM)
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => handleDcMaterialTypeChange('bo')}
-                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                                    dcMaterialType === 'bo'
-                                        ? 'bg-purple-600 text-white shadow-md shadow-purple-600/25 ring-2 ring-purple-500/20'
-                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                }`}
-                            >
-                                <Layers size={14} /> Bought-Out (BO)
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => handleDcMaterialTypeChange('consumable')}
-                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                                    dcMaterialType === 'consumable'
-                                        ? 'bg-teal-600 text-white shadow-md shadow-teal-600/25 ring-2 ring-teal-500/20'
-                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                }`}
-                            >
-                                <FlaskConical size={14} /> Consumables
-                            </button>
-                        </div>
-                    </div>
 
                     {/* DC Metadata Header Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 bg-slate-50/50 dark:bg-slate-800/30 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
@@ -990,8 +950,16 @@ export default function DCModal({
                                                 <span className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold text-xs flex items-center justify-center">
                                                     {index + 1}
                                                 </span>
-                                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase">
-                                                    {materialTypeLabelMap[dcMaterialType]}
+                                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border ${
+                                                    entry.itemType === 'rm'
+                                                        ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
+                                                        : entry.itemType === 'bo'
+                                                        ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800'
+                                                        : entry.itemType === 'consumable'
+                                                        ? 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/60 dark:text-teal-300 dark:border-teal-800'
+                                                        : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
+                                                }`}>
+                                                    {entry.materialName ? materialTypeLabelMap[entry.itemType || 'fg'] : 'All Material Types (FG / RM / BO / Consumable)'}
                                                 </span>
                                             </div>
 
@@ -1031,11 +999,12 @@ export default function DCModal({
                                                     )}
                                                 </label>
                                                 <SearchableSelect
-                                                    options={categoryInitialOptions[dcMaterialType] || []}
-                                                    asyncSearch={(q) => searchItemsAsync(dcMaterialType, q)}
+                                                    options={initialItemOptions}
+                                                    asyncSearch={searchItemsAsync}
                                                     value={selectedValue}
+                                                    displayLabel={entry.materialName ? (entry.description ? `${entry.materialName} — ${entry.description}` : entry.materialName) : undefined}
                                                     onChange={(val) => handleItemSelection(index, val)}
-                                                    placeholder={`Type keyword to search ${dcMaterialType.toUpperCase()}...`}
+                                                    placeholder="Search any FG, RM, BO or Consumable item..."
                                                     hasError={!!formErrors[`item_${index}_id`]}
                                                 />
 
@@ -1047,7 +1016,7 @@ export default function DCModal({
                                                 )}
 
                                                 {/* Stock Status Pill */}
-                                                {entry.materialName && (
+                                                {entry.materialName && entry.availableStock !== undefined && (
                                                     <div className="pt-0.5">
                                                         {(entry.availableStock || 0) <= 0 ? (
                                                             <span className="text-[10px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2 py-0.5 rounded-md border border-rose-200 dark:border-rose-800 inline-flex items-center gap-1">
@@ -1142,7 +1111,7 @@ export default function DCModal({
                                 className="w-full py-3 px-4 border-2 border-dashed border-blue-200 hover:border-blue-500 dark:border-blue-800/80 dark:hover:border-blue-500 bg-blue-50/40 hover:bg-blue-50 dark:bg-blue-950/20 dark:hover:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-bold rounded-2xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer active:scale-[0.99] group"
                             >
                                 <Plus size={16} className="text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform" />
-                                <span>+ Add Another {materialTypeLabelMap[dcMaterialType] || 'Line'} Item</span>
+                                <span>+ Add Another Line Item</span>
                             </button>
                         </div>
                     </div>
@@ -1461,22 +1430,44 @@ export default function DCModal({
                         </div>
                     </div>
 
+                    {/* Inline Alert Banner for Stock / Validation / API Errors */}
+                    {submitError && (
+                        <div
+                            role="alert"
+                            className="flex items-start gap-3 px-4 py-3 mt-4 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200 shadow-sm animate-in fade-in duration-150"
+                        >
+                            <AlertTriangle size={18} className="text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                            <div className="flex-1 text-xs sm:text-sm font-semibold leading-snug">
+                                {submitError}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setSubmitError(null)}
+                                className="p-1 text-rose-500 hover:text-rose-700 dark:hover:text-rose-200 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors cursor-pointer"
+                                title="Dismiss alert"
+                            >
+                                <X size={15} />
+                            </button>
+                        </div>
+                    )}
+
                     {/* Bottom Actions */}
                     <div className="flex items-center justify-end gap-3 px-6 py-4 -mx-3.5 sm:-mx-6 -mb-3.5 sm:-mb-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 shrink-0 mt-6">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-4.5 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all cursor-pointer active:scale-95"
+                            disabled={isSubmitting}
+                            className="px-4.5 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all cursor-pointer active:scale-95 disabled:opacity-50"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
-                            disabled={loading}
+                            disabled={loading || isSubmitting}
                             className="px-6 py-2.5 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 rounded-xl shadow-md shadow-indigo-500/25 hover:shadow-lg hover:shadow-indigo-500/35 transition-all cursor-pointer flex items-center gap-2 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                            {loading && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                            <span>{loading ? "Saving..." : (isEditing ? "Update Delivery Challan" : "Create Delivery Challan")}</span>
+                            {(loading || isSubmitting) && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                            <span>{(loading || isSubmitting) ? "Saving..." : (isEditing ? "Update Delivery Challan" : "Create Delivery Challan")}</span>
                         </button>
                     </div>
 

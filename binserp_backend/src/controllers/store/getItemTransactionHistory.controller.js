@@ -10,6 +10,7 @@ import {
   materialIssueSchema
 } from "../../models/store/index.js";
 import { userSchema } from "../../models/user/index.js";
+import { deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -113,10 +114,44 @@ export const getItemTransactionHistory = async (req, res) => {
       $or: orConditions.length > 0 ? orConditions : [{ item: id }]
     };
 
-    const transactions = await StockTransaction.find(query)
+    let transactions = await StockTransaction.find(query)
       .populate("performedBy", "name userId email")
       .sort({ timestamp: -1, createdAt: -1 })
       .lean();
+
+    // Filter out orphaned / cancelled DeliveryChallan & Invoice transactions so deleted/rejected docs
+    // never show up in Inventory Review -> Material Issue & Outward Movement History
+    const hasDcOrInvTx = transactions.some(
+      (t) => t.referenceDocType === "DeliveryChallan" || t.referenceDocType === "Invoice"
+    );
+    if (hasDcOrInvTx) {
+      const DeliveryChallan = req.getModel("DeliveryChallan", deliveryChallanSchema);
+      const Invoice = req.getModel("Invoice", invoiceSchema);
+      const [activeDCs, activeInvoices] = await Promise.all([
+        DeliveryChallan.find({ company: companyId, status: { $ne: "Cancelled" } }).select("_id dcNumber").lean(),
+        Invoice.find({ company: companyId, status: { $ne: "Cancelled" } }).select("_id invoiceNumber").lean(),
+      ]);
+      const activeDcIds = new Set(activeDCs.map((d) => String(d._id)));
+      const activeDcNums = new Set(activeDCs.map((d) => String(d.dcNumber || "")));
+      const activeInvIds = new Set(activeInvoices.map((i) => String(i._id)));
+      const activeInvNums = new Set(activeInvoices.map((i) => String(i.invoiceNumber || "")));
+
+      transactions = transactions.filter((t) => {
+        if (t.referenceDocType === "DeliveryChallan") {
+          const isValid =
+            (t.referenceDocId && activeDcIds.has(String(t.referenceDocId))) ||
+            (t.referenceDocNumber && activeDcNums.has(String(t.referenceDocNumber)));
+          return isValid && t.movementType === "OUTWARD";
+        }
+        if (t.referenceDocType === "Invoice") {
+          const isValid =
+            (t.referenceDocId && activeInvIds.has(String(t.referenceDocId))) ||
+            (t.referenceDocNumber && activeInvNums.has(String(t.referenceDocNumber)));
+          return isValid && t.movementType === "OUTWARD";
+        }
+        return true;
+      });
+    }
 
     // Also find directly from MaterialIssue collection
     if (issueOrConditions.length > 0) {

@@ -210,7 +210,12 @@ export default function PPCStoreTab() {
             }
             setShowDCModal(false);
             setEditingDC(undefined);
-        } catch (err) { }
+            return { ok: true };
+        } catch (err: any) {
+            const rawMsg = err?.data?.message || err?.response?.data?.message || err?.error || err?.message || "Failed to save Delivery Challan.";
+            const errorMsg = typeof rawMsg === 'string' ? rawMsg : JSON.stringify(rawMsg);
+            return { error: errorMsg };
+        }
     };
 
     const onBillingSubmit = async (billingData: BillingFormData) => {
@@ -222,7 +227,12 @@ export default function PPCStoreTab() {
             }
             setShowBillingModal(false);
             setEditingBilling(undefined);
-        } catch (err) { }
+            return { ok: true };
+        } catch (err: any) {
+            const rawMsg = err?.data?.message || err?.response?.data?.message || err?.error || err?.message || "Failed to save Tax Invoice.";
+            const errorMsg = typeof rawMsg === 'string' ? rawMsg : JSON.stringify(rawMsg);
+            return { error: errorMsg };
+        }
     };
 
     const handleCreateRequest = async (formData: any) => {

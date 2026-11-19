@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, storeOrderFulfillmentSchema, storePrefixSchema, stockTransactionSchema, inventorySchema } from "../../models/store/index.js";
-import { salesOrderSchema, priceListSchema } from "../../models/sales/index.js";
+import { salesOrderSchema, priceListSchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
 import { recalculateMRPWithLatestBOM } from "../purchase/mrpPlan.controller.js";
@@ -365,13 +365,39 @@ export const getAllFGItems = async (req, res) => {
         }
     }
 
-    // Fetch FG Stock Transactions for the current month
+    // Fetch FG Stock Transactions for the current month (excluding deleted/cancelled DCs & Invoices)
     const StockTransaction = req.getModel('StockTransaction', stockTransactionSchema);
-    const currentMonthTx = await StockTransaction.find({
-      company: companyId,
-      timestamp: { $gte: startOfMonth, $lte: endOfMonth },
-      itemType: { $in: ["FGItem", "Component", "InHouse"] }
-    }).lean();
+    const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
+    const Invoice = req.getModel('Invoice', invoiceSchema);
+
+    const [rawFgMonthTx, activeDCs, activeInvoices] = await Promise.all([
+      StockTransaction.find({
+        company: companyId,
+        timestamp: { $gte: startOfMonth, $lte: endOfMonth },
+        itemType: { $in: ["FGItem", "Component", "InHouse"] }
+      }).lean(),
+      DeliveryChallan.find({ company: companyId, status: { $ne: "Cancelled" } }).select("_id dcNumber").lean(),
+      Invoice.find({ company: companyId, status: { $ne: "Cancelled" } }).select("_id invoiceNumber").lean(),
+    ]);
+
+    const activeDcIds = new Set(activeDCs.map(d => String(d._id)));
+    const activeDcNums = new Set(activeDCs.map(d => String(d.dcNumber || "")));
+    const activeInvIds = new Set(activeInvoices.map(i => String(i._id)));
+    const activeInvNums = new Set(activeInvoices.map(i => String(i.invoiceNumber || "")));
+
+    const currentMonthTx = rawFgMonthTx.filter(tx => {
+      if (tx.referenceDocType === "DeliveryChallan") {
+        const isActive = (tx.referenceDocId && activeDcIds.has(String(tx.referenceDocId))) ||
+                         (tx.referenceDocNumber && activeDcNums.has(String(tx.referenceDocNumber)));
+        return isActive && tx.movementType === "OUTWARD";
+      }
+      if (tx.referenceDocType === "Invoice") {
+        const isActive = (tx.referenceDocId && activeInvIds.has(String(tx.referenceDocId))) ||
+                         (tx.referenceDocNumber && activeInvNums.has(String(tx.referenceDocNumber)));
+        return isActive && tx.movementType === "OUTWARD";
+      }
+      return true;
+    });
 
     const txInwardMap = new Map();
     const txOutwardMap = new Map();

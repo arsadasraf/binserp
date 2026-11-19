@@ -71,6 +71,31 @@ export const createInvoice = async (req, res) => {
       });
     }
 
+    // Check if linked to a Delivery Challan where stock was already deducted
+    let isStockAlreadyDeducted = false;
+    const dcIdOrNum = req.body.deliveryChallan || req.body.deliveryChallanId || req.body.dcNumber;
+    if (dcIdOrNum) {
+      const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
+      const dcDoc = await DeliveryChallan.findOne({
+        company: companyId,
+        $or: [
+          { _id: mongoose.Types.ObjectId.isValid(dcIdOrNum) ? dcIdOrNum : null },
+          { dcNumber: dcIdOrNum }
+        ]
+      });
+      if (dcDoc && dcDoc.stockDeducted) {
+        isStockAlreadyDeducted = true;
+      }
+    }
+
+    // Validate inventory stock across FG, RM, BO, and Consumables BEFORE mutating Customer PO
+    if (!isStockAlreadyDeducted && req.body.status !== "Cancelled" && Array.isArray(req.body.items)) {
+      const validation = await validateSalesItemsStock(req, req.body.items, companyId);
+      if (!validation.valid) {
+        return res.status(400).json({ message: validation.message });
+      }
+    }
+
     let finalPoReference = customerPoReference || "";
     let incomingPoDocId = null;
 
@@ -130,31 +155,6 @@ export const createInvoice = async (req, res) => {
       }
     }
 
-    // Check if linked to a Delivery Challan where stock was already deducted
-    let isStockAlreadyDeducted = false;
-    const dcIdOrNum = req.body.deliveryChallan || req.body.deliveryChallanId || req.body.dcNumber;
-    if (dcIdOrNum) {
-      const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
-      const dcDoc = await DeliveryChallan.findOne({
-        company: companyId,
-        $or: [
-          { _id: mongoose.Types.ObjectId.isValid(dcIdOrNum) ? dcIdOrNum : null },
-          { dcNumber: dcIdOrNum }
-        ]
-      });
-      if (dcDoc && dcDoc.stockDeducted) {
-        isStockAlreadyDeducted = true;
-      }
-    }
-
-    // Validate inventory stock across FG, RM, BO, and Consumables for direct invoices
-    if (!isStockAlreadyDeducted && Array.isArray(req.body.items)) {
-      const validation = await validateSalesItemsStock(req, req.body.items, companyId);
-      if (!validation.valid) {
-        return res.status(400).json({ message: validation.message });
-      }
-    }
-
     // Resolve Bank Details & Terms and Conditions from CompanyInfo if not provided
     let finalBankDetails = req.body.bankDetails;
     let finalTermsAndConditions = req.body.termsAndConditions;
@@ -178,10 +178,29 @@ export const createInvoice = async (req, res) => {
 
     const isRoundOffEnabled = req.body.isRoundOff !== undefined ? Boolean(req.body.isRoundOff) : true;
     const roundingMode = req.body.roundingMode || (isRoundOffEnabled ? 'nearest' : 'none');
-    const subtotal = Number(req.body.subtotal || 0);
-    const taxAmount = Number(req.body.taxAmount || 0);
+    const itemsList = Array.isArray(req.body.items) ? req.body.items : [];
+    const subtotal = req.body.subtotal !== undefined
+      ? Number(req.body.subtotal || 0)
+      : itemsList.reduce((sum, it) => sum + (Number(it.amount) || (Number(it.quantity || 0) * Number(it.rate || 0))), 0);
+    const itemsTax = itemsList.reduce((sum, it) => {
+      const lineAmt = Number(it.amount) || (Number(it.quantity || 0) * Number(it.rate || 0));
+      return sum + (it.taxAmount !== undefined ? Number(it.taxAmount || 0) : (lineAmt * Number(it.taxRate || 0)) / 100);
+    }, 0);
     const transport = Number(req.body.transportationCharges || 0);
     const packaging = Number(req.body.packagingCharges || 0);
+    const isTransportTaxable = Boolean(req.body.isTransportTaxable);
+    const transportTaxRate = Number(req.body.transportTaxRate !== undefined ? req.body.transportTaxRate : 18);
+    const transportTaxAmount = isTransportTaxable ? parseFloat(((transport * transportTaxRate) / 100).toFixed(2)) : 0;
+    const isPackagingTaxable = Boolean(req.body.isPackagingTaxable);
+    const packagingTaxRate = Number(req.body.packagingTaxRate !== undefined ? req.body.packagingTaxRate : 18);
+    const packagingTaxAmount = isPackagingTaxable ? parseFloat(((packaging * packagingTaxRate) / 100).toFixed(2)) : 0;
+    const taxAmount = req.body.taxAmount !== undefined
+      ? Number(req.body.taxAmount || 0)
+      : parseFloat((itemsTax + transportTaxAmount + packagingTaxAmount).toFixed(2));
+    const gstSupplyType = req.body.gstSupplyType === "inter" ? "inter" : "intra";
+    const cgstAmount = gstSupplyType === "intra" ? parseFloat((taxAmount / 2).toFixed(2)) : 0;
+    const sgstAmount = gstSupplyType === "intra" ? parseFloat((taxAmount - cgstAmount).toFixed(2)) : 0;
+    const igstAmount = gstSupplyType === "inter" ? parseFloat(taxAmount.toFixed(2)) : 0;
     const discount = Number(req.body.discount || 0);
 
     const rounding = computeProfessionalTotalWithRoundOff({
@@ -197,6 +216,18 @@ export const createInvoice = async (req, res) => {
     const invoice = await Invoice.create({
       company: companyId,
       ...req.body,
+      subtotal,
+      taxAmount,
+      gstSupplyType,
+      cgstAmount,
+      sgstAmount,
+      igstAmount,
+      isTransportTaxable,
+      transportTaxRate,
+      transportTaxAmount,
+      isPackagingTaxable,
+      packagingTaxRate,
+      packagingTaxAmount,
       preRoundTotal: rounding.preRoundTotal,
       isRoundOff: rounding.isRoundOffEnabled,
       roundOff: rounding.roundOff,
@@ -212,14 +243,15 @@ export const createInvoice = async (req, res) => {
     });
 
     // Deduct stock across FG, RM, BO, and Consumables if not already deducted by DC
-    if (!isStockAlreadyDeducted && (invoice.status === "Sent" || invoice.status === "Paid" || !invoice.status || invoice.status === "Draft")) {
+    if (!isStockAlreadyDeducted && invoice.status !== "Cancelled" && (invoice.status === "Sent" || invoice.status === "Paid" || !invoice.status || invoice.status === "Draft")) {
       await deductSalesItemsStock(req, items, {
         companyId,
         refDocType: "Invoice",
         refDocId: invoice._id,
         refDocNumber: invoice.invoiceNumber,
         recipientName: req.body.customerName || "Customer",
-        performedBy: req.user?.id || req.user?._id
+        performedBy: req.user?.id || req.user?._id,
+        docDate: invoice.date || invoice.createdAt
       });
     }
 

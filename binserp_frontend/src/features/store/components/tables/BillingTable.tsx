@@ -7,6 +7,7 @@ import { getCurrencySymbol, normalizeCurrencyCode } from '@/src/utils/currencyHe
 import { useExchangeRates } from '@/src/hooks/useExchangeRates';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import InvoicePreviewModal from '../modals/InvoicePreviewModal';
+import EWayBillHelperModal from '../modals/EWayBillHelperModal';
 import SearchableMultiSelect from '../SearchableMultiSelect';
 import { showDestructiveConfirm, showWarningDialog, showInfoDialog } from '@/src/features/store/utils/storeDialogHelper';
 
@@ -18,10 +19,6 @@ interface BillingTableProps {
     onAddBill?: () => void;
     addLabel?: string;
 }
-
-const generateEWayBill = (invoice: any) => {
-    showInfoDialog("E-Way Bill", `Generating E-Way Bill for Invoice: ${invoice.invoiceNumber}`);
-};
 
 const formatDateTime = (dateStr?: string | Date) => {
     if (!dateStr) return "-";
@@ -53,6 +50,7 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
     const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth);
     const [selectedDay, setSelectedDay] = useState("");
     const [selectedInvoicePreview, setSelectedInvoicePreview] = useState<any | null>(null);
+    const [selectedInvoiceEWay, setSelectedInvoiceEWay] = useState<any | null>(null);
     const [showDashboard, setShowDashboard] = useState<boolean>(false);
     const [showFilters, setShowFilters] = useState<boolean>(false);
 
@@ -792,9 +790,9 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
                                                     <Eye size={14} /> Preview
                                                 </button>
                                                 <button 
-                                                    onClick={() => generateEWayBill(item)} 
+                                                    onClick={() => setSelectedInvoiceEWay(item)} 
                                                     className="px-3 py-1.5 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 text-amber-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 border border-amber-200 dark:border-amber-800 shadow-xs cursor-pointer" 
-                                                    title="Generate E-Way Bill"
+                                                    title="E-Way Bill Assistant (Copy & Open GST Portal)"
                                                 >
                                                     <Truck size={14} /> E-Way
                                                 </button>
@@ -962,7 +960,7 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
                                     })()}
                                     <div className="flex items-center gap-2">
                                         <button onClick={() => setSelectedInvoicePreview(item)} className="flex-1 py-2 text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-indigo-200 dark:border-indigo-800 transition-all cursor-pointer"><Eye size={15} /> Preview</button>
-                                        <button onClick={() => generateEWayBill(item)} className="flex-1 py-2 text-amber-600 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer"><Truck size={15} /> E-Way</button>
+                                        <button onClick={() => setSelectedInvoiceEWay(item)} className="flex-1 py-2 text-amber-600 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer"><Truck size={15} /> E-Way</button>
                                     </div>
                                 </div>
                             </div>
@@ -982,6 +980,15 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
                     onDelete={onDelete}
                 />
             )}
+
+            {/* E-Way Bill Helper Modal */}
+            <EWayBillHelperModal
+                isOpen={!!selectedInvoiceEWay}
+                onClose={() => setSelectedInvoiceEWay(null)}
+                invoice={selectedInvoiceEWay}
+                documentType="invoice"
+                companyInfo={companyInfo}
+            />
         </div>
     );
 }

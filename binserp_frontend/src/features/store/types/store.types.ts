@@ -876,7 +876,7 @@ export interface POModalProps {
 export interface DCModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSubmit: (data: DCFormData) => void;
+    onSubmit: (data: DCFormData) => void | Promise<any>;
     customers: Customer[];
     loading: boolean;
     companyInfo?: CompanyInfo;
@@ -888,7 +888,7 @@ export interface DCModalProps {
 export interface BillingModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSubmit: (data: BillingFormData) => void;
+    onSubmit: (data: BillingFormData) => void | Promise<any>;
     customers: Customer[];
     loading: boolean;
     companyInfo?: CompanyInfo;

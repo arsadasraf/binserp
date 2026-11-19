@@ -9,6 +9,8 @@ import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { download4CopyPDF, downloadDCExcelDocument } from '@/src/utils/frontendDocumentHelper';
 import { getCurrencySymbol, convertAmountToWords } from '@/src/utils/currencyHelper';
 import { showDestructiveConfirm } from '@/src/features/store/utils/storeDialogHelper';
+import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
+import EWayBillHelperModal from './EWayBillHelperModal';
 
 interface DCPreviewModalProps {
     isOpen: boolean;
@@ -50,6 +52,9 @@ export default function DCPreviewModal({
     const [showCustomerDetails, setShowCustomerDetails] = useState(false);
     const [showPoDetails, setShowPoDetails] = useState(false);
     const [selectedItemIndex, setSelectedItemIndex] = useState<number | null>(null);
+    const [showEWayModal, setShowEWayModal] = useState(false);
+
+    const { getPolicyHours } = useTimeLockPolicy();
 
     useEffect(() => {
         const timer = setInterval(() => setNowTime(Date.now()), 1000);
@@ -60,21 +65,26 @@ export default function DCPreviewModal({
 
     const getRemainingEditSeconds = (createdAt: string | Date | undefined) => {
         if (!createdAt) return 0;
+        const policyHours = getPolicyHours('deliveryChallan');
+        if (policyHours === -1) return Infinity;
+        if (policyHours <= 0) return 0;
         const createdTime = new Date(createdAt).getTime();
         if (isNaN(createdTime)) return 0;
-        const diffSeconds = Math.floor((createdTime + 24 * 60 * 60 * 1000 - nowTime) / 1000);
+        const diffSeconds = Math.floor((createdTime + policyHours * 3600 * 1000 - nowTime) / 1000);
         return Math.max(0, diffSeconds);
     };
 
     const formatRemainingTime = (seconds: number) => {
+        if (seconds === Infinity) return 'Unlimited';
         const hrs = Math.floor(seconds / 3600);
         const mins = Math.floor((seconds % 3600) / 60);
         const secs = seconds % 60;
         return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
+    const policyHours = getPolicyHours('deliveryChallan');
     const remainingSecs = getRemainingEditSeconds(dc.createdAt || dc.date);
-    const isWithin24h = remainingSecs > 0;
+    const isWithin24h = policyHours === -1 || (policyHours > 0 && remainingSecs > 0);
 
     // Master company details resolution
     const compName = companyInfo?.companyName || companyInfo?.name || "BINSERP ENTERPRISE";
@@ -549,63 +559,97 @@ export default function DCPreviewModal({
                         </div>
                     )}
 
-                    {/* MODE 2: AUTHENTIC A4 PRINT VIEW */}
+                    {/* MODE 2: AUTHENTIC A4 PRINT VIEW (Matches Sales Tax Invoice Indigo Design 1:1) */}
                     {previewMode === "print" && (
                         <div className="flex justify-center bg-slate-100 dark:bg-slate-950/60 p-2 sm:p-6 rounded-2xl overflow-x-auto">
                             <div 
                                 id="printable-dc-document"
-                                className="bg-white text-black w-full max-w-[210mm] min-h-[297mm] p-8 sm:p-10 shadow-xl border border-slate-300 font-sans text-xs space-y-4"
+                                className="bg-white text-slate-900 w-full max-w-[210mm] min-h-[297mm] p-7 sm:p-8 shadow-xl border border-slate-300 font-sans text-xs space-y-3"
                             >
-                                {/* Header */}
-                                <div className="text-center border-b-2 border-black pb-3">
-                                    <div className="text-right text-[10px] font-bold uppercase tracking-wider text-slate-600">
-                                        {copyBadgeLabel}
+                                {/* Company Header & Copy Badge */}
+                                <div className="flex justify-between items-start border-b-2 border-[#4f46e5] pb-2.5 gap-3">
+                                    <div className="flex items-start gap-3">
+                                        {compLogo && (
+                                            <img
+                                                src={compLogo}
+                                                alt={compName}
+                                                className="h-14 w-auto max-w-[110px] object-contain shrink-0 rounded"
+                                                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                                            />
+                                        )}
+                                        <div>
+                                            <h1 className="text-xl font-black tracking-tight uppercase text-[#3730a3] m-0">
+                                                {compName}
+                                            </h1>
+                                            <div className="text-[10px] text-slate-600 mt-1 leading-snug max-w-md">
+                                                {compAddress}
+                                                {(compPhone || compEmail) && (
+                                                    <div>
+                                                        {compPhone ? `Ph: ${compPhone}` : ""}{compPhone && compEmail ? " | " : ""}{compEmail ? `Email: ${compEmail}` : ""}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="text-[10px] font-bold text-slate-800 mt-1">
+                                                GSTIN: <span className="font-black">{compGst}</span>
+                                                {compPan !== "N/A" && <> | PAN: <span className="font-black">{compPan}</span></>}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <h1 className="text-xl font-black tracking-wide uppercase mt-1">
-                                        {compName}
-                                    </h1>
-                                    <p className="text-[11px] text-slate-700 max-w-lg mx-auto mt-0.5">
-                                        {compAddress}
-                                    </p>
-                                    <div className="text-[10px] font-semibold mt-1 flex justify-center gap-4">
-                                        <span>GSTIN: {compGst}</span>
-                                        {compPan !== "N/A" && <span>PAN: {compPan}</span>}
-                                        {compPhone && <span>Phone: {compPhone}</span>}
-                                    </div>
-                                    <div className="inline-block px-4 py-0.5 border-2 border-black font-black text-sm uppercase tracking-widest mt-2">
-                                        DELIVERY CHALLAN
-                                    </div>
-                                </div>
-
-                                {/* Metadata Grid */}
-                                <div className="grid grid-cols-2 border border-black divide-x divide-black text-[11px]">
-                                    <div className="p-2.5 space-y-1">
-                                        <div className="font-bold uppercase text-slate-600 text-[9px]">CONSIGNEE / DELIVER TO:</div>
-                                        <div className="font-black text-sm">{custName}</div>
-                                        <div className="text-slate-700">{custAddress}</div>
-                                        <div><strong>GSTIN:</strong> {custGst}</div>
-                                        {custPhone !== "-" && <div><strong>Phone:</strong> {custPhone}</div>}
-                                    </div>
-                                    <div className="p-2.5 space-y-1 font-mono">
-                                        <div className="flex justify-between"><span>DC NUMBER:</span> <strong className="font-black">{dc.dcNumber}</strong></div>
-                                        <div className="flex justify-between"><span>DC DATE:</span> <strong>{new Date(dc.date || dc.createdAt).toLocaleDateString('en-IN')}</strong></div>
-                                        <div className="flex justify-between"><span>PO REF:</span> <strong>{custPoRef}</strong></div>
-                                        <div className="flex justify-between"><span>VEHICLE NO:</span> <strong className="uppercase">{dc.vehicleNumber || "-"}</strong></div>
-                                        <div className="flex justify-between"><span>TRANSPORT:</span> <strong>{dc.transportationType || "Road"}</strong></div>
+                                    <div className="text-right shrink-0">
+                                        <span className="inline-block bg-[#3730a3] text-white text-[9px] font-black px-2.5 py-1 rounded uppercase tracking-wider">
+                                            {copyBadgeLabel}
+                                        </span>
                                     </div>
                                 </div>
 
-                                {/* Items Table */}
-                                <table className="w-full border-collapse border border-black text-[11px]">
+                                {/* Title Bar */}
+                                <div className="text-center bg-[#eef2ff] border border-[#c7d2fe] font-bold text-sm py-1.5 uppercase tracking-widest text-[#3730a3]">
+                                    DELIVERY CHALLAN
+                                </div>
+
+                                {/* Buyer & Logistics Details Grid */}
+                                <div className="grid grid-cols-12 border border-slate-400 text-[10.5px]">
+                                    <div className="col-span-6 p-2.5 bg-slate-50 border-r border-slate-400 space-y-1">
+                                        <div className="font-bold uppercase text-[#4f46e5] text-[9px]">CONSIGNEE / BUYER DETAILS</div>
+                                        <div className="font-extrabold text-[13px] text-slate-900">{custName}</div>
+                                        <div className="text-slate-700 leading-snug">
+                                            {custAddress !== "-" && <div><strong>Address:</strong> {custAddress}</div>}
+                                            {custPhone !== "-" && <div><strong>Contact:</strong> {custPhone}</div>}
+                                            {custEmail !== "-" && <div><strong>Email:</strong> {custEmail}</div>}
+                                        </div>
+                                        {custGst && custGst !== "-" && custGst !== "N/A" && (
+                                            <div className="pt-1 mt-1 border-t border-dashed border-slate-300 text-[10px]">
+                                                <strong>GSTIN:</strong> {custGst}
+                                            </div>
+                                        )}
+                                        {custPoRef && custPoRef !== "-" && (
+                                            <div className="text-[10px] text-[#3730a3] font-bold">
+                                                PO Ref: {custPoRef}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="col-span-6 p-2.5 bg-white space-y-1">
+                                        <div className="flex justify-between"><span className="text-slate-500 font-bold">Challan Number:</span> <strong className="font-mono font-black text-xs text-[#3730a3]">{dc.dcNumber}</strong></div>
+                                        <div className="flex justify-between"><span className="text-slate-500 font-bold">Creation Date &amp; Time:</span> <strong className="text-slate-900">{formatDateTime(dc.createdAt || dc.date)}</strong></div>
+                                        <div className="flex justify-between"><span className="text-slate-500 font-bold">Transport Mode:</span> <strong className="text-slate-900">{dc.transportationType || "Road Transport"}</strong></div>
+                                        <div className="flex justify-between"><span className="text-slate-500 font-bold">Vehicle Number:</span> <strong className="font-mono uppercase text-slate-900">{dc.vehicleNumber || "-"}</strong></div>
+                                        <div className="flex justify-between"><span className="text-slate-500 font-bold">Packaging Type:</span> <strong className="text-slate-900">{dc.packagingType || "Standard Packaging"}</strong></div>
+                                        {(dc.eWayBillNo || dc.eWayNo) && (
+                                            <div className="flex justify-between"><span className="text-slate-500 font-bold">E-Way Bill No:</span> <strong className="font-mono text-[#3730a3]">{dc.eWayBillNo || dc.eWayNo}</strong></div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Itemized Table */}
+                                <table className="w-full border-collapse border border-slate-400 text-[10.5px]">
                                     <thead>
-                                        <tr className="bg-slate-100 border-b border-black font-bold uppercase text-[10px]">
-                                            <th className="border border-black p-1.5 w-8 text-center">S.No</th>
-                                            <th className="border border-black p-1.5 text-left">Description of Goods</th>
-                                            <th className="border border-black p-1.5 text-center w-20">HSN/SAC</th>
-                                            <th className="border border-black p-1.5 text-right w-16">Qty</th>
-                                            <th className="border border-black p-1.5 text-center w-12">Unit</th>
-                                            <th className="border border-black p-1.5 text-right w-20">Rate</th>
-                                            <th className="border border-black p-1.5 text-right w-24">Amount</th>
+                                        <tr className="bg-[#eef2ff] text-[#3730a3] font-bold uppercase text-[9.5px]">
+                                            <th className="border border-slate-400 p-1.5 w-10 text-center">S.No</th>
+                                            <th className="border border-slate-400 p-1.5 text-left">Item Name &amp; Description</th>
+                                            <th className="border border-slate-400 p-1.5 text-center w-20">HSN</th>
+                                            <th className="border border-slate-400 p-1.5 text-center w-20">Qty</th>
+                                            <th className="border border-slate-400 p-1.5 text-right w-24">Unit Rate ({dc.currency || "INR"})</th>
+                                            <th className="border border-slate-400 p-1.5 text-right w-28">Total Amount ({dc.currency || "INR"})</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -617,90 +661,92 @@ export default function DCPreviewModal({
                                             const lineAmt = Number(item.amount || (qty * rate));
 
                                             return (
-                                                <tr key={iIdx} className="border-b border-black">
-                                                    <td className="border border-black p-1.5 text-center">{iIdx + 1}</td>
-                                                    <td className="border border-black p-1.5">
-                                                        <div className="font-bold">{itemName}</div>
-                                                        {itemDesc && <div className="text-[10px] text-slate-600 italic mt-0.5">{itemDesc}</div>}
+                                                <tr key={iIdx}>
+                                                    <td className="border border-slate-400 p-1.5 text-center">{iIdx + 1}</td>
+                                                    <td className="border border-slate-400 p-1.5">
+                                                        <div className="font-bold text-slate-900">{itemName}</div>
+                                                        {itemDesc && <div className="text-[9.5px] text-slate-600 italic mt-0.5">{itemDesc}</div>}
                                                     </td>
-                                                    <td className="border border-black p-1.5 text-center font-mono">{item.hsnCode || "-"}</td>
-                                                    <td className="border border-black p-1.5 text-right font-bold">{qty}</td>
-                                                    <td className="border border-black p-1.5 text-center uppercase">{item.unit || "PCS"}</td>
-                                                    <td className="border border-black p-1.5 text-right font-mono">{rate.toFixed(2)}</td>
-                                                    <td className="border border-black p-1.5 text-right font-mono font-bold">{lineAmt.toFixed(2)}</td>
+                                                    <td className="border border-slate-400 p-1.5 text-center font-mono">{item.hsnCode || "-"}</td>
+                                                    <td className="border border-slate-400 p-1.5 text-center font-bold text-[#3730a3]">{qty} {(item.unit || "PCS").toUpperCase()}</td>
+                                                    <td className="border border-slate-400 p-1.5 text-right font-mono">{getCurrencySymbol(dc.currency)}{rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                    <td className="border border-slate-400 p-1.5 text-right font-mono font-extrabold text-slate-900">{getCurrencySymbol(dc.currency)}{lineAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 </tr>
                                             );
                                         })}
                                     </tbody>
-                                    <tfoot>
-                                        <tr className="border-t border-black font-bold">
-                                            <td colSpan={6} className="border border-black p-1.5 text-right uppercase">Subtotal:</td>
-                                            <td className="border border-black p-1.5 text-right font-mono">{subtotal.toFixed(2)}</td>
-                                        </tr>
-                                        {transportCharges > 0 && (
-                                            <tr className="border-t border-black">
-                                                <td colSpan={6} className="border border-black p-1 text-right">Freight Charges:</td>
-                                                <td className="border border-black p-1 text-right font-mono">{transportCharges.toFixed(2)}</td>
-                                            </tr>
-                                        )}
-                                        {packagingCharges > 0 && (
-                                            <tr className="border-t border-black">
-                                                <td colSpan={6} className="border border-black p-1 text-right">Packaging Charges:</td>
-                                                <td className="border border-black p-1 text-right font-mono">{packagingCharges.toFixed(2)}</td>
-                                            </tr>
-                                        )}
-                                        {discount > 0 && (
-                                            <tr className="border-t border-black text-emerald-800">
-                                                <td colSpan={6} className="border border-black p-1 text-right">Discount:</td>
-                                                <td className="border border-black p-1 text-right font-mono">- {discount.toFixed(2)}</td>
-                                            </tr>
-                                        )}
-                                        {isRoundOffEnabled && Math.abs(roundOff) > 0.001 && (
-                                            <tr className="border-t border-black">
-                                                <td colSpan={6} className="border border-black p-1 text-right">Round Off:</td>
-                                                <td className="border border-black p-1 text-right font-mono">{roundOff > 0 ? '+' : ''}{roundOff.toFixed(2)}</td>
-                                            </tr>
-                                        )}
-                                        <tr className="border-t-2 border-black font-black text-sm bg-slate-50">
-                                            <td colSpan={6} className="border border-black p-2 text-right uppercase">Total Challan Value ({dc.currency || "INR"}):</td>
-                                            <td className="border border-black p-2 text-right font-mono">{grandTotal.toFixed(2)}</td>
-                                        </tr>
-                                    </tfoot>
                                 </table>
 
-                                {/* Amount in Words */}
-                                <div className="border border-black p-2 text-[11px]">
-                                    <strong>Amount in Words:</strong> {convertAmountToWords(grandTotal, dc.currency)}
-                                </div>
-
-                                {/* Bank Details & Terms & Signatory Box */}
-                                <div className="grid grid-cols-2 border border-black divide-x divide-black text-[10px]">
-                                    <div className="p-2 space-y-1.5">
-                                        <div className="font-bold uppercase text-slate-600">Company Bank Details:</div>
-                                        <div><strong>Bank:</strong> {bankName}</div>
-                                        <div><strong>A/C Name:</strong> {accountName}</div>
-                                        <div><strong>A/C Number:</strong> {accountNumber}</div>
-                                        <div><strong>IFSC Code:</strong> {ifscCode}</div>
-                                        <div><strong>Branch:</strong> {branch}</div>
-
-                                        <div className="pt-2 border-t border-slate-300">
-                                            <div className="font-bold uppercase text-slate-600">Terms & Conditions:</div>
-                                            <div className="whitespace-pre-line text-slate-700 leading-snug">{termsAndConditions}</div>
+                                {/* Bottom Summary & Financial Calculations */}
+                                <div className="grid grid-cols-12 border border-slate-400 text-[10px]">
+                                    <div className="col-span-7 p-2.5 bg-[#fafafa] border-r border-slate-400 space-y-1.5">
+                                        <div className="font-bold uppercase text-[#3730a3] text-[9.5px]">BANK DETAILS &amp; REMARKS</div>
+                                        <div className="text-[9.5px] text-slate-700 leading-snug">
+                                            Bank: <strong>{bankName}</strong> | A/c: <strong>{accountNumber}</strong> | IFSC: <strong>{ifscCode}</strong> {branch && branch !== "-" ? <>| Branch: <strong>{branch}</strong></> : null}
                                         </div>
-                                    </div>
-
-                                    <div className="p-2 flex flex-col justify-between text-right">
-                                        <div className="font-bold">For {compName}</div>
-                                        <div className="pt-16">
-                                            <div className="border-t border-black inline-block w-40 text-center font-bold pt-1">
-                                                Authorized Signatory
+                                        {(dc.remarks || dc.otherDetails) && (
+                                            <div className="text-[9.5px] text-slate-700">
+                                                <strong>Remarks:</strong> {dc.remarks || dc.otherDetails}
                                             </div>
+                                        )}
+                                        <div className="pt-1 text-[9px] text-slate-600 whitespace-pre-line">
+                                            <strong>Terms &amp; Conditions:</strong>
+                                            <div>{termsAndConditions}</div>
+                                        </div>
+                                        <div className="pt-2 mt-2 border-t border-slate-300 font-bold text-slate-900 italic text-[10px]">
+                                            Amount in Words: {convertAmountToWords(grandTotal, dc.currency)}
+                                        </div>
+                                    </div>
+
+                                    <div className="col-span-5 p-2.5 bg-white flex flex-col justify-between space-y-1 text-[10.5px]">
+                                        <div className="space-y-1">
+                                            <div className="flex justify-between text-slate-600">
+                                                <span>Subtotal:</span>
+                                                <strong className="font-mono text-slate-900">{getCurrencySymbol(dc.currency)}{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                            </div>
+                                            {transportCharges > 0 && (
+                                                <div className="flex justify-between text-slate-600">
+                                                    <span>Freight / Transport:</span>
+                                                    <strong className="font-mono text-slate-900">+ {getCurrencySymbol(dc.currency)}{transportCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                                </div>
+                                            )}
+                                            {packagingCharges > 0 && (
+                                                <div className="flex justify-between text-slate-600">
+                                                    <span>Packaging Charges:</span>
+                                                    <strong className="font-mono text-slate-900">+ {getCurrencySymbol(dc.currency)}{packagingCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                                </div>
+                                            )}
+                                            {discount > 0 && (
+                                                <div className="flex justify-between text-emerald-700">
+                                                    <span>Discount:</span>
+                                                    <strong className="font-mono">- {getCurrencySymbol(dc.currency)}{discount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                                </div>
+                                            )}
+                                            {isRoundOffEnabled && Math.abs(roundOff) > 0.001 && (
+                                                <div className="flex justify-between text-slate-600">
+                                                    <span>Round Off:</span>
+                                                    <strong className="font-mono">{roundOff > 0 ? "+" : ""}{getCurrencySymbol(dc.currency)}{roundOff.toFixed(2)}</strong>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex justify-between items-center bg-[#eef2ff] text-[#3730a3] border border-[#c7d2fe] px-2 py-1.5 font-black text-xs mt-2">
+                                            <span>GRAND TOTAL ({dc.currency || "INR"}):</span>
+                                            <span className="font-mono">{getCurrencySymbol(dc.currency)}{grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="text-center text-[9px] text-slate-500 pt-1">
-                                    This is a computer generated document.
+                                {/* Signatures Pinned at Bottom */}
+                                <div className="flex justify-between items-end pt-8 text-[10px]">
+                                    <div className="text-slate-500 text-[9.5px]">
+                                        <div className="border-t border-slate-400 w-44 pt-1">Receiver&apos;s Signature / Seal</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="font-bold text-slate-900 mb-8">For {compName}</div>
+                                        <div className="border-t border-slate-700 w-44 text-center pt-1 font-semibold text-slate-800">
+                                            Authorized Signatory
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -728,6 +774,13 @@ export default function DCPreviewModal({
                             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/20 transition-all flex items-center gap-2 cursor-pointer"
                         >
                             <FileText size={15} /> Export Excel
+                        </button>
+                        <button
+                            onClick={() => setShowEWayModal(true)}
+                            className="px-4 py-2 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-600 text-amber-700 dark:text-amber-300 hover:text-white font-bold text-xs rounded-xl border border-amber-200 dark:border-amber-800 transition-all flex items-center gap-1.5 cursor-pointer"
+                            title="Copy Details & Open Official E-Way Bill Portal"
+                        >
+                            <Truck size={15} /> E-Way Bill
                         </button>
 
                         {/* Edit button with 24h timer check */}
@@ -772,6 +825,15 @@ export default function DCPreviewModal({
                 </div>
 
             </div>
+
+            {showEWayModal && (
+                <EWayBillHelperModal
+                    isOpen={showEWayModal}
+                    onClose={() => setShowEWayModal(false)}
+                    dc={dc}
+                    companyInfo={companyInfo}
+                />
+            )}
         </div>
     );
 }

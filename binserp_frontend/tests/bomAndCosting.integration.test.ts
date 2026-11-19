@@ -5,6 +5,7 @@ import {
   filterNestedBOMTree,
 } from '@/src/utils/bomHierarchyHelper';
 import {
+  resolveItemPriceInfo,
   enrichTreeWithPricing,
   enrichConsolidatedItemsWithPricing,
   calculateBOMCostingSummary,
@@ -202,14 +203,48 @@ describe('Multi-Level FG BOM Explosion, Dual-UOM & 3-Mode Costing Integration', 
     expect(wireItem?.totalCumulativeQuantity).toBe(0.005);
     expect(wireItem?.totalSecondaryCumulativeQuantity).toBe(0.0018);
 
-    // Price wire in Secondary Unit (MTR) and leafSensorComp in USD ($10 * 84 = ₹840)
+    // Price wire in Secondary Unit (MTR) and leafSensorComp strictly in INR (no currency conversion)
     const vpl = [{ _id: 'vpl-g', material: { _id: fineGoldWire._id, name: fineGoldWire.name }, price: 1000, pricingUnit: 'MTR', isSecondaryUnit: true }];
-    const spl = [{ _id: 'spl-s', fgItem: { _id: leafSensorComp._id, name: leafSensorComp.name }, price: 10, currency: 'USD' }];
+    const spl = [{ _id: 'spl-s', fgItem: { _id: leafSensorComp._id, name: leafSensorComp.name }, price: 840, currency: 'INR' }];
 
     const enrichedCons = enrichConsolidatedItemsWithPricing(consolidated, vpl, spl, [leafSensorComp, microAssy], 'RM_AND_BO');
     const summary = calculateBOMCostingSummary([], enrichedCons, 'RM_AND_BO');
-    // 2 * ($10 * 84 = ₹840) = ₹1680 + (0.0018 MTR * ₹1000 = ₹1.80) = ₹1681.80
+    // 2 * ₹840 = ₹1680 + (0.0018 MTR * ₹1000 = ₹1.80) = ₹1681.80
     expect(summary.totalEstimatedCost).toBe(1681.8);
+  });
+
+  it('enforces strict single-source INR lookup, ID isolation, UOM mismatch detection, and vendor rate strategies', () => {
+    const vpl = [
+      { _id: 'vpl-1', material: { _id: 'rm-a', name: 'Shared Name Plate', itemCategory: 'rm' }, vendor: { _id: 'v1', name: 'Vendor A' }, price: 100, pricingUnit: 'KG', isPreferred: true, updatedAt: '2026-01-01T00:00:00Z' },
+      { _id: 'vpl-2', material: { _id: 'rm-a', name: 'Shared Name Plate', itemCategory: 'rm' }, vendor: { _id: 'v2', name: 'Vendor B' }, price: 80, pricingUnit: 'KG', isPreferred: false, updatedAt: '2026-02-01T00:00:00Z' },
+      { _id: 'vpl-other', material: { _id: 'rm-other', name: 'Shared Name Plate', itemCategory: 'rm' }, vendor: { _id: 'v3', name: 'Other Vendor' }, price: 999, pricingUnit: 'KG', isPreferred: true, updatedAt: '2026-11-01T00:00:00Z' },
+    ];
+    const spl = [
+      { _id: 'spl-fg', fgItem: { _id: 'fg-comp-1', name: 'Shared Name Plate' }, price: 250, currency: 'USD' },
+    ];
+
+    // RM must strictly match by ID ('rm-a') and NEVER pull 'rm-other' (₹999) or Sales PL (₹250)
+    const prefInfo = resolveItemPriceInfo({ id: 'rm-a', materialName: 'Shared Name Plate', itemType: 'RM', unit: 'KG' }, vpl, spl, [], 'preferred_latest');
+    expect(prefInfo.priceSource).toBe('vendor-price-list');
+    expect(prefInfo.unitPrice).toBe(100);
+    expect(prefInfo.alternatePricesCount).toBe(2);
+
+    const lowInfo = resolveItemPriceInfo({ id: 'rm-a', materialName: 'Shared Name Plate', itemType: 'RM', unit: 'KG' }, vpl, spl, [], 'lowest');
+    expect(lowInfo.unitPrice).toBe(80);
+
+    const avgInfo = resolveItemPriceInfo({ id: 'rm-a', materialName: 'Shared Name Plate', itemType: 'RM', unit: 'KG' }, vpl, spl, [], 'average');
+    expect(avgInfo.unitPrice).toBe(90);
+
+    // FG Component must ONLY search Sales PL and use exact INR value (250, no * 84 conversion)
+    const fgInfo = resolveItemPriceInfo({ id: 'fg-comp-1', materialName: 'Shared Name Plate', itemType: 'Component', unit: 'NOS' }, vpl, spl, []);
+    expect(fgInfo.priceSource).toBe('sales-price-list');
+    expect(fgInfo.unitPrice).toBe(250);
+    expect(fgInfo.currency).toBe('INR');
+
+    // FG Component not in Sales PL must NOT fall back to Purchase PL
+    const missingFg = resolveItemPriceInfo({ id: 'fg-unpriced', materialName: 'Unpriced Comp', itemType: 'Component', unit: 'NOS' }, vpl, spl, []);
+    expect(missingFg.hasPrice).toBe(false);
+    expect(missingFg.priceSource).toBe('none');
   });
 
   it('calculates 3-Mode BOM Costing (L2_ONLY, COMPONENT_AND_BO, RM_AND_BO) without double counting', () => {

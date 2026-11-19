@@ -528,14 +528,9 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                                                 )}
                                             </div>
                                             {itemDesc && (
-                                                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 break-words line-clamp-2 font-normal">
+                                                <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 break-words line-clamp-2 font-normal">
                                                     {itemDesc}
                                                 </div>
-                                            )}
-                                            {code && (
-                                                <span className="inline-block mt-1 px-1.5 py-0.2 text-[10px] font-mono bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400 rounded border border-gray-200 dark:border-slate-700">
-                                                    {code}
-                                                </span>
                                             )}
                                         </div>
                                         {isSelected && (

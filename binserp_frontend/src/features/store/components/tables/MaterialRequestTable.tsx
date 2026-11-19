@@ -149,10 +149,11 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                             const desc = item.materialDescription || item.description || item.descriptions;
                                             const stockEval = storeData ? evaluateItemStock(item, storeData) : null;
                                             const hasSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
+                                            const isOperatingInSec = Boolean(hasSec && item.selectedUnit === item.secondaryUnit);
                                             const priQty = formatPrimaryQty(item.quantity);
                                             const secQty = hasSec
                                                 ? (item.secondaryQuantity != null && !isNaN(Number(item.secondaryQuantity)) && Number(item.secondaryQuantity) > 0
-                                                    ? Math.round(Number(item.secondaryQuantity))
+                                                    ? formatPrimaryQty(item.secondaryQuantity)
                                                     : convertPrimaryToSecondaryQty(priQty, item.conversionFactor || 1))
                                                 : null;
                                             return (
@@ -160,13 +161,26 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                                     <div className="flex items-start justify-between gap-1 font-bold text-gray-800 dark:text-gray-200">
                                                         <span className="truncate">{item.materialName || item.name || 'Unnamed Item'}</span>
                                                         <div className="shrink-0 text-right">
-                                                            <div className="text-blue-600 dark:text-blue-400 font-mono text-[11px]">
-                                                                {priQty} {item.unit || 'PCS'}
-                                                            </div>
-                                                            {hasSec && (
-                                                                <div className="text-[10px] text-indigo-500 font-semibold font-mono">
-                                                                    ↳ {secQty} {item.secondaryUnit}
-                                                                </div>
+                                                            {isOperatingInSec ? (
+                                                                <>
+                                                                    <div className="text-indigo-600 dark:text-indigo-400 font-mono text-[11px] font-bold">
+                                                                        {secQty} {item.secondaryUnit} <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold">2nd</span>
+                                                                    </div>
+                                                                    <div className="text-[10px] text-gray-500 font-semibold font-mono">
+                                                                        ↳ {priQty} {item.unit || 'PCS'}
+                                                                    </div>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <div className="text-blue-600 dark:text-blue-400 font-mono text-[11px]">
+                                                                        {priQty} {item.unit || 'PCS'}
+                                                                    </div>
+                                                                    {hasSec && (
+                                                                        <div className="text-[10px] text-indigo-500 font-semibold font-mono">
+                                                                            ↳ {secQty} {item.secondaryUnit}
+                                                                        </div>
+                                                                    )}
+                                                                </>
                                                             )}
                                                         </div>
                                                     </div>

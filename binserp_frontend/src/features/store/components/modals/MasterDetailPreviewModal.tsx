@@ -7,7 +7,7 @@ import {
     Calendar, CheckCircle2, AlertCircle, FileText, Printer, FileSpreadsheet,
     Eye, ExternalLink, Hash, Info, Layers3, ChevronRight, ChevronDown, ChevronsUpDown, Sparkles,
     GitFork, List, ListFilter, ArrowDownToLine, Check, FilterX, Coins, Plus, Search, Star, AlertTriangle,
-    IndianRupee, Boxes
+    IndianRupee, Boxes, Copy
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ColumnFilter from '../tables/ColumnFilter';
@@ -34,6 +34,7 @@ import {
     filterEnrichedConsolidated,
     PriceFilterMode,
     BOMCostingMode,
+    VendorPriceStrategy,
     EnrichedExplodedBOMNode,
     EnrichedConsolidatedBOMItem
 } from '@/src/utils/bomCostingHelper';
@@ -45,6 +46,7 @@ export interface MasterDetailPreviewModalProps {
     item: any | null;
     masterTab: 'vendor' | 'customer' | 'location' | 'category' | 'rm-bo-item' | 'fg-items' | 'fg-item' | 'materials' | string;
     onEdit?: (item: any) => void;
+    onDuplicate?: (item: any) => void;
     onDelete?: (id: string) => void;
     companyInfo?: any;
     allFGItems?: any[];
@@ -59,6 +61,7 @@ export default function MasterDetailPreviewModal({
     item: rawItem,
     masterTab,
     onEdit,
+    onDuplicate,
     onDelete,
     companyInfo: initialCompanyInfo,
     allFGItems: initialAllFGItems,
@@ -77,9 +80,10 @@ export default function MasterDetailPreviewModal({
     // FG Sub-tab state: 'overview' (default) or 'bom'
     const [activeFgTab, setActiveFgTab] = useState<'overview' | 'bom'>('overview');
 
-    // BOM Filter state, 3-mode dynamic costing basis (default: L2_ONLY), and dual view mode (default: table / Consolidated View)
+    // BOM Filter state, 3-mode dynamic costing basis (default: L2_ONLY), vendor rate strategy, and dual view mode (default: table / Consolidated View)
     const [activeBOMFilter, setActiveBOMFilter] = useState<BOMFilterType>('ALL');
     const [costingMode, setCostingMode] = useState<BOMCostingMode>('L2_ONLY');
+    const [vendorPriceStrategy, setVendorPriceStrategy] = useState<VendorPriceStrategy>('preferred_latest');
     const [bomViewMode, setBomViewMode] = useState<'tree' | 'table'>('table');
     const [priceFilterMode, setPriceFilterMode] = useState<PriceFilterMode>('ALL');
     const [isPdfDropdownOpen, setIsPdfDropdownOpen] = useState(false);
@@ -99,6 +103,7 @@ export default function MasterDetailPreviewModal({
         if (isOpen) {
             setActiveFgTab(initialTab || 'overview');
             setCostingMode('L2_ONLY');
+            setVendorPriceStrategy('preferred_latest');
             setBomViewMode('table');
             setPriceFilterMode('ALL');
             setActiveBOMFilter('ALL');
@@ -148,24 +153,24 @@ export default function MasterDetailPreviewModal({
         return explodeFGBOMHierarchy(item, fgList, rmList, boList);
     }, [isFG, item, fgList, rmList, boList]);
 
-    // 1. Enrich raw tree and consolidated items with Vendor & Sales price lists + active costing mode
+    // 1. Enrich raw tree and consolidated items with strict single-source INR pricing (FG -> Sales PL, RM/BO -> Purchase PL)
     const enrichedConsolidated = useMemo(() => {
         if (!explodedBOM) return [];
         const base = consolidateBOMItems(explodedBOM.flatTree, activeBOMFilter);
-        return enrichConsolidatedItemsWithPricing(base, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode);
-    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode]);
+        return enrichConsolidatedItemsWithPricing(base, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode, vendorPriceStrategy);
+    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode, vendorPriceStrategy]);
 
     const enrichedNestedTree = useMemo(() => {
         if (!explodedBOM) return [];
         const base = filterNestedBOMTree(explodedBOM.nestedTree, activeBOMFilter);
-        return enrichTreeWithPricing(base, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode);
-    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode]);
+        return enrichTreeWithPricing(base, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode, vendorPriceStrategy);
+    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode, vendorPriceStrategy]);
 
     const enrichedFlatTree = useMemo(() => {
         if (!explodedBOM) return [];
         const filteredFlat = explodedBOM.flatTree.filter(n => matchesBOMFilter(n, activeBOMFilter));
-        return enrichTreeWithPricing(filteredFlat, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode);
-    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode]);
+        return enrichTreeWithPricing(filteredFlat, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode, vendorPriceStrategy);
+    }, [explodedBOM, activeBOMFilter, fetchedVendorPriceLists, fetchedSalesPriceLists, fgList, costingMode, vendorPriceStrategy]);
 
     // 2. Apply Price Filter Mode (All / Priced Only / Missing Price Only)
     const priceFilteredConsolidated = useMemo(() => {
@@ -351,8 +356,8 @@ export default function MasterDetailPreviewModal({
         if (isFGType) {
             setSalesPriceInitialData({
                 fgItem: nodeOrItem.id,
-                price: pInfo?.unitPrice || '',
-                currency: pInfo?.currency || 'INR',
+                price: pInfo?.originalUnitPrice ?? pInfo?.unitPrice ?? '',
+                currency: 'INR',
                 taxRate: pInfo?.taxRate !== undefined ? pInfo.taxRate : 18,
                 pricingUnit: pInfo?.pricingUnit || nodeOrItem.unit || '',
                 isSecondaryUnit: Boolean(pInfo?.isSecondaryUnit),
@@ -766,11 +771,25 @@ export default function MasterDetailPreviewModal({
                                     onClose();
                                     onEdit(item);
                                 }}
-                                className="px-3 py-2 bg-white/15 hover:bg-white/25 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 border border-white/20"
+                                className="px-3 py-2 bg-white/15 hover:bg-white/25 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 border border-white/20 cursor-pointer"
                                 title="Edit this record"
                             >
                                 <Edit3 size={15} />
                                 <span className="hidden sm:inline">Edit</span>
+                            </button>
+                        )}
+
+                        {isFG && onDuplicate && (
+                            <button
+                                onClick={() => {
+                                    onClose();
+                                    onDuplicate(item);
+                                }}
+                                className="px-3 py-2 bg-emerald-500/80 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 border border-white/20 shadow-xs cursor-pointer"
+                                title="Duplicate this FG Item along with its attached BOM"
+                            >
+                                <Copy size={15} />
+                                <span className="hidden sm:inline">Duplicate</span>
                             </button>
                         )}
 
@@ -1315,6 +1334,80 @@ export default function MasterDetailPreviewModal({
                                                         </button>
                                                     );
                                                 })}
+                                            </div>
+                                        </div>
+
+                                        {/* Costing Integrity Audit Bar & Vendor Rate Strategy (Strict Single-Source INR) */}
+                                        <div className="bg-white dark:bg-slate-900/80 px-4 py-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 shadow-2xs text-xs">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-[11px] border border-slate-200/70 dark:border-slate-700">
+                                                    <span>FG / Comp → Sales PL (₹)</span>
+                                                    <span className="text-slate-400">•</span>
+                                                    <span>RM / BO → Purchase PL (₹)</span>
+                                                </span>
+
+                                                {costingSummary.totalMissingItems === 0 && costingSummary.unitMismatchCount === 0 && costingSummary.expiredPricesCount === 0 ? (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] border border-emerald-200 dark:border-emerald-800">
+                                                        <CheckCircle2 size={12} />
+                                                        <span>Calculation Verified (100% Priced &amp; UOM Matched)</span>
+                                                    </span>
+                                                ) : (
+                                                    <>
+                                                        {costingSummary.totalMissingItems > 0 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setPriceFilterMode(priceFilterMode === 'MISSING_ONLY' ? 'ALL' : 'MISSING_ONLY')}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 font-bold text-[11px] border border-rose-200 dark:border-rose-800 cursor-pointer transition-colors"
+                                                                title="Click to filter missing-price items"
+                                                            >
+                                                                <AlertTriangle size={12} />
+                                                                <span>{costingSummary.totalMissingItems} Missing Price{costingSummary.totalMissingItems === 1 ? '' : 's'}</span>
+                                                            </button>
+                                                        )}
+                                                        {costingSummary.unitMismatchCount > 0 && (
+                                                            <span
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-bold text-[11px] border border-amber-300 dark:border-amber-800"
+                                                                title="BOM unit does not match Price List unit on these items — verify UOM before quoting"
+                                                            >
+                                                                <AlertTriangle size={12} />
+                                                                <span>{costingSummary.unitMismatchCount} UOM Mismatch{costingSummary.unitMismatchCount === 1 ? '' : 'es'}</span>
+                                                            </span>
+                                                        )}
+                                                        {costingSummary.expiredPricesCount > 0 && (
+                                                            <span
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-orange-50 dark:bg-orange-950/60 text-orange-800 dark:text-orange-300 font-bold text-[11px] border border-orange-200 dark:border-orange-800"
+                                                                title="Items priced using expired Vendor Price List entries (validUntil passed)"
+                                                            >
+                                                                <AlertTriangle size={12} />
+                                                                <span>{costingSummary.expiredPricesCount} Expired Rate{costingSummary.expiredPricesCount === 1 ? '' : 's'}</span>
+                                                            </span>
+                                                        )}
+                                                    </>
+                                                )}
+
+                                                {costingSummary.multiVendorItemsCount > 0 && (
+                                                    <span
+                                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold text-[11px] border border-indigo-200 dark:border-indigo-800"
+                                                        title="Items with multiple vendors in Purchase Price List — hover row badges to compare"
+                                                    >
+                                                        <span>{costingSummary.multiVendorItemsCount} Multi-Vendor Item{costingSummary.multiVendorItemsCount === 1 ? '' : 's'}</span>
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">RM/BO Vendor Rate:</span>
+                                                <select
+                                                    value={vendorPriceStrategy}
+                                                    onChange={(e) => setVendorPriceStrategy(e.target.value as VendorPriceStrategy)}
+                                                    className="px-2.5 py-1 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-slate-800 text-xs font-bold text-indigo-800 dark:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                                                    title="Choose which Purchase Vendor Price List rate to apply when an RM/BO has multiple vendors"
+                                                >
+                                                    <option value="preferred_latest">Preferred → Latest</option>
+                                                    <option value="lowest">Lowest Price (Best Cost)</option>
+                                                    <option value="highest">Highest Price (Safe)</option>
+                                                    <option value="average">Average of Vendors</option>
+                                                </select>
                                             </div>
                                         </div>
 
@@ -1867,7 +1960,7 @@ export default function MasterDetailPreviewModal({
                                                                             {/* Unit Rate & Vendor */}
                                                                             <td className="px-3 py-2.5 text-right whitespace-nowrap">
                                                                                 {isPriced ? (
-                                                                                    <div>
+                                                                                    <div className="space-y-0.5">
                                                                                         <div className="font-mono font-bold text-slate-900 dark:text-white text-xs flex items-center justify-end gap-1">
                                                                                             <span>₹{pInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                                                                             <span className={`text-[10px] px-1 py-0.2 rounded font-semibold ${
@@ -1878,14 +1971,44 @@ export default function MasterDetailPreviewModal({
                                                                                                 / {pInfo.pricingUnit || cItem.unit}
                                                                                             </span>
                                                                                         </div>
-                                                                                        {pInfo.originalCurrency && pInfo.originalCurrency !== 'INR' && (
-                                                                                            <div className="text-[10px] font-mono font-semibold text-amber-600 dark:text-amber-400">
-                                                                                                ({pInfo.originalCurrency} {pInfo.originalUnitPrice} × {pInfo.exchangeRateToINR})
-                                                                                            </div>
-                                                                                        )}
-                                                                                        <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-end gap-1 mt-0.5">
+                                                                                        <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-end gap-1">
+                                                                                            <span className={`px-1.5 py-0.2 rounded font-bold text-[9px] uppercase ${
+                                                                                                pInfo.priceSource === 'sales-price-list'
+                                                                                                    ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800'
+                                                                                                    : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800'
+                                                                                            }`}>
+                                                                                                {pInfo.priceSource === 'sales-price-list' ? 'Sales PL' : 'Purchase PL'}
+                                                                                            </span>
                                                                                             {pInfo.isPreferredVendor && <span className="text-amber-500 font-bold" title="Preferred Vendor">★</span>}
-                                                                                            <span className="truncate max-w-[140px]" title={pInfo.vendorName || ''}>{pInfo.vendorName || (pInfo.priceSource === 'sales-price-list' ? 'Sales Catalog' : 'Standard Base Price')}</span>
+                                                                                            <span className="truncate max-w-[125px]" title={pInfo.vendorName || ''}>
+                                                                                                {pInfo.vendorName || (pInfo.priceSource === 'sales-price-list' ? 'Sales Price List' : 'Standard Base Price')}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                        <div className="flex items-center justify-end gap-1 flex-wrap">
+                                                                                            {(pInfo.alternatePricesCount || 0) > 1 && (
+                                                                                                <span
+                                                                                                    className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[9px] font-bold border border-slate-200 dark:border-slate-700 cursor-help"
+                                                                                                    title={(pInfo.alternatePrices || []).map(ap => `${ap.isPreferred ? '★ ' : ''}${ap.vendorName}: ₹${ap.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}/${ap.pricingUnit || cItem.unit}${ap.isExpired ? ' (Expired)' : ''}`).join('\n')}
+                                                                                                >
+                                                                                                    {pInfo.alternatePricesCount} vendors
+                                                                                                </span>
+                                                                                            )}
+                                                                                            {pInfo.unitMismatch && (
+                                                                                                <span
+                                                                                                    className="px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 text-[9px] font-bold border border-amber-300 dark:border-amber-800"
+                                                                                                    title={pInfo.unitMismatchMessage || 'BOM Unit and Price List Unit do not match'}
+                                                                                                >
+                                                                                                    ⚠ UOM Mismatch
+                                                                                                </span>
+                                                                                            )}
+                                                                                            {pInfo.isExpiredPrice && (
+                                                                                                <span
+                                                                                                    className="px-1.5 py-0.2 rounded bg-orange-100 dark:bg-orange-950/70 text-orange-800 dark:text-orange-300 text-[9px] font-bold border border-orange-300 dark:border-orange-800"
+                                                                                                    title="This vendor price list entry has passed its validUntil date"
+                                                                                                >
+                                                                                                    ⚠ Expired
+                                                                                                </span>
+                                                                                            )}
                                                                                         </div>
                                                                                     </div>
                                                                                 ) : (
@@ -1902,8 +2025,15 @@ export default function MasterDetailPreviewModal({
                                                                                         {pInfo?.exclusionReason || 'Excluded in Mode'}
                                                                                     </span>
                                                                                 ) : isPriced ? (
-                                                                                    <div className="font-mono font-extrabold text-indigo-700 dark:text-indigo-300 text-xs sm:text-sm">
-                                                                                        ₹{pInfo.extendedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                                    <div>
+                                                                                        <div className="font-mono font-extrabold text-indigo-700 dark:text-indigo-300 text-xs sm:text-sm" title={pInfo.formulaText || ''}>
+                                                                                            ₹{pInfo.extendedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                                        </div>
+                                                                                        {pInfo.effectiveQty !== undefined && (
+                                                                                            <div className="text-[9.5px] font-mono text-slate-400 dark:text-slate-500">
+                                                                                                {pInfo.effectiveQty} {pInfo.effectiveUnit || cItem.unit} × ₹{pInfo.unitPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                                                                                            </div>
+                                                                                        )}
                                                                                     </div>
                                                                                 ) : (
                                                                                     <span className="font-mono text-slate-400 text-xs">-</span>

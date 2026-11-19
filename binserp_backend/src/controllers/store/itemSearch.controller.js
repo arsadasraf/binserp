@@ -25,10 +25,11 @@ const escapeRegex = (str) => {
 export const searchStoreItems = async (req, res) => {
   try {
     const companyId = getCompanyId(req);
-    const { query = '', q = '', type = 'all', limit = 30 } = req.query;
+    const { query = '', q = '', type = 'all', limit = 30, lite = '' } = req.query;
 
     const searchTerm = (query || q || '').toString().trim();
     const maxLimit = Math.min(Math.max(1, parseInt(limit) || 30), 100);
+    const isLite = String(lite).toLowerCase() === '1' || String(lite).toLowerCase() === 'true';
 
     const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
     const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
@@ -62,75 +63,105 @@ export const searchStoreItems = async (req, res) => {
     }
 
     const promises = [];
+    const activeTypeCount = [includeRM, includeBO, includeConsumable, includeFG].filter(Boolean).length || 1;
+    // Performance optimization: balanced per-collection cap (avoids over-fetching 4x rows on type=all)
+    const perTypeLimit = searchAll
+      ? (searchTerm ? Math.min(maxLimit, 20) : Math.max(4, Math.ceil(maxLimit / activeTypeCount)))
+      : maxLimit;
+
+    if (includeFG) {
+      promises.push(
+        FGItem.find(searchFilter)
+          .select('_id name code descriptions description hsnCode unit type revisionNumber currentStock quantity')
+          .limit(perTypeLimit)
+          .lean()
+          .then(items => items.map(item => ({ ...item, _type: 'Finished Good', _itemCategory: 'fg' })))
+      );
+    }
 
     if (includeRM) {
+      let rmQuery = RawMaterial.find(searchFilter)
+        .select('_id name code descriptions hsnCode unit categoryId locationId minimumStock currentStock quantity')
+        .limit(perTypeLimit);
+      if (!isLite) rmQuery = rmQuery.populate('categoryId', 'name').populate('locationId', 'name');
       promises.push(
-        RawMaterial.find(searchFilter)
-          .select('_id name code descriptions hsnCode unit categoryId locationId minimumStock currentStock quantity')
-          .populate('categoryId', 'name')
-          .populate('locationId', 'name')
-          .limit(maxLimit)
+        rmQuery
           .lean()
           .then(items => items.map(item => ({ ...item, _type: 'Raw Material', _itemCategory: 'rm' })))
       );
     }
 
     if (includeBO) {
+      let boQuery = BoughtOut.find(searchFilter)
+        .select('_id name code descriptions hsnCode unit categoryId locationId minimumStock currentStock quantity')
+        .limit(perTypeLimit);
+      if (!isLite) boQuery = boQuery.populate('categoryId', 'name').populate('locationId', 'name');
       promises.push(
-        BoughtOut.find(searchFilter)
-          .select('_id name code descriptions hsnCode unit categoryId locationId minimumStock currentStock quantity')
-          .populate('categoryId', 'name')
-          .populate('locationId', 'name')
-          .limit(maxLimit)
+        boQuery
           .lean()
           .then(items => items.map(item => ({ ...item, _type: 'Bought Out', _itemCategory: 'bo' })))
       );
     }
 
     if (includeConsumable) {
+      let conQuery = ConsumableItem.find(searchFilter)
+        .select('_id name code descriptions hsnCode unit categoryId locationId minimumStock currentStock quantity')
+        .limit(perTypeLimit);
+      if (!isLite) conQuery = conQuery.populate('categoryId', 'name').populate('locationId', 'name');
       promises.push(
-        ConsumableItem.find(searchFilter)
-          .select('_id name code descriptions hsnCode unit categoryId locationId minimumStock currentStock quantity')
-          .populate('categoryId', 'name')
-          .populate('locationId', 'name')
-          .limit(maxLimit)
+        conQuery
           .lean()
           .then(items => items.map(item => ({ ...item, _type: 'Consumable', _itemCategory: 'consumable' })))
-      );
-    }
-
-    if (includeFG) {
-      promises.push(
-        FGItem.find(searchFilter)
-          .select('_id name code descriptions description hsnCode unit type revisionNumber currentStock quantity')
-          .limit(maxLimit)
-          .lean()
-          .then(items => items.map(item => ({ ...item, _type: 'Finished Good', _itemCategory: 'fg' })))
       );
     }
 
     const results = await Promise.all(promises);
     const combined = results.flat();
 
-    // Fetch live inventory stock for matched item IDs in a single O(1) query
-    const itemIds = combined.map(c => c._id);
-    const inventories = await Inventory.find({
-      company: companyId,
-      materialId: { $in: itemIds }
-    }).select('materialId currentStock qcPendingStock reorderLevel').lean();
+    // Fetch live inventory stock for matched non-FG item IDs (by materialId, materialCode, or materialName)
+    const nonFgItems = combined.filter(c => c._itemCategory !== 'fg');
+    const itemIds = nonFgItems.map(c => c._id);
+    const itemNames = nonFgItems.map(c => c.name).filter(Boolean);
+    const itemCodes = nonFgItems.map(c => c.code).filter(Boolean);
 
-    const invMap = new Map();
+    const invOrConditions = [];
+    if (itemIds.length > 0) invOrConditions.push({ materialId: { $in: itemIds } });
+    if (itemCodes.length > 0) invOrConditions.push({ materialCode: { $in: itemCodes } });
+    if (itemNames.length > 0) invOrConditions.push({ materialName: { $in: itemNames } });
+
+    const inventories = invOrConditions.length > 0
+      ? await Inventory.find({
+          company: companyId,
+          $or: invOrConditions
+        }).select('materialId materialCode materialName currentStock qcPendingStock reorderLevel').lean()
+      : [];
+
+    const invByIdMap = new Map();
+    const invByCodeMap = new Map();
+    const invByNameMap = new Map();
     inventories.forEach(inv => {
-      if (inv.materialId) invMap.set(String(inv.materialId), inv);
+      if (inv.materialId) invByIdMap.set(String(inv.materialId), inv);
+      if (inv.materialCode) invByCodeMap.set(String(inv.materialCode).trim().toLowerCase(), inv);
+      if (inv.materialName) invByNameMap.set(String(inv.materialName).trim().toLowerCase(), inv);
     });
 
-    // Format into standard SearchableOption list
+    // Format into standard SearchableOption list with 100% live stock aligned to salesStockHelper
     const formatted = combined.map(item => {
-      const inv = invMap.get(String(item._id));
-      const currentStock = inv?.currentStock !== undefined 
-        ? inv.currentStock 
-        : (item.currentStock !== undefined ? item.currentStock : (item.quantity || 0));
-      const qcPendingStock = inv?.qcPendingStock || 0;
+      let currentStock = 0;
+      let qcPendingStock = 0;
+
+      if (item._itemCategory === 'fg') {
+        // FG live stock is strictly FGItem.quantity (deducted/restored by DC, Invoice, FG GRN)
+        currentStock = Math.max(0, Number(item.quantity || 0));
+      } else {
+        // RM / BO / Consumable live stock is strictly Inventory.currentStock
+        const inv =
+          invByIdMap.get(String(item._id)) ||
+          (item.code ? invByCodeMap.get(String(item.code).trim().toLowerCase()) : null) ||
+          (item.name ? invByNameMap.get(String(item.name).trim().toLowerCase()) : null);
+        currentStock = inv ? Math.max(0, Number(inv.currentStock || 0)) : 0;
+        qcPendingStock = inv ? Number(inv.qcPendingStock || 0) : 0;
+      }
 
       const descStr = item.descriptions || item.description || '';
 
@@ -150,13 +181,14 @@ export const searchStoreItems = async (req, res) => {
         qcPendingStock,
         minimumStock: item.minimumStock || 0,
         badge: item._type === 'Finished Good' ? (item.type || 'Assembly') : item._type,
-        subBadge: item.revisionNumber ? `Rev ${item.revisionNumber}` : (item.code || undefined)
+        subBadge: item.revisionNumber ? `Rev ${item.revisionNumber}` : undefined
       };
     });
 
     // Sort by smart relevance scoring (exact match -> clean match -> prefix -> token start -> word boundary)
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
+      const tokens = lower.split(/\s+/).filter(Boolean);
       const cleanQuery = lower.replace(/[^a-z0-9]/g, '');
       const firstToken = tokens[0] || lower;
 

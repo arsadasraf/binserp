@@ -71,6 +71,11 @@ export const purchaseOrderSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    pricingBasis: {
+      type: String,
+      enum: ["output", "input"],
+      default: "output",
+    },
     processType: {
       type: String,
       default: "",
@@ -135,6 +140,8 @@ export const purchaseOrderSchema = new mongoose.Schema(
         description: String,
         processType: { type: String, default: "" },
         processNote: { type: String, default: "" },
+        returningItemId: { type: String, default: "" },
+        sourceMaterialName: { type: String, default: "" },
         hsnCode: { type: String, default: "" },
         sacCode: { type: String, default: "" },
         pieceCount: { type: Number, default: 0 },

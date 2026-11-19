@@ -29,48 +29,61 @@ export const updateDC = async (req, res) => {
       return res.status(403).json({ message: lockCheck.message });
     }
 
-    const shouldReduceStock = req.body.reduceStock !== false && req.body.reduceStock !== 'false' && existingDC.reduceStock !== false;
+    const wasStockDeducted = existingDC.stockDeducted !== undefined
+      ? Boolean(existingDC.stockDeducted)
+      : (existingDC.reduceStock !== false && existingDC.status !== "Cancelled");
+    const nextReduceStock = req.body.reduceStock !== undefined
+      ? (req.body.reduceStock !== false && req.body.reduceStock !== 'false')
+      : (existingDC.reduceStock !== false);
+    const nextStatus = req.body.status || existingDC.status || "Draft";
+    const shouldDeductNext = nextReduceStock && nextStatus !== "Cancelled";
+    const itemsToDeduct = Array.isArray(req.body.items) ? req.body.items : existingDC.items;
 
-    // 1. Stock Adjustment
-    if (shouldReduceStock && Array.isArray(req.body.items)) {
-      // Step A: Reverse previous items stock
-      if (Array.isArray(existingDC.items) && existingDC.items.length > 0 && existingDC.status !== "Cancelled") {
+    // 1. Stock Adjustment (handles all transitions: true->true, true->false, false->true, false->false)
+    if (wasStockDeducted || shouldDeductNext) {
+      // Step A: Reverse previous items stock if it was previously deducted
+      if (wasStockDeducted && Array.isArray(existingDC.items) && existingDC.items.length > 0) {
         await reverseSalesItemsStock(req, existingDC.items, {
           companyId,
           refDocType: "DeliveryChallan",
           refDocId: existingDC._id,
           refDocNumber: existingDC.dcNumber,
           recipientName: existingDC.customerName || "Customer",
-          performedBy: userId
+          performedBy: userId,
+          docDate: existingDC.date || existingDC.createdAt,
+          actionType: nextStatus === "Cancelled" ? "cancel" : "edit"
         });
       }
 
-      // Step B: Validate available stock for updated items
-      const validation = await validateSalesItemsStock(req, req.body.items, companyId);
-      if (!validation.valid) {
-        // Re-apply previous items stock if validation fails
-        if (Array.isArray(existingDC.items) && existingDC.items.length > 0 && existingDC.status !== "Cancelled") {
-          await deductSalesItemsStock(req, existingDC.items, {
-            companyId,
-            refDocType: "DeliveryChallan",
-            refDocId: existingDC._id,
-            refDocNumber: existingDC.dcNumber,
-            recipientName: existingDC.customerName || "Customer",
-            performedBy: userId
-          });
+      // Step B & C: Validate and deduct updated items stock if next state requires deduction
+      if (shouldDeductNext && Array.isArray(itemsToDeduct) && itemsToDeduct.length > 0) {
+        const validation = await validateSalesItemsStock(req, itemsToDeduct, companyId);
+        if (!validation.valid) {
+          // Re-apply previous items stock if validation fails
+          if (wasStockDeducted && Array.isArray(existingDC.items) && existingDC.items.length > 0) {
+            await deductSalesItemsStock(req, existingDC.items, {
+              companyId,
+              refDocType: "DeliveryChallan",
+              refDocId: existingDC._id,
+              refDocNumber: existingDC.dcNumber,
+              recipientName: existingDC.customerName || "Customer",
+              performedBy: userId,
+              docDate: existingDC.date || existingDC.createdAt
+            });
+          }
+          return res.status(400).json({ message: validation.message });
         }
-        return res.status(400).json({ message: validation.message });
-      }
 
-      // Step C: Deduct updated items stock
-      await deductSalesItemsStock(req, req.body.items, {
-        companyId,
-        refDocType: "DeliveryChallan",
-        refDocId: existingDC._id,
-        refDocNumber: req.body.dcNumber || existingDC.dcNumber,
-        recipientName: req.body.customerName || existingDC.customerName || "Customer",
-        performedBy: userId
-      });
+        await deductSalesItemsStock(req, itemsToDeduct, {
+          companyId,
+          refDocType: "DeliveryChallan",
+          refDocId: existingDC._id,
+          refDocNumber: req.body.dcNumber || existingDC.dcNumber,
+          recipientName: req.body.customerName || existingDC.customerName || "Customer",
+          performedBy: userId,
+          docDate: req.body.date || existingDC.date || existingDC.createdAt
+        });
+      }
     }
 
     // 2. Customer PO Sync
@@ -180,7 +193,10 @@ export const updateDC = async (req, res) => {
     }
 
     // 3. Update Delivery Challan Record
+    if (req.body.dcNumber) existingDC.dcNumber = req.body.dcNumber;
     existingDC.date = req.body.date || existingDC.date;
+    existingDC.reduceStock = nextReduceStock;
+    existingDC.stockDeducted = shouldDeductNext;
     existingDC.customer = req.body.customer || existingDC.customer;
     existingDC.customerName = req.body.customerName || existingDC.customerName;
     existingDC.customerAddress = req.body.customerAddress !== undefined ? req.body.customerAddress : existingDC.customerAddress;

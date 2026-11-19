@@ -47,10 +47,18 @@ export default function SalesBillingPage() {
               setShowModal(false);
               setEditingBilling(null);
               refetch();
+              return { ok: true };
             } catch (error: any) {
-              console.error("Failed to save Tax Invoice:", error);
-              const errorMsg = error?.data?.message || error?.response?.data?.message || error?.error || error?.message || (typeof error === 'string' ? error : "Failed to save Tax Invoice.");
-              Swal.fire("Save Error", typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg), "error");
+              const rawMsg = error?.data?.message || error?.response?.data?.message || error?.error || error?.message || (typeof error === 'string' ? error : "Failed to save Tax Invoice.");
+              const errorMsg = typeof rawMsg === 'string' ? rawMsg : JSON.stringify(rawMsg);
+              console.warn("Tax Invoice validation/save error:", errorMsg);
+              Swal.fire({
+                icon: "error",
+                title: "Cannot Save Tax Invoice",
+                text: errorMsg,
+                confirmButtonColor: "#4f46e5"
+              });
+              return { error: errorMsg };
             }
           }}
           initialData={editingBilling}

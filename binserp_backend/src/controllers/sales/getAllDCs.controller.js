@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema } from "../../models/store/index.js";
 import { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -46,6 +46,10 @@ const updateComponentStock = async (req, componentId, quantity) => {
 export const getAllDCs = async (req, res) => {
   try {
     req.getModel('RmBoItem', rmBoItemSchema);
+    req.getModel('FGItem', fgItemSchema);
+    req.getModel('RawMaterial', rawMaterialSchema);
+    req.getModel('BoughtOut', boughtOutSchema);
+    req.getModel('ConsumableItem', consumableItemSchema);
     req.getModel('Customer', customerSchema);
     const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
 
@@ -53,7 +57,11 @@ export const getAllDCs = async (req, res) => {
     console.log("Fetching DCs for company:", companyId);
 
     const dcs = await DeliveryChallan.find({ company: companyId })
-      .populate('items.material')
+      .populate('items.material', 'name code unit category descriptions description specification hsnCode')
+      .populate('items.fgItem', 'name code unit descriptions description specification hsnCode quantity')
+      .populate('items.rawMaterial', 'name code unit descriptions description specification hsnCode')
+      .populate('items.boughtOut', 'name code unit descriptions description specification hsnCode')
+      .populate('items.consumableItem', 'name code unit descriptions description specification hsnCode')
       .populate('customer')
       .populate('createdBy', 'name email username')
       .populate('updatedBy', 'name email username')
@@ -72,6 +80,21 @@ export const getAllDCs = async (req, res) => {
         if (resolvedPoNumber) {
           docObj.customerPoReference = resolvedPoNumber;
         }
+      }
+      // Hydrate item technical description from populated master references if missing on DC line item
+      if (Array.isArray(docObj.items)) {
+        docObj.items = docObj.items.map(it => {
+          const refObj = it.fgItem || it.rawMaterial || it.boughtOut || it.consumableItem || it.material;
+          const hydratedDesc = it.description || it.descriptions || (typeof refObj === 'object' ? (refObj?.description || refObj?.descriptions || refObj?.specification || '') : '');
+          const hydratedName = it.materialName || (typeof refObj === 'object' ? (refObj?.name || '') : '');
+          const hydratedHsn = it.hsnCode || (typeof refObj === 'object' ? (refObj?.hsnCode || '') : '');
+          return {
+            ...it,
+            materialName: hydratedName || it.materialName || 'Item',
+            description: hydratedDesc,
+            hsnCode: hydratedHsn,
+          };
+        });
       }
       return docObj;
     });

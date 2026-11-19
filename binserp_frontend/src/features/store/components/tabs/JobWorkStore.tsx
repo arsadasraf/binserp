@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { 
-    Plus, Search, Eye, Factory, Calendar, Truck, CheckCircle2, 
-    FileText, FileSpreadsheet, Clock, Edit2, Trash2, Lock, 
+import { useRouter } from 'next/navigation';
+import {
+    Plus, Search, Eye, Factory, Calendar, Truck, CheckCircle2,
+    FileText, FileSpreadsheet, Clock, Edit2, Trash2, Lock,
     AlertTriangle, ArrowRight, Layers, RefreshCw, X, ShieldAlert, ShieldCheck,
     Check, ChevronDown, SlidersHorizontal, Boxes, Building2, Download, Filter,
-    RotateCcw, User
+    RotateCcw, User, ExternalLink
 } from 'lucide-react';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import { JobWorkChallan, Vendor, JobWorkSupplier, JOB_WORK_PURPOSES } from "@/src/features/store/types/store.types";
@@ -76,32 +77,73 @@ const getCreatorName = (challan: JobWorkChallan): string => {
     return 'Admin User';
 };
 
-export default function JobWorkStore({ 
-    vendors, 
-    jobWorkSuppliers = [], 
-    rawMaterials = [], 
-    boughtOuts = [], 
-    materials = [], 
+export default function JobWorkStore({
+    vendors,
+    jobWorkSuppliers = [],
+    rawMaterials = [],
+    boughtOuts = [],
+    materials = [],
     consumables = [],
-    inventoryList = [], 
-    inHouseItems = [], 
-    mrpPlans = [], 
-    token, 
-    companyInfo, 
-    onError, 
-    onSuccess 
+    inventoryList = [],
+    inHouseItems = [],
+    mrpPlans = [],
+    token,
+    companyInfo,
+    onError,
+    onSuccess
 }: JobWorkStoreProps) {
     const [challans, setChallans] = useState<JobWorkChallan[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    
+
     // Two Main Tabs: 'challans' and 'rejections'
     const [mainTab, setMainTab] = useState<'challans' | 'rejections'>('challans');
 
     // View Mode inside Challans: 'challans' (Challans Register) or 'item-stock' (Item-Wise Vendor Stock)
     const [challanViewMode, setChallanViewMode] = useState<'challans' | 'item-stock'>('challans');
+    const router = useRouter();
     const [isJobWorkPOModalOpen, setIsJobWorkPOModalOpen] = useState(false);
     const [jobWorkPOInitialChallan, setJobWorkPOInitialChallan] = useState<any | null>(null);
+    const [downloadingPoId, setDownloadingPoId] = useState<string | null>(null);
+
+    const handleOpenOrCreatePO = (challan: any) => {
+        const linkedPoNum = String(challan?.poNumber || '').trim();
+        if (linkedPoNum) {
+            setIsPreviewOpen(false);
+            router.push(`/dashboard/store/wip/job-work/outward-po?poNumber=${encodeURIComponent(linkedPoNum)}&edit=true`);
+            return;
+        }
+        setJobWorkPOInitialChallan(challan);
+        setIsJobWorkPOModalOpen(true);
+    };
+
+    const handleDownloadLinkedPO = async (challan: any) => {
+        const linkedPoNum = String(challan?.poNumber || '').trim();
+        if (!linkedPoNum) return;
+        const rowId = String(challan._id || challan.id || linkedPoNum);
+        setDownloadingPoId(rowId);
+        try {
+            const res = await apiGet('/api/purchase/po?poType=jobwork', token || '');
+            const list = res?.pos || res?.data || (Array.isArray(res) ? res : []);
+            const matchedPO = Array.isArray(list)
+                ? list.find(
+                    (p: any) =>
+                        String(p.poNumber || '').trim().toLowerCase() === linkedPoNum.toLowerCase() ||
+                        (challan._id && String(p.jobWorkChallan?._id || p.jobWorkChallan || '') === String(challan._id))
+                )
+                : null;
+            if (!matchedPO) {
+                await showErrorDialog('PO Not Found', `Linked Job Work PO (${linkedPoNum}) could not be found. It may have been deleted.`);
+                return;
+            }
+            showSuccessToast(`Downloading PO: ${matchedPO.poNumber || linkedPoNum}`);
+            generateDocument('pdf', 'po', { po: matchedPO, companyInfo });
+        } catch (err: any) {
+            await showErrorDialog('Download Failed', err?.message || `Failed to download PO ${linkedPoNum}`);
+        } finally {
+            setDownloadingPoId(null);
+        }
+    };
     const { isApprovalRequired } = useStoreApprovalSettings(token);
 
     // Item-Wise View Filter: Only items with pending balance (> 0)
@@ -273,7 +315,7 @@ export default function JobWorkStore({
             onError(lockMsg);
             return;
         }
-        const confirmMsg = challanNumber 
+        const confirmMsg = challanNumber
             ? `Are you sure you want to delete Returnable DC #${challanNumber}? Outward stock will be safely restored.`
             : 'Are you sure you want to delete this challan? Outward stock will be restored.';
         const confirmed = await showDestructiveConfirm({
@@ -358,8 +400,8 @@ export default function JobWorkStore({
                 isSpaceFreeMatch((c as any).poNumber, term) ||
                 isSpaceFreeMatch(c.vendor?.name, term) ||
                 isSpaceFreeMatch(c.mrpNumber, term) ||
-                (c.items || []).some((it: any) => 
-                    isSpaceFreeMatch(it.itemName, term) || 
+                (c.items || []).some((it: any) =>
+                    isSpaceFreeMatch(it.itemName, term) ||
                     isSpaceFreeMatch(it.description, term) ||
                     isSpaceFreeMatch(it.itemDescription, term)
                 );
@@ -520,15 +562,15 @@ export default function JobWorkStore({
 
     const handleToggleExcelValue = (colKey: 'vendor' | 'purpose' | 'createdBy', val: string) => {
         if (colKey === 'vendor') {
-            setSelectedVendors(prev => 
+            setSelectedVendors(prev =>
                 prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]
             );
         } else if (colKey === 'purpose') {
-            setSelectedPurposes(prev => 
+            setSelectedPurposes(prev =>
                 prev.includes(val) ? prev.filter(p => p !== val) : [...prev, val]
             );
         } else {
-            setSelectedCreators(prev => 
+            setSelectedCreators(prev =>
                 prev.includes(val) ? prev.filter(c => c !== val) : [...prev, val]
             );
         }
@@ -550,24 +592,24 @@ export default function JobWorkStore({
         title: string,
         align: 'left' | 'center' | 'right' = 'left'
     ) => {
-        const isFiltered = colKey === 'vendor' 
-            ? selectedVendors.length > 0 
-            : colKey === 'purpose' 
-                ? selectedPurposes.length > 0 
+        const isFiltered = colKey === 'vendor'
+            ? selectedVendors.length > 0
+            : colKey === 'purpose'
+                ? selectedPurposes.length > 0
                 : selectedCreators.length > 0;
         const isOpen = tableDropdownCol === colKey;
-        const allValues = colKey === 'vendor' 
-            ? uniqueVendorNames 
-            : colKey === 'purpose' 
-                ? uniquePurposeNames 
+        const allValues = colKey === 'vendor'
+            ? uniqueVendorNames
+            : colKey === 'purpose'
+                ? uniquePurposeNames
                 : uniqueCreatorNames;
         const filteredDropdownValues = allValues.filter((v) =>
             v.toLowerCase().includes(tableDropdownSearch.toLowerCase().trim())
         );
-        const selectedValues = colKey === 'vendor' 
-            ? selectedVendors 
-            : colKey === 'purpose' 
-                ? selectedPurposes 
+        const selectedValues = colKey === 'vendor'
+            ? selectedVendors
+            : colKey === 'purpose'
+                ? selectedPurposes
                 : selectedCreators;
         const isAllSelected = selectedValues.length === allValues.length && allValues.length > 0;
 
@@ -587,11 +629,10 @@ export default function JobWorkStore({
                                 setTableDropdownSearch('');
                             }
                         }}
-                        className={`p-1 rounded-md transition-all cursor-pointer ${
-                            isFiltered
-                                ? 'bg-indigo-600 text-white shadow-xs'
-                                : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
-                        }`}
+                        className={`p-1 rounded-md transition-all cursor-pointer ${isFiltered
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
+                            }`}
                         title={`Filter by ${title} (Excel Filter)`}
                     >
                         <Filter size={11} className={isFiltered ? 'fill-current' : ''} />
@@ -825,7 +866,7 @@ export default function JobWorkStore({
             if (onlyPendingBalance && row.balanceQty <= 0) return false;
             if (searchTerm.trim()) {
                 const term = searchTerm.trim();
-                const matches = 
+                const matches =
                     isSpaceFreeMatch(row.itemName, term) ||
                     isSpaceFreeMatch(row.itemDescription, term) ||
                     isSpaceFreeMatch(row.vendorName, term) ||
@@ -928,424 +969,411 @@ export default function JobWorkStore({
     return (
         <div className="animate-in fade-in duration-300 flex flex-col flex-1 min-h-0 gap-3">
             <div className="shrink-0 sticky top-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-md space-y-2.5">
-            {/* Mobile App Header (Top bar for mobile view) */}
-            <div className="sm:hidden space-y-2">
-                <div className="flex items-center justify-between gap-2 bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
-                    {/* Left: Create DC Button */}
-                    <button
-                        onClick={() => handleCreateChallan()}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all shrink-0 cursor-pointer"
-                    >
-                        <Plus size={15} />
-                        <span>Create DC</span>
-                    </button>
+                {/* Mobile App Header (Top bar for mobile view) */}
+                <div className="sm:hidden space-y-2">
+                    <div className="flex items-center justify-between gap-2 bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                        {/* Left: Create DC Button */}
+                        <button
+                            onClick={() => handleCreateChallan()}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all shrink-0 cursor-pointer"
+                        >
+                            <Plus size={15} />
+                            <span>Create DC</span>
+                        </button>
 
-                    {/* Center: Search input */}
-                    <div className="relative flex-1 min-w-0">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
-                        <input
-                            type="text"
-                            placeholder={challanViewMode === 'item-stock' ? "Search items, vendor..." : "Search DC..."}
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full h-8.5 pl-7 pr-6 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none"
-                        />
-                        {searchTerm && (
-                            <button
-                                onClick={() => setSearchTerm('')}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 p-0.5 text-xs font-bold"
-                            >
-                                ✕
-                            </button>
-                        )}
-                    </div>
+                        {/* Center: Search input */}
+                        <div className="relative flex-1 min-w-0">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
+                            <input
+                                type="text"
+                                placeholder={challanViewMode === 'item-stock' ? "Search items, vendor..." : "Search DC..."}
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full h-8.5 pl-7 pr-6 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none"
+                            />
+                            {searchTerm && (
+                                <button
+                                    onClick={() => setSearchTerm('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 p-0.5 text-xs font-bold"
+                                >
+                                    ✕
+                                </button>
+                            )}
+                        </div>
 
-                    {/* Right: Filter Bottom Sheet Trigger */}
-                    <button
-                        onClick={() => setIsMobileFilterOpen(true)}
-                        className={`relative p-2 rounded-xl border transition-all cursor-pointer ${
-                            activeFilterCount > 0
+                        {/* Right: Filter Bottom Sheet Trigger */}
+                        <button
+                            onClick={() => setIsMobileFilterOpen(true)}
+                            className={`relative p-2 rounded-xl border transition-all cursor-pointer ${activeFilterCount > 0
                                 ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300'
                                 : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'
-                        }`}
-                        title="Open Filters"
-                    >
-                        <SlidersHorizontal size={15} />
-                        {activeFilterCount > 0 && (
-                            <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-600 text-white rounded-full text-[9px] font-black flex items-center justify-center">
-                                {activeFilterCount}
-                            </span>
-                        )}
-                    </button>
+                                }`}
+                            title="Open Filters"
+                        >
+                            <SlidersHorizontal size={15} />
+                            {activeFilterCount > 0 && (
+                                <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-600 text-white rounded-full text-[9px] font-black flex items-center justify-center">
+                                    {activeFilterCount}
+                                </span>
+                            )}
+                        </button>
+                    </div>
                 </div>
-            </div>
 
-            {/* Mobile Sub-Tab Switcher (Visible on mobile only) */}
-            <div className="sm:hidden flex items-center justify-between gap-2">
-                <div className="flex bg-gray-100 dark:bg-gray-800/70 p-1 rounded-2xl gap-1 flex-1">
-                    <button
-                        onClick={() => setChallanViewMode('challans')}
-                        className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                            challanViewMode === 'challans'
+                {/* Mobile Sub-Tab Switcher (Visible on mobile only) */}
+                <div className="sm:hidden flex items-center justify-between gap-2">
+                    <div className="flex bg-gray-100 dark:bg-gray-800/70 p-1 rounded-2xl gap-1 flex-1">
+                        <button
+                            onClick={() => setChallanViewMode('challans')}
+                            className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${challanViewMode === 'challans'
                                 ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                                 : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <Truck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                        <span>Challans Register</span>
-                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${
-                            challanViewMode === 'challans'
+                                }`}
+                        >
+                            <Truck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                            <span>Challans Register</span>
+                            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${challanViewMode === 'challans'
                                 ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
                                 : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-                        }`}>
-                            {challans.length}
-                        </span>
-                    </button>
+                                }`}>
+                                {challans.length}
+                            </span>
+                        </button>
 
-                    <button
-                        onClick={() => setChallanViewMode('item-stock')}
-                        className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                            challanViewMode === 'item-stock'
+                        <button
+                            onClick={() => setChallanViewMode('item-stock')}
+                            className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${challanViewMode === 'item-stock'
                                 ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                                 : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <Boxes className="w-3.5 h-3.5 text-amber-500" />
-                        <span>Item-Wise Vendor Stock</span>
-                    </button>
+                                }`}
+                        >
+                            <Boxes className="w-3.5 h-3.5 text-amber-500" />
+                            <span>Item-Wise Vendor Stock</span>
+                        </button>
+                    </div>
                 </div>
-            </div>
 
-            {/* Mobile Quick-Toggle Status Pills (shown when in challans mode) */}
-            {challanViewMode === 'challans' && (
-                        <div className="sm:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-                            {STATUS_OPTIONS.map(st => {
-                                const isChecked = selectedStatuses.includes(st.id);
-                                return (
-                                    <button
-                                        key={st.id}
-                                        type="button"
-                                        onClick={() => toggleStatus(st.id)}
-                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 border cursor-pointer ${
-                                            isChecked
-                                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                                                : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                {/* Mobile Quick-Toggle Status Pills (shown when in challans mode) */}
+                {challanViewMode === 'challans' && (
+                    <div className="sm:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                        {STATUS_OPTIONS.map(st => {
+                            const isChecked = selectedStatuses.includes(st.id);
+                            return (
+                                <button
+                                    key={st.id}
+                                    type="button"
+                                    onClick={() => toggleStatus(st.id)}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 border cursor-pointer ${isChecked
+                                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                                         }`}
-                                    >
-                                        <div className={`w-2 h-2 rounded-full ${isChecked ? 'bg-white' : st.dotColor}`} />
-                                        <span>{st.label}</span>
-                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                                            isChecked ? 'bg-white/20 text-white' : `${st.badgeBg} ${st.badgeText}`
+                                >
+                                    <div className={`w-2 h-2 rounded-full ${isChecked ? 'bg-white' : st.dotColor}`} />
+                                    <span>{st.label}</span>
+                                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${isChecked ? 'bg-white/20 text-white' : `${st.badgeBg} ${st.badgeText}`
                                         }`}>
-                                            {tabCounts[st.id]}
-                                        </span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    )}
+                                        {tabCounts[st.id]}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
 
-                    {/* Desktop Table Header Toolbar: Search + Two Sub-Tabs (Challans Register / Item-Wise Vendor Stock) + Filters + Date Dropdown + Create Button */}
-                    <div className="hidden sm:block bg-white dark:bg-gray-900 p-2.5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                            
-                            {/* Left: Search + Sub-Tabs (Challans Register & Item-Wise Vendor Stock) + Status/Workflow Filters */}
-                            <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
-                                {/* Search Input */}
-                                <div className="relative min-w-[170px] w-52 lg:w-60">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                                    <input
-                                        type="text"
-                                        placeholder={challanViewMode === 'item-stock' ? "Search Item, Desc, Vendor..." : "Search Challan #, PO #, Vendor..."}
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="w-full h-9 pl-9 pr-7 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                    />
-                                    {searchTerm && (
-                                        <button
-                                            onClick={() => setSearchTerm('')}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 cursor-pointer text-xs font-bold"
-                                        >
-                                            ✕
-                                        </button>
-                                    )}
-                                </div>
+                {/* Desktop Table Header Toolbar: Search + Two Sub-Tabs (Challans Register / Item-Wise Vendor Stock) + Filters + Date Dropdown + Create Button */}
+                <div className="hidden sm:block bg-white dark:bg-gray-900 p-2.5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
 
-                                {/* Two Sub-Tabs Next to Search Bar: Challans Register & Item-Wise Vendor Stock */}
-                                <div className="flex items-center bg-gray-100 dark:bg-gray-800/80 p-1 rounded-xl border border-gray-200/70 dark:border-gray-700 gap-1 shrink-0">
+                        {/* Left: Search + Sub-Tabs (Challans Register & Item-Wise Vendor Stock) + Status/Workflow Filters */}
+                        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+                            {/* Search Input */}
+                            <div className="relative min-w-[170px] w-52 lg:w-60">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                                <input
+                                    type="text"
+                                    placeholder={challanViewMode === 'item-stock' ? "Search Item, Desc, Vendor..." : "Search Challan #, PO #, Vendor..."}
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="w-full h-9 pl-9 pr-7 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                />
+                                {searchTerm && (
                                     <button
-                                        type="button"
-                                        onClick={() => setChallanViewMode('challans')}
-                                        className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                                            challanViewMode === 'challans'
-                                                ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-xs'
-                                                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                                        }`}
+                                        onClick={() => setSearchTerm('')}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 cursor-pointer text-xs font-bold"
                                     >
-                                        <Truck size={13} className={challanViewMode === 'challans' ? 'text-white' : 'text-indigo-500'} />
-                                        <span>Challans Register</span>
-                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
-                                            challanViewMode === 'challans'
-                                                ? 'bg-white/20 text-white'
-                                                : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-                                        }`}>
-                                            {challans.length}
-                                        </span>
+                                        ✕
                                     </button>
-
-                                    <button
-                                        type="button"
-                                        onClick={() => setChallanViewMode('item-stock')}
-                                        className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                                            challanViewMode === 'item-stock'
-                                                ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-xs'
-                                                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                                        }`}
-                                    >
-                                        <Boxes size={13} className={challanViewMode === 'item-stock' ? 'text-white' : 'text-amber-500'} />
-                                        <span>Item-Wise Vendor Stock</span>
-                                    </button>
-                                </div>
-
-                                {/* Item-Stock Quick Action Controls */}
-                                {challanViewMode === 'item-stock' && (
-                                    <>
-                                        <button
-                                            type="button"
-                                            onClick={() => setOnlyPendingBalance(!onlyPendingBalance)}
-                                            className={`h-9 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
-                                                onlyPendingBalance 
-                                                    ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300'
-                                                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'
-                                            }`}
-                                            title="Toggle showing only items with pending balance (> 0) or all history"
-                                        >
-                                            <Filter size={12} />
-                                            <span>{onlyPendingBalance ? 'Pending Balance' : 'All History'}</span>
-                                        </button>
-
-                                        <button
-                                            type="button"
-                                            onClick={handleExportItemStockExcel}
-                                            className="h-9 flex items-center gap-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
-                                            title="Export Item-Wise Vendor Stock to Excel"
-                                        >
-                                            <Download size={13} />
-                                            <span>Export Excel</span>
-                                        </button>
-                                    </>
-                                )}
-
-                                {/* Status Multi-Select Dropdown (when in Challans mode) */}
-                                {challanViewMode === 'challans' && (
-                                    <div className="relative" ref={statusDropdownRef}>
-                                        <button
-                                            type="button"
-                                            onClick={() => setIsStatusDropdownOpen(!isStatusDropdownOpen)}
-                                            className={`h-9 px-3 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-                                                isStatusDropdownOpen || selectedStatuses.length > 0
-                                                    ? 'bg-indigo-50/80 border-indigo-200 text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-300'
-                                                    : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'
-                                            }`}
-                                            title="Filter by Challan Status (Multiple selection allowed)"
-                                        >
-                                            <span className="flex items-center gap-1.5">
-                                                <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-                                                <span>Status: {getStatusDropdownLabel()}</span>
-                                            </span>
-                                            <ChevronDown size={14} className={`text-gray-400 transition-transform ${isStatusDropdownOpen ? 'rotate-180' : ''}`} />
-                                        </button>
-
-                                        {/* Dropdown Menu */}
-                                        {isStatusDropdownOpen && (
-                                            <div className="absolute left-0 top-full mt-1.5 z-50 min-w-[250px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-2.5 space-y-1.5 animate-in fade-in zoom-in-95 duration-100">
-                                                <div className="text-[10px] font-bold text-slate-400 uppercase px-1 pb-1 border-b border-slate-100 dark:border-slate-800">
-                                                    Select Status (Multiple Allowed)
-                                                </div>
-
-                                                {STATUS_OPTIONS.map(st => {
-                                                    const isChecked = selectedStatuses.includes(st.id);
-                                                    return (
-                                                        <button
-                                                            key={st.id}
-                                                            type="button"
-                                                            onClick={() => toggleStatus(st.id)}
-                                                            className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                                                isChecked
-                                                                    ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-900 dark:text-indigo-200'
-                                                                    : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
-                                                                }`}
-                                                        >
-                                                            <div className="flex items-center gap-2">
-                                                                <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${
-                                                                    isChecked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
-                                                                }`}>
-                                                                    {isChecked && <Check size={12} strokeWidth={3} />}
-                                                                </div>
-                                                                <div className="flex items-center gap-1.5">
-                                                                    <div className={`w-2 h-2 rounded-full ${st.dotColor}`} />
-                                                                    <span>{st.label}</span>
-                                                                </div>
-                                                            </div>
-                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${st.badgeBg} ${st.badgeText}`}>
-                                                                {tabCounts[st.id]}
-                                                            </span>
-                                                        </button>
-                                                    );
-                                                })}
-
-                                                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] px-1 font-bold">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setSelectedStatuses(['active', 'overdue', 'received'])}
-                                                        className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-                                                    >
-                                                        Select All
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setSelectedStatuses(['active'])}
-                                                        className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
-                                                    >
-                                                        Reset to Active
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Workflow Type Selector (when in Challans mode) */}
-                                {challanViewMode === 'challans' && (
-                                    <select
-                                        value={workflowFilter}
-                                        onChange={(e) => setWorkflowFilter(e.target.value as any)}
-                                        className="h-9 px-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[165px] truncate"
-                                    >
-                                        <option value="all">📦 All DC Types</option>
-                                        <option value="store-conversion">🏭 Store Conversion</option>
-                                        <option value="store-to-wip">🔄 Store to WIP</option>
-                                        <option value="wip-to-wip">📦 WIP to WIP (Coating)</option>
-                                        <option value="route-card">⚙️ Route-Card Op</option>
-                                    </select>
                                 )}
                             </div>
 
-                            {/* Right: Date Mode Dropdown + Dynamic Date Picker + Live Count + Create Returnable DC Button */}
-                            <div className="flex flex-wrap items-center gap-2">
-                                {/* Date-Wise Filter Mode Dropdown (Day / Month / Year) + Picker Input */}
-                                <div className="flex items-center gap-1 bg-gray-50 dark:bg-gray-800/80 px-1.5 py-0.5 rounded-xl border border-gray-200 dark:border-gray-700">
-                                    <select
-                                        value={filterMode}
-                                        onChange={(e) => { setFilterMode(e.target.value as any); setFilterDate(''); }}
-                                        className="h-8 px-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-bold text-indigo-700 dark:text-indigo-300 focus:outline-none cursor-pointer"
-                                        title="Select Date Filter Mode (Day / Month / Year)"
-                                    >
-                                        <option value="daily">📅 Day</option>
-                                        <option value="monthly">🗓️ Month</option>
-                                        <option value="yearly">📆 Year</option>
-                                    </select>
-
-                                    {renderDateFilterInput()}
-
-                                    {filterDate && (
-                                        <button
-                                            onClick={() => setFilterDate('')}
-                                            className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors cursor-pointer text-xs font-bold"
-                                            title="Clear date filter"
-                                        >
-                                            ✕
-                                        </button>
-                                    )}
-                                </div>
-
-                                {/* Total Count Badge */}
-                                <div className="h-9 px-3 flex items-center text-xs font-bold text-gray-600 dark:text-gray-300 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/60 whitespace-nowrap">
-                                    Total: <span className="text-indigo-700 dark:text-indigo-300 font-black ml-1.5">
-                                        {challanViewMode === 'item-stock' ? filteredItemStock.length : filteredChallans.length}
-                                    </span>
-                                </div>
-
-                                {/* Create Job Work PO Button */}
+                            {/* Two Sub-Tabs Next to Search Bar: Challans Register & Item-Wise Vendor Stock */}
+                            <div className="flex items-center bg-gray-100 dark:bg-gray-800/80 p-1 rounded-xl border border-gray-200/70 dark:border-gray-700 gap-1 shrink-0">
                                 <button
                                     type="button"
-                                    onClick={() => {
-                                        setJobWorkPOInitialChallan(null);
-                                        setIsJobWorkPOModalOpen(true);
-                                    }}
-                                    className="h-9 flex items-center justify-center gap-1.5 px-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                                    onClick={() => setChallanViewMode('challans')}
+                                    className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${challanViewMode === 'challans'
+                                        ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-xs'
+                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                                        }`}
                                 >
-                                    <Plus size={14} />
-                                    <span>Create Job Work PO</span>
+                                    <Truck size={13} className={challanViewMode === 'challans' ? 'text-white' : 'text-indigo-500'} />
+                                    <span>Challans Register</span>
+                                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${challanViewMode === 'challans'
+                                        ? 'bg-white/20 text-white'
+                                        : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                                        }`}>
+                                        {challans.length}
+                                    </span>
                                 </button>
 
-                                {/* Primary Action Button: Create Returnable DC */}
                                 <button
-                                    onClick={() => handleCreateChallan()}
-                                    className="h-9 flex items-center justify-center gap-1.5 px-3.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                                    type="button"
+                                    onClick={() => setChallanViewMode('item-stock')}
+                                    className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${challanViewMode === 'item-stock'
+                                        ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-xs'
+                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                                        }`}
                                 >
-                                    <Plus size={14} />
-                                    <span>Create Returnable DC</span>
+                                    <Boxes size={13} className={challanViewMode === 'item-stock' ? 'text-white' : 'text-amber-500'} />
+                                    <span>Item-Wise Vendor Stock</span>
                                 </button>
                             </div>
 
-                        </div>
-                    </div>
+                            {/* Item-Stock Quick Action Controls */}
+                            {challanViewMode === 'item-stock' && (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => setOnlyPendingBalance(!onlyPendingBalance)}
+                                        className={`h-9 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${onlyPendingBalance
+                                            ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+                                            : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'
+                                            }`}
+                                        title="Toggle showing only items with pending balance (> 0) or all history"
+                                    >
+                                        <Filter size={12} />
+                                        <span>{onlyPendingBalance ? 'Pending Balance' : 'All History'}</span>
+                                    </button>
 
-                    {/* Active Excel Column Filters Banner */}
-                    {(selectedVendors.length > 0 || selectedPurposes.length > 0 || selectedCreators.length > 0) && (
-                        <div className="px-3.5 py-2 bg-indigo-50/80 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between text-xs animate-in fade-in">
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
-                                    <Filter size={12} className="text-indigo-600 dark:text-indigo-400" />
-                                    Active Table Filters:
-                                </span>
-                                {selectedVendors.length > 0 && (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 font-semibold text-[11px]">
-                                        <span>Vendor: {selectedVendors.length === 1 ? selectedVendors[0] : `${selectedVendors.length} selected`}</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setSelectedVendors([])}
-                                            className="hover:text-red-500 cursor-pointer ml-0.5 font-bold"
-                                        >
-                                            ✕
-                                        </button>
-                                    </span>
-                                )}
-                                {selectedPurposes.length > 0 && (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 font-semibold text-[11px]">
-                                        <span>Purpose: {selectedPurposes.length === 1 ? selectedPurposes[0] : `${selectedPurposes.length} selected`}</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setSelectedPurposes([])}
-                                            className="hover:text-red-500 cursor-pointer ml-0.5 font-bold"
-                                        >
-                                            ✕
-                                        </button>
-                                    </span>
-                                )}
-                                {selectedCreators.length > 0 && (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 font-semibold text-[11px]">
-                                        <span>Created By: {selectedCreators.length === 1 ? selectedCreators[0] : `${selectedCreators.length} selected`}</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setSelectedCreators([])}
-                                            className="hover:text-red-500 cursor-pointer ml-0.5 font-bold"
-                                        >
-                                            ✕
-                                        </button>
-                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={handleExportItemStockExcel}
+                                        className="h-9 flex items-center gap-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                                        title="Export Item-Wise Vendor Stock to Excel"
+                                    >
+                                        <Download size={13} />
+                                        <span>Export Excel</span>
+                                    </button>
+                                </>
+                            )}
+
+                            {/* Status Multi-Select Dropdown (when in Challans mode) */}
+                            {challanViewMode === 'challans' && (
+                                <div className="relative" ref={statusDropdownRef}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsStatusDropdownOpen(!isStatusDropdownOpen)}
+                                        className={`h-9 px-3 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${isStatusDropdownOpen || selectedStatuses.length > 0
+                                            ? 'bg-indigo-50/80 border-indigo-200 text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-300'
+                                            : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'
+                                            }`}
+                                        title="Filter by Challan Status (Multiple selection allowed)"
+                                    >
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+                                            <span>Status: {getStatusDropdownLabel()}</span>
+                                        </span>
+                                        <ChevronDown size={14} className={`text-gray-400 transition-transform ${isStatusDropdownOpen ? 'rotate-180' : ''}`} />
+                                    </button>
+
+                                    {/* Dropdown Menu */}
+                                    {isStatusDropdownOpen && (
+                                        <div className="absolute left-0 top-full mt-1.5 z-50 min-w-[250px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-2.5 space-y-1.5 animate-in fade-in zoom-in-95 duration-100">
+                                            <div className="text-[10px] font-bold text-slate-400 uppercase px-1 pb-1 border-b border-slate-100 dark:border-slate-800">
+                                                Select Status (Multiple Allowed)
+                                            </div>
+
+                                            {STATUS_OPTIONS.map(st => {
+                                                const isChecked = selectedStatuses.includes(st.id);
+                                                return (
+                                                    <button
+                                                        key={st.id}
+                                                        type="button"
+                                                        onClick={() => toggleStatus(st.id)}
+                                                        className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${isChecked
+                                                            ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-900 dark:text-indigo-200'
+                                                            : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                                            }`}
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${isChecked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                                                                }`}>
+                                                                {isChecked && <Check size={12} strokeWidth={3} />}
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5">
+                                                                <div className={`w-2 h-2 rounded-full ${st.dotColor}`} />
+                                                                <span>{st.label}</span>
+                                                            </div>
+                                                        </div>
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${st.badgeBg} ${st.badgeText}`}>
+                                                            {tabCounts[st.id]}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })}
+
+                                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] px-1 font-bold">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedStatuses(['active', 'overdue', 'received'])}
+                                                    className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                                >
+                                                    Select All
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedStatuses(['active'])}
+                                                    className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                                                >
+                                                    Reset to Active
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Workflow Type Selector (when in Challans mode) */}
+                            {challanViewMode === 'challans' && (
+                                <select
+                                    value={workflowFilter}
+                                    onChange={(e) => setWorkflowFilter(e.target.value as any)}
+                                    className="h-9 px-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[165px] truncate"
+                                >
+                                    <option value="all">📦 All DC Types</option>
+                                    <option value="store-conversion">🏭 Store Conversion</option>
+                                    <option value="store-to-wip">🔄 Store to WIP</option>
+                                    <option value="wip-to-wip">📦 WIP to WIP (Coating)</option>
+                                    <option value="route-card">⚙️ Route-Card Op</option>
+                                </select>
+                            )}
+                        </div>
+
+                        {/* Right: Date Mode Dropdown + Dynamic Date Picker + Live Count + Create Returnable DC Button */}
+                        <div className="flex flex-wrap items-center gap-2">
+                            {/* Date-Wise Filter Mode Dropdown (Day / Month / Year) + Picker Input */}
+                            <div className="flex items-center gap-1 bg-gray-50 dark:bg-gray-800/80 px-1.5 py-0.5 rounded-xl border border-gray-200 dark:border-gray-700">
+                                <select
+                                    value={filterMode}
+                                    onChange={(e) => { setFilterMode(e.target.value as any); setFilterDate(''); }}
+                                    className="h-8 px-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-bold text-indigo-700 dark:text-indigo-300 focus:outline-none cursor-pointer"
+                                    title="Select Date Filter Mode (Day / Month / Year)"
+                                >
+                                    <option value="daily">📅 Day</option>
+                                    <option value="monthly">🗓️ Month</option>
+                                    <option value="yearly">📆 Year</option>
+                                </select>
+
+                                {renderDateFilterInput()}
+
+                                {filterDate && (
+                                    <button
+                                        onClick={() => setFilterDate('')}
+                                        className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors cursor-pointer text-xs font-bold"
+                                        title="Clear date filter"
+                                    >
+                                        ✕
+                                    </button>
                                 )}
                             </div>
+
+                            {/* Total Count Badge */}
+                            <div className="h-9 px-3 flex items-center text-xs font-bold text-gray-600 dark:text-gray-300 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/60 whitespace-nowrap">
+                                Total: <span className="text-indigo-700 dark:text-indigo-300 font-black ml-1.5">
+                                    {challanViewMode === 'item-stock' ? filteredItemStock.length : filteredChallans.length}
+                                </span>
+                            </div>
+
+                            {/* Create Job Work PO Button */}
                             <button
                                 type="button"
-                                onClick={() => { setSelectedVendors([]); setSelectedPurposes([]); setSelectedCreators([]); }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                                onClick={() => {
+                                    setJobWorkPOInitialChallan(null);
+                                    setIsJobWorkPOModalOpen(true);
+                                }}
+                                className="h-9 flex items-center justify-center gap-1.5 px-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
                             >
-                                <RotateCcw size={11} /> Clear Filters
+                                <Plus size={14} />
+                                <span>Create Job Work PO</span>
+                            </button>
+
+                            {/* Primary Action Button: Create Returnable DC */}
+                            <button
+                                onClick={() => handleCreateChallan()}
+                                className="h-9 flex items-center justify-center gap-1.5 px-3.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                            >
+                                <Plus size={14} />
+                                <span>Create Returnable DC</span>
                             </button>
                         </div>
-                    )}
+
+                    </div>
+                </div>
+
+                {/* Active Excel Column Filters Banner */}
+                {(selectedVendors.length > 0 || selectedPurposes.length > 0 || selectedCreators.length > 0) && (
+                    <div className="px-3.5 py-2 bg-indigo-50/80 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between text-xs animate-in fade-in">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                                <Filter size={12} className="text-indigo-600 dark:text-indigo-400" />
+                                Active Table Filters:
+                            </span>
+                            {selectedVendors.length > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 font-semibold text-[11px]">
+                                    <span>Vendor: {selectedVendors.length === 1 ? selectedVendors[0] : `${selectedVendors.length} selected`}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedVendors([])}
+                                        className="hover:text-red-500 cursor-pointer ml-0.5 font-bold"
+                                    >
+                                        ✕
+                                    </button>
+                                </span>
+                            )}
+                            {selectedPurposes.length > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 font-semibold text-[11px]">
+                                    <span>Purpose: {selectedPurposes.length === 1 ? selectedPurposes[0] : `${selectedPurposes.length} selected`}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedPurposes([])}
+                                        className="hover:text-red-500 cursor-pointer ml-0.5 font-bold"
+                                    >
+                                        ✕
+                                    </button>
+                                </span>
+                            )}
+                            {selectedCreators.length > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 font-semibold text-[11px]">
+                                    <span>Created By: {selectedCreators.length === 1 ? selectedCreators[0] : `${selectedCreators.length} selected`}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedCreators([])}
+                                        className="hover:text-red-500 cursor-pointer ml-0.5 font-bold"
+                                    >
+                                        ✕
+                                    </button>
+                                </span>
+                            )}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => { setSelectedVendors([]); setSelectedPurposes([]); setSelectedCreators([]); }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                        >
+                            <RotateCcw size={11} /> Clear Filters
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Content Logic: High-Density ERP Data Table */}
@@ -1437,11 +1465,10 @@ export default function JobWorkStore({
                                                     {row.totalReceivedQty.toLocaleString()}
                                                 </td>
                                                 <td className="px-4 py-3 text-right bg-amber-50/40 dark:bg-amber-950/20">
-                                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-black inline-block ${
-                                                        row.balanceQty > 0
-                                                            ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border border-amber-300 dark:border-amber-800'
-                                                            : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
-                                                    }`}>
+                                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-black inline-block ${row.balanceQty > 0
+                                                        ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border border-amber-300 dark:border-amber-800'
+                                                        : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                                        }`}>
                                                         {row.balanceQty.toLocaleString()} {row.unit}
                                                     </span>
                                                 </td>
@@ -1482,11 +1509,10 @@ export default function JobWorkStore({
                                                     </div>
                                                 </td>
                                                 <td className="px-3.5 py-3 text-center whitespace-nowrap">
-                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                                        row.balanceQty > 0
-                                                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                                            : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                                    }`}>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${row.balanceQty > 0
+                                                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                                        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                                        }`}>
                                                         {row.balanceQty > 0 ? 'Pending' : 'Cleared'}
                                                     </span>
                                                 </td>
@@ -1534,11 +1560,10 @@ export default function JobWorkStore({
                                                 {row.vendorCity && <span className="text-slate-400">({row.vendorCity})</span>}
                                             </div>
                                         </div>
-                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black shrink-0 ${
-                                            row.balanceQty > 0
-                                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                                : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                        }`}>
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black shrink-0 ${row.balanceQty > 0
+                                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                            : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                            }`}>
                                             {row.balanceQty > 0 ? 'Pending' : 'Cleared'}
                                         </span>
                                     </div>
@@ -1693,18 +1718,17 @@ export default function JobWorkStore({
                                                         </div>
                                                         <div className="flex flex-wrap items-center gap-1">
                                                             {/* DC Type Badge */}
-                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold border ${
-                                                                challan.jobWorkType === 'route-card'
-                                                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border-purple-200 dark:border-purple-800'
-                                                                    : challan.jobWorkType === 'store-to-wip'
-                                                                        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                                                                        : challan.jobWorkType === 'wip-to-wip'
-                                                                            ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
-                                                                            : 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800'
-                                                            }`}>
+                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold border ${challan.jobWorkType === 'route-card'
+                                                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                                                                : challan.jobWorkType === 'store-to-wip'
+                                                                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                                                    : challan.jobWorkType === 'wip-to-wip'
+                                                                        ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                                                                        : 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800'
+                                                                }`}>
                                                                 {challan.jobWorkType === 'route-card' ? 'Route-Card' :
-                                                                 challan.jobWorkType === 'store-to-wip' ? 'Store ➔ WIP' :
-                                                                 challan.jobWorkType === 'wip-to-wip' ? 'WIP ➔ WIP' : 'RM Conv.'}
+                                                                    challan.jobWorkType === 'store-to-wip' ? 'Store ➔ WIP' :
+                                                                        challan.jobWorkType === 'wip-to-wip' ? 'WIP ➔ WIP' : 'RM Conv.'}
                                                             </span>
 
                                                             {/* Purpose Badge */}
@@ -1730,11 +1754,20 @@ export default function JobWorkStore({
                                                                 </span>
                                                             )}
 
-                                                            {/* Attached Outward PO Number */}
+                                                            {/* Attached Outward PO Number (Click to open/edit in PO Tab) */}
                                                             {(challan as any).poNumber && (
-                                                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800" title={`Linked Outward PO: ${(challan as any).poNumber}`}>
-                                                                    PO: {(challan as any).poNumber}
-                                                                </span>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleOpenOrCreatePO(challan);
+                                                                    }}
+                                                                    className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                                                    title={`Open & edit Linked Outward PO: ${(challan as any).poNumber}`}
+                                                                >
+                                                                    <span>PO: {(challan as any).poNumber}</span>
+                                                                    <ExternalLink size={9} />
+                                                                </button>
                                                             )}
                                                         </div>
                                                     </div>
@@ -1756,9 +1789,15 @@ export default function JobWorkStore({
                                                 <td className="px-3.5 py-3 text-xs">
                                                     <div className="flex flex-col items-start gap-1">
                                                         {(challan as any).poNumber && (
-                                                            <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded text-[11px] font-mono font-bold">
-                                                                PO: {(challan as any).poNumber}
-                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleOpenOrCreatePO(challan)}
+                                                                className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-600 dark:bg-emerald-950/60 text-emerald-700 hover:text-white dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded text-[11px] font-mono font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                                                title={`Open & edit Linked PO ${(challan as any).poNumber} in Job Work PO tab`}
+                                                            >
+                                                                <span>PO: {(challan as any).poNumber}</span>
+                                                                <ExternalLink size={10} />
+                                                            </button>
                                                         )}
                                                         {challan.mrpNumber && (
                                                             <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded text-[11px] font-mono font-bold">
@@ -1790,20 +1829,18 @@ export default function JobWorkStore({
                                                         Sent: {formatDateTime(challan.date)}
                                                     </div>
                                                     {challan.expectedReturnDate && (
-                                                        <div className={`text-[11px] font-semibold mt-0.5 flex items-center gap-1 ${
-                                                            isOverdue ? 'text-red-600 font-bold' : 'text-slate-500'
-                                                        }`}>
+                                                        <div className={`text-[11px] font-semibold mt-0.5 flex items-center gap-1 ${isOverdue ? 'text-red-600 font-bold' : 'text-slate-500'
+                                                            }`}>
                                                             {isOverdue && <AlertTriangle size={11} className="text-red-500 shrink-0" />}
                                                             Due: {formatDateTime(challan.expectedReturnDate)}
                                                         </div>
                                                     )}
                                                     <div className="mt-1">
-                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
-                                                            challan.status === 'Open' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${challan.status === 'Open' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
                                                             challan.status === 'Partial' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
-                                                            challan.status === 'Closed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
-                                                            'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
-                                                        }`}>
+                                                                challan.status === 'Closed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                                                                    'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+                                                            }`}>
                                                             {challan.status}
                                                         </span>
                                                     </div>
@@ -1823,9 +1860,9 @@ export default function JobWorkStore({
                                                 <td className="px-4 py-3 text-right whitespace-nowrap">
                                                     <div className="flex justify-end items-center gap-1.5">
                                                         {/* Preview Action */}
-                                                        <button 
-                                                            onClick={() => openPreview(challan)} 
-                                                            className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800" 
+                                                        <button
+                                                            onClick={() => openPreview(challan)}
+                                                            className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800"
                                                             title="Preview Challan (Outward & Inward Items, Details, PDF)"
                                                         >
                                                             <Eye size={14} />
@@ -1833,9 +1870,9 @@ export default function JobWorkStore({
 
                                                         {/* Mark Return / Receive Action */}
                                                         {challan.status !== 'Closed' && (
-                                                            <button 
-                                                                onClick={() => openReceiveModal(challan)} 
-                                                                className="px-2.5 py-1.5 bg-gray-900 hover:bg-black text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-xs cursor-pointer" 
+                                                            <button
+                                                                onClick={() => openReceiveModal(challan)}
+                                                                className="px-2.5 py-1.5 bg-gray-900 hover:bg-black text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-xs cursor-pointer"
                                                                 title="Mark Received / Return Items"
                                                             >
                                                                 <Truck size={13} />
@@ -1843,22 +1880,37 @@ export default function JobWorkStore({
                                                             </button>
                                                         )}
 
-                                                        {/* Create / Link Job Work PO */}
-                                                        <button 
-                                                            onClick={() => {
-                                                                setJobWorkPOInitialChallan(challan);
-                                                                setIsJobWorkPOModalOpen(true);
-                                                            }}
-                                                            className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors cursor-pointer border border-emerald-200 dark:border-emerald-800" 
-                                                            title="Create Job Work PO from this Challan"
-                                                        >
-                                                            <FileText size={14} />
-                                                        </button>
+                                                        {/* Create Job Work PO OR Download Existing Linked PO (with PO# hover tooltip) */}
+                                                        {(challan as any).poNumber ? (
+                                                            <div className="relative group/po inline-flex">
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={downloadingPoId === String(challan._id || (challan as any).poNumber)}
+                                                                    onClick={() => handleDownloadLinkedPO(challan)}
+                                                                    className="px-2 py-1.5 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-600 hover:text-white rounded-lg transition-colors cursor-pointer border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1 text-[11px] font-bold disabled:opacity-60"
+                                                                    title={`Download PO: ${(challan as any).poNumber}`}
+                                                                >
+                                                                    <Download size={12} className={downloadingPoId === String(challan._id || (challan as any).poNumber) ? 'animate-bounce' : ''} />
+                                                                    <span>{downloadingPoId === String(challan._id || (challan as any).poNumber) ? 'Loading...' : 'Download PO'}</span>
+                                                                </button>
+                                                                <div className="pointer-events-none opacity-0 group-hover/po:opacity-100 transition-opacity duration-150 absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-slate-800 text-white text-[10px] font-mono font-bold whitespace-nowrap shadow-lg border border-slate-700 z-30">
+                                                                    PO: {(challan as any).poNumber}
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => handleOpenOrCreatePO(challan)}
+                                                                className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors cursor-pointer border border-emerald-200 dark:border-emerald-800"
+                                                                title="Create Job Work PO from this Challan"
+                                                            >
+                                                                <FileText size={14} />
+                                                            </button>
+                                                        )}
 
                                                         {/* Direct Print PDF */}
-                                                        <button 
-                                                            onClick={() => exportChallanToPDF(challan)} 
-                                                            className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer border border-blue-200 dark:border-blue-800" 
+                                                        <button
+                                                            onClick={() => exportChallanToPDF(challan)}
+                                                            className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer border border-blue-200 dark:border-blue-800"
                                                             title="Download PDF"
                                                         >
                                                             <FileText size={14} />
@@ -1868,7 +1920,7 @@ export default function JobWorkStore({
                                                         {isActionable ? (
                                                             <div className="flex items-center gap-1 shrink-0 ml-0.5">
                                                                 {remainingSecs === Infinity ? (
-                                                                    <span 
+                                                                    <span
                                                                         title="Unlimited editing window configured by company policy"
                                                                         className="px-2 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-xl font-mono text-[10px] font-bold border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1 shrink-0"
                                                                     >
@@ -1876,7 +1928,7 @@ export default function JobWorkStore({
                                                                         Unlimited
                                                                     </span>
                                                                 ) : (
-                                                                    <span 
+                                                                    <span
                                                                         title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
                                                                         className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
                                                                     >
@@ -1885,24 +1937,24 @@ export default function JobWorkStore({
                                                                     </span>
                                                                 )}
 
-                                                                <button 
-                                                                    onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} 
-                                                                    className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer border border-blue-200 dark:border-blue-800" 
+                                                                <button
+                                                                    onClick={() => { setPrefillData(challan); setIsFormOpen(true); }}
+                                                                    className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer border border-blue-200 dark:border-blue-800"
                                                                     title={`Edit Returnable DC (${formatRemainingTime(remainingSecs)} left)`}
                                                                 >
                                                                     <Edit2 size={13} />
                                                                 </button>
 
-                                                                <button 
-                                                                    onClick={() => handleDelete(challan._id, challan.challanNumber, challan.createdAt || challan.date)} 
-                                                                    className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer border border-rose-200 dark:border-rose-800" 
+                                                                <button
+                                                                    onClick={() => handleDelete(challan._id, challan.challanNumber, challan.createdAt || challan.date)}
+                                                                    className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer border border-rose-200 dark:border-rose-800"
                                                                     title={`Delete Returnable DC (${formatRemainingTime(remainingSecs)} left)`}
                                                                 >
                                                                     <Trash2 size={13} />
                                                                 </button>
                                                             </div>
                                                         ) : (
-                                                            <span 
+                                                            <span
                                                                 title={challan.status === 'Closed' ? 'Challan is fully closed and locked' : `Action window expired (${getPolicyHours('jobWorkChallan')}h limit)`}
                                                                 className="px-2 py-1 bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 rounded-xl text-[10px] font-semibold inline-flex items-center gap-1 border border-slate-200 dark:border-slate-700"
                                                             >
@@ -1968,8 +2020,8 @@ export default function JobWorkStore({
                                 <div key={challan._id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col gap-3">
                                     <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-2">
                                         <div>
-                                            <span 
-                                                onClick={() => openPreview(challan)} 
+                                            <span
+                                                onClick={() => openPreview(challan)}
                                                 className="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-bold block mb-0.5 cursor-pointer hover:underline"
                                             >
                                                 DC #{challan.challanNumber}
@@ -1986,11 +2038,10 @@ export default function JobWorkStore({
                                             </h4>
                                         </div>
                                         <div className="flex flex-col items-end gap-1">
-                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                                challan.status === 'Open' ? 'bg-blue-100 text-blue-800' :
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${challan.status === 'Open' ? 'bg-blue-100 text-blue-800' :
                                                 challan.status === 'Partial' ? 'bg-amber-100 text-amber-800' :
-                                                challan.status === 'Closed' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                                            }`}>
+                                                    challan.status === 'Closed' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                                }`}>
                                                 {challan.status}
                                             </span>
                                             {challan.mrpNumber && (
@@ -1999,9 +2050,15 @@ export default function JobWorkStore({
                                                 </span>
                                             )}
                                             {(challan as any).poNumber && (
-                                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
-                                                    PO: {(challan as any).poNumber}
-                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleOpenOrCreatePO(challan)}
+                                                    className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 inline-flex items-center gap-1 cursor-pointer"
+                                                    title={`Open & edit PO: ${(challan as any).poNumber}`}
+                                                >
+                                                    <span>PO: {(challan as any).poNumber}</span>
+                                                    <ExternalLink size={9} />
+                                                </button>
                                             )}
                                         </div>
                                     </div>
@@ -2031,25 +2088,44 @@ export default function JobWorkStore({
                                     {/* Mobile Actions */}
                                     <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
                                         <div className="flex items-center gap-1">
-                                            <button 
-                                                onClick={() => openPreview(challan)} 
+                                            <button
+                                                onClick={() => openPreview(challan)}
                                                 className="px-2.5 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 flex items-center gap-1 cursor-pointer"
                                             >
                                                 <Eye size={13} /> Preview
                                             </button>
-                                            <button 
-                                                onClick={() => exportChallanToPDF(challan)} 
+                                            <button
+                                                onClick={() => exportChallanToPDF(challan)}
                                                 className="p-1.5 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 cursor-pointer"
-                                                title="PDF"
+                                                title="Download Challan PDF"
                                             >
                                                 <FileText size={13} />
                                             </button>
+                                            {(challan as any).poNumber ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDownloadLinkedPO(challan)}
+                                                    className="px-2 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-600 hover:text-white flex items-center gap-1 cursor-pointer border border-emerald-200"
+                                                    title={`Download PO: ${(challan as any).poNumber}`}
+                                                >
+                                                    <Download size={12} /> PO
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleOpenOrCreatePO(challan)}
+                                                    className="px-2 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 flex items-center gap-1 cursor-pointer border border-emerald-200"
+                                                    title="Create Job Work PO"
+                                                >
+                                                    <Plus size={12} /> PO
+                                                </button>
+                                            )}
                                         </div>
 
                                         <div className="flex items-center gap-1.5">
                                             {challan.status !== 'Closed' && (
-                                                <button 
-                                                    onClick={() => openReceiveModal(challan)} 
+                                                <button
+                                                    onClick={() => openReceiveModal(challan)}
                                                     className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xs"
                                                 >
                                                     <Truck size={13} /> Return
@@ -2068,14 +2144,14 @@ export default function JobWorkStore({
                                                             {formatRemainingTime(remainingSecs)}
                                                         </span>
                                                     )}
-                                                    <button 
-                                                        onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} 
+                                                    <button
+                                                        onClick={() => { setPrefillData(challan); setIsFormOpen(true); }}
                                                         className="p-1.5 text-blue-600 bg-blue-50 rounded-lg cursor-pointer"
                                                     >
                                                         <Edit2 size={12} />
                                                     </button>
-                                                    <button 
-                                                        onClick={() => handleDelete(challan._id, challan.challanNumber, challan.createdAt || challan.date)} 
+                                                    <button
+                                                        onClick={() => handleDelete(challan._id, challan.challanNumber, challan.createdAt || challan.date)}
                                                         className="p-1.5 text-rose-600 bg-rose-50 rounded-lg cursor-pointer"
                                                     >
                                                         <Trash2 size={12} />
@@ -2098,7 +2174,7 @@ export default function JobWorkStore({
             {/* Mobile Filter Bottom-Sheet Drawer */}
             {isMobileFilterOpen && (
                 <div className="sm:hidden fixed inset-0 z-[200] flex flex-col justify-end bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-                    <div 
+                    <div
                         className="fixed inset-0"
                         onClick={() => setIsMobileFilterOpen(false)}
                     />
@@ -2134,16 +2210,14 @@ export default function JobWorkStore({
                                             key={st.id}
                                             type="button"
                                             onClick={() => toggleStatus(st.id)}
-                                            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                                                isChecked
-                                                    ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-200'
-                                                    : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                                            }`}
+                                            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${isChecked
+                                                ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-200'
+                                                : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                                                }`}
                                         >
                                             <div className="flex items-center gap-2">
-                                                <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${
-                                                    isChecked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
-                                                }`}>
+                                                <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${isChecked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                                                    }`}>
                                                     {isChecked && <Check size={12} strokeWidth={3} />}
                                                 </div>
                                                 <div className="flex items-center gap-1.5">
@@ -2363,11 +2437,10 @@ export default function JobWorkStore({
                                         key={type.id}
                                         type="button"
                                         onClick={() => { setFilterMode(type.id as any); setFilterDate(''); }}
-                                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                                            filterMode === type.id
-                                                ? 'bg-indigo-600 text-white'
-                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                                        }`}
+                                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${filterMode === type.id
+                                            ? 'bg-indigo-600 text-white'
+                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                                            }`}
                                     >
                                         {type.label}
                                     </button>
@@ -2452,8 +2525,7 @@ export default function JobWorkStore({
                     onReceive={(c) => { setIsPreviewOpen(false); openReceiveModal(c); }}
                     onDelete={(id) => { setIsPreviewOpen(false); handleDelete(id, previewChallan.challanNumber); }}
                     onCreatePO={(c) => {
-                        setJobWorkPOInitialChallan(c);
-                        setIsJobWorkPOModalOpen(true);
+                        handleOpenOrCreatePO(c);
                     }}
                 />
             )}

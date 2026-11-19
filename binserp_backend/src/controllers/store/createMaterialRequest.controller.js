@@ -11,6 +11,7 @@ import { componentSchema } from "../../models/ppc/index.js";
 import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { userSchema } from "../../models/user/index.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { validateAndResolveDualUomQuantities } from "../../utils/dualUomHelper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -146,26 +147,10 @@ export const createMaterialRequest = async (req, res) => {
           });
         }
 
-        const hasSec = Boolean(item.hasSecondaryUnit ?? doc?.hasSecondaryUnit ?? false);
-        const secUnit = item.secondaryUnit || doc?.secondaryUnit || '';
-        const convFactor = Number(item.conversionFactor ?? doc?.conversionFactor ?? 1);
-        const selectedUnit = item.selectedUnit || item.unit || doc?.unit || 'PCS';
-        let priQty = Number(item.quantity) || 0;
-        let secQty = Number(item.secondaryQuantity) || 0;
-
-        if (hasSec && convFactor > 0) {
-          if (selectedUnit === secUnit && (!priQty || priQty === 0) && secQty > 0) {
-            priQty = Number((secQty / convFactor).toFixed(2));
-          } else if ((!secQty || secQty === 0) && priQty > 0) {
-            secQty = Math.round(priQty * convFactor);
-          }
-        }
-        if (!priQty) priQty = 1;
-        priQty = Number(Number(priQty).toFixed(2));
-        if (!secQty && hasSec && convFactor > 0) secQty = Math.round(priQty * convFactor);
-
+        const resolvedUnits = validateAndResolveDualUomQuantities(item, doc, "PCS");
         const curStock = Number(item.currentStock ?? doc?.quantity ?? 0);
-        const secCurStock = hasSec ? (curStock * convFactor) : 0;
+        const secCurStock = resolvedUnits.hasSec ? (curStock * resolvedUnits.convFactor) : 0;
+        const desc = doc?.descriptions || doc?.description || item.materialDescription || '';
 
         processedItems.push({
           consumable: doc?._id || validId || undefined,
@@ -173,15 +158,20 @@ export const createMaterialRequest = async (req, res) => {
           itemType: 'Consumable',
           materialName: doc?.name || cleanName || 'Consumable Item',
           materialCode: doc?.code || item.materialCode || '',
-          quantity: priQty,
-          unit: doc?.unit || item.unit || 'PCS',
+          materialDescription: desc,
+          quantity: resolvedUnits.priQty,
+          unit: resolvedUnits.primaryUnit,
           currentStock: curStock,
-          hasSecondaryUnit: hasSec,
-          secondaryUnit: secUnit,
-          conversionFactor: convFactor,
-          secondaryQuantity: secQty,
-          selectedUnit: selectedUnit,
+          hasSecondaryUnit: resolvedUnits.hasSec,
+          secondaryUnit: resolvedUnits.secUnit,
+          conversionFactor: resolvedUnits.convFactor,
+          primaryRatio: Number(item.primaryRatio ?? doc?.primaryRatio ?? 1),
+          secondaryRatio: Number(item.secondaryRatio ?? doc?.secondaryRatio ?? 1),
+          secondaryQuantity: resolvedUnits.secQty,
+          selectedUnit: resolvedUnits.selectedUnit,
           secondaryCurrentStock: secCurStock,
+          issuedQuantity: 0,
+          pendingQuantity: resolvedUnits.priQty,
           purpose: item.purpose || ''
         });
       } else if (isFG) {
@@ -204,26 +194,10 @@ export const createMaterialRequest = async (req, res) => {
           }
         }
 
-        const hasSec = Boolean(item.hasSecondaryUnit ?? doc?.hasSecondaryUnit ?? false);
-        const secUnit = item.secondaryUnit || doc?.secondaryUnit || '';
-        const convFactor = Number(item.conversionFactor ?? doc?.conversionFactor ?? 1);
-        const selectedUnit = item.selectedUnit || item.unit || doc?.unit || 'Nos';
-        let priQty = Number(item.quantity) || 0;
-        let secQty = Number(item.secondaryQuantity) || 0;
-
-        if (hasSec && convFactor > 0) {
-          if (selectedUnit === secUnit && (!priQty || priQty === 0) && secQty > 0) {
-            priQty = Number((secQty / convFactor).toFixed(2));
-          } else if ((!secQty || secQty === 0) && priQty > 0) {
-            secQty = Math.round(priQty * convFactor);
-          }
-        }
-        if (!priQty) priQty = 1;
-        priQty = Number(Number(priQty).toFixed(2));
-        if (!secQty && hasSec && convFactor > 0) secQty = Math.round(priQty * convFactor);
-
+        const resolvedUnits = validateAndResolveDualUomQuantities(item, doc, "Nos");
         const curStock = Number(item.currentStock ?? doc?.quantity ?? 0);
-        const secCurStock = hasSec ? (curStock * convFactor) : 0;
+        const secCurStock = resolvedUnits.hasSec ? (curStock * resolvedUnits.convFactor) : 0;
+        const desc = doc?.description || doc?.descriptions || item.materialDescription || '';
 
         processedItems.push({
           fgItem: doc?._id || validId || undefined,
@@ -232,15 +206,20 @@ export const createMaterialRequest = async (req, res) => {
           itemType: 'FG Item',
           materialName: doc?.name || cleanName || 'FG Item',
           materialCode: doc?.code || item.materialCode || '',
-          quantity: priQty,
-          unit: doc?.unit || item.unit || 'Nos',
+          materialDescription: desc,
+          quantity: resolvedUnits.priQty,
+          unit: resolvedUnits.primaryUnit,
           currentStock: curStock,
-          hasSecondaryUnit: hasSec,
-          secondaryUnit: secUnit,
-          conversionFactor: convFactor,
-          secondaryQuantity: secQty,
-          selectedUnit: selectedUnit,
+          hasSecondaryUnit: resolvedUnits.hasSec,
+          secondaryUnit: resolvedUnits.secUnit,
+          conversionFactor: resolvedUnits.convFactor,
+          primaryRatio: Number(item.primaryRatio ?? doc?.primaryRatio ?? 1),
+          secondaryRatio: Number(item.secondaryRatio ?? doc?.secondaryRatio ?? 1),
+          secondaryQuantity: resolvedUnits.secQty,
+          selectedUnit: resolvedUnits.selectedUnit,
           secondaryCurrentStock: secCurStock,
+          issuedQuantity: 0,
+          pendingQuantity: resolvedUnits.priQty,
           purpose: item.purpose || ''
         });
       } else if (isBO) {
@@ -264,41 +243,31 @@ export const createMaterialRequest = async (req, res) => {
           }
         }
 
-        const hasSec = Boolean(item.hasSecondaryUnit ?? doc?.hasSecondaryUnit ?? false);
-        const secUnit = item.secondaryUnit || doc?.secondaryUnit || '';
-        const convFactor = Number(item.conversionFactor ?? doc?.conversionFactor ?? 1);
-        const selectedUnit = item.selectedUnit || item.unit || doc?.unit || 'PCS';
-        let priQty = Number(item.quantity) || 0;
-        let secQty = Number(item.secondaryQuantity) || 0;
-
-        if (hasSec && convFactor > 0) {
-          if (selectedUnit === secUnit && (!priQty || priQty === 0) && secQty > 0) {
-            priQty = Number((secQty / convFactor).toFixed(2));
-          } else if ((!secQty || secQty === 0) && priQty > 0) {
-            secQty = Math.round(priQty * convFactor);
-          }
-        }
-        if (!priQty) priQty = 1;
-        priQty = Number(Number(priQty).toFixed(2));
-        if (!secQty && hasSec && convFactor > 0) secQty = Math.round(priQty * convFactor);
-
+        const resolvedUnits = validateAndResolveDualUomQuantities(item, doc, "PCS");
         const curStock = Number(item.currentStock ?? doc?.quantity ?? doc?.minimumStock ?? 0);
-        const secCurStock = hasSec ? (curStock * convFactor) : 0;
+        const secCurStock = resolvedUnits.hasSec ? (curStock * resolvedUnits.convFactor) : 0;
+        const desc = doc?.descriptions || doc?.description || item.materialDescription || '';
 
         processedItems.push({
           material: doc?._id || validId || undefined,
+          boughtOut: doc?._id || validId || undefined,
           itemType: 'Bought Out',
           materialName: doc?.name || cleanName || 'Bought Out Item',
           materialCode: doc?.code || item.materialCode || '',
-          quantity: priQty,
-          unit: doc?.unit || item.unit || 'PCS',
+          materialDescription: desc,
+          quantity: resolvedUnits.priQty,
+          unit: resolvedUnits.primaryUnit,
           currentStock: curStock,
-          hasSecondaryUnit: hasSec,
-          secondaryUnit: secUnit,
-          conversionFactor: convFactor,
-          secondaryQuantity: secQty,
-          selectedUnit: selectedUnit,
+          hasSecondaryUnit: resolvedUnits.hasSec,
+          secondaryUnit: resolvedUnits.secUnit,
+          conversionFactor: resolvedUnits.convFactor,
+          primaryRatio: Number(item.primaryRatio ?? doc?.primaryRatio ?? 1),
+          secondaryRatio: Number(item.secondaryRatio ?? doc?.secondaryRatio ?? 1),
+          secondaryQuantity: resolvedUnits.secQty,
+          selectedUnit: resolvedUnits.selectedUnit,
           secondaryCurrentStock: secCurStock,
+          issuedQuantity: 0,
+          pendingQuantity: resolvedUnits.priQty,
           purpose: item.purpose || ''
         });
       } else {
@@ -322,41 +291,31 @@ export const createMaterialRequest = async (req, res) => {
           }
         }
 
-        const hasSec = Boolean(item.hasSecondaryUnit ?? doc?.hasSecondaryUnit ?? false);
-        const secUnit = item.secondaryUnit || doc?.secondaryUnit || '';
-        const convFactor = Number(item.conversionFactor ?? doc?.conversionFactor ?? 1);
-        const selectedUnit = item.selectedUnit || item.unit || doc?.unit || 'KG';
-        let priQty = Number(item.quantity) || 0;
-        let secQty = Number(item.secondaryQuantity) || 0;
-
-        if (hasSec && convFactor > 0) {
-          if (selectedUnit === secUnit && (!priQty || priQty === 0) && secQty > 0) {
-            priQty = Number((secQty / convFactor).toFixed(2));
-          } else if ((!secQty || secQty === 0) && priQty > 0) {
-            secQty = Math.round(priQty * convFactor);
-          }
-        }
-        if (!priQty) priQty = 1;
-        priQty = Number(Number(priQty).toFixed(2));
-        if (!secQty && hasSec && convFactor > 0) secQty = Math.round(priQty * convFactor);
-
+        const resolvedUnits = validateAndResolveDualUomQuantities(item, doc, "KG");
         const curStock = Number(item.currentStock ?? doc?.quantity ?? doc?.minimumStock ?? 0);
-        const secCurStock = hasSec ? (curStock * convFactor) : 0;
+        const secCurStock = resolvedUnits.hasSec ? (curStock * resolvedUnits.convFactor) : 0;
+        const desc = doc?.descriptions || doc?.description || item.materialDescription || '';
 
         processedItems.push({
           material: doc?._id || validId || undefined,
+          rawMaterial: doc?._id || validId || undefined,
           itemType: 'Raw Material',
           materialName: doc?.name || cleanName || 'Raw Material',
           materialCode: doc?.code || item.materialCode || '',
-          quantity: priQty,
-          unit: doc?.unit || item.unit || 'KG',
+          materialDescription: desc,
+          quantity: resolvedUnits.priQty,
+          unit: resolvedUnits.primaryUnit,
           currentStock: curStock,
-          hasSecondaryUnit: hasSec,
-          secondaryUnit: secUnit,
-          conversionFactor: convFactor,
-          secondaryQuantity: secQty,
-          selectedUnit: selectedUnit,
+          hasSecondaryUnit: resolvedUnits.hasSec,
+          secondaryUnit: resolvedUnits.secUnit,
+          conversionFactor: resolvedUnits.convFactor,
+          primaryRatio: Number(item.primaryRatio ?? doc?.primaryRatio ?? 1),
+          secondaryRatio: Number(item.secondaryRatio ?? doc?.secondaryRatio ?? 1),
+          secondaryQuantity: resolvedUnits.secQty,
+          selectedUnit: resolvedUnits.selectedUnit,
           secondaryCurrentStock: secCurStock,
+          issuedQuantity: 0,
+          pendingQuantity: resolvedUnits.priQty,
           purpose: item.purpose || ''
         });
       }

@@ -424,8 +424,6 @@ export const createMaterialIssue = async (req, res) => {
           return res.status(400).json({ message: `Material not found: ${cleanName || 'Unknown'}` });
         }
 
-        const resolvedUnits = resolveDualUnitQuantities(item, materialDoc, "PCS");
-
         const rawTypeStr = (item.itemType || item.type || detectedType || '').toLowerCase();
         const codeUpper = (item.materialCode || materialDoc?.code || '').toUpperCase();
         let determinedItemType = 'Raw Material';
@@ -433,12 +431,23 @@ export const createMaterialIssue = async (req, res) => {
           determinedItemType = 'Bought Out';
         }
 
+        const defaultUnit = determinedItemType === 'Bought Out' ? "PCS" : "KG";
+        const resolvedUnits = resolveDualUnitQuantities({
+          ...item,
+          itemType: determinedItemType
+        }, materialDoc, defaultUnit);
+
+        const desc = materialDoc?.descriptions || materialDoc?.description || item.materialDescription || '';
+
         processedItems.push({
           ...item,
           material: resolvedMaterialId,
+          rawMaterial: determinedItemType === 'Raw Material' ? resolvedMaterialId : undefined,
+          boughtOut: determinedItemType === 'Bought Out' ? resolvedMaterialId : undefined,
           itemType: determinedItemType,
           materialCode: materialDoc?.code || item.materialCode || '',
           materialName: materialDoc?.name || cleanName || 'Material',
+          materialDescription: desc,
           quantity: resolvedUnits.priQty,
           unit: resolvedUnits.primaryUnit,
           hasSecondaryUnit: resolvedUnits.hasSec,

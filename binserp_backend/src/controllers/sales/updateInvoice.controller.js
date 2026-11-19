@@ -29,47 +29,56 @@ export const updateInvoice = async (req, res) => {
     }
 
     const isLinkedToDC = !!(existingInvoice.deliveryChallan || existingInvoice.dcNumber || existingInvoice.isLinkedToDC || existingInvoice.deliveryChallanId);
+    const wasStockDeducted = !isLinkedToDC && existingInvoice.status !== "Cancelled";
+    const nextStatus = req.body.status || existingInvoice.status || "Draft";
+    const shouldDeductNext = !isLinkedToDC && nextStatus !== "Cancelled";
+    const itemsToDeduct = Array.isArray(req.body.items) ? req.body.items : existingInvoice.items;
 
-    // 1. Stock Adjustment for direct invoices
-    if (!isLinkedToDC && Array.isArray(req.body.items)) {
-      // Step A: Reverse previous items stock
-      if (Array.isArray(existingInvoice.items) && existingInvoice.items.length > 0) {
+    // 1. Stock Adjustment for direct invoices (with Monthly Flow & Stock Transaction History sync)
+    if (wasStockDeducted || shouldDeductNext) {
+      // Step A: Reverse previous items stock if it was deducted
+      if (wasStockDeducted && Array.isArray(existingInvoice.items) && existingInvoice.items.length > 0) {
         await reverseSalesItemsStock(req, existingInvoice.items, {
           companyId,
           refDocType: "Invoice",
           refDocId: existingInvoice._id,
           refDocNumber: existingInvoice.invoiceNumber,
           recipientName: existingInvoice.customerName || "Customer",
-          performedBy: userId
+          performedBy: userId,
+          docDate: existingInvoice.date || existingInvoice.createdAt,
+          actionType: nextStatus === "Cancelled" ? "cancel" : "edit"
         });
       }
 
-      // Step B: Validate available stock for updated items
-      const validation = await validateSalesItemsStock(req, req.body.items, companyId);
-      if (!validation.valid) {
-        // Re-apply previous items stock if validation fails
-        if (Array.isArray(existingInvoice.items) && existingInvoice.items.length > 0) {
-          await deductSalesItemsStock(req, existingInvoice.items, {
-            companyId,
-            refDocType: "Invoice",
-            refDocId: existingInvoice._id,
-            refDocNumber: existingInvoice.invoiceNumber,
-            recipientName: existingInvoice.customerName || "Customer",
-            performedBy: userId
-          });
+      // Step B & C: Validate and deduct updated items stock
+      if (shouldDeductNext && Array.isArray(itemsToDeduct) && itemsToDeduct.length > 0) {
+        const validation = await validateSalesItemsStock(req, itemsToDeduct, companyId);
+        if (!validation.valid) {
+          // Re-apply previous items stock if validation fails
+          if (wasStockDeducted && Array.isArray(existingInvoice.items) && existingInvoice.items.length > 0) {
+            await deductSalesItemsStock(req, existingInvoice.items, {
+              companyId,
+              refDocType: "Invoice",
+              refDocId: existingInvoice._id,
+              refDocNumber: existingInvoice.invoiceNumber,
+              recipientName: existingInvoice.customerName || "Customer",
+              performedBy: userId,
+              docDate: existingInvoice.date || existingInvoice.createdAt
+            });
+          }
+          return res.status(400).json({ message: validation.message });
         }
-        return res.status(400).json({ message: validation.message });
-      }
 
-      // Step C: Deduct updated items stock
-      await deductSalesItemsStock(req, req.body.items, {
-        companyId,
-        refDocType: "Invoice",
-        refDocId: existingInvoice._id,
-        refDocNumber: req.body.invoiceNumber || existingInvoice.invoiceNumber,
-        recipientName: req.body.customerName || existingInvoice.customerName || "Customer",
-        performedBy: userId
-      });
+        await deductSalesItemsStock(req, itemsToDeduct, {
+          companyId,
+          refDocType: "Invoice",
+          refDocId: existingInvoice._id,
+          refDocNumber: req.body.invoiceNumber || existingInvoice.invoiceNumber,
+          recipientName: req.body.customerName || existingInvoice.customerName || "Customer",
+          performedBy: userId,
+          docDate: req.body.date || existingInvoice.date || existingInvoice.createdAt
+        });
+      }
     }
 
     // 2. Customer PO Sync
@@ -184,10 +193,25 @@ export const updateInvoice = async (req, res) => {
       ? Boolean(req.body.isRoundOff) 
       : (existingInvoice.isRoundOff !== undefined ? existingInvoice.isRoundOff : true);
     const roundingMode = req.body.roundingMode || existingInvoice.roundingMode || (isRoundOffEnabled ? 'nearest' : 'none');
+    const itemsList = Array.isArray(req.body.items) ? req.body.items : (existingInvoice.items || []);
     const subtotal = Number(req.body.subtotal !== undefined ? req.body.subtotal : (existingInvoice.subtotal || 0));
-    const taxAmount = Number(req.body.taxAmount !== undefined ? req.body.taxAmount : (existingInvoice.taxAmount || 0));
     const transport = Number(req.body.transportationCharges !== undefined ? req.body.transportationCharges : (existingInvoice.transportationCharges || 0));
     const packaging = Number(req.body.packagingCharges !== undefined ? req.body.packagingCharges : (existingInvoice.packagingCharges || 0));
+    const isTransportTaxable = req.body.isTransportTaxable !== undefined ? Boolean(req.body.isTransportTaxable) : Boolean(existingInvoice.isTransportTaxable);
+    const transportTaxRate = Number(req.body.transportTaxRate !== undefined ? req.body.transportTaxRate : (existingInvoice.transportTaxRate ?? 18));
+    const transportTaxAmount = isTransportTaxable ? parseFloat(((transport * transportTaxRate) / 100).toFixed(2)) : 0;
+    const isPackagingTaxable = req.body.isPackagingTaxable !== undefined ? Boolean(req.body.isPackagingTaxable) : Boolean(existingInvoice.isPackagingTaxable);
+    const packagingTaxRate = Number(req.body.packagingTaxRate !== undefined ? req.body.packagingTaxRate : (existingInvoice.packagingTaxRate ?? 18));
+    const packagingTaxAmount = isPackagingTaxable ? parseFloat(((packaging * packagingTaxRate) / 100).toFixed(2)) : 0;
+    const itemsTax = itemsList.reduce((sum, it) => {
+      const lineAmt = Number(it.amount) || (Number(it.quantity || 0) * Number(it.rate || 0));
+      return sum + (it.taxAmount !== undefined ? Number(it.taxAmount || 0) : (lineAmt * Number(it.taxRate || 0)) / 100);
+    }, 0);
+    const taxAmount = Number(req.body.taxAmount !== undefined ? req.body.taxAmount : parseFloat((itemsTax + transportTaxAmount + packagingTaxAmount).toFixed(2)));
+    const gstSupplyType = (req.body.gstSupplyType || existingInvoice.gstSupplyType) === "inter" ? "inter" : "intra";
+    const cgstAmount = gstSupplyType === "intra" ? parseFloat((taxAmount / 2).toFixed(2)) : 0;
+    const sgstAmount = gstSupplyType === "intra" ? parseFloat((taxAmount - cgstAmount).toFixed(2)) : 0;
+    const igstAmount = gstSupplyType === "inter" ? parseFloat(taxAmount.toFixed(2)) : 0;
     const discount = Number(req.body.discount !== undefined ? req.body.discount : (existingInvoice.discount || 0));
 
     const rounding = computeProfessionalTotalWithRoundOff({
@@ -204,6 +228,18 @@ export const updateInvoice = async (req, res) => {
       id,
       {
         ...req.body,
+        subtotal,
+        taxAmount,
+        gstSupplyType,
+        cgstAmount,
+        sgstAmount,
+        igstAmount,
+        isTransportTaxable,
+        transportTaxRate,
+        transportTaxAmount,
+        isPackagingTaxable,
+        packagingTaxRate,
+        packagingTaxAmount,
         preRoundTotal: rounding.preRoundTotal,
         isRoundOff: rounding.isRoundOffEnabled,
         roundOff: rounding.roundOff,

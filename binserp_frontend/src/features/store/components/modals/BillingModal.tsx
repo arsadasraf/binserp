@@ -16,7 +16,7 @@ import {
     X, Plus, Trash2, Package, User, Calendar, Hash, FileText, Truck,
     Calculator, IndianRupee, CheckCircle2, AlertTriangle, Cog, Layers,
     FlaskConical, RefreshCw, ArrowRightLeft, DollarSign, ShoppingCart, Info,
-    Building2, CreditCard, RotateCcw
+    Building2, CreditCard, RotateCcw, Eye
 } from "lucide-react";
 import { BillingModalProps, RmBoItem, CompanyInfo } from "@/src/features/store/types/store.types";
 import SearchableSelect, { SearchableOption } from "../SearchableSelect";
@@ -83,9 +83,14 @@ export default function BillingModal({
 
     const [transportationType, setTransportationType] = useState("Road Transport");
     const [transportationCharges, setTransportationCharges] = useState(0);
+    const [isTransportTaxable, setIsTransportTaxable] = useState(false);
+    const [transportTaxRate, setTransportTaxRate] = useState(18);
     const [vehicleNumber, setVehicleNumber] = useState("");
     const [packagingType, setPackagingType] = useState("Standard Packaging");
     const [packagingCharges, setPackagingCharges] = useState(0);
+    const [isPackagingTaxable, setIsPackagingTaxable] = useState(false);
+    const [packagingTaxRate, setPackagingTaxRate] = useState(18);
+    const [gstSupplyType, setGstSupplyType] = useState<"intra" | "inter">("intra");
     const [discount, setDiscount] = useState(0);
     const [otherDetails, setOtherDetails] = useState("");
     const [status, setStatus] = useState("Draft");
@@ -93,6 +98,12 @@ export default function BillingModal({
     const [isRoundOffEnabled, setIsRoundOffEnabled] = useState<boolean>(true);
     const [roundingMode, setRoundingMode] = useState<RoundingMode>('nearest');
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+    const [submitError, setSubmitError] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    // On-demand Customer PO items preview & selective fetch state
+    const [showPoItemsPreview, setShowPoItemsPreview] = useState(false);
+    const [selectedPoItemKeys, setSelectedPoItemKeys] = useState<string[]>([]);
 
     // Purchase Mode 3-Way Matching State (Unbilled GRNs & Job Work Returns)
     const [unbilledDocs, setUnbilledDocs] = useState<{ grns: any[]; jobWorks: any[] }>({ grns: [], jobWorks: [] });
@@ -205,14 +216,11 @@ export default function BillingModal({
     const [customerPOs, setCustomerPOs] = useState<any[]>([]);
     const [isLoadingCustomerPOs, setIsLoadingCustomerPOs] = useState(false);
 
-    // Item options cache per category & selected items cache
-    const [categoryInitialOptions, setCategoryInitialOptions] = useState<Record<ItemCategoryType, SearchableOption[]>>({
-        fg: [],
-        rm: [],
-        bo: [],
-        consumable: []
-    });
+    // Unified all-material search state (FG, RM, BO, Consumables — no category switcher needed)
+    const [initialItemOptions, setInitialItemOptions] = useState<SearchableOption[]>([]);
     const itemDetailsCacheRef = useRef<Map<string, any>>(new Map());
+    const searchCacheRef = useRef<Map<string, SearchableOption[]>>(new Map());
+    const searchAbortRef = useRef<AbortController | null>(null);
 
     const clearError = (key: string) => {
         setFormErrors(prev => {
@@ -247,91 +255,81 @@ export default function BillingModal({
         return `INV/${year}${month}${day}-${hours}${mins}`;
     };
 
-    // Fast keyword search using backend search endpoint
-    const searchItemsAsync = useCallback(async (type: ItemCategoryType, query: string): Promise<SearchableOption[]> => {
+    // Performance-optimized unified keyword search across FG, RM, BO, and Consumables
+    const searchItemsAsync = useCallback(async (query: string): Promise<SearchableOption[]> => {
+        const cleanQ = (query || '').trim().toLowerCase();
+        const cachedResults = searchCacheRef.current.get(cleanQ);
+        if (cachedResults) return cachedResults;
+
+        if (searchAbortRef.current) {
+            searchAbortRef.current.abort();
+        }
+        const controller = new AbortController();
+        searchAbortRef.current = controller;
+
+        const formatTypeBadge = (cat?: string) => {
+            const c = (cat || 'fg').toLowerCase();
+            if (c === 'rm') return 'RM';
+            if (c === 'bo') return 'BO';
+            if (c === 'consumable') return 'Consumable';
+            return 'FG';
+        };
+
         try {
-            const res = await apiRequest(`/api/store/items/search?type=${type}&query=${encodeURIComponent(query)}&limit=30`);
+            const res = await apiRequest(
+                `/api/store/items/search?type=all&lite=1&query=${encodeURIComponent(query)}&limit=36&_t=${Date.now()}`,
+                { signal: controller.signal }
+            );
             if (!res.ok) return [];
             const data = await res.json();
             const fetched = (data.items || []).map((item: any) => {
                 const descStr = item.description || item.descriptions || '';
+                const cat = (item.itemCategory || 'fg').toLowerCase() as ItemCategoryType;
+                const stockVal = item.currentStock !== undefined ? Number(item.currentStock) : 0;
+                const unitStr = item.unit || 'PCS';
                 const option: SearchableOption = {
                     value: String(item.value || item._id),
-                    label: descStr ? `${item.name} — ${descStr}` : item.name,
+                    label: item.name,
                     description: descStr,
-                    code: item.code || '',
+                    code: '',
                     name: item.name,
-                    unit: item.unit || 'PCS',
+                    unit: unitStr,
                     hsnCode: item.hsnCode || '',
-                    currentStock: item.currentStock !== undefined ? item.currentStock : (item.quantity || 0),
+                    currentStock: stockVal,
                     rate: Number(item.rate || item.price || item.sellingPrice || 0),
-                    badge: item.badge,
-                    subBadge: item.subBadge,
+                    badge: formatTypeBadge(cat),
+                    subBadge: stockVal > 0 ? `Stock: ${stockVal} ${unitStr}` : 'Out of Stock',
+                    itemCategory: cat,
                     rawItem: item
                 };
                 itemDetailsCacheRef.current.set(String(option.value), option);
                 return option;
             });
+            searchCacheRef.current.set(cleanQ, fetched);
             return fetched;
-        } catch (err) {
-            console.error("Error searching store items:", err);
+        } catch (err: any) {
+            if (err?.name === 'AbortError') return [];
+            console.warn("Error searching store items:", err?.message || err);
             return [];
         }
     }, []);
 
-    // Preload top 30 items for category if not already loaded
-    const preloadCategoryOptions = useCallback(async (category: ItemCategoryType) => {
-        if (categoryInitialOptions[category]?.length > 0) return;
-        const initial = await searchItemsAsync(category, "");
-        setCategoryInitialOptions(prev => ({
-            ...prev,
-            [category]: initial
-        }));
-    }, [categoryInitialOptions, searchItemsAsync]);
+    // Load fresh balanced top items (FG + RM + BO + Consumable) with live stock on modal open
+    const preloadAllOptions = useCallback(async () => {
+        searchCacheRef.current.clear();
+        const initial = await searchItemsAsync("");
+        setInitialItemOptions(initial);
+    }, [searchItemsAsync]);
 
-    // Preload default category on modal open
+    // Preload unified options when modal opens
     useEffect(() => {
         if (isOpen) {
-            preloadCategoryOptions(invoiceMaterialType);
+            preloadAllOptions();
         }
-    }, [isOpen, invoiceMaterialType, preloadCategoryOptions]);
-
-    // Top-Level Material Category Switcher: Only one type of material per invoice
-    const handleInvoiceMaterialTypeChange = async (newType: ItemCategoryType) => {
-        if (newType === invoiceMaterialType) return;
-
-        const hasEnteredData = items.some(i => i.materialName || i.fgItem || i.rawMaterial || i.boughtOut || i.consumableItem);
-        if (hasEnteredData) {
-            const confirmed = await showConfirmDialog({
-                title: "Switch Material Category?",
-                text: `Switching material category to ${newType.toUpperCase()} will reset all current line items, as only one material type can be invoiced at once. Proceed?`,
-                confirmButtonText: "Yes, Switch",
-                confirmButtonColor: "#f59e0b"
-            });
-            if (!confirmed) return;
-        }
-
-        setInvoiceMaterialType(newType);
-        preloadCategoryOptions(newType);
-
-        // Reset items to single blank row with the new material type
-        setItems([{
-            itemType: newType,
-            fgItem: "",
-            rawMaterial: "",
-            boughtOut: "",
-            consumableItem: "",
-            materialName: "",
-            hsnCode: "",
-            quantity: 1,
-            unit: newType === 'rm' ? 'KGS' : 'PCS',
-            rate: 0,
-            amount: 0,
-            taxRate: globalTaxRate || 18,
-            taxAmount: 0,
-            description: ""
-        }]);
-    };
+        return () => {
+            if (searchAbortRef.current) searchAbortRef.current.abort();
+        };
+    }, [isOpen, preloadAllOptions]);
 
     // Fetch customer open POs when customer is selected
     const fetchOpenCustomerPOs = useCallback(async (customerId: string) => {
@@ -389,13 +387,22 @@ export default function BillingModal({
         if (cust) {
             setCustomerName(cust.name || cust.customerName || cust.companyName || cust.vendorName || "");
             setCustomerAddress(cust.address || cust.billingAddress || "");
-            setCustomerGST(cust.gstNumber || cust.gstin || "");
+            const nextCustGst = (cust.gstNumber || cust.gstin || "").trim().toUpperCase();
+            setCustomerGST(nextCustGst);
+
+            // Auto-suggest Intra-State vs Inter-State based on GST state code (first 2 digits)
+            const compGst = (resolvedCompany?.gstin || resolvedCompany?.gstNumber || resolvedCompany?.gst || "").trim().toUpperCase();
+            if (/^\d{2}/.test(compGst) && /^\d{2}/.test(nextCustGst)) {
+                setGstSupplyType(compGst.slice(0, 2) === nextCustGst.slice(0, 2) ? "intra" : "inter");
+            }
         } else {
             setCustomerName("");
             setCustomerAddress("");
             setCustomerGST("");
         }
         setCustomerPoReference("");
+        setShowPoItemsPreview(false);
+        setSelectedPoItemKeys([]);
         clearError("customer");
         if (isPurchase) {
             setSelectedGrnId("");
@@ -451,7 +458,6 @@ export default function BillingModal({
                 if (shouldImport) {
                     const grnMatType: ItemCategoryType = selectedGrn.type === 'bo' ? 'bo' : (selectedGrn.type === 'fg' ? 'fg' : 'rm');
                     setInvoiceMaterialType(grnMatType);
-                    preloadCategoryOptions(grnMatType);
 
                     const populatedRows: InvoiceItemEntry[] = unbilledItems.map(({ item, remaining }: any) => {
                         const rate = Number(item.unitPrice || item.rate || 0);
@@ -469,7 +475,7 @@ export default function BillingModal({
                                 description: desc,
                                 unit: item.unit || "PCS",
                                 hsnCode: item.hsnCode || "",
-                                currentStock: 999
+                                currentStock: undefined
                             });
                         }
 
@@ -487,7 +493,7 @@ export default function BillingModal({
                             taxRate: globalTaxRate || 18,
                             taxAmount: taxAmt,
                             description: desc,
-                            availableStock: 999
+                            availableStock: undefined
                         };
                     });
 
@@ -522,81 +528,94 @@ export default function BillingModal({
         }
     };
 
-    // Handle Customer PO Selection & Auto-fill line items
-    const handleCustomerPoSelect = async (poNumber: string) => {
-        setCustomerPoReference(poNumber);
-        if (!poNumber) return;
+    // Selected PO unbilled items memo (for on-demand Preview & Fetch — never auto-overwrites by default)
+    const selectedPoUnbilledItems = useMemo(() => {
+        if (!customerPoReference) return [];
+        const selectedPO = customerPOs.find(p => p.poNumber === customerPoReference);
+        if (!selectedPO || !Array.isArray(selectedPO.items)) return [];
 
-        const selectedPO = customerPOs.find(p => p.poNumber === poNumber);
-        if (!selectedPO || !Array.isArray(selectedPO.items)) return;
-
-        // Extract items with unbilled quantities
-        const unbilledItems = selectedPO.items
-            .map((poItem: any) => {
+        return selectedPO.items
+            .map((poItem: any, idx: number) => {
                 const orderedQty = Number(poItem.quantity || 0);
                 const billedQty = Number(poItem.billedQuantity || 0);
                 const remainingQty = Math.max(0, orderedQty - billedQty);
-                return { poItem, remainingQty };
+                const key = String(poItem._id || idx);
+                return { key, poItem, orderedQty, billedQty, remainingQty };
             })
-            .filter((entry: { poItem: any; remainingQty: number }) => entry.remainingQty > 0);
+            .filter((entry: { remainingQty: number }) => entry.remainingQty > 0);
+    }, [customerPoReference, customerPOs]);
 
-        if (unbilledItems.length > 0) {
-            const isDefaultBlank = items.length === 1 && !items[0].materialName && !items[0].fgItem && !items[0].rawMaterial;
-            let shouldImport = isDefaultBlank;
-            if (!shouldImport) {
-                shouldImport = await showConfirmDialog({
-                    title: "Import PO Line Items?",
-                    text: `Import ${unbilledItems.length} remaining line item(s) from Customer PO ${poNumber}?`,
-                    confirmButtonText: "Yes, Import",
-                    confirmButtonColor: "#4f46e5"
-                });
-            }
-            if (shouldImport) {
-                // PO items are Finished Goods
-                setInvoiceMaterialType('fg');
-                preloadCategoryOptions('fg');
+    // Handle Customer PO Selection (links PO without auto-fetching items by default)
+    const handleCustomerPoSelect = (poNumber: string) => {
+        setCustomerPoReference(poNumber);
+        setShowPoItemsPreview(false);
 
-                const populatedRows: InvoiceItemEntry[] = unbilledItems.map(({ poItem, remainingQty }: { poItem: any; remainingQty: number }) => {
-                    const rate = Number(poItem.rate || poItem.pricePerQuantity || 0);
-                    const amt = remainingQty * rate;
-                    const taxAmt = amt * ((globalTaxRate || 18) / 100);
-                    const desc = poItem.description || poItem.fgItem?.description || poItem.descriptions || "";
-                    const name = poItem.productName || poItem.fgItem?.name || "Product Item";
-                    const fgId = poItem.fgItem?._id || poItem.fgItem || "";
-
-                    if (fgId) {
-                        itemDetailsCacheRef.current.set(String(fgId), {
-                            value: String(fgId),
-                            label: desc ? `${name} — ${desc}` : name,
-                            name,
-                            description: desc,
-                            unit: poItem.unit || "PCS",
-                            hsnCode: poItem.hsnCode || poItem.fgItem?.hsnCode || "",
-                            currentStock: 999
-                        });
-                    }
-
-                    return {
-                        itemType: 'fg',
-                        poItemId: poItem._id,
-                        fgItem: fgId || undefined,
-                        materialName: name,
-                        itemCode: poItem.code || poItem.fgItem?.code || "",
-                        hsnCode: poItem.hsnCode || poItem.fgItem?.hsnCode || "",
-                        quantity: remainingQty,
-                        unit: poItem.unit || "PCS",
-                        rate,
-                        amount: amt,
-                        taxRate: globalTaxRate || 18,
-                        taxAmount: taxAmt,
-                        description: desc,
-                        availableStock: 999
-                    };
-                });
-
-                setItems(populatedRows);
-            }
+        if (!poNumber) {
+            setSelectedPoItemKeys([]);
+            return;
         }
+
+        const selectedPO = customerPOs.find(p => p.poNumber === poNumber);
+        if (selectedPO && Array.isArray(selectedPO.items)) {
+            const keys = selectedPO.items
+                .map((poItem: any, idx: number) => {
+                    const remaining = Math.max(0, Number(poItem.quantity || 0) - Number(poItem.billedQuantity || 0));
+                    return remaining > 0 ? String(poItem._id || idx) : null;
+                })
+                .filter(Boolean) as string[];
+            setSelectedPoItemKeys(keys);
+        } else {
+            setSelectedPoItemKeys([]);
+        }
+    };
+
+    // On-demand fetch of selected PO items into the Invoice line item list
+    const handleFetchSelectedPoItems = () => {
+        const toImport = selectedPoUnbilledItems.filter((entry: any) => selectedPoItemKeys.includes(entry.key));
+        if (toImport.length === 0) return;
+
+        setInvoiceMaterialType('fg');
+
+        const populatedRows: InvoiceItemEntry[] = toImport.map(({ poItem, remainingQty }: { poItem: any; remainingQty: number }) => {
+            const rate = Number(poItem.rate || poItem.pricePerQuantity || 0);
+            const amt = remainingQty * rate;
+            const taxAmt = amt * ((globalTaxRate || 18) / 100);
+            const desc = poItem.description || poItem.fgItem?.description || poItem.descriptions || "";
+            const name = poItem.productName || poItem.fgItem?.name || "Product Item";
+            const fgId = poItem.fgItem?._id || poItem.fgItem || "";
+
+            if (fgId) {
+                itemDetailsCacheRef.current.set(String(fgId), {
+                    value: String(fgId),
+                    label: name,
+                    name,
+                    description: desc,
+                    unit: poItem.unit || "PCS",
+                    hsnCode: poItem.hsnCode || poItem.fgItem?.hsnCode || "",
+                    currentStock: poItem.fgItem?.quantity !== undefined ? Number(poItem.fgItem.quantity) : undefined
+                });
+            }
+
+            return {
+                itemType: 'fg',
+                poItemId: poItem._id,
+                fgItem: fgId || undefined,
+                materialName: name,
+                itemCode: poItem.code || poItem.fgItem?.code || "",
+                hsnCode: poItem.hsnCode || poItem.fgItem?.hsnCode || "",
+                quantity: remainingQty,
+                unit: poItem.unit || "PCS",
+                rate,
+                amount: amt,
+                taxRate: globalTaxRate || 18,
+                taxAmount: taxAmt,
+                description: desc,
+                availableStock: poItem.fgItem?.quantity !== undefined ? Number(poItem.fgItem.quantity) : undefined
+            };
+        });
+
+        setItems(populatedRows);
+        setShowPoItemsPreview(false);
     };
 
     // Initial Data loading on Edit or Create
@@ -616,9 +635,15 @@ export default function BillingModal({
             setCustomExchangeRate((initialData as any).exchangeRateToINR);
             setTransportationType((initialData as any).transportationType || "Road Transport");
             setTransportationCharges((initialData as any).transportationCharges || 0);
+            setIsTransportTaxable(Boolean((initialData as any).isTransportTaxable));
+            setTransportTaxRate((initialData as any).transportTaxRate ?? 18);
             setVehicleNumber((initialData as any).vehicleNumber || "");
             setPackagingType((initialData as any).packagingType || "Standard Packaging");
             setPackagingCharges((initialData as any).packagingCharges || 0);
+            setIsPackagingTaxable(Boolean((initialData as any).isPackagingTaxable));
+            setPackagingTaxRate((initialData as any).packagingTaxRate ?? 18);
+            setGstSupplyType((initialData as any).gstSupplyType === "inter" ? "inter" : "intra");
+            setShowPoItemsPreview(false);
             setDiscount(initialData.discount || 0);
             if ((initialData as any).isRoundOff !== undefined) {
                 setIsRoundOffEnabled(Boolean((initialData as any).isRoundOff));
@@ -633,7 +658,6 @@ export default function BillingModal({
             const firstType = (initialData.items?.[0] as any)?.itemType?.toLowerCase();
             const detectedType: ItemCategoryType = (firstType === "rm" || firstType === "bo" || firstType === "consumable") ? firstType : "fg";
             setInvoiceMaterialType(detectedType);
-            preloadCategoryOptions(detectedType);
 
             if (custId) {
                 fetchOpenCustomerPOs(custId);
@@ -657,7 +681,7 @@ export default function BillingModal({
                             description: desc,
                             unit: i.unit || "PCS",
                             hsnCode: i.hsnCode || "",
-                            currentStock: 999
+                            currentStock: i.fgItem?.quantity !== undefined ? Number(i.fgItem.quantity) : undefined
                         });
                     }
 
@@ -678,7 +702,7 @@ export default function BillingModal({
                         taxRate: taxRate,
                         taxAmount: i.taxAmount || (amt * (taxRate / 100)),
                         description: desc,
-                        availableStock: 999
+                        availableStock: i.fgItem?.quantity !== undefined ? Number(i.fgItem.quantity) : undefined
                     };
                 }));
             } else {
@@ -716,9 +740,17 @@ export default function BillingModal({
             setCustomExchangeRate(undefined);
             setTransportationType("Road Transport");
             setTransportationCharges(0);
+            setIsTransportTaxable(false);
+            setTransportTaxRate(18);
             setVehicleNumber("");
             setPackagingType("Standard Packaging");
             setPackagingCharges(0);
+            setIsPackagingTaxable(false);
+            setPackagingTaxRate(18);
+            setGstSupplyType("intra");
+            setShowPoItemsPreview(false);
+            setSelectedPoItemKeys([]);
+            setSubmitError(null);
             setDiscount(0);
             setOtherDetails("");
             setStatus("Draft");
@@ -726,7 +758,6 @@ export default function BillingModal({
             setBankDetails(getMasterBankDetails());
             setTermsAndConditions(getMasterTerms());
             setInvoiceMaterialType('fg');
-            preloadCategoryOptions('fg');
             setItems([{
                 itemType: 'fg', fgItem: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 18, taxAmount: 0, description: ""
             }]);
@@ -734,14 +765,15 @@ export default function BillingModal({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialData, isOpen]);
 
-    // Item Selection Handler
+    // Item Selection Handler (automatically detects itemType per row: fg | rm | bo | consumable)
     const handleItemSelection = (index: number, selectedId: string) => {
         const newItems = [...items];
         const currentItem = newItems[index];
 
         const cached = itemDetailsCacheRef.current.get(String(selectedId));
+        const resolvedType: ItemCategoryType = (cached?.itemCategory || cached?.rawItem?.itemCategory || currentItem.itemType || 'fg') as ItemCategoryType;
         const name = cached?.name || "";
-        const code = cached?.code || "";
+        const code = cached?.rawItem?.code || cached?.code || "";
         const hsn = cached?.hsnCode || "";
         const unit = cached?.unit || "PCS";
         const desc = cached?.description || "";
@@ -753,11 +785,11 @@ export default function BillingModal({
 
         newItems[index] = {
             ...currentItem,
-            itemType: invoiceMaterialType,
-            fgItem: invoiceMaterialType === 'fg' ? selectedId : undefined,
-            rawMaterial: invoiceMaterialType === 'rm' ? selectedId : undefined,
-            boughtOut: invoiceMaterialType === 'bo' ? selectedId : undefined,
-            consumableItem: invoiceMaterialType === 'consumable' ? selectedId : undefined,
+            itemType: resolvedType,
+            fgItem: resolvedType === 'fg' ? selectedId : undefined,
+            rawMaterial: resolvedType === 'rm' ? selectedId : undefined,
+            boughtOut: resolvedType === 'bo' ? selectedId : undefined,
+            consumableItem: resolvedType === 'consumable' ? selectedId : undefined,
             materialName: name,
             itemCode: code,
             hsnCode: hsn,
@@ -771,6 +803,7 @@ export default function BillingModal({
         };
 
         setItems(newItems);
+        if (submitError) setSubmitError(null);
         clearError(`item_${index}_id`);
     };
 
@@ -787,6 +820,8 @@ export default function BillingModal({
 
         newItems[index] = item;
         setItems(newItems);
+        if (submitError) setSubmitError(null);
+        clearError(`item_${index}_quantity`);
     };
 
     // Add New Item (Uses currently selected invoiceMaterialType)
@@ -819,14 +854,40 @@ export default function BillingModal({
         }
     };
 
-    // Subtotals & Tax Calculation
+    // Subtotals & Tax Calculation (including optional Transportation & Packaging GST + Intra/Inter-State split)
     const subtotal = useMemo(() => {
         return items.reduce((acc, curr) => acc + (curr.amount || (curr.quantity * (curr.rate || 0))), 0);
     }, [items]);
 
-    const totalTaxAmount = useMemo(() => {
+    const itemsTaxAmount = useMemo(() => {
         return items.reduce((acc, curr) => acc + (curr.taxAmount || 0), 0);
     }, [items]);
+
+    const transportTaxAmount = useMemo(() => {
+        if (!isTransportTaxable) return 0;
+        return parseFloat(((Number(transportationCharges || 0) * Number(transportTaxRate || 0)) / 100).toFixed(2));
+    }, [isTransportTaxable, transportationCharges, transportTaxRate]);
+
+    const packagingTaxAmount = useMemo(() => {
+        if (!isPackagingTaxable) return 0;
+        return parseFloat(((Number(packagingCharges || 0) * Number(packagingTaxRate || 0)) / 100).toFixed(2));
+    }, [isPackagingTaxable, packagingCharges, packagingTaxRate]);
+
+    const totalTaxAmount = useMemo(() => {
+        return parseFloat((itemsTaxAmount + transportTaxAmount + packagingTaxAmount).toFixed(2));
+    }, [itemsTaxAmount, transportTaxAmount, packagingTaxAmount]);
+
+    const cgstAmount = useMemo(() => {
+        return gstSupplyType === "intra" ? parseFloat((totalTaxAmount / 2).toFixed(2)) : 0;
+    }, [gstSupplyType, totalTaxAmount]);
+
+    const sgstAmount = useMemo(() => {
+        return gstSupplyType === "intra" ? parseFloat((totalTaxAmount - cgstAmount).toFixed(2)) : 0;
+    }, [gstSupplyType, totalTaxAmount, cgstAmount]);
+
+    const igstAmount = useMemo(() => {
+        return gstSupplyType === "inter" ? totalTaxAmount : 0;
+    }, [gstSupplyType, totalTaxAmount]);
 
     const rounding = useMemo(() => {
         return computeProfessionalTotalWithRoundOff({
@@ -848,12 +909,21 @@ export default function BillingModal({
         return convertToINR(totalAmount, currency, customExchangeRate);
     }, [totalAmount, currency, customExchangeRate]);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setSubmitError(null);
         const errors: Record<string, string> = {};
+        let stockErrorMsg: string | null = null;
 
         if (!customer) errors.customer = 'Customer is required';
         if (!date) errors.date = 'Invoice date is required';
+
+        const categoryLabelMap: Record<ItemCategoryType, string> = {
+            fg: "FG inventory",
+            rm: "Raw Material (RM)",
+            bo: "Bought-Out (BO)",
+            consumable: "Consumable"
+        };
 
         items.forEach((item, index) => {
             const itemId = item.fgItem || item.rawMaterial || item.boughtOut || item.consumableItem;
@@ -864,11 +934,24 @@ export default function BillingModal({
 
             if (Number(item.quantity) <= 0) {
                 errors[`item_${index}_quantity`] = 'Qty must be > 0';
+                return;
+            }
+
+            // Client-side stock guard for new sales invoices (backend also validates net stock on edit)
+            if (!isPurchase && !isEditing && status !== "Cancelled" && item.availableStock !== undefined && Number(item.quantity) > Number(item.availableStock)) {
+                const msg = `Requested quantity (${Number(item.quantity)} ${item.unit || 'PCS'}) exceeds available ${categoryLabelMap[item.itemType || 'fg'] || 'inventory'} stock (${Number(item.availableStock)} ${item.unit || 'PCS'}) for '${item.materialName || 'Item'}'.`;
+                errors[`item_${index}_quantity`] = `Max available: ${Number(item.availableStock)} ${item.unit || 'PCS'}`;
+                if (!stockErrorMsg) stockErrorMsg = msg;
             }
         });
 
         if (Object.keys(errors).length > 0) {
             setFormErrors(errors);
+            if (stockErrorMsg) {
+                setSubmitError(stockErrorMsg);
+            } else {
+                setSubmitError("Please fill all required fields highlighted in red before saving.");
+            }
             const targetForm = e.currentTarget as HTMLElement;
             if (targetForm) {
                 setTimeout(() => {
@@ -883,7 +966,7 @@ export default function BillingModal({
 
         const payloadItems = items.map(entry => {
             const itemPayload: any = {
-                itemType: invoiceMaterialType,
+                itemType: entry.itemType || 'fg',
                 materialName: entry.materialName,
                 itemCode: entry.itemCode,
                 hsnCode: entry.hsnCode,
@@ -913,12 +996,22 @@ export default function BillingModal({
             exchangeRateToINR: inrConversion.rate,
             transportationType,
             transportationCharges,
+            isTransportTaxable,
+            transportTaxRate,
+            transportTaxAmount,
             vehicleNumber,
             packagingType,
             packagingCharges,
+            isPackagingTaxable,
+            packagingTaxRate,
+            packagingTaxAmount,
             items: payloadItems,
             subtotal,
             taxAmount: totalTaxAmount,
+            gstSupplyType,
+            cgstAmount,
+            sgstAmount,
+            igstAmount,
             discount,
             preRoundTotal: rounding.preRoundTotal,
             isRoundOff: isRoundOffEnabled,
@@ -951,7 +1044,18 @@ export default function BillingModal({
             payload.purchaseBillNumber = invoiceNumber;
         }
 
-        onSubmit(payload);
+        try {
+            setIsSubmitting(true);
+            const result = await onSubmit(payload);
+            if (result && typeof result === "object" && "error" in result && result.error) {
+                setSubmitError(String(result.error));
+            }
+        } catch (err: any) {
+            const rawMsg = err?.data?.message || err?.response?.data?.message || err?.error || err?.message || "Failed to save Tax Invoice.";
+            setSubmitError(typeof rawMsg === "string" ? rawMsg : JSON.stringify(rawMsg));
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -1030,67 +1134,6 @@ export default function BillingModal({
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-3.5 sm:p-6 space-y-4 sm:space-y-6">
-
-                    {/* TOP SECTION: Material Types Selector on Top (Single Type Invoicing) */}
-                    <div className="bg-gradient-to-r from-slate-50 via-indigo-50/30 to-slate-50 dark:from-slate-800/60 dark:via-indigo-950/20 dark:to-slate-800/60 p-4 rounded-2xl border border-indigo-100 dark:border-slate-700 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                            <Layers size={16} className="text-indigo-600 dark:text-indigo-400" />
-                            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                                Material Type:
-                            </span>
-                        </div>
-
-                        {/* Segmented Buttons for Material Type */}
-                        <div className="flex flex-wrap items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={() => handleInvoiceMaterialTypeChange('fg')}
-                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                                    invoiceMaterialType === 'fg'
-                                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25 ring-2 ring-indigo-500/20'
-                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                }`}
-                            >
-                                <Package size={14} /> Finished Goods (FG)
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => handleInvoiceMaterialTypeChange('rm')}
-                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                                    invoiceMaterialType === 'rm'
-                                        ? 'bg-amber-600 text-white shadow-md shadow-amber-600/25 ring-2 ring-amber-500/20'
-                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                }`}
-                            >
-                                <Cog size={14} /> Raw Material (RM)
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => handleInvoiceMaterialTypeChange('bo')}
-                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                                    invoiceMaterialType === 'bo'
-                                        ? 'bg-purple-600 text-white shadow-md shadow-purple-600/25 ring-2 ring-purple-500/20'
-                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                }`}
-                            >
-                                <Layers size={14} /> Bought-Out (BO)
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => handleInvoiceMaterialTypeChange('consumable')}
-                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                                    invoiceMaterialType === 'consumable'
-                                        ? 'bg-teal-600 text-white shadow-md shadow-teal-600/25 ring-2 ring-teal-500/20'
-                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                }`}
-                            >
-                                <FlaskConical size={14} /> Consumables
-                            </button>
-                        </div>
-                    </div>
 
                     {/* Basic Info Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 p-5 bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/80 dark:border-slate-800 rounded-2xl">
@@ -1216,20 +1259,135 @@ export default function BillingModal({
                         </div>
                     </div>
 
-                    {/* Customer PO banner if selected */}
+                    {/* Customer PO banner & On-Demand PO Items Preview/Fetch */}
                     {customerPoReference && (
-                        <div className="flex items-center justify-between bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 px-4 py-2 rounded-xl text-xs text-indigo-900 dark:text-indigo-200">
-                            <div className="flex items-center gap-2">
-                                <span className="font-semibold text-slate-600 dark:text-slate-300">Linked PO:</span>
-                                <span className="font-bold text-indigo-700 dark:text-indigo-300">{customerPoReference}</span>
+                        <div className="space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 px-4 py-2.5 rounded-xl text-xs text-indigo-900 dark:text-indigo-200">
+                                <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-slate-600 dark:text-slate-300">Linked PO:</span>
+                                    <span className="font-bold text-indigo-700 dark:text-indigo-300 font-mono">{customerPoReference}</span>
+                                    {selectedPoUnbilledItems.length > 0 && (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                            {selectedPoUnbilledItems.length} Pending Item{selectedPoUnbilledItems.length > 1 ? "s" : ""}
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {selectedPoUnbilledItems.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPoItemsPreview((prev) => !prev)}
+                                            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
+                                        >
+                                            <Eye size={13} />
+                                            <span>{showPoItemsPreview ? "Hide PO Items" : `Preview PO Items (${selectedPoUnbilledItems.length})`}</span>
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setCustomerPoReference("");
+                                            setShowPoItemsPreview(false);
+                                            setSelectedPoItemKeys([]);
+                                        }}
+                                        className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold text-[11px] ml-1 cursor-pointer"
+                                    >
+                                        Clear Link
+                                    </button>
+                                </div>
                             </div>
-                            <button
-                                type="button"
-                                onClick={() => setCustomerPoReference("")}
-                                className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold text-[11px] ml-2 cursor-pointer"
-                            >
-                                Clear Link
-                            </button>
+
+                            {showPoItemsPreview && selectedPoUnbilledItems.length > 0 && (
+                                <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 shadow-sm space-y-3 animate-in fade-in duration-150">
+                                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                        <div className="flex items-center gap-2">
+                                            <Package size={15} className="text-indigo-600" />
+                                            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                                                PO #{customerPoReference} — Listed Items Preview
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    setSelectedPoItemKeys(
+                                                        selectedPoItemKeys.length === selectedPoUnbilledItems.length
+                                                            ? []
+                                                            : selectedPoUnbilledItems.map((e: any) => e.key)
+                                                    )
+                                                }
+                                                className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                            >
+                                                {selectedPoItemKeys.length === selectedPoUnbilledItems.length ? "Deselect All" : "Select All"}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={selectedPoItemKeys.length === 0}
+                                                onClick={handleFetchSelectedPoItems}
+                                                className="px-3.5 py-1.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                Fetch Selected ({selectedPoItemKeys.length}) into Invoice
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                                        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs">
+                                            <thead className="bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 uppercase font-bold text-[10px]">
+                                                <tr>
+                                                    <th className="px-3 py-2 text-center w-10">Pick</th>
+                                                    <th className="px-3 py-2 text-left">Item Name &amp; Description</th>
+                                                    <th className="px-3 py-2 text-right">Ordered</th>
+                                                    <th className="px-3 py-2 text-right">Pending Qty</th>
+                                                    <th className="px-3 py-2 text-right">Rate ({getCurrencySymbol(currency)})</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                {selectedPoUnbilledItems.map((entry: any) => {
+                                                    const { key, poItem, orderedQty, remainingQty } = entry;
+                                                    const isChecked = selectedPoItemKeys.includes(key);
+                                                    const pName = poItem.productName || poItem.fgItem?.name || "Product Item";
+                                                    const pDesc = poItem.description || poItem.fgItem?.description || poItem.descriptions || "";
+                                                    const pRate = Number(poItem.rate || poItem.pricePerQuantity || 0);
+                                                    return (
+                                                        <tr
+                                                            key={key}
+                                                            onClick={() =>
+                                                                setSelectedPoItemKeys((prev) =>
+                                                                    prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+                                                                )
+                                                            }
+                                                            className={`cursor-pointer transition-colors ${isChecked ? "bg-indigo-50/40 dark:bg-indigo-950/30" : "hover:bg-slate-50 dark:hover:bg-slate-800/40"}`}
+                                                        >
+                                                            <td className="px-3 py-2 text-center">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isChecked}
+                                                                    onChange={() => {}}
+                                                                    className="w-3.5 h-3.5 text-indigo-600 rounded cursor-pointer"
+                                                                />
+                                                            </td>
+                                                            <td className="px-3 py-2">
+                                                                <div className="font-bold text-slate-900 dark:text-white">{pName}</div>
+                                                                {pDesc && <div className="text-[11px] text-slate-500 italic line-clamp-2">{pDesc}</div>}
+                                                            </td>
+                                                            <td className="px-3 py-2 text-right font-mono text-slate-500">
+                                                                {orderedQty} {poItem.unit || "PCS"}
+                                                            </td>
+                                                            <td className="px-3 py-2 text-right font-mono font-bold text-indigo-700 dark:text-indigo-300">
+                                                                {remainingQty} {poItem.unit || "PCS"}
+                                                            </td>
+                                                            <td className="px-3 py-2 text-right font-mono font-semibold text-slate-900 dark:text-white">
+                                                                {pRate.toFixed(2)}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -1255,8 +1413,9 @@ export default function BillingModal({
                         <div className="space-y-3.5">
                             {items.map((entry, index) => {
                                 const currentItemId = entry.fgItem || entry.rawMaterial || entry.boughtOut || entry.consumableItem || '';
-                                const currentOptions = categoryInitialOptions[invoiceMaterialType] || [];
+                                const currentOptions = initialItemOptions;
                                 const isLastItem = index === items.length - 1;
+                                const rowTypeBadge = entry.itemType === 'rm' ? 'RM' : entry.itemType === 'bo' ? 'BO' : entry.itemType === 'consumable' ? 'Consumable' : 'FG';
                                 
                                 // Ensure current item is present in options list
                                 const rowOptions = [...currentOptions];
@@ -1268,6 +1427,7 @@ export default function BillingModal({
                                         name: entry.materialName,
                                         unit: entry.unit,
                                         hsnCode: entry.hsnCode,
+                                        badge: rowTypeBadge,
                                         currentStock: entry.availableStock
                                     });
                                 }
@@ -1284,8 +1444,16 @@ export default function BillingModal({
                                                 <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
                                                     Item #{index + 1}
                                                 </span>
-                                                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                                                    {invoiceMaterialType.toUpperCase()}
+                                                <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
+                                                    entry.itemType === 'rm'
+                                                        ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                                        : entry.itemType === 'bo'
+                                                        ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                                                        : entry.itemType === 'consumable'
+                                                        ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-800'
+                                                        : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                                                }`}>
+                                                    {entry.materialName ? rowTypeBadge : 'ALL TYPES'}
                                                 </span>
                                             </div>
 
@@ -1334,9 +1502,9 @@ export default function BillingModal({
                                                     value={currentItemId}
                                                     displayLabel={entry.description ? `${entry.materialName} — ${entry.description}` : entry.materialName}
                                                     hasError={!!formErrors[`item_${index}_id`]}
-                                                    asyncSearch={async (q: string) => searchItemsAsync(invoiceMaterialType, q)}
+                                                    asyncSearch={searchItemsAsync}
                                                     onChange={(val: string) => handleItemSelection(index, val)}
-                                                    placeholder={`Search ${invoiceMaterialType.toUpperCase()} by keyword...`}
+                                                    placeholder="Search any FG, RM, BO or Consumable item..."
                                                 />
 
                                                 {/* Editable Technical Description input directly below item name */}
@@ -1458,185 +1626,62 @@ export default function BillingModal({
                                 className="w-full py-3 px-4 border-2 border-dashed border-indigo-200 dark:border-indigo-800/80 hover:border-indigo-500 dark:hover:border-indigo-600 bg-indigo-50/40 dark:bg-indigo-950/20 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold rounded-2xl text-xs flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer active:scale-[0.99]"
                             >
                                 <Plus size={16} className="text-indigo-600 dark:text-indigo-400" />
-                                <span>+ Add Another {invoiceMaterialType.toUpperCase()} Item</span>
+                                <span>+ Add Another Line Item</span>
                             </button>
                         </div>
                     </div>
 
-                    {/* Company Bank Details (From Master Company Info) */}
-                    <div className="bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700/80 pb-3">
-                            <div className="flex items-center gap-2.5">
-                                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-xl">
-                                    <Building2 size={18} />
-                                </div>
-                                <div>
-                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                                        Company Bank Details
-                                    </h4>
-                                </div>
+                    {/* Compact Single-Line Logistics, Charges & GST Type Bar */}
+                    <div className="bg-slate-50/80 dark:bg-slate-800/40 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 items-end">
+                            {/* Transport Mode Dropdown */}
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                                    <Truck size={12} className="text-indigo-600" /> Transport Mode
+                                </label>
+                                <select
+                                    value={transportationType}
+                                    onChange={(e) => setTransportationType(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold dark:text-white"
+                                >
+                                    <option value="Road Transport">Road Transport</option>
+                                    <option value="Rail Transport">Rail Transport</option>
+                                    <option value="Air Transport">Air Transport</option>
+                                    <option value="Ship / Sea">Ship / Sea</option>
+                                    <option value="Courier">Courier</option>
+                                    <option value="By Hand">By Hand</option>
+                                </select>
                             </div>
 
-                            <button
-                                type="button"
-                                onClick={() => setBankDetails(getMasterBankDetails())}
-                                className="px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-lg shadow-xs hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-all flex items-center gap-1.5 cursor-pointer"
-                            >
-                                <RotateCcw size={13} /> Reset to Master
-                            </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                            {/* Vehicle Number */}
                             <div className="space-y-1">
-                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Account Holder Name</label>
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Vehicle No</label>
                                 <input
                                     type="text"
-                                    value={bankDetails.accountName}
-                                    onChange={e => setBankDetails(prev => ({ ...prev, accountName: e.target.value }))}
-                                    placeholder="Company Name"
-                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-medium"
+                                    value={vehicleNumber}
+                                    onChange={e => setVehicleNumber(e.target.value.toUpperCase())}
+                                    placeholder="MH-12-AB-1234"
+                                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-mono uppercase"
                                 />
                             </div>
-                            <div className="space-y-1">
-                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Bank Name</label>
-                                <input
-                                    type="text"
-                                    value={bankDetails.bankName}
-                                    onChange={e => setBankDetails(prev => ({ ...prev, bankName: e.target.value }))}
-                                    placeholder="e.g. HDFC Bank"
-                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-medium"
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Account Number</label>
-                                <input
-                                    type="text"
-                                    value={bankDetails.accountNumber}
-                                    onChange={e => setBankDetails(prev => ({ ...prev, accountNumber: e.target.value }))}
-                                    placeholder="Account Number"
-                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-mono font-bold"
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">IFSC Code</label>
-                                <input
-                                    type="text"
-                                    value={bankDetails.ifscCode}
-                                    onChange={e => setBankDetails(prev => ({ ...prev, ifscCode: e.target.value.toUpperCase() }))}
-                                    placeholder="IFSC Code"
-                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-mono font-bold uppercase"
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Branch Name</label>
-                                <input
-                                    type="text"
-                                    value={bankDetails.branch}
-                                    onChange={e => setBankDetails(prev => ({ ...prev, branch: e.target.value }))}
-                                    placeholder="Branch Name"
-                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-medium"
-                                />
-                            </div>
-                        </div>
-                    </div>
 
-                    {/* Custom Terms & Conditions & Logistics Grid */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                        {/* LEFT: Custom Terms & Conditions */}
-                        <div className="lg:col-span-7 bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                    <FileText size={16} className="text-indigo-600 dark:text-indigo-400" />
-                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                                        Terms & Conditions (Customizable)
-                                    </h4>
+                            {/* Transportation Charge + Compact GST Toggle */}
+                            <div className="space-y-1">
+                                <div className="flex items-center justify-between gap-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate">
+                                        Transport ({getCurrencySymbol(currency)})
+                                    </label>
+                                    <label className="inline-flex items-center gap-1 cursor-pointer text-[10px] font-bold text-indigo-700 dark:text-indigo-300 shrink-0">
+                                        <input
+                                            type="checkbox"
+                                            checked={isTransportTaxable}
+                                            onChange={(e) => setIsTransportTaxable(e.target.checked)}
+                                            className="w-3 h-3 text-indigo-600 rounded cursor-pointer"
+                                        />
+                                        <span>GST</span>
+                                    </label>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setTermsAndConditions(getMasterTerms())}
-                                    className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold flex items-center gap-1 cursor-pointer"
-                                >
-                                    <RotateCcw size={11} /> Reset to Default
-                                </button>
-                            </div>
-
-                            {/* Quick Clause Chips */}
-                            <div className="flex flex-wrap gap-1.5 items-center">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase mr-1">Quick Presets:</span>
-                                <button
-                                    type="button"
-                                    onClick={() => setTermsAndConditions(prev => prev ? `${prev}\n• Payment due within 30 days from invoice date.` : `• Payment due within 30 days from invoice date.`)}
-                                    className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                                >
-                                    + 30-Day Credit
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setTermsAndConditions(prev => prev ? `${prev}\n• Goods once sold will not be accepted back or exchanged.` : `• Goods once sold will not be accepted back or exchanged.`)}
-                                    className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                                >
-                                    + No Return Policy
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setTermsAndConditions(prev => prev ? `${prev}\n• Overdue interest @ 18% p.a. will be levied after due date.` : `• Overdue interest @ 18% p.a. will be levied after due date.`)}
-                                    className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                                >
-                                    + 18% Overdue Interest
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setTermsAndConditions(prev => prev ? `${prev}\n• Subject to local jurisdiction only.` : `• Subject to local jurisdiction only.`)}
-                                    className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                                >
-                                    + Local Jurisdiction
-                                </button>
-                            </div>
-
-                            <textarea
-                                rows={4}
-                                value={termsAndConditions}
-                                onChange={e => setTermsAndConditions(e.target.value)}
-                                placeholder="Enter custom terms and conditions for this invoice..."
-                                className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white leading-relaxed resize-y font-mono"
-                            />
-                        </div>
-
-                        {/* RIGHT: Logistics, Charges & Other Details */}
-                        <div className="lg:col-span-5 bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                            <div className="flex items-center gap-2">
-                                <Truck size={16} className="text-indigo-600 dark:text-indigo-400" />
-                                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                                    Logistics & Additional Charges
-                                </h4>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Transport Mode</label>
-                                    <input
-                                        type="text"
-                                        value={transportationType}
-                                        onChange={e => setTransportationType(e.target.value)}
-                                        placeholder="e.g. Road Transport"
-                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Vehicle Number</label>
-                                    <input
-                                        type="text"
-                                        value={vehicleNumber}
-                                        onChange={e => setVehicleNumber(e.target.value.toUpperCase())}
-                                        placeholder="e.g. MH-12-AB-1234"
-                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-mono uppercase"
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-3 gap-2">
-                                <div className="space-y-1">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Freight ({getCurrencySymbol(currency)})</label>
+                                <div className="flex items-center gap-1">
                                     <input
                                         type="number"
                                         min="0"
@@ -1644,11 +1689,40 @@ export default function BillingModal({
                                         value={transportationCharges || ''}
                                         onChange={e => setTransportationCharges(parseFloat(e.target.value) || 0)}
                                         placeholder="0.00"
-                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                        className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold dark:text-white"
                                     />
+                                    {isTransportTaxable && (
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="100"
+                                            step="0.5"
+                                            value={transportTaxRate}
+                                            onChange={(e) => setTransportTaxRate(parseFloat(e.target.value) || 0)}
+                                            className="w-12 px-1.5 py-1.5 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 rounded-lg text-[11px] font-bold text-indigo-700 dark:text-indigo-300 text-center shrink-0"
+                                            title="GST % on Transportation"
+                                        />
+                                    )}
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Packaging ({getCurrencySymbol(currency)})</label>
+                            </div>
+
+                            {/* Packaging Charge + Compact GST Toggle */}
+                            <div className="space-y-1">
+                                <div className="flex items-center justify-between gap-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate">
+                                        Packaging ({getCurrencySymbol(currency)})
+                                    </label>
+                                    <label className="inline-flex items-center gap-1 cursor-pointer text-[10px] font-bold text-indigo-700 dark:text-indigo-300 shrink-0">
+                                        <input
+                                            type="checkbox"
+                                            checked={isPackagingTaxable}
+                                            onChange={(e) => setIsPackagingTaxable(e.target.checked)}
+                                            className="w-3 h-3 text-indigo-600 rounded cursor-pointer"
+                                        />
+                                        <span>GST</span>
+                                    </label>
+                                </div>
+                                <div className="flex items-center gap-1">
                                     <input
                                         type="number"
                                         min="0"
@@ -1656,42 +1730,74 @@ export default function BillingModal({
                                         value={packagingCharges || ''}
                                         onChange={e => setPackagingCharges(parseFloat(e.target.value) || 0)}
                                         placeholder="0.00"
-                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                        className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold dark:text-white"
                                     />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Discount ({getCurrencySymbol(currency)})</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        value={discount || ''}
-                                        onChange={e => setDiscount(parseFloat(e.target.value) || 0)}
-                                        placeholder="0.00"
-                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
-                                    />
+                                    {isPackagingTaxable && (
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="100"
+                                            step="0.5"
+                                            value={packagingTaxRate}
+                                            onChange={(e) => setPackagingTaxRate(parseFloat(e.target.value) || 0)}
+                                            className="w-12 px-1.5 py-1.5 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 rounded-lg text-[11px] font-bold text-indigo-700 dark:text-indigo-300 text-center shrink-0"
+                                            title="GST % on Packaging"
+                                        />
+                                    )}
                                 </div>
                             </div>
 
+                            {/* Discount */}
                             <div className="space-y-1">
-                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Remarks / Other Details</label>
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                    Discount ({getCurrencySymbol(currency)})
+                                </label>
                                 <input
-                                    type="text"
-                                    value={otherDetails}
-                                    onChange={e => setOtherDetails(e.target.value)}
-                                    placeholder="Dispatched via, notes, or payment remarks..."
-                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={discount || ''}
+                                    onChange={e => setDiscount(parseFloat(e.target.value) || 0)}
+                                    placeholder="0.00"
+                                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold dark:text-white"
                                 />
                             </div>
+
+                            {/* GST Tax Type Dropdown (Intra-State vs Inter-State) */}
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                                    <Calculator size={12} className="text-indigo-600" /> Tax Type (GST)
+                                </label>
+                                <select
+                                    value={gstSupplyType}
+                                    onChange={(e) => setGstSupplyType(e.target.value === "inter" ? "inter" : "intra")}
+                                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300"
+                                >
+                                    <option value="intra">Intra-State (CGST + SGST)</option>
+                                    <option value="inter">Inter-State (IGST)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Compact Remarks Input */}
+                        <div className="flex items-center gap-2 pt-1">
+                            <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 shrink-0">Remarks:</label>
+                            <input
+                                type="text"
+                                value={otherDetails}
+                                onChange={e => setOtherDetails(e.target.value)}
+                                placeholder="Dispatched via, delivery notes, or payment remarks..."
+                                className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                            />
                         </div>
                     </div>
 
-                    {/* Summary & Live Currency Conversion Area */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-4 border-t border-slate-200 dark:border-slate-800">
-                        {/* LEFT: Multi-Currency preview or notice */}
+                    {/* Financial Summary & Multi-Currency Conversion Area */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-2">
+                        {/* LEFT: Multi-Currency Conversion (if foreign) */}
                         <div className="lg:col-span-7">
                             {inrConversion.isForeign ? (
-                                <div className="bg-gradient-to-br from-indigo-50 via-blue-50 to-emerald-50 dark:from-slate-800/90 dark:to-slate-800/40 border border-blue-200/80 dark:border-slate-700 rounded-2xl p-5 shadow-sm space-y-3">
+                                <div className="bg-gradient-to-br from-indigo-50 via-blue-50 to-emerald-50 dark:from-slate-800/90 dark:to-slate-800/40 border border-blue-200/80 dark:border-slate-700 rounded-2xl p-4 shadow-sm space-y-3">
                                     <div className="flex items-center justify-between">
                                         <h4 className="font-extrabold text-sm text-blue-900 dark:text-blue-200 flex items-center gap-2">
                                             <ArrowRightLeft size={16} className="text-blue-600 dark:text-blue-400" />
@@ -1763,16 +1869,11 @@ export default function BillingModal({
                                 </span>
                             </div>
 
-                            <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                                <span>GST / Tax Amount:</span>
-                                <span className="font-bold text-slate-900 dark:text-white">
-                                    + {getCurrencySymbol(currency)} {totalTaxAmount.toFixed(2)}
-                                </span>
-                            </div>
-
                             {Number(transportationCharges) > 0 && (
                                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                                    <span>Freight Charges:</span>
+                                    <span>
+                                        Transportation Charges{isTransportTaxable ? ` (Taxable @ ${transportTaxRate}%)` : ""}:
+                                    </span>
                                     <span className="font-semibold text-slate-900 dark:text-white">
                                         + {getCurrencySymbol(currency)} {Number(transportationCharges).toFixed(2)}
                                     </span>
@@ -1781,9 +1882,35 @@ export default function BillingModal({
 
                             {Number(packagingCharges) > 0 && (
                                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                                    <span>Packaging Charges:</span>
+                                    <span>
+                                        Packaging Charges{isPackagingTaxable ? ` (Taxable @ ${packagingTaxRate}%)` : ""}:
+                                    </span>
                                     <span className="font-semibold text-slate-900 dark:text-white">
                                         + {getCurrencySymbol(currency)} {Number(packagingCharges).toFixed(2)}
+                                    </span>
+                                </div>
+                            )}
+
+                            {gstSupplyType === "intra" ? (
+                                <>
+                                    <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                                        <span>CGST:</span>
+                                        <span className="font-bold text-slate-900 dark:text-white">
+                                            + {getCurrencySymbol(currency)} {cgstAmount.toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                                        <span>SGST:</span>
+                                        <span className="font-bold text-slate-900 dark:text-white">
+                                            + {getCurrencySymbol(currency)} {sgstAmount.toFixed(2)}
+                                        </span>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                                    <span>IGST (Inter-State):</span>
+                                    <span className="font-bold text-slate-900 dark:text-white">
+                                        + {getCurrencySymbol(currency)} {igstAmount.toFixed(2)}
                                     </span>
                                 </div>
                             )}
@@ -1823,22 +1950,177 @@ export default function BillingModal({
                         </div>
                     </div>
 
+                    {/* LAST SECTION: Terms & Conditions + Company Bank Details */}
+                    <div className="space-y-4 pt-3 border-t border-slate-200 dark:border-slate-800">
+                        {/* Terms & Conditions */}
+                        <div className="bg-slate-50/80 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                    <FileText size={15} className="text-indigo-600 dark:text-indigo-400" />
+                                    <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                                        Terms &amp; Conditions
+                                    </h4>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => setTermsAndConditions(prev => prev ? `${prev}\n• Payment due within 30 days from invoice date.` : `• Payment due within 30 days from invoice date.`)}
+                                        className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                    >
+                                        + 30-Day Credit
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTermsAndConditions(prev => prev ? `${prev}\n• Goods once sold will not be accepted back or exchanged.` : `• Goods once sold will not be accepted back or exchanged.`)}
+                                        className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                    >
+                                        + No Return Policy
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTermsAndConditions(prev => prev ? `${prev}\n• Overdue interest @ 18% p.a. will be levied after due date.` : `• Overdue interest @ 18% p.a. will be levied after due date.`)}
+                                        className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                    >
+                                        + 18% Overdue Interest
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTermsAndConditions(prev => prev ? `${prev}\n• Subject to local jurisdiction only.` : `• Subject to local jurisdiction only.`)}
+                                        className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                    >
+                                        + Local Jurisdiction
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTermsAndConditions(getMasterTerms())}
+                                        className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold flex items-center gap-1 ml-1 cursor-pointer"
+                                    >
+                                        <RotateCcw size={11} /> Reset
+                                    </button>
+                                </div>
+                            </div>
+
+                            <textarea
+                                rows={3}
+                                value={termsAndConditions}
+                                onChange={e => setTermsAndConditions(e.target.value)}
+                                placeholder="Enter custom terms and conditions for this invoice..."
+                                className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white leading-relaxed resize-y font-mono"
+                            />
+                        </div>
+
+                        {/* Company Bank Details */}
+                        <div className="bg-slate-50/80 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700/80 pb-2.5">
+                                <div className="flex items-center gap-2">
+                                    <Building2 size={15} className="text-indigo-600 dark:text-indigo-400" />
+                                    <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                                        Company Bank Details
+                                    </h4>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setBankDetails(getMasterBankDetails())}
+                                    className="px-2.5 py-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-lg shadow-xs hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-all flex items-center gap-1 cursor-pointer"
+                                >
+                                    <RotateCcw size={11} /> Reset to Master
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Account Holder Name</label>
+                                    <input
+                                        type="text"
+                                        value={bankDetails.accountName}
+                                        onChange={e => setBankDetails(prev => ({ ...prev, accountName: e.target.value }))}
+                                        placeholder="Company Name"
+                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-medium"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Bank Name</label>
+                                    <input
+                                        type="text"
+                                        value={bankDetails.bankName}
+                                        onChange={e => setBankDetails(prev => ({ ...prev, bankName: e.target.value }))}
+                                        placeholder="e.g. HDFC Bank"
+                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-medium"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Account Number</label>
+                                    <input
+                                        type="text"
+                                        value={bankDetails.accountNumber}
+                                        onChange={e => setBankDetails(prev => ({ ...prev, accountNumber: e.target.value }))}
+                                        placeholder="Account Number"
+                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-mono font-bold"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">IFSC Code</label>
+                                    <input
+                                        type="text"
+                                        value={bankDetails.ifscCode}
+                                        onChange={e => setBankDetails(prev => ({ ...prev, ifscCode: e.target.value.toUpperCase() }))}
+                                        placeholder="IFSC Code"
+                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-mono font-bold uppercase"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Branch Name</label>
+                                    <input
+                                        type="text"
+                                        value={bankDetails.branch}
+                                        onChange={e => setBankDetails(prev => ({ ...prev, branch: e.target.value }))}
+                                        placeholder="Branch Name"
+                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-medium"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Inline Alert Banner for Stock / Validation / API Errors */}
+                    {submitError && (
+                        <div
+                            role="alert"
+                            className="flex items-start gap-3 px-4 py-3 mt-4 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200 shadow-sm animate-in fade-in duration-150"
+                        >
+                            <AlertTriangle size={18} className="text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                            <div className="flex-1 text-xs sm:text-sm font-semibold leading-snug">
+                                {submitError}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setSubmitError(null)}
+                                className="p-1 text-rose-500 hover:text-rose-700 dark:hover:text-rose-200 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors cursor-pointer"
+                                title="Dismiss alert"
+                            >
+                                <X size={15} />
+                            </button>
+                        </div>
+                    )}
+
                     {/* Bottom Actions */}
                     <div className="flex items-center justify-end gap-3 px-6 py-4 -mx-3.5 sm:-mx-6 -mb-3.5 sm:-mb-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 shrink-0 mt-6">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-4.5 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all cursor-pointer active:scale-95"
+                            disabled={isSubmitting}
+                            className="px-4.5 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all cursor-pointer active:scale-95 disabled:opacity-50"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
-                            disabled={loading}
+                            disabled={loading || isSubmitting}
                             className="px-6 py-2.5 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 rounded-xl shadow-md shadow-indigo-500/25 hover:shadow-lg hover:shadow-indigo-500/35 transition-all cursor-pointer flex items-center gap-2 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                            {loading && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                            <span>{loading ? "Saving..." : (isEditing ? "Update Tax Invoice" : "Create Tax Invoice")}</span>
+                            {(loading || isSubmitting) && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                            <span>{(loading || isSubmitting) ? "Saving..." : (isEditing ? "Update Tax Invoice" : "Create Tax Invoice")}</span>
                         </button>
                     </div>
                 </form>

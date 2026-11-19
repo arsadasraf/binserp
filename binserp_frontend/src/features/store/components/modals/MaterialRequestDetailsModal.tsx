@@ -253,7 +253,7 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                                                     <div>
                                                         <span className="font-bold text-gray-900 dark:text-white text-sm">
                                                             {item.selectedUnit === item.secondaryUnit 
-                                                                ? Math.round(Number(item.secondaryQuantity) || convertPrimaryToSecondaryQty(item.quantity, item.conversionFactor || 1))
+                                                                ? formatPrimaryQty(Number(item.secondaryQuantity) || convertPrimaryToSecondaryQty(item.quantity, item.conversionFactor || 1))
                                                                 : formatPrimaryQty(item.quantity)}
                                                         </span>
                                                         <span className="text-xs text-gray-500 ml-1 font-semibold">
@@ -268,7 +268,7 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                                                             {item.selectedUnit === item.secondaryUnit ? (
                                                                 <span>↳ = {formatPrimaryQty(item.quantity || convertSecondaryToPrimaryQty(item.secondaryQuantity, item.conversionFactor || 1))} {item.unit}</span>
                                                             ) : (
-                                                                <span>↳ = {item.secondaryQuantity != null && !isNaN(Number(item.secondaryQuantity)) && Number(item.secondaryQuantity) > 0 ? Math.round(Number(item.secondaryQuantity)) : convertPrimaryToSecondaryQty(item.quantity, item.conversionFactor || 1)} {item.secondaryUnit}</span>
+                                                                <span>↳ = {formatPrimaryQty(item.secondaryQuantity != null && !isNaN(Number(item.secondaryQuantity)) && Number(item.secondaryQuantity) > 0 ? Number(item.secondaryQuantity) : convertPrimaryToSecondaryQty(item.quantity, item.conversionFactor || 1))} {item.secondaryUnit}</span>
                                                             )}
                                                         </div>
                                                     )}

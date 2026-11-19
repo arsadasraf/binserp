@@ -441,6 +441,13 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
     vendorName,
     dispositionAction,
     actionNotes,
+    // Streamlined resolution fields
+    resolutionType,
+    resolutionReasonCategory,
+    resolutionReason,
+    returnDocType,
+    returnDocNumber,
+    technicalDescription,
     // Payload Details
     rtvPayload,
     replacementPayload,
@@ -474,6 +481,7 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
       materialName: materialName || "Defective Material",
       materialCode: materialCode || req.body.partNumber || "",
       partNumber: req.body.partNumber || materialCode || "",
+      technicalDescription: technicalDescription || req.body.materialDescription || req.body.description || req.body.descriptions || "",
       itemType: itemType || "Raw Material",
       unit: unit || "KG",
       rejectedQuantity: Number(rejectedQuantity) || 1,
@@ -485,6 +493,8 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
       createdBy: req.user?._id,
       createdByName: userName,
     });
+  } else if (!ticket.technicalDescription && technicalDescription) {
+    ticket.technicalDescription = technicalDescription;
   }
 
   ticket.dispositionAction = dispositionAction;
@@ -498,10 +508,95 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
   const taxableBase = qty * rate;
 
   // Execute Action-Specific Handling & Automated Document Generation
-  if (dispositionAction === "Return to Vendor") {
-    ticket.status = "In Progress";
-    ticket.documentType = "ReturnInvoice";
-    ticket.documentNumber = await getNextDocNumber(MRBDisposition, companyId, "RET-INV");
+  if (dispositionAction === "Added to Main Stock" || resolutionType === "ADD_TO_INVENTORY") {
+    ticket.status = "Completed";
+    ticket.dispositionAction = "Added to Main Stock";
+    ticket.resolutionType = "ADD_TO_INVENTORY";
+    ticket.resolutionReasonCategory = resolutionReasonCategory || req.body.reasonCategory || "Deviation";
+    ticket.resolutionReason = resolutionReason || actionNotes || rejectionReason || "Cleared to Main Stock";
+    ticket.isAddedToMainStock = true;
+    ticket.documentType = "MainStockCredit";
+    ticket.documentNumber = await getNextDocNumber(MRBDisposition, companyId, "STK-CREDIT");
+
+    // 1. Decrement rejectedStock in Inventory
+    if (ticket.materialId) {
+      try {
+        const Inventory = req.getModel("Inventory", inventorySchema);
+        await Inventory.findOneAndUpdate(
+          { company: companyId, $or: [{ materialId: ticket.materialId }, { materialCode: ticket.materialCode }] },
+          { $inc: { rejectedStock: -ticket.rejectedQuantity } }
+        );
+      } catch (invDecErr) {
+        console.warn("Could not decrement rejectedStock on Main Stock clearance:", invDecErr.message);
+      }
+    }
+
+    // 2. Add directly into Main Inventory Usable Stock (currentStock)
+    if (ticket.materialId) {
+      try {
+        await updateInventoryStock(
+          req,
+          ticket.materialId,
+          ticket.rejectedQuantity,
+          ticket.unit,
+          null,
+          {
+            isQCRelease: false,
+            itemType: (ticket.itemType === "Bought Out" || ticket.itemType === "BO") ? "BoughtOut" : ((ticket.itemType === "Consumable" || ticket.itemType === "ConsumableItem") ? "ConsumableItem" : ((ticket.itemType === "Component" || ticket.itemType === "inhouse") ? "Component" : (ticket.itemType === "Finished Goods" || ticket.itemType === "FG") ? "FinishedGoods" : "RawMaterial")),
+            transactionCategory: "REJECTION_CLEARED_TO_MAIN_STOCK",
+            referenceDocType: "STOCK_CREDIT",
+            referenceDocNumber: ticket.documentNumber,
+            purpose: `Cleared to Main Stock (${ticket.resolutionReasonCategory}: ${ticket.resolutionReason})`,
+            performedBy: req.user?._id,
+            performedByName: userName,
+          }
+        );
+      } catch (invRelErr) {
+        console.error("Error releasing rejected stock into main inventory:", invRelErr.message);
+      }
+    }
+
+    // 3. Log StockTransaction (INWARD)
+    try {
+      await recordStockTransaction(req, {
+        itemType: (ticket.itemType === "Bought Out" || ticket.itemType === "BO") ? "BoughtOut" : ((ticket.itemType === "Consumable" || ticket.itemType === "ConsumableItem") ? "ConsumableItem" : ((ticket.itemType === "Component" || ticket.itemType === "inhouse") ? "Component" : (ticket.itemType === "Finished Goods" || ticket.itemType === "FG") ? "FinishedGoods" : "RawMaterial")),
+        item: ticket.materialId,
+        itemName: ticket.materialName,
+        itemCode: ticket.materialCode,
+        category: ticket.itemType === "Bought Out" ? "BO" : (ticket.itemType === "Consumable" ? "Consumable" : (ticket.itemType === "Finished Goods" ? "FG" : "RM")),
+        movementType: "INWARD",
+        transactionCategory: "REJECTION_CLEARED_TO_MAIN_STOCK",
+        quantity: ticket.rejectedQuantity,
+        unit: ticket.unit,
+        sourceLocation: "Rejection Bay",
+        destinationLocation: "Main Store",
+        referenceDocType: "STOCK_CREDIT",
+        referenceDocNumber: ticket.documentNumber,
+        performedBy: req.user?._id,
+        performedByName: userName,
+        remarks: `Cleared to Main Stock (${ticket.resolutionReasonCategory}): ${ticket.resolutionReason}`,
+      });
+    } catch (stErr) {
+      console.error("Error recording Main Stock StockTransaction:", stErr.message);
+    }
+
+  } else if (dispositionAction === "Return to Vendor" || resolutionType === "RETURN_TO_VENDOR") {
+    const isDocAttached = Boolean(returnDocNumber || rtvPayload?.returnDocNumber);
+    ticket.status = "Completed";
+    ticket.dispositionAction = "Return to Vendor";
+    ticket.resolutionType = "RETURN_TO_VENDOR";
+    ticket.resolutionReason = resolutionReason || actionNotes || ticket.rejectionReason || "Return to Vendor";
+    ticket.returnDocType = returnDocType || rtvPayload?.returnDocType || "Delivery Challan";
+    ticket.returnDocNumber = returnDocNumber || rtvPayload?.returnDocNumber || "";
+
+    if (isDocAttached) {
+      ticket.documentType = ticket.returnDocType === "Invoice" ? "ReturnInvoice" : "ReplacementDC";
+      ticket.documentNumber = ticket.returnDocNumber;
+    } else {
+      ticket.documentType = "ReturnInvoice";
+      ticket.documentNumber = await getNextDocNumber(MRBDisposition, companyId, "RET-INV");
+      ticket.returnDocNumber = ticket.documentNumber;
+    }
 
     const taxRate = Number(rtvPayload?.taxRate || 18);
     const totalTax = taxableBase * (taxRate / 100);
@@ -517,9 +612,9 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
     };
 
     ticket.rtvDetails = {
-      challanNumber: ticket.documentNumber,
+      challanNumber: ticket.returnDocNumber || ticket.documentNumber,
       challanDate: new Date(),
-      debitNoteNumber: rtvPayload?.debitNoteNumber || `DN-${ticket.documentNumber.slice(-4)}`,
+      debitNoteNumber: rtvPayload?.debitNoteNumber || `DN-${String(ticket.documentNumber).slice(-4)}`,
       debitNoteAmount: ticket.taxDetails.totalAmount,
       debitNoteStatus: "Issued",
       vehicleNumber: rtvPayload?.vehicleNumber || "",
@@ -540,90 +635,93 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
         unit: ticket.unit,
         sourceLocation: "Rejection Bay",
         destinationLocation: `Vendor: ${ticket.vendorName || 'Supplier'}`,
-        referenceDocType: "RETURN_INVOICE",
-        referenceDocNumber: ticket.documentNumber,
+        referenceDocType: ticket.returnDocType === "Invoice" ? "RETURN_INVOICE" : "DELIVERY_CHALLAN",
+        referenceDocNumber: ticket.returnDocNumber || ticket.documentNumber,
         performedBy: req.user?._id,
         performedByName: userName,
-        remarks: `Return to Vendor (Return Bill: ${ticket.documentNumber}): ${actionNotes || ticket.rejectionReason}`,
+        remarks: `Return to Vendor (${ticket.returnDocType}: ${ticket.returnDocNumber}): ${ticket.resolutionReason}`,
       });
     } catch (stErr) {
       console.error("Error recording RTV StockTransaction:", stErr.message);
     }
 
-    // Generate Official Delivery Challan for Gate Out Security Pass
-    try {
-      const DeliveryChallan = req.getModel("DeliveryChallan", deliveryChallanSchema);
-      await DeliveryChallan.create({
-        company: companyId,
-        dcNumber: ticket.documentNumber,
-        dcType: "Vendor Return",
-        date: new Date(),
-        customerName: ticket.vendorName || "Supplier",
-        vendor: ticket.vendorId,
-        vehicleNo: rtvPayload?.vehicleNumber || "",
-        status: "Dispatched",
-        stockDeducted: true,
-        items: [{
-          material: ticket.materialId,
-          materialName: ticket.materialName,
-          materialCode: ticket.materialCode,
-          quantity: ticket.rejectedQuantity,
-          unit: ticket.unit || "PCS",
-          rate: ticket.rate || 0,
-          amount: ticket.taxDetails?.taxableAmount || 0,
-          remarks: `MRB Return to Vendor (Ticket #${ticket.ticketNumber})`
-        }],
-        remarks: `Generated from MRB Ticket #${ticket.ticketNumber} - ${ticket.rejectionReason}`,
-        createdBy: req.user?._id
-      });
-    } catch (dcErr) {
-      console.warn("Could not create DeliveryChallan for MRB return:", dcErr);
-    }
+    // Only auto-generate DeliveryChallan and DebitNote if not already an attached existing document
+    if (!isDocAttached) {
+      // Generate Official Delivery Challan for Gate Out Security Pass
+      try {
+        const DeliveryChallan = req.getModel("DeliveryChallan", deliveryChallanSchema);
+        await DeliveryChallan.create({
+          company: companyId,
+          dcNumber: ticket.documentNumber,
+          dcType: "Vendor Return",
+          date: new Date(),
+          customerName: ticket.vendorName || "Supplier",
+          vendor: ticket.vendorId,
+          vehicleNo: rtvPayload?.vehicleNumber || "",
+          status: "Dispatched",
+          stockDeducted: true,
+          items: [{
+            material: ticket.materialId,
+            materialName: ticket.materialName,
+            materialCode: ticket.materialCode,
+            quantity: ticket.rejectedQuantity,
+            unit: ticket.unit || "PCS",
+            rate: ticket.rate || 0,
+            amount: ticket.taxDetails?.taxableAmount || 0,
+            remarks: `MRB Return to Vendor (Ticket #${ticket.ticketNumber})`
+          }],
+          remarks: `Generated from MRB Ticket #${ticket.ticketNumber} - ${ticket.rejectionReason}`,
+          createdBy: req.user?._id
+        });
+      } catch (dcErr) {
+        console.warn("Could not create DeliveryChallan for MRB return:", dcErr);
+      }
 
-    // Generate Official Financial Debit Note / Return Bill
-    try {
-      const DebitNote = req.getModel("DebitNote", debitNoteSchema);
-      const dnNumber = rtvPayload?.debitNoteNumber || `DN-${ticket.documentNumber.replace(/^[A-Z-]+/, '')}`;
-      await DebitNote.create({
-        company: companyId,
-        debitNoteNumber: dnNumber,
-        date: new Date(),
-        vendor: ticket.vendorId,
-        vendorName: ticket.vendorName || "Supplier",
-        debitNoteType: ticket.sourceType === "JobWorkQC" ? "Job Work Damage" : "Material Rejection (RTV)",
-        originalGrn: ticket.sourceDocModel === "GRN" || ticket.sourceType === "IncomingQC" ? ticket.sourceDocId : undefined,
-        originalGrnNumber: ticket.sourceDocNumber || "",
-        originalJobWork: ticket.sourceType === "JobWorkQC" ? ticket.sourceDocId : undefined,
-        originalJobWorkNumber: ticket.sourceType === "JobWorkQC" ? ticket.sourceDocNumber : undefined,
-        mrbTicket: ticket._id,
-        mrbTicketNumber: ticket.ticketNumber,
-        deliveryChallanNumber: ticket.documentNumber,
-        items: [{
-          materialId: ticket.materialId,
-          materialName: ticket.materialName,
-          materialDescription: ticket.rejectionReason || "",
-          quantity: ticket.rejectedQuantity,
-          unit: ticket.unit || "PCS",
-          unitRate: ticket.unitRate || 0,
-          taxRate: ticket.taxDetails?.taxRate || 18,
-          taxableAmount: ticket.taxDetails?.taxableAmount || 0,
-          cgst: ticket.taxDetails?.cgst || 0,
-          sgst: ticket.taxDetails?.sgst || 0,
-          igst: ticket.taxDetails?.igst || 0,
-          totalAmount: ticket.taxDetails?.totalAmount || 0,
-          rejectionReason: ticket.rejectionReason || actionNotes || "",
-        }],
-        subtotal: ticket.taxDetails?.taxableAmount || 0,
-        totalTax: (ticket.taxDetails?.totalAmount || 0) - (ticket.taxDetails?.taxableAmount || 0),
-        grandTotal: ticket.taxDetails?.totalAmount || 0,
-        status: "Issued",
-        remarks: `Generated from MRB Disposition (${ticket.ticketNumber}) - Gate Pass: ${ticket.documentNumber}`,
-        createdBy: req.user?._id,
-        createdByName: userName,
-      });
-      ticket.rtvDetails.debitNoteNumber = dnNumber;
-    } catch (dnErr) {
-      console.warn("Could not create DebitNote document for MRB return:", dnErr);
+      // Generate Official Financial Debit Note / Return Bill
+      try {
+        const DebitNote = req.getModel("DebitNote", debitNoteSchema);
+        const dnNumber = rtvPayload?.debitNoteNumber || `DN-${ticket.documentNumber.replace(/^[A-Z-]+/, '')}`;
+        await DebitNote.create({
+          company: companyId,
+          debitNoteNumber: dnNumber,
+          date: new Date(),
+          vendor: ticket.vendorId,
+          vendorName: ticket.vendorName || "Supplier",
+          debitNoteType: ticket.sourceType === "JobWorkQC" ? "Job Work Damage" : "Material Rejection (RTV)",
+          originalGrn: ticket.sourceDocModel === "GRN" || ticket.sourceType === "IncomingQC" ? ticket.sourceDocId : undefined,
+          originalGrnNumber: ticket.sourceDocNumber || "",
+          originalJobWork: ticket.sourceType === "JobWorkQC" ? ticket.sourceDocId : undefined,
+          originalJobWorkNumber: ticket.sourceType === "JobWorkQC" ? ticket.sourceDocNumber : undefined,
+          mrbTicket: ticket._id,
+          mrbTicketNumber: ticket.ticketNumber,
+          deliveryChallanNumber: ticket.documentNumber,
+          items: [{
+            materialId: ticket.materialId,
+            materialName: ticket.materialName,
+            materialDescription: ticket.rejectionReason || "",
+            quantity: ticket.rejectedQuantity,
+            unit: ticket.unit || "PCS",
+            unitRate: ticket.unitRate || 0,
+            taxRate: ticket.taxDetails?.taxRate || 18,
+            taxableAmount: ticket.taxDetails?.taxableAmount || 0,
+            cgst: ticket.taxDetails?.cgst || 0,
+            sgst: ticket.taxDetails?.sgst || 0,
+            igst: ticket.taxDetails?.igst || 0,
+            totalAmount: ticket.taxDetails?.totalAmount || 0,
+            rejectionReason: ticket.rejectionReason || actionNotes || "",
+          }],
+          subtotal: ticket.taxDetails?.taxableAmount || 0,
+          totalTax: (ticket.taxDetails?.totalAmount || 0) - (ticket.taxDetails?.taxableAmount || 0),
+          grandTotal: ticket.taxDetails?.totalAmount || 0,
+          status: "Issued",
+          remarks: `Generated from MRB Disposition (${ticket.ticketNumber}) - Gate Pass: ${ticket.documentNumber}`,
+          createdBy: req.user?._id,
+          createdByName: userName,
+        });
+        ticket.rtvDetails.debitNoteNumber = dnNumber;
+      } catch (dnErr) {
+        console.warn("Could not create DebitNote document for MRB return:", dnErr);
+      }
     }
 
     // Decrement rejectedStock in Inventory if materialId exists
@@ -890,6 +988,10 @@ export const updateMRBDisposition = asyncHandler(async (req, res) => {
   const {
     dispositionAction,
     actionNotes,
+    resolutionReasonCategory,
+    resolutionReason,
+    returnDocType,
+    returnDocNumber,
     rtvPayload,
     reworkPayload,
     scrapPayload,
@@ -899,6 +1001,10 @@ export const updateMRBDisposition = asyncHandler(async (req, res) => {
   if (dispositionAction) {
     ticket.dispositionAction = dispositionAction;
   }
+  if (resolutionReasonCategory !== undefined) ticket.resolutionReasonCategory = resolutionReasonCategory;
+  if (resolutionReason !== undefined) ticket.resolutionReason = resolutionReason;
+  if (returnDocType !== undefined) ticket.returnDocType = returnDocType;
+  if (returnDocNumber !== undefined) ticket.returnDocNumber = returnDocNumber;
 
   if (rtvPayload && ticket.rtvDetails) {
     if (rtvPayload.vehicleNumber !== undefined) ticket.rtvDetails.vehicleNumber = rtvPayload.vehicleNumber;
