@@ -191,10 +191,12 @@ export const deductSalesItemsStock = async (req, items, options) => {
     // 1. RAW MATERIAL (RM)
     if (itemType === "rm" || item.rawMaterial) {
       const rmId = item.rawMaterial || item.material || item.fgItem;
-      const invDoc = await Inventory.findOne({
-        company: companyId,
-        $or: [{ materialId: rmId }, { _id: rmId }, { materialName: itemName }]
-      });
+      const invOr = [];
+      if (rmId && mongoose.Types.ObjectId.isValid(rmId)) {
+        invOr.push({ materialId: rmId }, { _id: rmId });
+      }
+      if (itemName) invOr.push({ materialName: itemName });
+      const invDoc = invOr.length > 0 ? await Inventory.findOne({ company: companyId, $or: invOr }) : null;
 
       const previousStock = invDoc ? Number(invDoc.currentStock || 0) : 0;
       const newStock = Math.max(0, previousStock - qty);
@@ -238,10 +240,12 @@ export const deductSalesItemsStock = async (req, items, options) => {
     // 2. BOUGHT-OUT (BO)
     else if (itemType === "bo" || item.boughtOut) {
       const boId = item.boughtOut || item.material || item.fgItem;
-      const invDoc = await Inventory.findOne({
-        company: companyId,
-        $or: [{ materialId: boId }, { _id: boId }, { materialName: itemName }]
-      });
+      const invOr = [];
+      if (boId && mongoose.Types.ObjectId.isValid(boId)) {
+        invOr.push({ materialId: boId }, { _id: boId });
+      }
+      if (itemName) invOr.push({ materialName: itemName });
+      const invDoc = invOr.length > 0 ? await Inventory.findOne({ company: companyId, $or: invOr }) : null;
 
       const previousStock = invDoc ? Number(invDoc.currentStock || 0) : 0;
       const newStock = Math.max(0, previousStock - qty);
@@ -285,10 +289,12 @@ export const deductSalesItemsStock = async (req, items, options) => {
     // 3. CONSUMABLE
     else if (itemType === "consumable" || item.consumableItem) {
       const conId = item.consumableItem || item.material || item.fgItem;
-      const invDoc = await Inventory.findOne({
-        company: companyId,
-        $or: [{ materialId: conId }, { _id: conId }, { materialName: itemName }]
-      });
+      const invOr = [];
+      if (conId && mongoose.Types.ObjectId.isValid(conId)) {
+        invOr.push({ materialId: conId }, { _id: conId });
+      }
+      if (itemName) invOr.push({ materialName: itemName });
+      const invDoc = invOr.length > 0 ? await Inventory.findOne({ company: companyId, $or: invOr }) : null;
 
       const previousStock = invDoc ? Number(invDoc.currentStock || 0) : 0;
       const newStock = Math.max(0, previousStock - qty);
@@ -435,10 +441,12 @@ export const reverseSalesItemsStock = async (req, items, options) => {
     // 1. RM / BO / Consumable
     if (itemType === "rm" || itemType === "bo" || itemType === "consumable" || item.rawMaterial || item.boughtOut || item.consumableItem) {
       const targetId = item.rawMaterial || item.boughtOut || item.consumableItem || item.material || item.fgItem;
-      const invDoc = await Inventory.findOne({
-        company: companyId,
-        $or: [{ materialId: targetId }, { _id: targetId }, { materialName: itemName }]
-      });
+      const invOr = [];
+      if (targetId && mongoose.Types.ObjectId.isValid(targetId)) {
+        invOr.push({ materialId: targetId }, { _id: targetId });
+      }
+      if (itemName) invOr.push({ materialName: itemName });
+      const invDoc = invOr.length > 0 ? await Inventory.findOne({ company: companyId, $or: invOr }) : null;
 
       if (invDoc) {
         const previousStock = Number(invDoc.currentStock || 0);

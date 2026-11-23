@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
     X,
     Plus,
@@ -213,6 +214,54 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
     const [activeFGSearchIdx, setActiveFGSearchIdx] = useState<number | null>(null);
     const [fgSearchQuery, setFgSearchQuery] = useState('');
     const fgDropdownRef = useRef<HTMLDivElement>(null);
+    const fgInputAnchorRef = useRef<HTMLDivElement>(null);
+    const [fgDropdownStyle, setFgDropdownStyle] = useState<React.CSSProperties>({});
+
+    const updateFgDropdownPosition = useCallback(() => {
+        if (activeFGSearchIdx === null || !fgInputAnchorRef.current) return;
+        const rect = fgInputAnchorRef.current.getBoundingClientRect();
+        const viewportH = window.innerHeight;
+        const viewportW = window.innerWidth;
+        const estimatedHeight = 264;
+        const spaceBelow = viewportH - rect.bottom;
+        const spaceAbove = rect.top;
+        const openAbove = spaceBelow < estimatedHeight && spaceAbove > spaceBelow;
+        const width = Math.min(Math.max(rect.width, 380), viewportW - 24);
+        const left = Math.max(12, Math.min(rect.left, viewportW - width - 12));
+
+        if (openAbove) {
+            setFgDropdownStyle({
+                position: 'fixed',
+                bottom: viewportH - rect.top + 6,
+                left,
+                width,
+                maxHeight: Math.min(264, Math.max(140, spaceAbove - 16)),
+                zIndex: 9999,
+            });
+        } else {
+            setFgDropdownStyle({
+                position: 'fixed',
+                top: rect.bottom + 6,
+                left,
+                width,
+                maxHeight: Math.min(264, Math.max(140, spaceBelow - 16)),
+                zIndex: 9999,
+            });
+        }
+    }, [activeFGSearchIdx]);
+
+    useEffect(() => {
+        if (activeFGSearchIdx === null) return;
+        updateFgDropdownPosition();
+        const rafId = window.requestAnimationFrame(updateFgDropdownPosition);
+        window.addEventListener('resize', updateFgDropdownPosition);
+        window.addEventListener('scroll', updateFgDropdownPosition, true);
+        return () => {
+            window.cancelAnimationFrame(rafId);
+            window.removeEventListener('resize', updateFgDropdownPosition);
+            window.removeEventListener('scroll', updateFgDropdownPosition, true);
+        };
+    }, [activeFGSearchIdx, fgSearchQuery, updateFgDropdownPosition]);
 
     // FG Items Table
     const [fgRows, setFgRows] = useState<FGRow[]>([
@@ -222,17 +271,22 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
     // Close dropdowns on outside click
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            if (customerDropdownRef.current && !customerDropdownRef.current.contains(event.target as Node)) {
+            const target = event.target as Node;
+            if (customerDropdownRef.current && !customerDropdownRef.current.contains(target)) {
                 setIsCustomerDropdownOpen(false);
             }
-            if (poDropdownRef.current && !poDropdownRef.current.contains(event.target as Node)) {
+            if (poDropdownRef.current && !poDropdownRef.current.contains(target)) {
                 setIsPoDropdownOpen(false);
             }
-            if (fgDropdownRef.current && !fgDropdownRef.current.contains(event.target as Node)) {
+            if (
+                fgDropdownRef.current &&
+                !fgDropdownRef.current.contains(target) &&
+                (!fgInputAnchorRef.current || !fgInputAnchorRef.current.contains(target))
+            ) {
                 setActiveFGSearchIdx(null);
                 setFgSearchQuery('');
             }
-            if (datePopoverRef.current && !datePopoverRef.current.contains(event.target as Node)) {
+            if (datePopoverRef.current && !datePopoverRef.current.contains(target)) {
                 setActiveDatePopoverIdx(null);
             }
         };
@@ -2474,7 +2528,10 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                             <td className="px-3 py-3 relative max-w-0 align-top">
                                                 <div className="relative group/fgcell min-w-0">
                                                     {isSearchingRow || !hasSelectedItem ? (
-                                                        <div className="relative">
+                                                        <div
+                                                            className="relative"
+                                                            ref={isSearchingRow ? fgInputAnchorRef : undefined}
+                                                        >
                                                             <Search size={13} className="absolute left-3 top-2.5 text-slate-400 pointer-events-none" />
                                                             <input
                                                                 type="text"
@@ -2628,11 +2685,12 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                     </div>
                                                 ) : null}
 
-                                                {/* Search Results Dropdown */}
-                                                {isSearchingRow && (
+                                                {/* Search Results Dropdown (Portaled to document.body to prevent overflow-x-auto clipping) */}
+                                                {isSearchingRow && typeof document !== 'undefined' && createPortal(
                                                     <div
                                                         ref={fgDropdownRef}
-                                                        className="absolute left-3 right-3 mt-1 max-h-64 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 p-1.5 space-y-0.5"
+                                                        style={fgDropdownStyle}
+                                                        className="overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl p-1.5 space-y-0.5 ring-1 ring-slate-900/5"
                                                     >
                                                         {visibleFGItems.length === 0 ? (
                                                             <div className="p-3 text-center text-xs text-slate-400">
@@ -2648,7 +2706,10 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                                         <button
                                                                             key={fg._id}
                                                                             type="button"
-                                                                            onClick={() => handleSelectFGForRow(idx, fg)}
+                                                                            onMouseDown={(e) => {
+                                                                                e.preventDefault();
+                                                                                handleSelectFGForRow(idx, fg);
+                                                                            }}
                                                                             title={`${fg.name}${fgDesc ? ` — ${fgDesc}` : ''}`}
                                                                             className="w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-between gap-2 cursor-pointer"
                                                                         >
@@ -2679,7 +2740,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                                 )}
                                                             </>
                                                         )}
-                                                    </div>
+                                                    </div>,
+                                                    document.body
                                                 )}
                                             </td>
 

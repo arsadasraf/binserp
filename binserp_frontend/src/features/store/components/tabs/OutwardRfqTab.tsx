@@ -7,6 +7,7 @@ import { generateFrontendRfqPDF } from '@/src/utils/frontendPdfHelper';
 import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
+import { formatItemSelectLabel, getItemDescription } from '@/src/utils/itemDisplayHelper';
 import { syncQuantities } from '@/src/utils/dualUomHelper';
 import { showDestructiveConfirm, showSuccessToast, showErrorDialog } from '@/src/features/store/utils/storeDialogHelper';
 
@@ -655,8 +656,8 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
 
             {/* Create / Edit Outward RFQ Modal */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 lg:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] lg:max-w-6xl xl:max-w-7xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh]">
                         
                         <div className="p-6 bg-cyan-950 text-white flex justify-between items-center flex-shrink-0 border-b border-cyan-900">
                             <div className="flex items-center gap-3">
@@ -729,11 +730,10 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
 
                                         const itemOptions = (Array.isArray(sourceList) ? sourceList : []).map(m => {
                                             const id = (m._id || m.id)?.toString();
-                                            const name = m.name || m.materialName || m.itemName || 'Material Item';
-                                            const code = m.code ? `(${m.code})` : '';
                                             return {
                                                 value: id,
-                                                label: `${name} ${code}`.trim()
+                                                label: formatItemSelectLabel(m),
+                                                description: getItemDescription(m)
                                             };
                                         }).filter(o => o.value);
 
@@ -792,7 +792,7 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
                                                     </div>
                                                 </div>
 
-                                                 <div className="grid grid-cols-12 gap-2.5 items-center">
+                                                 <div className="grid grid-cols-12 gap-3.5 items-start">
                                                      <div className="col-span-12 sm:col-span-5">
                                                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                                                              {currentType === 'rm' ? 'Raw Material' : currentType === 'bo' ? 'Bought Out Item' : 'Consumable Item'}
@@ -949,7 +949,7 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
                                 </div>
 
                                 {/* Searchable Vendor List */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-52 overflow-y-auto p-2 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 custom-scrollbar">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 max-h-56 overflow-y-auto p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 custom-scrollbar">
                                     {filteredModalVendors.length === 0 ? (
                                         <div className="col-span-full p-4 text-center text-xs text-slate-400">
                                             No vendors match your search criteria.

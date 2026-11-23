@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import { API_BASE_URL } from '@/src/utils/config';
-import { Hash, Tag, ShoppingCart, FileText, CheckCircle2, Save, IndianRupee, Globe, RefreshCw, Clock, Lock, ShieldCheck, AlertCircle, Package, Truck, Layers, Wrench, ShieldAlert, PackageCheck, UserCheck, Users, ExternalLink, X, Plus, Boxes, CalendarClock, Send, ClipboardList } from 'lucide-react';
+import { Hash, Tag, ShoppingCart, FileText, CheckCircle2, Save, IndianRupee, Globe, RefreshCw, Clock, Lock, ShieldCheck, AlertCircle, Package, Truck, Layers, Wrench, ShieldAlert, PackageCheck, UserCheck, Users, ExternalLink, X, Plus, Boxes, CalendarClock, Send, ClipboardList, Edit3, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useGetUsersQuery } from '@/src/store/services/userService';
 import { DEFAULT_EXCHANGE_RATES_TO_INR, setGlobalExchangeRates, CURRENCY_OPTIONS, getCurrencySymbol } from '@/src/utils/currencyHelper';
@@ -151,6 +151,7 @@ interface PrefixSettings {
   fgGrnPrefix: string;
   exchangeRates?: Record<string, number>;
   timeLockPolicies?: Record<string, number>;
+  deleteTimeLockPolicies?: Record<string, number>;
   approvalSettings?: StoreApprovalSettings;
 }
 
@@ -179,6 +180,7 @@ export default function PrefixSettingsPage() {
     fgGrnPrefix: 'GRN-FG',
     exchangeRates: { ...DEFAULT_EXCHANGE_RATES_TO_INR },
     timeLockPolicies: { ...DEFAULT_TIME_LOCK_HOURS },
+    deleteTimeLockPolicies: { ...DEFAULT_TIME_LOCK_HOURS },
     approvalSettings: { ...DEFAULT_APPROVAL_SETTINGS },
   });
 
@@ -189,10 +191,14 @@ export default function PrefixSettingsPage() {
     fetchPrefixSettings();
   }, []);
 
-  const fetchPrefixSettings = async () => {
+  const fetchPrefixSettings = async (retryCount = 0) => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      if (!token) {
+        setLoading(false);
+        return;
+      }
       const res = await fetch(`${API_BASE_URL}/api/store/prefix`, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -209,12 +215,16 @@ export default function PrefixSettingsPage() {
             ...DEFAULT_TIME_LOCK_HOURS,
             ...(data.settings.timeLockPolicies || {})
           };
+          const mergedDeletePolicies = {
+            ...mergedPolicies,
+            ...(data.settings.deleteTimeLockPolicies || {})
+          };
           const mergedApprovals = {
             materialRequest: {
               ...DEFAULT_APPROVAL_SETTINGS.materialRequest,
               ...(data.settings.approvalSettings?.materialRequest || {})
             },
-                        outwardPo: {
+            outwardPo: {
               ...DEFAULT_APPROVAL_SETTINGS.outwardPo,
               ...(data.settings.approvalSettings?.outwardPo || {})
             },
@@ -236,15 +246,25 @@ export default function PrefixSettingsPage() {
             ...data.settings,
             exchangeRates: mergedRates,
             timeLockPolicies: mergedPolicies,
+            deleteTimeLockPolicies: mergedDeletePolicies,
             approvalSettings: mergedApprovals
           }));
           setGlobalExchangeRates(mergedRates);
-          setGlobalTimeLockPolicies(mergedPolicies);
+          setGlobalTimeLockPolicies(mergedPolicies, mergedDeletePolicies);
           setGlobalApprovalSettings(mergedApprovals);
+          setMessage(null);
         }
       }
     } catch (error) {
-      console.error('Failed to fetch prefix settings:', error);
+      if (retryCount < 1) {
+        setTimeout(() => fetchPrefixSettings(retryCount + 1), 800);
+        return;
+      }
+      console.warn('Unable to reach store settings endpoint (using defaults):', error);
+      setMessage({
+        type: 'error',
+        text: 'Could not load Store Settings from server. Please ensure the backend server is running and try again.'
+      });
     } finally {
       setLoading(false);
     }
@@ -259,6 +279,16 @@ export default function PrefixSettingsPage() {
       ...prev,
       timeLockPolicies: {
         ...(prev.timeLockPolicies || DEFAULT_TIME_LOCK_HOURS),
+        [key]: value
+      }
+    }));
+  };
+
+  const handleDeletePolicyChange = (key: string, value: number) => {
+    setSettings(prev => ({
+      ...prev,
+      deleteTimeLockPolicies: {
+        ...(prev.deleteTimeLockPolicies || prev.timeLockPolicies || DEFAULT_TIME_LOCK_HOURS),
         [key]: value
       }
     }));
@@ -304,7 +334,7 @@ export default function PrefixSettingsPage() {
           setGlobalExchangeRates(settings.exchangeRates);
         }
         if (settings.timeLockPolicies) {
-          setGlobalTimeLockPolicies(settings.timeLockPolicies);
+          setGlobalTimeLockPolicies(settings.timeLockPolicies, settings.deleteTimeLockPolicies);
         }
         if (settings.approvalSettings) {
           setGlobalApprovalSettings(settings.approvalSettings);
@@ -762,124 +792,206 @@ export default function PrefixSettingsPage() {
           {/* SECTION 5: Dynamic Edit & Delete Time-Lock Policies */}
           {(activeSubSection === 'all' || activeSubSection === 'timelocks') && (
             <div className="bg-white dark:bg-gray-800 rounded-2xl p-3.5 sm:p-5 border border-gray-100 dark:border-gray-700/60 shadow-xs">
-              <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-gray-100 dark:border-gray-700/60 gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2.5 mb-3 border-b border-gray-100 dark:border-gray-700/60 gap-2">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
                     <Clock size={16} />
                   </div>
-                  <h2 className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                    <span>Edit & Delete Lock Policies</span>
+                  <h2 className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2 flex-wrap">
+                    <span>Edit &amp; Delete Lock Policies</span>
                     <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 font-semibold">
-                      Time-Bound
+                      Independent Edit &amp; Delete Windows
                     </span>
                   </h2>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSettings(prev => ({
-                      ...prev,
-                      timeLockPolicies: { ...DEFAULT_TIME_LOCK_HOURS }
-                    }));
-                  }}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-gray-600 dark:text-gray-300 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg transition-colors cursor-pointer shrink-0"
-                >
-                  <RefreshCw size={12} />
-                  <span>Reset to 24h</span>
-                </button>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const lockedDeletes: Record<string, number> = {};
+                      TIME_LOCK_CONFIGS.forEach(c => { lockedDeletes[c.key] = 0; });
+                      setSettings(prev => ({
+                        ...prev,
+                        deleteTimeLockPolicies: lockedDeletes
+                      }));
+                    }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/30 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-800 rounded-lg transition-colors cursor-pointer shrink-0"
+                    title="Immediately lock delete actions across all document types"
+                  >
+                    <Lock size={12} />
+                    <span>Lock All Deletes (0h)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettings(prev => ({
+                        ...prev,
+                        timeLockPolicies: { ...DEFAULT_TIME_LOCK_HOURS },
+                        deleteTimeLockPolicies: { ...DEFAULT_TIME_LOCK_HOURS }
+                      }));
+                    }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-gray-600 dark:text-gray-300 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg transition-colors cursor-pointer shrink-0"
+                  >
+                    <RefreshCw size={12} />
+                    <span>Reset to Defaults</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
                 {TIME_LOCK_CONFIGS.map(cfg => {
-                  const currentVal = settings.timeLockPolicies?.[cfg.key] ?? DEFAULT_TIME_LOCK_HOURS[cfg.key] ?? 24;
+                  const editVal = settings.timeLockPolicies?.[cfg.key] ?? DEFAULT_TIME_LOCK_HOURS[cfg.key] ?? 24;
+                  const deleteVal = settings.deleteTimeLockPolicies?.[cfg.key] ?? editVal;
                   const Icon = cfg.icon;
+                  const presets = [
+                    { label: '0h', value: 0 },
+                    { label: '12h', value: 12 },
+                    { label: '24h', value: 24 },
+                    { label: '48h', value: 48 },
+                    { label: '72h', value: 72 },
+                    { label: '∞', value: -1 }
+                  ];
+
+                  const renderStatusPill = (val: number, colorMode: 'edit' | 'delete') => {
+                    if (val === 0) {
+                      return (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 shrink-0">
+                          <Lock size={9} /> Locked (0h)
+                        </span>
+                      );
+                    }
+                    if (val === -1) {
+                      return (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 shrink-0">
+                          <ShieldCheck size={9} /> Unlimited
+                        </span>
+                      );
+                    }
+                    return (
+                      <span
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold shrink-0 ${
+                          colorMode === 'delete'
+                            ? 'bg-rose-100/80 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200'
+                            : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'
+                        }`}
+                      >
+                        <Clock size={9} />
+                        {val >= 24
+                          ? `${Math.floor(val / 24)}d ${val % 24 > 0 ? `${val % 24}h` : ''}`.trim()
+                          : `${val}h`}
+                      </span>
+                    );
+                  };
 
                   return (
                     <div
                       key={cfg.key}
-                      className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/60 hover:bg-white dark:hover:bg-gray-800 transition-all flex flex-col justify-between gap-2.5"
+                      className="p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/60 hover:bg-white dark:hover:bg-gray-800 transition-all flex flex-col justify-between gap-3"
                     >
+                      {/* Card Header */}
                       <div>
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <span className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5 truncate">
-                            <span className="p-1 rounded-md bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 shrink-0">
-                              <Icon size={14} />
-                            </span>
-                            <span className="truncate">{cfg.title}</span>
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="p-1 rounded-md bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 shrink-0">
+                            <Icon size={14} />
+                          </span>
+                          <span className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                            {cfg.title}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
-                            {cfg.subtitle}
-                          </span>
-                          {currentVal === 0 ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 shrink-0">
-                              <Lock size={10} /> Locked (0h)
-                            </span>
-                          ) : currentVal === -1 ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 shrink-0">
-                              <ShieldCheck size={10} /> Unlimited
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 shrink-0">
-                              <Clock size={10} />
-                              {currentVal >= 24
-                                ? `${Math.floor(currentVal / 24)}d ${currentVal % 24 > 0 ? `${currentVal % 24}h` : ''}`.trim()
-                                : `${currentVal}h`}
-                            </span>
-                          )}
-                        </div>
+                        <span className="text-[10px] text-gray-500 dark:text-gray-400 block truncate pl-7">
+                          {cfg.subtitle}
+                        </span>
                       </div>
 
-                      <div className="space-y-2 pt-2 border-t border-gray-200/70 dark:border-gray-700/60">
-                        {/* Presets */}
-                        <div className="flex items-center gap-1 flex-wrap">
-                          {[
-                            { label: '0h', value: 0 },
-                            { label: '12h', value: 12 },
-                            { label: '24h', value: 24 },
-                            { label: '48h', value: 48 },
-                            { label: '72h', value: 72 },
-                            { label: '∞', value: -1 }
-                          ].map(preset => {
-                            const isSelected = currentVal === preset.value;
-                            return (
-                              <button
-                                key={preset.value}
-                                type="button"
-                                onClick={() => handlePolicyChange(cfg.key, preset.value)}
-                                className={`px-2 py-0.5 text-[10px] font-semibold rounded-md transition-colors cursor-pointer ${
-                                  isSelected
-                                    ? 'bg-indigo-600 text-white shadow-2xs font-bold'
-                                    : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'
-                                }`}
-                              >
-                                {preset.label}
-                              </button>
-                            );
-                          })}
+                      {/* Independent Edit Time Control */}
+                      <div className="p-2.5 rounded-lg bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 space-y-2">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
+                            <Edit3 size={11} /> Edit Time
+                          </span>
+                          {renderStatusPill(editVal, 'edit')}
                         </div>
-
-                        {/* Custom Input */}
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {presets.map(preset => (
+                            <button
+                              key={`edit-${preset.value}`}
+                              type="button"
+                              onClick={() => handlePolicyChange(cfg.key, preset.value)}
+                              className={`px-2 py-0.5 text-[10px] font-semibold rounded-md transition-colors cursor-pointer ${
+                                editVal === preset.value
+                                  ? 'bg-indigo-600 text-white shadow-2xs font-bold'
+                                  : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
                         <div className="relative flex items-center">
-                          <span className="absolute left-2.5 text-[11px] font-semibold text-gray-400 dark:text-gray-500 select-none flex items-center gap-1">
-                            <Clock size={12} /> Custom:
+                          <span className="absolute left-2.5 text-[10.5px] font-semibold text-gray-400 dark:text-gray-500 select-none flex items-center gap-1">
+                            <Clock size={11} /> Custom:
                           </span>
                           <input
                             type="number"
                             step="1"
                             min="-1"
-                            value={currentVal}
+                            value={editVal}
                             onChange={e => {
                               const parsed = parseInt(e.target.value, 10);
                               handlePolicyChange(cfg.key, isNaN(parsed) ? 0 : parsed);
                             }}
-                            className="w-full pl-20 pr-12 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 text-xs font-bold text-gray-900 dark:text-white transition-all"
+                            className="w-full pl-20 pr-10 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 text-xs font-bold text-gray-900 dark:text-white transition-all"
                             placeholder="e.g. 24"
                           />
                           <span className="absolute right-2 text-[10px] font-semibold text-gray-400 dark:text-gray-500 select-none">
-                            {currentVal === 1 ? 'hr' : 'hrs'}
+                            {editVal === 1 ? 'hr' : 'hrs'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Independent Delete Time Control */}
+                      <div className="p-2.5 rounded-lg bg-rose-50/40 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 space-y-2">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-rose-700 dark:text-rose-300 flex items-center gap-1">
+                            <Trash2 size={11} /> Delete Time
+                          </span>
+                          {renderStatusPill(deleteVal, 'delete')}
+                        </div>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {presets.map(preset => (
+                            <button
+                              key={`delete-${preset.value}`}
+                              type="button"
+                              onClick={() => handleDeletePolicyChange(cfg.key, preset.value)}
+                              className={`px-2 py-0.5 text-[10px] font-semibold rounded-md transition-colors cursor-pointer ${
+                                deleteVal === preset.value
+                                  ? 'bg-rose-600 text-white shadow-2xs font-bold'
+                                  : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="relative flex items-center">
+                          <span className="absolute left-2.5 text-[10.5px] font-semibold text-gray-400 dark:text-gray-500 select-none flex items-center gap-1">
+                            <Clock size={11} /> Custom:
+                          </span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="-1"
+                            value={deleteVal}
+                            onChange={e => {
+                              const parsed = parseInt(e.target.value, 10);
+                              handleDeletePolicyChange(cfg.key, isNaN(parsed) ? 0 : parsed);
+                            }}
+                            className="w-full pl-20 pr-10 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-rose-500 text-xs font-bold text-gray-900 dark:text-white transition-all"
+                            placeholder="e.g. 0"
+                          />
+                          <span className="absolute right-2 text-[10px] font-semibold text-gray-400 dark:text-gray-500 select-none">
+                            {deleteVal === 1 ? 'hr' : 'hrs'}
                           </span>
                         </div>
                       </div>

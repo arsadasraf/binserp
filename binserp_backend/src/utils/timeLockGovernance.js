@@ -55,7 +55,15 @@ export const checkTimeLockGovernance = async (req, entityKey, createdAt, action 
         const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
         const prefixDoc = await StorePrefix.findOne();
 
-        const configuredPolicy = prefixDoc?.timeLockPolicies?.[entityKey];
+        const isDeleteAction = action === "delete";
+        const configuredDeletePolicy = prefixDoc?.deleteTimeLockPolicies?.[entityKey];
+        const configuredEditPolicy = prefixDoc?.timeLockPolicies?.[entityKey];
+
+        // For delete actions, prefer deleteTimeLockPolicies[entityKey] and fall back to timeLockPolicies[entityKey] for backward compatibility
+        const configuredPolicy = isDeleteAction
+            ? (configuredDeletePolicy !== undefined && configuredDeletePolicy !== null ? configuredDeletePolicy : configuredEditPolicy)
+            : configuredEditPolicy;
+
         const policyHours = configuredPolicy !== undefined && configuredPolicy !== null
             ? Number(configuredPolicy)
             : (DEFAULT_TIME_LOCK_HOURS[entityKey] ?? 24);
@@ -65,7 +73,8 @@ export const checkTimeLockGovernance = async (req, entityKey, createdAt, action 
             return { allowed: true, policyHours: -1 };
         }
 
-        const actionName = action === "delete" ? "deleted" : "edited";
+        const actionName = isDeleteAction ? "deleted" : "edited";
+        const actionVerb = isDeleteAction ? "deletion" : "editing";
         const docLabel = DOC_DISPLAY_NAMES[entityKey] || "Record";
 
         // Policy 0: Immediately locked after creation
@@ -73,7 +82,7 @@ export const checkTimeLockGovernance = async (req, entityKey, createdAt, action 
             return {
                 allowed: false,
                 policyHours: 0,
-                message: `${docLabel} cannot be ${actionName}. Company policy has locked modifications immediately upon creation.`
+                message: `${docLabel} cannot be ${actionName}. Company policy has locked ${actionVerb} immediately upon creation.`
             };
         }
 
@@ -83,7 +92,7 @@ export const checkTimeLockGovernance = async (req, entityKey, createdAt, action 
             return {
                 allowed: false,
                 policyHours,
-                message: `${docLabel} cannot be ${actionName}. Company policy allows modifications only within ${policyHours} hour(s) of creation (${elapsedHours.toFixed(1)}h elapsed).`
+                message: `${docLabel} cannot be ${actionName}. Company policy allows ${actionVerb} only within ${policyHours} hour(s) of creation (${elapsedHours.toFixed(1)}h elapsed).`
             };
         }
 

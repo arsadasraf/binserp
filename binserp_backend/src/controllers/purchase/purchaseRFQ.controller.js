@@ -55,8 +55,12 @@ export const createPurchaseRFQ = asyncHandler(async (req, res) => {
       }
     }
 
+    const rawMatId = typeof it.materialId === 'object' && it.materialId !== null ? it.materialId._id : it.materialId;
+    const cleanMaterialId = rawMatId && mongoose.Types.ObjectId.isValid(String(rawMatId)) ? rawMatId : undefined;
+
     return {
       ...it,
+      materialId: cleanMaterialId,
       quantity: qty,
       unit: it.unit || 'PCS',
       hasSecondaryUnit: hasSec,
@@ -78,7 +82,9 @@ export const createPurchaseRFQ = asyncHandler(async (req, res) => {
     vendorName: vendorName || "Multiple Vendors",
     vendorEmail,
     vendorPhone,
-    vendorIds: Array.isArray(vendorIds) ? vendorIds : [],
+    vendorIds: Array.isArray(vendorIds)
+      ? vendorIds.filter((v) => v && mongoose.Types.ObjectId.isValid(String(v)))
+      : [],
     items: processedItems,
     remarks,
     status: "Sent",
@@ -254,8 +260,12 @@ export const updatePurchaseRFQ = asyncHandler(async (req, res) => {
         }
       }
 
+      const rawMatId = typeof it.materialId === 'object' && it.materialId !== null ? it.materialId._id : it.materialId;
+      const cleanMaterialId = rawMatId && mongoose.Types.ObjectId.isValid(String(rawMatId)) ? rawMatId : undefined;
+
       return {
         ...it,
+        materialId: cleanMaterialId,
         quantity: qty,
         unit: it.unit || 'PCS',
         hasSecondaryUnit: hasSec,

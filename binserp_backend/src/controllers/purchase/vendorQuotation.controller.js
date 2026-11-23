@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { vendorQuotationSchema } from "../../models/purchase/index.js";
 import { rawMaterialSchema } from "../../models/store/rawMaterial.model.js";
 import { boughtOutSchema } from "../../models/store/boughtOut.model.js";
@@ -86,8 +87,12 @@ export const createVendorQuotation = asyncHandler(async (req, res) => {
 
     const lineTotal = Number(it.total) || (lineSubtotal * (1 + taxPct / 100));
 
+    const rawMatId = typeof it.materialId === 'object' && it.materialId !== null ? it.materialId._id : it.materialId;
+    const cleanMaterialId = rawMatId && mongoose.Types.ObjectId.isValid(String(rawMatId)) ? rawMatId : undefined;
+
     return {
       ...it,
+      materialId: cleanMaterialId,
       quantity: qty,
       unit: it.unit || 'PCS',
       hasSecondaryUnit: hasSec,
@@ -110,9 +115,9 @@ export const createVendorQuotation = asyncHandler(async (req, res) => {
   const newQuotation = await VendorQuotation.create({
     company: companyId,
     quotationNumber,
-    rfq: rfq || undefined,
+    rfq: rfq && mongoose.Types.ObjectId.isValid(String(rfq)) ? rfq : undefined,
     rfqNumber: rfqNumber || "",
-    vendor: vendor || undefined,
+    vendor: vendor && mongoose.Types.ObjectId.isValid(String(vendor)) ? vendor : undefined,
     vendorName: vendorName || "Supplier",
     vendorAddress,
     vendorEmail,
@@ -156,7 +161,7 @@ export const getVendorQuotations = asyncHandler(async (req, res) => {
     });
   });
 
-  const materialIds = Array.from(materialIdSet);
+  const materialIds = Array.from(materialIdSet).filter((id) => mongoose.Types.ObjectId.isValid(id));
 
   if (materialIds.length > 0) {
     const [rawMaterials, boughtOuts, consumables, rmBoItems] = await Promise.all([
@@ -203,6 +208,12 @@ export const updateVendorQuotation = asyncHandler(async (req, res) => {
   const companyId = getCompanyId(req);
 
   const updatePayload = { ...req.body };
+  if (updatePayload.rfq !== undefined) {
+    updatePayload.rfq = updatePayload.rfq && mongoose.Types.ObjectId.isValid(String(updatePayload.rfq)) ? updatePayload.rfq : undefined;
+  }
+  if (updatePayload.vendor !== undefined) {
+    updatePayload.vendor = updatePayload.vendor && mongoose.Types.ObjectId.isValid(String(updatePayload.vendor)) ? updatePayload.vendor : undefined;
+  }
   if (Array.isArray(updatePayload.items)) {
     updatePayload.items = updatePayload.items.map((it) => {
       const qty = Number(it.quantity || 0);
@@ -244,8 +255,12 @@ export const updateVendorQuotation = asyncHandler(async (req, res) => {
 
       const lineTotal = Number(it.total) || (lineSubtotal * (1 + taxPct / 100));
 
+      const rawMatId = typeof it.materialId === 'object' && it.materialId !== null ? it.materialId._id : it.materialId;
+      const cleanMaterialId = rawMatId && mongoose.Types.ObjectId.isValid(String(rawMatId)) ? rawMatId : undefined;
+
       return {
         ...it,
+        materialId: cleanMaterialId,
         quantity: qty,
         unit: it.unit || 'PCS',
         hasSecondaryUnit: hasSec,

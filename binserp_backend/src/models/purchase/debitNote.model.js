@@ -63,7 +63,10 @@ export const debitNoteSchema = new mongoose.Schema(
     deliveryChallanNumber: String,
     items: [
       {
-        materialId: mongoose.Schema.Types.ObjectId,
+        materialId: {
+          type: mongoose.Schema.Types.ObjectId,
+          set: (v) => (v === "" || v === null ? undefined : v),
+        },
         materialName: String,
         materialDescription: String,
         quantity: { type: Number, required: true },

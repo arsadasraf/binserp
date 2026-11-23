@@ -27,4 +27,5 @@ export { storeRMPlanSchema } from './storeRMPlan.model.js';
 export { storePrefixSchema } from './storePrefix.model.js';
 export { stockTransactionSchema } from './stockTransaction.model.js';
 export { mrbDispositionSchema } from './mrbDisposition.model.js';
+export { jobWorkRateDirectorySchema } from './jobWorkRateDirectory.model.js';
 

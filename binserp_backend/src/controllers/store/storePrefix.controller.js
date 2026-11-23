@@ -33,6 +33,8 @@ export const getStorePrefixSettings = async (req, res) => {
             purchasePo: 24,
             jobWorkChallan: 24,
             jobWorkReturn: 1,
+            jobWorkPo: 24,
+            jobWorkBill: 24,
             rfqQuotation: 24,
             mrbDisposition: 24,
             mrpPlan: 24,
@@ -62,6 +64,17 @@ export const getStorePrefixSettings = async (req, res) => {
         const settingsObj = settings.toObject ? settings.toObject() : { ...settings };
         settingsObj.exchangeRates = { ...defaultRates, ...(settingsObj.exchangeRates || {}) };
         settingsObj.timeLockPolicies = { ...defaultTimeLockPolicies, ...(settingsObj.timeLockPolicies || {}) };
+        // For backward compatibility, default deleteTimeLockPolicies per key to existing timeLockPolicies if not yet explicitly set
+        const mergedDeletePolicies = { ...settingsObj.timeLockPolicies };
+        if (settingsObj.deleteTimeLockPolicies && typeof settingsObj.deleteTimeLockPolicies === 'object') {
+            Object.keys(settingsObj.deleteTimeLockPolicies).forEach(k => {
+                const v = settingsObj.deleteTimeLockPolicies[k];
+                if (v !== undefined && v !== null && !isNaN(Number(v))) {
+                    mergedDeletePolicies[k] = Number(v);
+                }
+            });
+        }
+        settingsObj.deleteTimeLockPolicies = mergedDeletePolicies;
         settingsObj.approvalSettings = {
             materialRequest: { ...defaultApprovalSettings.materialRequest, ...(settingsObj.approvalSettings?.materialRequest || {}) },
             outwardPo: { ...defaultApprovalSettings.outwardPo, ...(settingsObj.approvalSettings?.outwardPo || {}) }
@@ -106,6 +119,8 @@ export const updateStorePrefixSettings = async (req, res) => {
             purchasePo: 24,
             jobWorkChallan: 24,
             jobWorkReturn: 1,
+            jobWorkPo: 24,
+            jobWorkBill: 24,
             rfqQuotation: 24,
             mrbDisposition: 24,
             mrpPlan: 24,
@@ -154,6 +169,17 @@ export const updateStorePrefixSettings = async (req, res) => {
                 }
             });
             updateData.timeLockPolicies = sanitizedPolicies;
+        }
+
+        if (req.body.deleteTimeLockPolicies && typeof req.body.deleteTimeLockPolicies === 'object') {
+            const sanitizedDeletePolicies = { ...defaultTimeLockPolicies };
+            Object.keys(req.body.deleteTimeLockPolicies).forEach(key => {
+                const val = Number(req.body.deleteTimeLockPolicies[key]);
+                if (!isNaN(val)) {
+                    sanitizedDeletePolicies[key] = val;
+                }
+            });
+            updateData.deleteTimeLockPolicies = sanitizedDeletePolicies;
         }
 
         if (req.body.approvalSettings && typeof req.body.approvalSettings === 'object') {

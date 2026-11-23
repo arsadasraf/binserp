@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Truck, FileCheck2, IndianRupee, ShieldAlert } from 'lucide-react';
+import { Truck, FileCheck2, IndianRupee, BookOpen, ShieldAlert } from 'lucide-react';
 
 export default function JobWorkLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -28,7 +28,13 @@ export default function JobWorkLayout({ children }: { children: React.ReactNode 
       isActive: pathname.startsWith('/dashboard/store/wip/job-work/bills')
     },
     { 
-      name: 'Rejection Bins', 
+      name: 'Rate Directory', 
+      href: '/dashboard/store/wip/job-work/rate-directory', 
+      icon: BookOpen,
+      isActive: pathname.startsWith('/dashboard/store/wip/job-work/rate-directory')
+    },
+    { 
+      name: 'Rejection Bins',  
       href: '/dashboard/store/wip/job-work/rejections', 
       icon: ShieldAlert,
       isActive: pathname.startsWith('/dashboard/store/wip/job-work/rejections')

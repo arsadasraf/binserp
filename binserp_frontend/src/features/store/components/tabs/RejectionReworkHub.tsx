@@ -19,6 +19,7 @@ import {
   generateScrapCertificatePDF
 } from '@/src/utils/frontendPdfHelper';
 import { generateSCNPDF } from '@/src/utils/generateSCNPDF';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
@@ -356,16 +357,25 @@ export default function RejectionReworkHub({ context = 'quality' }: RejectionRew
       list = list.filter(item => item.defectCategory === defectFilter);
     }
 
-    // 6. Search Filter
+    // 6. Search Filter (Bidirectional Space-Free & Multi-Keyword)
     if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
       list = list.filter(item => {
-        const matName = String(item.materialName || '').toLowerCase();
-        const code = String(item.partNumber || item.partNo || item.itemCode || item.materialCode || item.componentCode || '').toLowerCase();
-        const tick = String(item.ticketNumber || '').toLowerCase();
-        const docNum = String(item.documentNumber || item.sourceDocNumber || '').toLowerCase();
-        const vendor = String(item.vendorName || item.supplierName || '').toLowerCase();
-        return matName.includes(q) || code.includes(q) || tick.includes(q) || docNum.includes(q) || vendor.includes(q);
+        const matName = item.materialName || '';
+        const techDesc = item.technicalDescription || item.description || item.descriptions || item.materialDescription || '';
+        const code = item.partNumber || item.partNo || item.itemCode || item.materialCode || item.componentCode || '';
+        const tick = item.ticketNumber || '';
+        const docNum = item.documentNumber || item.sourceDocNumber || '';
+        const vendor = item.vendorName || item.supplierName || '';
+        const combined = `${matName} ${techDesc} ${vendor}`;
+        return (
+          isSpaceFreeMatch(matName, searchTerm) ||
+          isSpaceFreeMatch(techDesc, searchTerm) ||
+          isSpaceFreeMatch(code, searchTerm) ||
+          isSpaceFreeMatch(tick, searchTerm) ||
+          isSpaceFreeMatch(docNum, searchTerm) ||
+          isSpaceFreeMatch(vendor, searchTerm) ||
+          isSpaceFreeMatch(combined, searchTerm)
+        );
       });
     }
 

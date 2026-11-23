@@ -14,11 +14,13 @@ export const vendorQuotationSchema = new mongoose.Schema(
     rfq: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PurchaseRFQ",
+      set: (v) => (v === "" || v === null ? undefined : v),
     },
     rfqNumber: String,
     vendor: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Vendor",
+      set: (v) => (v === "" || v === null ? undefined : v),
     },
     vendorName: {
       type: String,
@@ -38,6 +40,7 @@ export const vendorQuotationSchema = new mongoose.Schema(
         materialId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "RmBoItem",
+          set: (v) => (v === "" || v === null ? undefined : v),
         },
         materialName: String,
         description: String,

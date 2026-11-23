@@ -19,6 +19,7 @@ import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 import { ItemNameAndDescription } from '@/src/utils/itemDisplayHelper';
 import { formatUomConversionDisplay, formatUomConversionTooltip } from '@/src/utils/dualUomHelper';
+import { isSpaceFreeMatch } from '@/src/utils/spaceFreeSearchHelper';
 
 const getPageNumbers = (current: number, total: number): (number | string)[] => {
   if (total <= 5) {
@@ -471,14 +472,19 @@ export default function InventoryTable({
 
     const applyFiltersAndSort = (items: any[], isInHouse: boolean = false) => {
         let result = items.filter(item => {
-            // Global Search Filter (Name, Description, or Category)
-            if (searchQuery) {
-                const query = searchQuery.toLowerCase();
-                const name = (item.materialName || item.componentName || item.name || '').toLowerCase();
-                const desc = (item.descriptions || item.description || '').toLowerCase();
-                const cat = getCategoryValue(item).toLowerCase();
+            // Global Search Filter (Bidirectional Space-Free & Multi-Keyword across Name, Description, Category)
+            if (searchQuery && searchQuery.trim()) {
+                const name = item.materialName || item.componentName || item.name || '';
+                const desc = item.descriptions || item.description || item.specification || '';
+                const cat = getCategoryValue(item) || '';
+                const combined = `${name} ${desc} ${cat}`;
 
-                if (!name.includes(query) && !desc.includes(query) && !cat.includes(query)) {
+                if (
+                    !isSpaceFreeMatch(name, searchQuery) &&
+                    !isSpaceFreeMatch(desc, searchQuery) &&
+                    !isSpaceFreeMatch(cat, searchQuery) &&
+                    !isSpaceFreeMatch(combined, searchQuery)
+                ) {
                     return false;
                 }
             }

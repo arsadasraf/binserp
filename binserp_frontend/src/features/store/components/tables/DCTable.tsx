@@ -675,9 +675,9 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                                 >
                                                     <Eye size={14} /> Preview
                                                 </button>
-                                                <button 
-                                                    onClick={() => setSelectedDCEWay(item)} 
-                                                    className="px-3 py-1.5 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 text-amber-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 border border-amber-200 dark:border-amber-800 shadow-xs cursor-pointer" 
+                                                <button
+                                                    onClick={() => setSelectedDCEWay(item)}
+                                                    className="px-3 py-1.5 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 text-amber-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 border border-amber-200 dark:border-amber-800 shadow-xs cursor-pointer"
                                                     title="Copy Details & Open Official E-Way Bill Portal (ewaybillgst.gov.in)"
                                                 >
                                                     <Truck size={14} /> E-Way

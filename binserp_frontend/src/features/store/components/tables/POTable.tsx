@@ -183,10 +183,13 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
     const [endDate, setEndDate] = useState<string>('');
 
     // Column Filters (Excel-style)
+    const [poTypeFilter, setPoTypeFilter] = useState<'all' | 'standard' | 'jobwork'>('all');
     const [colFilterType, setColFilterType] = useState<string[]>([]);
     const [colFilterVendor, setColFilterVendor] = useState<string[]>([]);
     const [colFilterStatus, setColFilterStatus] = useState<string[]>([]);
     const [tableSortConfig, setTableSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+    const isJobWorkPO = (po: any) => String(po?.poType || '').toLowerCase() === 'jobwork';
 
     // Date Presets & Quick Pickers Helper
     const getTodayStr = () => new Date().toISOString().split('T')[0];
@@ -294,9 +297,26 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         return data.filter(matchesDateFilter);
     }, [data, dateMode, selectedDay, selectedMonth, selectedYear, startDate, endDate]);
 
+    // 1b. PO Type Counts & Filtered Dataset (All / Normal / Job Work)
+    const poTypeCounts = useMemo(() => {
+        let normal = 0;
+        let jobwork = 0;
+        dateFilteredData.forEach(po => {
+            if (isJobWorkPO(po)) jobwork++;
+            else normal++;
+        });
+        return { all: dateFilteredData.length, normal, jobwork };
+    }, [dateFilteredData]);
+
+    const poTypeFilteredData = useMemo(() => {
+        if (poTypeFilter === 'all') return dateFilteredData;
+        if (poTypeFilter === 'jobwork') return dateFilteredData.filter(isJobWorkPO);
+        return dateFilteredData.filter(po => !isJobWorkPO(po));
+    }, [dateFilteredData, poTypeFilter]);
+
     const uniqueItemCount = useMemo(() => {
         const itemKeys = new Set<string>();
-        dateFilteredData.forEach(po => {
+        poTypeFilteredData.forEach(po => {
             if (po.status === 'Cancelled') return;
             if (Array.isArray(po.items) && po.items.length > 0) {
                 po.items.forEach((it: any) => {
@@ -313,7 +333,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             }
         });
         return itemKeys.size;
-    }, [dateFilteredData]);
+    }, [poTypeFilteredData]);
 
     // Fetch company info if not passed
     useEffect(() => {
@@ -869,9 +889,9 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         });
     };
 
-    // 2. Fully Filtered Dataset (Search + Column Filters)
+    // 2. Fully Filtered Dataset (Search + PO Type + Column Filters)
     const filteredData = useMemo(() => {
-        return dateFilteredData.filter(item => {
+        return poTypeFilteredData.filter(item => {
             const vName = getVendorNameStr(item);
             const mName = getMaterialNameStr(item);
             const poNo = item.poNumber || '';
@@ -903,7 +923,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
             return matchSearch && matchStatus && matchVendor && matchType;
         });
-    }, [dateFilteredData, searchTerm, colFilterStatus, colFilterVendor, colFilterType, localMrpMap]);
+    }, [poTypeFilteredData, searchTerm, colFilterStatus, colFilterVendor, colFilterType, localMrpMap]);
 
     // 3. Sorted Dataset
     const sortedData = useMemo(() => {
@@ -998,6 +1018,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
     const isAnyFilterActive = Boolean(
         searchTerm || 
+        poTypeFilter !== 'all' ||
         colFilterType.length > 0 || 
         colFilterVendor.length > 0 || 
         colFilterStatus.length > 0 || 
@@ -1007,6 +1028,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
     const handleClearAllFilters = () => {
         setSearchTerm('');
+        setPoTypeFilter('all');
         setColFilterType([]);
         setColFilterVendor([]);
         setColFilterStatus([]);
@@ -1027,6 +1049,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             return {
                 'S.No': idx + 1,
                 'PO Number': po.poNumber || '-',
+                'PO Type': isJobWorkPO(po) ? 'Job Work PO' : 'Normal PO',
                 'Material Type': getPoCategoryLabel(po),
                 'PO Date': new Date(po.date || po.createdAt || Date.now()).toLocaleDateString('en-GB'),
                 'Vendor Name': getVendorNameStr(po),
@@ -1210,7 +1233,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             title="View Outward Purchase Orders"
                         >
                             <ShoppingCart size={13} />
-                            <span>POs ({dateFilteredData.length})</span>
+                            <span>POs ({poTypeFilteredData.length})</span>
                         </button>
                         <button
                             type="button"
@@ -1243,6 +1266,22 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             <BarChart3 size={14} className={showDashboard ? "text-purple-600 dark:text-purple-400" : "text-slate-500"} />
                             <span>{showDashboard ? "Hide" : "KPIs"}</span>
                         </button>
+
+                        {/* PO Type Filter Dropdown (All POs / Normal PO / Job Work PO) */}
+                        <div className="relative flex-1 lg:flex-initial lg:w-44 min-w-0">
+                            <select
+                                value={poTypeFilter}
+                                onChange={(e) => setPoTypeFilter(e.target.value as 'all' | 'standard' | 'jobwork')}
+                                className="w-full appearance-none pl-7 sm:pl-8 pr-6 sm:pr-7 py-2 text-xs font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 truncate"
+                                title="Filter by PO Type (All, Normal PO, Job Work PO)"
+                            >
+                                <option value="all">All POs ({poTypeCounts.all})</option>
+                                <option value="standard">Normal PO ({poTypeCounts.normal})</option>
+                                <option value="jobwork">Job Work PO ({poTypeCounts.jobwork})</option>
+                            </select>
+                            <Layers className="absolute left-2.5 top-1/2 -translate-y-1/2 text-indigo-600 dark:text-indigo-400 pointer-events-none" size={13} />
+                            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={13} />
+                        </div>
 
                         {/* Date Filter Mode Dropdown (Day, Month, Year, Range, All Time) */}
                         <div className="relative flex-1 lg:flex-initial lg:w-44 min-w-0">
@@ -1418,7 +1457,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
             {viewMode === 'items' ? (
                 <OutwardPOItemWiseView
-                    data={dateFilteredData}
+                    data={poTypeFilteredData}
                     materials={materials}
                     vendors={vendors}
                     onViewPo={(po) => setSelectedPoPreview(po)}
@@ -1564,13 +1603,20 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                         <tr key={item._id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors">
                                             <td className="px-6 py-4">
                                                 <div className="flex flex-col">
-                                                    <span 
-                                                        onClick={() => setSelectedPoPreview(item)}
-                                                        className="font-mono font-extrabold text-purple-600 dark:text-purple-400 cursor-pointer hover:underline text-sm"
-                                                        title="Click to preview PO details"
-                                                    >
-                                                        PO #{item.poNumber || '-'}
-                                                    </span>
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <span 
+                                                            onClick={() => setSelectedPoPreview(item)}
+                                                            className="font-mono font-extrabold text-purple-600 dark:text-purple-400 cursor-pointer hover:underline text-sm"
+                                                            title="Click to preview PO details"
+                                                        >
+                                                            PO #{item.poNumber || '-'}
+                                                        </span>
+                                                        {isJobWorkPO(item) && (
+                                                            <span className="px-1.5 py-0.5 rounded-md text-[9.5px] font-extrabold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800">
+                                                                Job Work
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     <span className="text-xs text-gray-500 font-medium mt-0.5">{poDate}</span>
                                                     {(() => {
                                                         const currentMrp = getResolvedMrp(item);

@@ -47,6 +47,22 @@ export const storePrefixSchema = new mongoose.Schema(
             materialRequest: { type: Number, default: 24 },
             materialIssue: { type: Number, default: 24 },
         },
+        deleteTimeLockPolicies: {
+            grn: { type: Number, default: 24 },
+            customerPo: { type: Number, default: 24 },
+            deliveryChallan: { type: Number, default: 24 },
+            invoice: { type: Number, default: 24 },
+            purchasePo: { type: Number, default: 24 },
+            jobWorkChallan: { type: Number, default: 24 },
+            jobWorkReturn: { type: Number, default: 1 },
+            jobWorkPo: { type: Number, default: 24 },
+            jobWorkBill: { type: Number, default: 24 },
+            rfqQuotation: { type: Number, default: 24 },
+            mrbDisposition: { type: Number, default: 24 },
+            mrpPlan: { type: Number, default: 24 },
+            materialRequest: { type: Number, default: 24 },
+            materialIssue: { type: Number, default: 24 },
+        },
         approvalSettings: {
             materialRequest: {
                 enabled: { type: Boolean, default: false },

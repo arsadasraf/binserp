@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { API_BASE_URL } from '@/src/utils/config';
 
+export type TimeLockAction = 'edit' | 'delete';
+
 export const DEFAULT_TIME_LOCK_HOURS: Record<string, number> = {
   grn: 24,
   customerPo: 24,
@@ -19,20 +21,39 @@ export const DEFAULT_TIME_LOCK_HOURS: Record<string, number> = {
 };
 
 let globalTimeLockPolicies: Record<string, number> = { ...DEFAULT_TIME_LOCK_HOURS };
+let globalDeleteTimeLockPolicies: Record<string, number> = { ...DEFAULT_TIME_LOCK_HOURS };
 
 export function getGlobalTimeLockPolicies(): Record<string, number> {
   return { ...globalTimeLockPolicies };
 }
 
-export function setGlobalTimeLockPolicies(newPolicies: Record<string, number>) {
-  globalTimeLockPolicies = { ...DEFAULT_TIME_LOCK_HOURS, ...newPolicies };
+export function getGlobalDeleteTimeLockPolicies(): Record<string, number> {
+  return { ...globalDeleteTimeLockPolicies };
+}
+
+export function setGlobalTimeLockPolicies(
+  newEditPolicies: Record<string, number>,
+  newDeletePolicies?: Record<string, number>
+) {
+  globalTimeLockPolicies = { ...DEFAULT_TIME_LOCK_HOURS, ...newEditPolicies };
+  globalDeleteTimeLockPolicies = newDeletePolicies
+    ? { ...globalTimeLockPolicies, ...newDeletePolicies }
+    : { ...globalTimeLockPolicies };
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('binserp_timelock_policies_updated', { detail: globalTimeLockPolicies }));
+    window.dispatchEvent(
+      new CustomEvent('binserp_timelock_policies_updated', {
+        detail: {
+          editPolicies: globalTimeLockPolicies,
+          deletePolicies: globalDeleteTimeLockPolicies,
+        },
+      })
+    );
   }
 }
 
 export function useTimeLockPolicy(token?: string | null) {
   const [policies, setPolicies] = useState<Record<string, number>>(() => getGlobalTimeLockPolicies());
+  const [deletePolicies, setDeletePolicies] = useState<Record<string, number>>(() => getGlobalDeleteTimeLockPolicies());
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
@@ -48,6 +69,7 @@ export function useTimeLockPolicy(token?: string | null) {
   useEffect(() => {
     const handleUpdate = () => {
       setPolicies(getGlobalTimeLockPolicies());
+      setDeletePolicies(getGlobalDeleteTimeLockPolicies());
     };
     if (typeof window !== 'undefined') {
       window.addEventListener('binserp_timelock_policies_updated', handleUpdate);
@@ -72,8 +94,13 @@ export function useTimeLockPolicy(token?: string | null) {
         if (res.ok) {
           const data = await res.json();
           if (data.settings?.timeLockPolicies && isMounted) {
-            setGlobalTimeLockPolicies(data.settings.timeLockPolicies);
-            setPolicies({ ...DEFAULT_TIME_LOCK_HOURS, ...data.settings.timeLockPolicies });
+            const mergedEdit = { ...DEFAULT_TIME_LOCK_HOURS, ...data.settings.timeLockPolicies };
+            const mergedDelete = data.settings.deleteTimeLockPolicies
+              ? { ...mergedEdit, ...data.settings.deleteTimeLockPolicies }
+              : { ...mergedEdit };
+            setGlobalTimeLockPolicies(mergedEdit, mergedDelete);
+            setPolicies(mergedEdit);
+            setDeletePolicies(mergedDelete);
           }
         }
       } catch (err) {
@@ -87,81 +114,95 @@ export function useTimeLockPolicy(token?: string | null) {
     return () => { isMounted = false; };
   }, [token]);
 
-  const getPolicyHours = useCallback((entityKey: string): number => {
-    return policies[entityKey] ?? DEFAULT_TIME_LOCK_HOURS[entityKey] ?? 24;
-  }, [policies]);
+  const getPolicyHours = useCallback(
+    (entityKey: string, action: TimeLockAction = 'edit'): number => {
+      if (action === 'delete') {
+        return deletePolicies[entityKey] ?? policies[entityKey] ?? DEFAULT_TIME_LOCK_HOURS[entityKey] ?? 24;
+      }
+      return policies[entityKey] ?? DEFAULT_TIME_LOCK_HOURS[entityKey] ?? 24;
+    },
+    [policies, deletePolicies]
+  );
 
-  const getRemainingSeconds = useCallback((createdAt: string | Date | undefined, entityKey: string): number => {
-    if (!createdAt) return 0;
-    const policyHours = getPolicyHours(entityKey);
+  const getRemainingSeconds = useCallback(
+    (createdAt: string | Date | undefined, entityKey: string, action: TimeLockAction = 'edit'): number => {
+      if (!createdAt) return 0;
+      const policyHours = getPolicyHours(entityKey, action);
 
-    // Unlimited
-    if (policyHours === -1) {
-      return Infinity;
-    }
+      // Unlimited
+      if (policyHours === -1) {
+        return Infinity;
+      }
 
-    // Locked immediately
-    if (policyHours <= 0) {
-      return 0;
-    }
+      // Locked immediately
+      if (policyHours <= 0) {
+        return 0;
+      }
 
-    const createdTime = new Date(createdAt).getTime();
-    if (isNaN(createdTime)) return 0;
+      const createdTime = new Date(createdAt).getTime();
+      if (isNaN(createdTime)) return 0;
 
-    const allowedMs = policyHours * 3600 * 1000;
-    const elapsedMs = now - createdTime;
-    const remainingMs = allowedMs - elapsedMs;
+      const allowedMs = policyHours * 3600 * 1000;
+      const elapsedMs = now - createdTime;
+      const remainingMs = allowedMs - elapsedMs;
 
-    return Math.max(0, Math.floor(remainingMs / 1000));
-  }, [getPolicyHours, now]);
+      return Math.max(0, Math.floor(remainingMs / 1000));
+    },
+    [getPolicyHours, now]
+  );
 
-  const isTimeLockExpired = useCallback((createdAt: string | Date | undefined, entityKey: string): boolean => {
-    if (!createdAt) return false;
-    const policyHours = getPolicyHours(entityKey);
+  const isTimeLockExpired = useCallback(
+    (createdAt: string | Date | undefined, entityKey: string, action: TimeLockAction = 'edit'): boolean => {
+      if (!createdAt) return false;
+      const policyHours = getPolicyHours(entityKey, action);
 
-    // Unlimited policy: never locked by time
-    if (policyHours === -1) return false;
+      // Unlimited policy: never locked by time
+      if (policyHours === -1) return false;
 
-    // Immediately locked policy
-    if (policyHours <= 0) return true;
+      // Immediately locked policy
+      if (policyHours <= 0) return true;
 
-    const remainingSecs = getRemainingSeconds(createdAt, entityKey);
-    return remainingSecs <= 0;
-  }, [getPolicyHours, getRemainingSeconds]);
+      const remainingSecs = getRemainingSeconds(createdAt, entityKey, action);
+      return remainingSecs <= 0;
+    },
+    [getPolicyHours, getRemainingSeconds]
+  );
 
-  const formatRemainingTime = useCallback((remainingSecondsOrDate: number | string | Date | undefined, entityKey?: string): string => {
-    let remainingSeconds = 0;
-    if (typeof remainingSecondsOrDate === 'number') {
-      remainingSeconds = remainingSecondsOrDate;
-    } else if (remainingSecondsOrDate && entityKey) {
-      remainingSeconds = getRemainingSeconds(remainingSecondsOrDate, entityKey);
-    }
+  const formatRemainingTime = useCallback(
+    (remainingSecondsOrDate: number | string | Date | undefined, entityKey?: string, action: TimeLockAction = 'edit'): string => {
+      let remainingSeconds = 0;
+      if (typeof remainingSecondsOrDate === 'number') {
+        remainingSeconds = remainingSecondsOrDate;
+      } else if (remainingSecondsOrDate && entityKey) {
+        remainingSeconds = getRemainingSeconds(remainingSecondsOrDate, entityKey, action);
+      }
 
-    if (remainingSeconds === Infinity) return 'Unlimited';
-    if (remainingSeconds <= 0) return 'Expired';
+      if (remainingSeconds === Infinity) return 'Unlimited';
+      if (remainingSeconds <= 0) return 'Expired';
 
-    const hours = Math.floor(remainingSeconds / 3600);
-    const mins = Math.floor((remainingSeconds % 3600) / 60);
+      const hours = Math.floor(remainingSeconds / 3600);
+      const mins = Math.floor((remainingSeconds % 3600) / 60);
 
-    if (hours > 24) {
-      const days = Math.floor(hours / 24);
-      const remHours = hours % 24;
-      return `${days}d ${remHours}h`;
-    }
-    if (hours > 0) {
-      return `${hours}h ${mins}m`;
-    }
-    return `${mins}m`;
-  }, [getRemainingSeconds]);
+      if (hours > 24) {
+        const days = Math.floor(hours / 24);
+        const remHours = hours % 24;
+        return `${days}d ${remHours}h`;
+      }
+      if (hours > 0) {
+        return `${hours}h ${mins}m`;
+      }
+      return `${mins}m`;
+    },
+    [getRemainingSeconds]
+  );
 
   return {
     policies,
+    deletePolicies,
     loading,
     getPolicyHours,
     getRemainingSeconds,
     isTimeLockExpired,
-    formatRemainingTime,
+    formatRemainingTime
   };
 }
-
-export default useTimeLockPolicy;

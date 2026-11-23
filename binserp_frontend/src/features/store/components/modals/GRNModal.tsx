@@ -2332,22 +2332,22 @@ export default function GRNModal({
                             </div>
                         </div>
 
-                        {/* Desktop View: Wide Responsive Table with Upward Dropdowns */}
+                        {/* Desktop View: Fixed-Column Responsive Table with Strict Item Width Lock */}
                         <div className="hidden md:block overflow-x-auto min-h-[220px] custom-scrollbar">
-                            <table className="w-full text-left border-collapse table-auto">
+                            <table className="w-full min-w-[1080px] text-left border-collapse table-fixed">
                                 <thead>
                                     <tr className="bg-slate-100/75 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                                        <th className="py-2.5 px-3 w-12 text-center shrink-0">#</th>
-                                        <th className="py-2.5 px-3 min-w-[260px] lg:min-w-[340px]">{theme.itemLabel} & Description <span className="text-red-500">*</span></th>
-                                        <th className="py-2.5 px-2.5 w-28 lg:w-32 text-center shrink-0">HSN/SAC</th>
-                                        <th className="py-2.5 px-3 w-32 lg:w-36 text-center shrink-0">Unit & Stock</th>
-                                        <th className="py-2.5 px-3 w-36 lg:w-40 shrink-0">Qty Received <span className="text-red-500">*</span></th>
-                                        <th className="py-2.5 px-3 w-32 lg:w-36 shrink-0">Rate (₹ / Unit)</th>
+                                        <th className="py-2.5 px-2.5 w-11 text-center">#</th>
+                                        <th className="py-2.5 px-3 w-[28%] min-w-[280px]">{theme.itemLabel} & Description <span className="text-red-500">*</span></th>
+                                        <th className="py-2.5 px-2.5 w-28 text-center">HSN/SAC</th>
+                                        <th className="py-2.5 px-2.5 w-32 text-center">Unit & Stock</th>
+                                        <th className="py-2.5 px-2.5 w-36">Qty Received <span className="text-red-500">*</span></th>
+                                        <th className="py-2.5 px-2.5 w-32">Rate (₹ / Unit)</th>
                                         {isCommercialGRN && (
-                                            <th className="py-2.5 px-3 w-28 lg:w-32 text-center shrink-0">GST (%)</th>
+                                            <th className="py-2.5 px-2.5 w-24 text-center">GST (%)</th>
                                         )}
-                                        <th className="py-2.5 px-3 w-36 lg:w-44 text-right shrink-0 whitespace-nowrap">Total (₹)</th>
-                                        <th className="py-2.5 px-3 w-20 text-center shrink-0">Actions</th>
+                                        <th className="py-2.5 px-3 w-32 text-right whitespace-nowrap">Total (₹)</th>
+                                        <th className="py-2.5 px-2 w-16 text-center">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
@@ -2361,16 +2361,20 @@ export default function GRNModal({
 
                                         return (
                                             <tr key={index} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 transition-colors">
-                                                <td className="py-2 px-3 text-center text-slate-400 font-bold shrink-0">
+                                                <td className="py-2 px-2.5 text-center text-slate-400 font-bold align-top pt-3.5">
                                                     {index + 1}
                                                 </td>
-                                                <td className="py-2 px-3 min-w-0" data-has-error={hasMaterialError}>
-                                                    <div className="flex items-center gap-1.5 min-w-0">
-                                                        <div className="flex-1 min-w-0">
+                                                <td
+                                                    className="py-2 px-3 max-w-0 overflow-hidden align-top"
+                                                    data-has-error={hasMaterialError}
+                                                    title={entry.materialName ? `${entry.materialName}${entry.description ? ` — ${entry.description}` : ''}` : undefined}
+                                                >
+                                                    <div className="flex items-center gap-1.5 min-w-0 w-full">
+                                                        <div className="flex-1 min-w-0 overflow-hidden">
                                                             <SearchableSelect
                                                                 options={materialOptions}
                                                                 value={entry.material}
-                                                                displayLabel={entry.materialName ? (entry.description ? `${entry.materialName} — ${entry.description}` : entry.materialName) : undefined}
+                                                                displayLabel={entry.materialName || undefined}
                                                                 allowCustom={true}
                                                                 onCreateCustom={(typedQuery) => handleOpenQuickMasterModal(typedQuery, index)}
                                                                 hasError={hasMaterialError}
@@ -2394,13 +2398,12 @@ export default function GRNModal({
                                                     {hasMaterialError && (
                                                         <div className="text-[10px] text-rose-600 dark:text-rose-400 font-bold mt-0.5 flex items-center gap-1">
                                                             <span>⚠️</span>
-                                                            <span>{formErrors[`item_${index}_material`]}</span>
+                                                            <span className="truncate">{formErrors[`item_${index}_material`]}</span>
                                                         </div>
                                                     )}
                                                     {entry.description && !hasMaterialError && (
-                                                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate mt-1 flex items-center gap-1 min-w-0" title={entry.description}>
-                                                            <span className="shrink-0">📝</span>
-                                                            <span className="truncate italic">{entry.description}</span>
+                                                        <div className="text-[11px] text-slate-500 dark:text-slate-400 italic line-clamp-2 mt-1 break-words leading-snug" title={entry.description}>
+                                                            {entry.description}
                                                         </div>
                                                     )}
                                                 </td>
@@ -2672,12 +2675,12 @@ export default function GRNModal({
                                                 <span>{theme.itemLabel} <span className="text-red-500">*</span></span>
                                                 {hasMaterialError && <span className="text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${index}_material`]}</span>}
                                             </label>
-                                            <div className="flex items-center gap-1.5">
-                                                <div className="flex-1">
+                                            <div className="flex items-center gap-1.5 min-w-0 w-full">
+                                                <div className="flex-1 min-w-0 overflow-hidden">
                                                     <SearchableSelect
                                                         options={materialOptions}
                                                         value={entry.material}
-                                                        displayLabel={entry.materialName ? `${entry.materialName}${entry.description ? ` — ${entry.description}` : ''}` : undefined}
+                                                        displayLabel={entry.materialName || undefined}
                                                         allowCustom={true}
                                                         onCreateCustom={(typedQuery) => handleOpenQuickMasterModal(typedQuery, index)}
                                                         hasError={hasMaterialError}
@@ -2699,8 +2702,8 @@ export default function GRNModal({
                                                 </button>
                                             </div>
                                             {entry.description && !hasMaterialError && (
-                                                <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate mt-1">
-                                                    📝 {entry.description}
+                                                <div className="text-[11px] text-slate-500 dark:text-slate-400 italic line-clamp-2 mt-1 break-words leading-snug" title={entry.description}>
+                                                    {entry.description}
                                                 </div>
                                             )}
                                         </div>

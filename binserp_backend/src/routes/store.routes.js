@@ -68,6 +68,10 @@ import {
   getAllJobWorkSuppliers,
   updateJobWorkSupplier,
   deleteJobWorkSupplier,
+  getJobWorkRateDirectory,
+  createJobWorkRateDirectoryEntry,
+  updateJobWorkRateDirectoryEntry,
+  deleteJobWorkRateDirectoryEntry,
   getStorePrefixSettings,
   updateStorePrefixSettings,
   getWipInventory,
@@ -227,6 +231,12 @@ router.delete("/jobwork/receive/:id/:receiptId", deleteJobWorkReturnReceipt);
 router.get("/jobwork/all", getAllJobWorkChallans);
 router.put("/jobwork/update/:id", updateJobWorkChallan);
 router.delete("/jobwork/delete/:id", deleteJobWorkChallan);
+
+// Job Work Rate Directory routes (protected by requirePermission("Store", "wip") via /job-work prefix)
+router.get("/job-work/rate-directory", getJobWorkRateDirectory);
+router.post("/job-work/rate-directory", createJobWorkRateDirectoryEntry);
+router.put("/job-work/rate-directory/:id", updateJobWorkRateDirectoryEntry);
+router.delete("/job-work/rate-directory/:id", deleteJobWorkRateDirectoryEntry);
 router.get("/wip/inventory", getWipInventory);
 router.post("/wip/return-to-store", returnWipToStore);
 router.post("/wip/scrap", recordWipScrap);

@@ -34,6 +34,7 @@ export const mrbDispositionSchema = new mongoose.Schema(
     materialId: {
       type: mongoose.Schema.Types.ObjectId,
       refPath: "materialModel",
+      set: (v) => (v === "" || v === null ? undefined : v),
     },
     materialModel: {
       type: String,

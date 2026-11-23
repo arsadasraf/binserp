@@ -30,6 +30,7 @@ export const purchaseRFQSchema = new mongoose.Schema(
         materialId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "RmBoItem",
+          set: (v) => (v === "" || v === null ? undefined : v),
         },
         materialName: String,
         description: String,

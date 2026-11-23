@@ -566,7 +566,7 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
         const map = new Map<string, { rank: string; l1Total: number; totalQuotes: number }>();
 
         Object.keys(groups).forEach(key => {
-            const sorted = [...groups[key]].sort((a: any, b: any) => 
+            const sorted = [...groups[key]].sort((a: any, b: any) =>
                 (Number(a.grandTotal || a.subtotal) || 0) - (Number(b.grandTotal || b.subtotal) || 0)
             );
             const l1Total = Number(sorted[0]?.grandTotal || sorted[0]?.subtotal) || 0;
@@ -588,16 +588,16 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
     const filteredQuotations = useMemo(() => {
         return (Array.isArray(quotations) ? quotations : []).filter((q: any) => {
             const term = searchTerm?.trim() || "";
-            const matchSearch = 
+            const matchSearch =
                 !term ||
                 isSpaceFreeMatch(q.quotationNumber, term) ||
                 isSpaceFreeMatch(q.rfqNumber, term) ||
                 isSpaceFreeMatch(q.vendorName, term) ||
-                (q.items && q.items.some((it: any) => 
+                (q.items && q.items.some((it: any) =>
                     isSpaceFreeMatch(it.materialName, term) ||
                     isSpaceFreeMatch(it.materialDescription || it.description, term)
                 ));
-            
+
             const matchStatus = filterStatus === 'All' || q.status === filterStatus;
 
             let matchVendor = true;
@@ -612,7 +612,7 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
 
     return (
         <div className="space-y-4 animate-in fade-in duration-300">
-            
+
             {/* Search, Filter & Action Toolbar */}
             <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
@@ -742,9 +742,8 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                             </td>
 
                                             <td className="px-5 py-4 text-center">
-                                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                                                    q.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                                                }`}>
+                                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${q.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                                    }`}>
                                                     {q.status || 'Pending'}
                                                 </span>
                                             </td>
@@ -810,9 +809,8 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                                     L2 (2nd Lowest)
                                                 </span>
                                             ) : null}
-                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                                q.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                                            }`}>
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${q.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                                }`}>
                                                 {q.status || 'Pending'}
                                             </span>
                                         </div>
@@ -863,9 +861,9 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
 
             {/* Preview Quotation & Multi-Vendor Bid Evaluation Modal */}
             {selectedQuote && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-5xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
-                        
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 lg:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[95vw] xl:max-w-6xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh]">
+
                         {/* Header Banner */}
                         <div className="p-6 bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-cyan-900">
                             <div className="flex items-center gap-3">
@@ -890,7 +888,7 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                         <div className="p-6 overflow-y-auto flex-1 space-y-6 text-sm">
                             {(() => {
                                 const targetKey = selectedQuote.rfqNumber || (typeof selectedQuote.rfq === 'string' ? selectedQuote.rfq : selectedQuote.rfq?._id);
-                                
+
                                 const rfqBids = (Array.isArray(quotations) ? quotations : []).filter((q: any) => {
                                     if (!targetKey) return q._id === selectedQuote._id;
                                     const curKey = q.rfqNumber || (typeof q.rfq === 'string' ? q.rfq : q.rfq?._id);
@@ -925,11 +923,10 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                                 return (
                                                     <div
                                                         key={quote._id || quote.quotationNumber}
-                                                        className={`rounded-3xl border p-5 shadow-sm transition-all flex flex-col justify-between space-y-4 ${
-                                                            isL1
+                                                        className={`rounded-3xl border p-5 shadow-sm transition-all flex flex-col justify-between space-y-4 ${isL1
                                                                 ? 'bg-emerald-50/50 border-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-800 ring-2 ring-emerald-500/20'
                                                                 : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-                                                        }`}
+                                                            }`}
                                                     >
                                                         {/* Vendor & Rank Header */}
                                                         <div className="space-y-2 border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -950,9 +947,8 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                                                             </span>
                                                                         )}
 
-                                                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                                                            quote.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                                                                        }`}>
+                                                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${quote.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                                                            }`}>
                                                                             {quote.status || 'Pending'}
                                                                         </span>
                                                                     </div>
@@ -1040,11 +1036,10 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                                                     setSelectedQuote(null);
                                                                     handleOpenPoModal(quote);
                                                                 }}
-                                                                className={`px-4 py-2 text-white text-xs font-extrabold rounded-xl transition-all shadow-md inline-flex items-center gap-1.5 ${
-                                                                    isL1
+                                                                className={`px-4 py-2 text-white text-xs font-extrabold rounded-xl transition-all shadow-md inline-flex items-center gap-1.5 ${isL1
                                                                         ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/30 ring-2 ring-emerald-400/40'
                                                                         : 'bg-cyan-600 hover:bg-cyan-700 shadow-cyan-600/20'
-                                                                }`}
+                                                                    }`}
                                                             >
                                                                 <ShoppingCart size={15} /> Generate PO for {quote.vendorName.split(' ')[0]}
                                                             </button>
@@ -1075,9 +1070,9 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
 
             {/* Create Inward Quotation Modal */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
-                        
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 lg:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] lg:max-w-6xl xl:max-w-7xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh]">
+
                         <div className="p-6 bg-cyan-950 text-white flex justify-between items-center flex-shrink-0 border-b border-cyan-900">
                             <div className="flex items-center gap-3">
                                 <div className="w-10 h-10 bg-cyan-900 rounded-xl flex items-center justify-center border border-cyan-700">
@@ -1094,7 +1089,7 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                         </div>
 
                         <div className="p-6 overflow-y-auto flex-1 space-y-6">
-                            
+
                             {/* Step 1: Select Linked Outward RFQ */}
                             <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
                                 <label className="block text-xs font-extrabold text-cyan-700 dark:text-cyan-300 uppercase tracking-wider">
@@ -1155,17 +1150,17 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                     </button>
                                 </div>
 
-                                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-                                    <table className="w-full text-xs text-left">
+                                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto shadow-sm">
+                                    <table className="w-full min-w-[980px] text-xs text-left">
                                         <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-700">
                                             <tr>
-                                                <th className="px-3 py-3 w-24">Category</th>
-                                                <th className="px-3 py-3 min-w-[200px]">Material Item</th>
-                                                <th className="px-3 py-3 text-center w-36">Req Qty & Unit</th>
-                                                <th className="px-3 py-3 text-right w-44">Quoted Rate</th>
-                                                <th className="px-3 py-3 text-center w-20">GST %</th>
-                                                <th className="px-3 py-3 text-right w-28">Total (₹)</th>
-                                                <th className="px-2 py-3 text-center w-10"></th>
+                                                <th className="px-3 py-3 w-28">Category</th>
+                                                <th className="px-3 py-3 min-w-[280px] sm:min-w-[340px]">Material Item</th>
+                                                <th className="px-3 py-3 text-center w-44">Req Qty & Unit</th>
+                                                <th className="px-3 py-3 text-right w-52">Quoted Rate</th>
+                                                <th className="px-3 py-3 text-center w-24">GST %</th>
+                                                <th className="px-3 py-3 text-right w-32">Total (₹)</th>
+                                                <th className="px-2 py-3 text-center w-12"></th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
@@ -1197,7 +1192,7 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                                         </td>
 
                                                         {/* Material Name / Dropdown */}
-                                                        <td className="px-2 py-2 min-w-[220px]">
+                                                        <td className="px-2 py-2 min-w-[280px] sm:min-w-[340px]">
                                                             {(item as any).fromRfq || (selectedRfqId && item.materialName) ? (
                                                                 <ItemNameAndDescription
                                                                     name={item.materialName || 'Material Item'}
@@ -1268,11 +1263,10 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                                                         <button
                                                                             type="button"
                                                                             onClick={() => handleItemPriceChange(idx, 'rateUnit', item.rateUnit === 'secondary' ? 'primary' : 'secondary')}
-                                                                            className={`px-1.5 py-1 rounded text-[10px] font-extrabold uppercase shrink-0 transition-colors border cursor-pointer ${
-                                                                                item.rateUnit === 'secondary'
+                                                                            className={`px-1.5 py-1 rounded text-[10px] font-extrabold uppercase shrink-0 transition-colors border cursor-pointer ${item.rateUnit === 'secondary'
                                                                                     ? 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950 dark:text-amber-200'
                                                                                     : 'bg-cyan-100 text-cyan-900 border-cyan-300 dark:bg-cyan-950 dark:text-cyan-200'
-                                                                            }`}
+                                                                                }`}
                                                                             title="Click to toggle rate per Primary or Secondary Unit"
                                                                         >
                                                                             /{item.rateUnit === 'secondary' ? item.secondaryUnit : (item.unit || 'PCS')}
