@@ -181,9 +181,23 @@ export const updateMaterialRequest = async (req, res) => {
     if (soNumber !== undefined) materialRequest.soNumber = soNumber ? String(soNumber).trim() : undefined;
     if (mrpPlan !== undefined) materialRequest.mrpPlan = extractCleanObjectId(mrpPlan);
     if (mrpNumber !== undefined) materialRequest.mrpNumber = mrpNumber ? String(mrpNumber).trim() : undefined;
+    if (req.body.targetFgItem !== undefined) materialRequest.targetFgItem = extractCleanObjectId(req.body.targetFgItem);
+    if (req.body.targetFgItemName !== undefined) materialRequest.targetFgItemName = req.body.targetFgItemName ? String(req.body.targetFgItemName).trim() : "";
+    if (req.body.targetFgItemDescription !== undefined) materialRequest.targetFgItemDescription = req.body.targetFgItemDescription ? String(req.body.targetFgItemDescription).trim() : "";
+    if (req.body.targetFgQuantity !== undefined) materialRequest.targetFgQuantity = Number(req.body.targetFgQuantity) || 0;
 
-    // Approval governance validation from Store Settings if status changes to Approved
-    if (status && status === "Approved" && materialRequest.status !== "Approved") {
+    // Determine if this Material Request was already approved (immutable historical approval snapshot)
+    const alreadyApproved = Boolean(
+      materialRequest.isApproved ||
+      materialRequest.approvedBy ||
+      materialRequest.approvedByName ||
+      materialRequest.approvedAt ||
+      materialRequest.status === "Approved" ||
+      materialRequest.status === "Issued"
+    );
+
+    // Approval governance validation from Store Settings if status changes to Approved (only for unapproved requests)
+    if (status && status === "Approved" && !alreadyApproved) {
       try {
         const StorePrefix = req.getModel('StorePrefix', storePrefixSchema);
         const prefixDoc = await StorePrefix.findOne({ company: companyId }).lean();
@@ -214,15 +228,18 @@ export const updateMaterialRequest = async (req, res) => {
       }
     }
 
-    // If approving, set approvedBy, approvedByName, and approvedAt
-    if (status && status === "Approved" && !materialRequest.approvedBy) {
-      materialRequest.approvedBy = req.user?.id || req.user?._id;
-      materialRequest.approvedByName = req.user?.name || req.user?.username || 'Authorized Approver';
+    // Write-once immutable approval snapshot: locked to the user who first approved this request
+    if (status && status === "Approved" && !alreadyApproved) {
+      const { userId: approverUserId, userName: approverUserName } = getUserAudit(req);
+      materialRequest.isApproved = true;
+      materialRequest.approvedBy = approverUserId || req.user?.id || req.user?._id;
+      materialRequest.approvedByName = approverUserName || req.user?.name || req.user?.username || 'Authorized Approver';
+      materialRequest.approvedByEmail = req.user?.email || '';
       materialRequest.approvedAt = new Date();
     }
 
     // Approval governance validation: Cannot issue if not approved when approval workflow is active
-    if (status && status === "Issued" && materialRequest.status !== "Approved") {
+    if (status && status === "Issued" && !alreadyApproved && materialRequest.status !== "Approved") {
       try {
         const StorePrefix = req.getModel('StorePrefix', storePrefixSchema);
         const prefixDoc = await StorePrefix.findOne({ company: companyId }).lean();
@@ -296,6 +313,10 @@ export const updateMaterialRequest = async (req, res) => {
           issuedTo: materialRequest.requestedBy,
           mrpPlan: issueMrpPlan,
           mrpNumber: issueMrpNumber,
+          targetFgItem: materialRequest.targetFgItem || undefined,
+          targetFgItemName: materialRequest.targetFgItemName || "",
+          targetFgItemDescription: materialRequest.targetFgItemDescription || "",
+          targetFgQuantity: Number(materialRequest.targetFgQuantity) || 0,
           materialRequest: materialRequest._id,
           requestNumber: materialRequest.requestNumber,
           items: issueItems,
@@ -355,10 +376,7 @@ export const updateMaterialRequest = async (req, res) => {
 
     const { userId, userName } = getUserAudit(req);
 
-    if (status && status === "Approved") {
-      materialRequest.approvedBy = userId;
-      materialRequest.approvedByName = userName;
-    }
+    // Note: approvedBy / approvedByName / approvedAt are write-once snapshots set above only on first approval.
 
     if (status && status === "Issued") {
       materialRequest.issuedBy = userId;

@@ -187,7 +187,7 @@ export const createMaterialIssue = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    let { issueNumber, date, department, issuedTo, items, status, type, mrpPlan, mrpNumber, materialRequest, requestNumber } = req.body;
+    let { issueNumber, date, department, issuedTo, items, status, type, mrpPlan, mrpNumber, targetFgItem, targetFgItemName, targetFgItemDescription, targetFgQuantity, materialRequest, requestNumber } = req.body;
 
     console.log(`>>> [createMaterialIssue] Start. Status: ${status}, Type: ${type}, Items: ${items?.length}`);
 
@@ -220,6 +220,10 @@ export const createMaterialIssue = async (req, res) => {
         if (reqDoc) {
           if (!mrpPlan && reqDoc.mrpPlan) mrpPlan = reqDoc.mrpPlan;
           if (!mrpNumber && reqDoc.mrpNumber) mrpNumber = reqDoc.mrpNumber;
+          if (!targetFgItem && reqDoc.targetFgItem) targetFgItem = reqDoc.targetFgItem;
+          if (!targetFgItemName && reqDoc.targetFgItemName) targetFgItemName = reqDoc.targetFgItemName;
+          if (!targetFgItemDescription && reqDoc.targetFgItemDescription) targetFgItemDescription = reqDoc.targetFgItemDescription;
+          if (!targetFgQuantity && reqDoc.targetFgQuantity) targetFgQuantity = reqDoc.targetFgQuantity;
           if (!requestNumber && reqDoc.requestNumber) requestNumber = reqDoc.requestNumber;
 
           // Check approval governance from Store Settings
@@ -502,6 +506,10 @@ export const createMaterialIssue = async (req, res) => {
       issuedTo: finalIssuedTo,
       mrpPlan: mrpPlan || undefined,
       mrpNumber: mrpNumber || undefined,
+      targetFgItem: targetFgItem && isValidObjectId(targetFgItem.toString()) ? targetFgItem.toString() : undefined,
+      targetFgItemName: targetFgItemName ? String(targetFgItemName).trim() : "",
+      targetFgItemDescription: targetFgItemDescription ? String(targetFgItemDescription).trim() : "",
+      targetFgQuantity: Number(targetFgQuantity) || 0,
       materialRequest: materialRequest && isValidObjectId(materialRequest.toString()) ? materialRequest.toString() : undefined,
       requestNumber: requestNumber || undefined,
       items: processedItems,

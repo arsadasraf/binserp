@@ -28,7 +28,8 @@ import {
   AlertTriangle,
   LayoutDashboard,
   SlidersHorizontal,
-  FilterX
+  FilterX,
+  Flame
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { apiGet } from '@/src/lib/api';
@@ -108,7 +109,7 @@ export default function WipInventoryTab({
 
     // WIP Return, Scrap & Conversion Action Modal State
     const [actionModalItem, setActionModalItem] = useState<any | null>(null);
-    const [actionModalMode, setActionModalMode] = useState<'return' | 'scrap' | 'convert'>('return');
+    const [actionModalMode, setActionModalMode] = useState<'return' | 'scrap' | 'convert' | 'consume'>('return');
     const [isActionModalOpen, setIsActionModalOpen] = useState(false);
     const [isMultiConvertOpen, setIsMultiConvertOpen] = useState(false);
 
@@ -783,7 +784,7 @@ export default function WipInventoryTab({
         };
     }, [filteredItems, wipItems.length, wipType, isFg, vendorPriceMap, salesPriceMap, focusedItem]);
 
-    const handleOpenActionModal = (item: any, mode: 'return' | 'scrap' | 'convert') => {
+    const handleOpenActionModal = (item: any, mode: 'return' | 'scrap' | 'convert' | 'consume') => {
         setActionModalItem(item);
         setActionModalMode(mode);
         setIsActionModalOpen(true);
@@ -2056,6 +2057,17 @@ export default function WipInventoryTab({
 
                                                 <td className="px-4 py-3.5 text-right">
                                                     <div className="flex items-center justify-end gap-1.5">
+                                                        {item.shopfloorWipQty > 0 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleOpenActionModal(item, 'consume')}
+                                                                className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/70 dark:hover:bg-amber-900 dark:text-amber-300 rounded-lg transition-colors inline-flex items-center justify-center border border-amber-200 dark:border-amber-800 cursor-pointer shadow-2xs"
+                                                                title="Consume Shopfloor WIP for MRP"
+                                                                aria-label="Consume Shopfloor WIP for MRP"
+                                                            >
+                                                                <Flame size={14} />
+                                                            </button>
+                                                        )}
                                                         {wipType === 'fg' && item.shopfloorWipQty > 0 && (
                                                             <button
                                                                 type="button"
@@ -2181,6 +2193,17 @@ export default function WipInventoryTab({
                                     </div>
 
                                     <div className="flex flex-wrap gap-2">
+                                        {item.shopfloorWipQty > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleOpenActionModal(item, 'consume')}
+                                                className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:hover:bg-amber-900 dark:text-amber-300 rounded-xl border border-amber-200 dark:border-amber-800 inline-flex items-center justify-center cursor-pointer shadow-2xs shrink-0"
+                                                title="Consume Shopfloor WIP for MRP"
+                                                aria-label="Consume Shopfloor WIP for MRP"
+                                            >
+                                                <Flame size={15} />
+                                            </button>
+                                        )}
                                         {wipType === 'fg' && item.shopfloorWipQty > 0 && (
                                             <button
                                                 type="button"
@@ -2196,7 +2219,7 @@ export default function WipInventoryTab({
                                         )}
                                         <button
                                             onClick={() => openLedger(item)}
-                                            className={`${wipType === 'fg' && item.shopfloorWipQty > 0 ? 'flex-1' : 'w-full'} py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer`}
+                                            className={`${item.shopfloorWipQty > 0 ? 'flex-1' : 'w-full'} py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer`}
                                             title="View Transaction History"
                                         >
                                             <Eye size={14} /> Ledger
@@ -2229,6 +2252,7 @@ export default function WipInventoryTab({
                     }}
                     wipItem={actionModalItem}
                     mode={actionModalMode}
+                    mrpBuckets={mrpBuckets}
                     onSuccess={(msg) => {
                         onSuccess(msg);
                         fetchWipInventory();

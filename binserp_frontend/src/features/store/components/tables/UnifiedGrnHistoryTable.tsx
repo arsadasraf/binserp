@@ -30,7 +30,8 @@ import {
   X,
   CheckSquare,
   ShieldCheck,
-  RotateCcw
+  RotateCcw,
+  IndianRupee
 } from "lucide-react";
 import { useTimeLockPolicy } from "@/src/hooks/useTimeLockPolicy";
 import { useGetStoreDataQuery, useDeleteStoreRecordMutation } from "@/src/store/services/storeService";
@@ -266,6 +267,46 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
   const allNormalizedGrns = useMemo(() => {
     const list: any[] = [];
 
+    const computeGrnAmounts = (grnObj: any) => {
+      const itemsArr = Array.isArray(grnObj?.items) ? grnObj.items : [];
+      let itemsBase = 0;
+      let itemsTax = 0;
+
+      itemsArr.forEach((it: any) => {
+        const useSec = Boolean(it?.hasSecondaryUnit && it?.rateUnit === "secondary" && Number(it?.secondaryQuantity) > 0);
+        const effQty = useSec ? (Number(it.secondaryQuantity) || 0) : (Number(it?.quantity) || 0);
+        const effRate = Number(it?.rate || (useSec ? it?.secondaryRate : it?.primaryRate) || 0);
+        const base = Number(it?.amount) > 0 ? Number(it.amount) : (effQty * effRate);
+        const taxRate = Number(it?.taxRate ?? grnObj?.taxRate ?? 0);
+        const tax = Number(it?.taxAmount) > 0 ? Number(it.taxAmount) : (base * (taxRate / 100));
+        itemsBase += base;
+        itemsTax += tax;
+      });
+
+      const computedSubtotal = Number(grnObj?.subtotal) > 0 ? Number(grnObj.subtotal) : itemsBase;
+      const topLevelTax =
+        Number(grnObj?.taxAmount || 0) +
+        Number(grnObj?.transportationTaxAmount || 0) +
+        Number(grnObj?.packingTaxAmount || 0);
+      const computedTaxAmount = topLevelTax > 0 ? topLevelTax : itemsTax;
+      const extraCharges =
+        Number(grnObj?.transportationCharges || 0) +
+        Number(grnObj?.packingCharges || 0) +
+        Number(grnObj?.roundOff || 0);
+      const computedTotalAmount =
+        Number(grnObj?.totalAmount) > 0
+          ? Number(grnObj.totalAmount)
+          : Number(grnObj?.grandTotal) > 0
+            ? Number(grnObj.grandTotal)
+            : (computedSubtotal + computedTaxAmount + extraCharges);
+
+      return {
+        computedSubtotal: Math.round(computedSubtotal * 100) / 100,
+        computedTaxAmount: Math.round(computedTaxAmount * 100) / 100,
+        computedTotalAmount: Math.round(computedTotalAmount * 100) / 100,
+      };
+    };
+
     // 1. Process Standard GRNs (RM, BO, Consumables, Inhouse)
     (standardGrns || []).forEach((grn: any) => {
       const rawType = (grn.type || "").toLowerCase().trim();
@@ -336,8 +377,10 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
         typeBadge = "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800";
       }
 
+      const amounts = computeGrnAmounts(grn);
       list.push({
         ...grn,
+        ...amounts,
         isFgGrn: false,
         grnType,
         grnTypeLabel,
@@ -351,8 +394,10 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
 
     // 2. Process FG GRNs
     (fgGrns || []).forEach((fgGrn: any) => {
+      const amounts = computeGrnAmounts(fgGrn);
       list.push({
         ...fgGrn,
+        ...amounts,
         isFgGrn: true,
         grnType: "FG",
         grnTypeLabel: "Finished Goods (FG)",
@@ -579,6 +624,9 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
         "Invoice Number": grn.invoiceNumber || grn.invoiceNo || "-",
         "Total Items Count": grn.totalItemsCount,
         "Total Quantity": grn.totalQuantity,
+        "Taxable Amount (₹)": grn.computedSubtotal || 0,
+        "GST Amount (₹)": grn.computedTaxAmount || 0,
+        "Total Amount (₹)": grn.computedTotalAmount || 0,
         "Items Details": itemsSummary,
         "QC Required": grn.qcRequired ? "Yes" : "No",
         "QC Status": grn.qcStatus || "N/A",
@@ -593,8 +641,11 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
     XLSX.writeFile(wb, `GRN_History_${new Date().toISOString().split("T")[0]}.xlsx`);
   };
 
-  // Metrics
+  // Metrics (Dynamic over filteredGrns)
   const totalReceivedQty = filteredGrns.reduce((acc, g) => acc + (g.totalQuantity || 0), 0);
+  const totalSubtotalAmount = filteredGrns.reduce((acc, g) => acc + (Number(g.computedSubtotal) || 0), 0);
+  const totalTaxAmount = filteredGrns.reduce((acc, g) => acc + (Number(g.computedTaxAmount) || 0), 0);
+  const totalGrnAmount = filteredGrns.reduce((acc, g) => acc + (Number(g.computedTotalAmount) || 0), 0);
   const pendingQcCount = filteredGrns.filter(g => g.qcRequired && (g.qcStatus === "Pending" || !g.qcStatus)).length;
   const acceptedCount = filteredGrns.filter(g => g.status === "Accepted" || g.qcStatus === "Passed" || g.status === "Received").length;
 
@@ -695,7 +746,7 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
           {/* Card 1: Total GRNs */}
           <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-2xs relative overflow-hidden">
             <div className="flex items-center justify-between text-blue-600 dark:text-blue-400 mb-1.5">
@@ -710,6 +761,26 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
             <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
               <span>All Inward Types</span>
               <span className="font-bold text-blue-600 dark:text-blue-400 font-mono">Store Intake</span>
+            </div>
+          </div>
+
+          {/* Card 2: Total GRN Amount (Dynamic) */}
+          <div
+            className="bg-gradient-to-br from-indigo-50/90 via-white to-slate-50 dark:from-indigo-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 shadow-2xs relative overflow-hidden"
+            title={`Total: ₹${totalGrnAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Taxable: ₹${totalSubtotalAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | GST: ₹${totalTaxAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          >
+            <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400 mb-1.5">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total GRN Amount</span>
+              <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
+                <IndianRupee size={16} />
+              </div>
+            </div>
+            <div className="text-lg sm:text-xl font-black text-indigo-700 dark:text-indigo-300 font-mono tracking-tight truncate">
+              ₹{totalGrnAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="mt-1 flex items-center justify-between gap-2 text-[10.5px] text-slate-500 dark:text-slate-400 font-mono">
+              <span className="truncate">Taxable: ₹{totalSubtotalAmount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</span>
+              <span className="font-bold text-indigo-600 dark:text-indigo-400 shrink-0">GST: ₹{totalTaxAmount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</span>
             </div>
           </div>
 

@@ -919,8 +919,17 @@ export const updatePO = asyncHandler(async (req, res) => {
     }
   }
 
-  // Check Approval Governance from Store Settings
-  if (req.body.status === "Approved" && existingPO.status !== "Approved") {
+  // Determine if this PO was already approved (immutable historical approval snapshot)
+  const alreadyApproved = Boolean(
+    existingPO.isApproved ||
+    existingPO.approvedBy ||
+    existingPO.approvedByName ||
+    existingPO.approvedAt ||
+    ["Approved", "Partially Received", "Completed"].includes(existingPO.status)
+  );
+
+  // Check Approval Governance from Store Settings (only for pending / unapproved POs)
+  if (req.body.status === "Approved" && !alreadyApproved) {
     try {
       const StorePrefix = req.getModel('StorePrefix', storePrefixSchema);
       const prefixDoc = await StorePrefix.findOne({ company: companyId }).lean();
@@ -954,12 +963,22 @@ export const updatePO = asyncHandler(async (req, res) => {
 
   const updateData = { ...req.body };
   delete updateData.newFollowUp; // Handled separately via $push
+  // Never allow client payloads or subsequent edits to overwrite an existing approval snapshot
+  delete updateData.isApproved;
+  delete updateData.approvedBy;
+  delete updateData.approvedByName;
+  delete updateData.approvedByEmail;
+  delete updateData.approvedAt;
+
   updateData.updatedBy = req.user?.id || req.user?._id;
   updateData.updatedByName = userName;
 
-  if (req.body.status === "Approved") {
+  // Write-once immutable approval snapshot: locked to the user who first approved this PO
+  if (req.body.status === "Approved" && !alreadyApproved) {
+    updateData.isApproved = true;
     updateData.approvedBy = req.user?.id || req.user?._id;
     updateData.approvedByName = userName;
+    updateData.approvedByEmail = req.user?.email || "";
     updateData.approvedAt = new Date();
   }
 

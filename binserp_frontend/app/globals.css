@@ -90,3 +90,64 @@ body {
     @apply w-full px-4 py-3 rounded-xl border border-gray-300 bg-white text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-sm dark:bg-gray-950 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500;
   }
 }
+
+/*
+ * Legacy Browser Compatibility (Chrome < 111 / Win 7-8 Chrome 109 / Older Edge, Safari < 16.2, Firefox < 113)
+ * Tailwind CSS v4 emits `--tw-gradient-position: to right in oklab`, which older browsers drop,
+ * causing active tabs and gradient buttons with `text-white` to become invisible white-on-white.
+ * Modern browsers skip this block completely.
+ */
+@supports not (background-image: linear-gradient(to right in oklab, #000, #fff)) {
+  *, *::before, *::after {
+    --tw-gradient-from-position: 0%;
+    --tw-gradient-via-position: 50%;
+    --tw-gradient-to-position: 100%;
+  }
+
+  .bg-gradient-to-r, .bg-linear-to-r   { --tw-gradient-position: to right !important; }
+  .bg-gradient-to-l, .bg-linear-to-l   { --tw-gradient-position: to left !important; }
+  .bg-gradient-to-t, .bg-linear-to-t   { --tw-gradient-position: to top !important; }
+  .bg-gradient-to-b, .bg-linear-to-b   { --tw-gradient-position: to bottom !important; }
+  .bg-gradient-to-br, .bg-linear-to-br { --tw-gradient-position: to bottom right !important; }
+  .bg-gradient-to-bl, .bg-linear-to-bl { --tw-gradient-position: to bottom left !important; }
+  .bg-gradient-to-tr, .bg-linear-to-tr { --tw-gradient-position: to top right !important; }
+  .bg-gradient-to-tl, .bg-linear-to-tl { --tw-gradient-position: to top left !important; }
+
+  /* Fail-safe solid background-color fallbacks so text-white tabs/buttons never turn white-on-white */
+  [class*="bg-gradient-to-"].from-indigo-600,
+  [class*="bg-linear-to-"].from-indigo-600  { background-color: #4f46e5; }
+  [class*="bg-gradient-to-"].from-indigo-500,
+  [class*="bg-linear-to-"].from-indigo-500  { background-color: #6366f1; }
+  [class*="bg-gradient-to-"].from-blue-600,
+  [class*="bg-linear-to-"].from-blue-600    { background-color: #2563eb; }
+  [class*="bg-gradient-to-"].from-cyan-600,
+  [class*="bg-linear-to-"].from-cyan-600    { background-color: #0891b2; }
+  [class*="bg-gradient-to-"].from-emerald-600,
+  [class*="bg-linear-to-"].from-emerald-600 { background-color: #059669; }
+  [class*="bg-gradient-to-"].from-teal-600,
+  [class*="bg-linear-to-"].from-teal-600    { background-color: #0d9488; }
+  [class*="bg-gradient-to-"].from-rose-600,
+  [class*="bg-linear-to-"].from-rose-600    { background-color: #e11d48; }
+  [class*="bg-gradient-to-"].from-red-600,
+  [class*="bg-linear-to-"].from-red-600     { background-color: #dc2626; }
+  [class*="bg-gradient-to-"].from-amber-500,
+  [class*="bg-linear-to-"].from-amber-500   { background-color: #f59e0b; }
+  [class*="bg-gradient-to-"].from-amber-600,
+  [class*="bg-linear-to-"].from-amber-600   { background-color: #d97706; }
+  [class*="bg-gradient-to-"].from-purple-600,
+  [class*="bg-linear-to-"].from-purple-600  { background-color: #9333ea; }
+  [class*="bg-gradient-to-"].from-violet-600,
+  [class*="bg-linear-to-"].from-violet-600  { background-color: #7c3aed; }
+  [class*="bg-gradient-to-"].from-slate-800,
+  [class*="bg-linear-to-"].from-slate-800   { background-color: #1e293b; }
+  [class*="bg-gradient-to-"].from-slate-900,
+  [class*="bg-linear-to-"].from-slate-900   { background-color: #0f172a; }
+
+  /* Hover state solid fallbacks for gradient buttons */
+  [class*="bg-gradient-to-"].hover\:from-indigo-700:hover  { background-color: #4338ca; }
+  [class*="bg-gradient-to-"].hover\:from-blue-700:hover    { background-color: #1d4ed8; }
+  [class*="bg-gradient-to-"].hover\:from-cyan-700:hover    { background-color: #0e7490; }
+  [class*="bg-gradient-to-"].hover\:from-emerald-700:hover { background-color: #047857; }
+  [class*="bg-gradient-to-"].hover\:from-rose-700:hover    { background-color: #be123c; }
+  [class*="bg-gradient-to-"].hover\:from-purple-700:hover  { background-color: #7e22ce; }
+}

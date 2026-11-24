@@ -397,7 +397,14 @@ export default function JobWorkPOTable({
 
   // Handle Download PDF with Approval Guard
   const handleDownloadPDF = (po: any) => {
-    if (isApprovalRequired('jobWorkPo') && po.approvalStatus !== 'Approved' && po.status !== 'Approved') {
+    const alreadyApproved = Boolean(
+      po.isApproved ||
+      po.approvedByName ||
+      po.approvedAt ||
+      po.approvalStatus === 'Approved' ||
+      ['Approved', 'Partially Received', 'Completed'].includes(po.status)
+    );
+    if (isApprovalRequired('jobWorkPo') && !alreadyApproved) {
       showErrorDialog('Approval Required', `Job Work PO ${po.poNumber} requires approval before PDF can be generated.`);
       return;
     }

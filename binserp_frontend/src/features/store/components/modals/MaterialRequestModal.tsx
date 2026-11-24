@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { RmBoItem } from "@/src/features/store/types/store.types";
-import { X, Plus, Trash2, Package, ShoppingCart, Boxes, Layers, Sparkles, ListFilter, Search, Check, AlertTriangle } from "lucide-react";
+import { X, Plus, Trash2, Package, ShoppingCart, Boxes, Layers, Sparkles, ListFilter, Search, Check, AlertTriangle, ChevronDown } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
 import { apiGet } from "@/src/lib/api";
 import { showWarningDialog, showWarningToast } from "@/src/features/store/utils/storeDialogHelper";
@@ -66,6 +67,10 @@ export default function MaterialRequestModal({
         soNumber: "",
         mrpPlan: "",
         mrpNumber: "",
+        targetFgItem: "",
+        targetFgItemName: "",
+        targetFgItemDescription: "",
+        targetFgQuantity: 0,
         items: [{
             material: "",
             itemType: undefined as string | undefined,
@@ -93,6 +98,56 @@ export default function MaterialRequestModal({
     const [isMrpItemPickerOpen, setIsMrpItemPickerOpen] = useState<boolean>(false);
     const [selectedMrpItemIndices, setSelectedMrpItemIndices] = useState<Set<number>>(new Set());
     const [mrpPickerSearch, setMrpPickerSearch] = useState<string>('');
+
+    // Collapsible Multi-Select FG Dropdown state (hidden by default, all FGs selected by default)
+    const [isFgDropdownOpen, setIsFgDropdownOpen] = useState<boolean>(false);
+    const [selectedFgKeys, setSelectedFgKeys] = useState<string[]>([]);
+    const [fgDropdownSearch, setFgDropdownSearch] = useState<string>('');
+    const fgDropdownRef = useRef<HTMLDivElement | null>(null);
+    const fgDropdownMenuRef = useRef<HTMLDivElement | null>(null);
+    const [fgDropdownPos, setFgDropdownPos] = useState<{ top: number; left: number; width: number; openUpward: boolean; maxHeight: number } | null>(null);
+
+    const updateFgDropdownPosition = () => {
+        if (!fgDropdownRef.current) return;
+        const rect = fgDropdownRef.current.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom - 16;
+        const spaceAbove = rect.top - 16;
+        const openUpward = spaceBelow < 220 && spaceAbove > spaceBelow;
+        const availHeight = openUpward ? spaceAbove : spaceBelow;
+        const maxHeight = Math.max(160, Math.min(320, availHeight));
+        setFgDropdownPos({
+            top: openUpward ? rect.top - 6 : rect.bottom + 6,
+            left: rect.left,
+            width: rect.width,
+            openUpward,
+            maxHeight
+        });
+    };
+
+    useEffect(() => {
+        if (!isFgDropdownOpen) {
+            setFgDropdownPos(null);
+            return;
+        }
+        updateFgDropdownPosition();
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as Node;
+            const insideTrigger = fgDropdownRef.current?.contains(target);
+            const insideMenu = fgDropdownMenuRef.current?.contains(target);
+            if (!insideTrigger && !insideMenu) {
+                setIsFgDropdownOpen(false);
+            }
+        };
+        const handleReposition = () => updateFgDropdownPosition();
+        document.addEventListener("mousedown", handleClickOutside);
+        window.addEventListener("resize", handleReposition);
+        window.addEventListener("scroll", handleReposition, true);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+            window.removeEventListener("resize", handleReposition);
+            window.removeEventListener("scroll", handleReposition, true);
+        };
+    }, [isFgDropdownOpen]);
 
     const createBlankItem = (t: RequestInventoryType = formData.type, mrpNum = formData.mrpNumber) => {
         const defaultUnit = t === 'rm' ? 'KG' : (t === 'fg' ? 'Nos' : 'PCS');
@@ -142,6 +197,10 @@ export default function MaterialRequestModal({
                     soNumber: initialData.soNumber || "",
                     mrpPlan: initialData.mrpPlan || "",
                     mrpNumber: initialData.mrpNumber || "",
+                    targetFgItem: initialData.targetFgItem?._id || initialData.targetFgItem || "",
+                    targetFgItemName: initialData.targetFgItemName || "",
+                    targetFgItemDescription: initialData.targetFgItemDescription || "",
+                    targetFgQuantity: Number(initialData.targetFgQuantity) || 0,
                     items: (initialData.items && initialData.items.length > 0)
                         ? initialData.items.map((it: any) => ({
                             material: it.material?._id || it.material || it.component?._id || it.component || it.consumable?._id || it.consumable || "",
@@ -179,6 +238,10 @@ export default function MaterialRequestModal({
                     soNumber: "",
                     mrpPlan: "",
                     mrpNumber: "",
+                    targetFgItem: "",
+                    targetFgItemName: "",
+                    targetFgItemDescription: "",
+                    targetFgQuantity: 0,
                     items: [createBlankItem(currentInitial, "")]
                 });
             }
@@ -251,11 +314,87 @@ export default function MaterialRequestModal({
         return (mrpPlans || []).find((p: any) => p._id === formData.mrpPlan) || null;
     }, [formData.mrpPlan, mrpPlans]);
 
-    const getMrpBomItems = (selectedPlan: any, reqType: RequestInventoryType): any[] => {
+    const getFgOptionKey = (fg: any, idx: number) => {
+        const fId = fg?.fgItem?._id ? String(fg.fgItem._id) : (fg?.fgItem ? String(fg.fgItem) : "");
+        const fName = String(fg?.fgItemName || "").trim();
+        return `${fId || fName}__${idx}`;
+    };
+
+    const planFgEntries = useMemo(() => {
+        const list = Array.isArray(activeSelectedPlan?.fgItems) ? activeSelectedPlan.fgItems : [];
+        return list.map((fg: any, idx: number) => ({
+            key: getFgOptionKey(fg, idx),
+            fg,
+            idx
+        }));
+    }, [activeSelectedPlan]);
+
+    // Sync selectedFgKeys when MRP plans finish loading (for edit mode or newly selected plan)
+    useEffect(() => {
+        if (!activeSelectedPlan) {
+            setSelectedFgKeys([]);
+            setIsFgDropdownOpen(false);
+            return;
+        }
+        const allKeys = planFgEntries.map((e: any) => e.key);
+        if (allKeys.length === 0) {
+            setSelectedFgKeys([]);
+            return;
+        }
+        // If editing a request that was saved with a specific target FG, pre-select matching FG(s)
+        if (formData.targetFgItem || formData.targetFgItemName) {
+            const cleanId = formData.targetFgItem ? String(formData.targetFgItem) : "";
+            const targetNames = String(formData.targetFgItemName || "")
+                .split(",")
+                .map((s) => s.trim().toLowerCase())
+                .filter(Boolean);
+            const matched = planFgEntries
+                .filter((e: any) => {
+                    const fId = e.fg?.fgItem?._id ? String(e.fg.fgItem._id) : (e.fg?.fgItem ? String(e.fg.fgItem) : "");
+                    const fName = String(e.fg?.fgItemName || "").trim().toLowerCase();
+                    return (cleanId && fId === cleanId) || (fName && targetNames.includes(fName));
+                })
+                .map((e: any) => e.key);
+            if (matched.length > 0) {
+                setSelectedFgKeys(matched);
+                return;
+            }
+        }
+        // Default: select ALL FGs in the MRP
+        setSelectedFgKeys(allKeys);
+    }, [activeSelectedPlan?._id]);
+
+    const selectedFgObjects = useMemo(() => {
+        if (!planFgEntries.length) return [];
+        const keySet = new Set(selectedFgKeys);
+        return planFgEntries.filter((e: any) => keySet.has(e.key)).map((e: any) => e.fg);
+    }, [planFgEntries, selectedFgKeys]);
+
+    const isAllFgsSelected = planFgEntries.length > 0 && selectedFgKeys.length === planFgEntries.length;
+
+    const getMrpBomItems = (selectedPlan: any, reqType: RequestInventoryType, scopedFgsOverride?: any[] | null): any[] => {
         if (!selectedPlan) return [];
+        const allPlanFgs = Array.isArray(selectedPlan.fgItems) ? selectedPlan.fgItems : [];
+        let scopedFgs: any[] | null = null;
+        if (scopedFgsOverride !== undefined) {
+            scopedFgs = scopedFgsOverride;
+        } else if (allPlanFgs.length > 0 && selectedFgKeys.length > 0 && selectedFgKeys.length < allPlanFgs.length) {
+            scopedFgs = selectedFgObjects;
+        } else {
+            scopedFgs = null; // All FGs selected -> entire MRP
+        }
+
+        const scopedNamesLabel = scopedFgs && scopedFgs.length > 0
+            ? scopedFgs.map((f: any) => f.fgItemName).filter(Boolean).join(', ')
+            : '';
+        const purposeSuffix = scopedNamesLabel
+            ? `Demand for MRP: ${selectedPlan.mrpNumber} | FG: ${scopedNamesLabel}`
+            : `Demand for MRP: ${selectedPlan.mrpNumber}`;
+
         let populatedItems: any[] = [];
-        if (reqType === 'fg' && Array.isArray(selectedPlan.fgItems) && selectedPlan.fgItems.length > 0) {
-            populatedItems = selectedPlan.fgItems.map((f: any) => {
+        if (reqType === 'fg' && allPlanFgs.length > 0) {
+            const fgSourceList = (scopedFgs && scopedFgs.length > 0) ? scopedFgs : allPlanFgs;
+            populatedItems = fgSourceList.map((f: any) => {
                 const comp = effectiveFGList.find((c: any) => (c._id === f.fgItem || c.name === f.fgItemName));
                 const hasSec = Boolean(comp?.hasSecondaryUnit);
                 const secUnit = comp?.secondaryUnit || "";
@@ -267,7 +406,7 @@ export default function MaterialRequestModal({
                     itemType: 'FG Item',
                     materialName: f.fgItemName,
                     materialCode: f.fgItemCode || '',
-                    materialDescription: comp?.description || '',
+                    materialDescription: f.description || comp?.description || '',
                     quantity: qty,
                     unit: f.unit || 'Nos',
                     hasSecondaryUnit: hasSec,
@@ -287,7 +426,43 @@ export default function MaterialRequestModal({
             let searchList: any[] = effectiveRMList;
             let defaultItemType = 'Raw Material';
 
-            if (reqType === 'bo') {
+            if (scopedFgs && scopedFgs.length > 0) {
+                // Merge & aggregate nestedMaterials across all selected FGs
+                const classifyNested = (r: any) => {
+                    const t = `${r.itemType || ''} ${r.category || ''}`.toLowerCase();
+                    const c = (r.materialCode || '').toUpperCase();
+                    if (t.includes('consumable')) return 'consumable';
+                    if (t.includes('bought') || t.includes('bo') || c.startsWith('BO-')) return 'bo';
+                    return 'rm';
+                };
+                const targetBucket = reqType === 'bo' ? 'bo' : (reqType === 'consumable' ? 'consumable' : 'rm');
+                searchList = reqType === 'bo' ? effectiveBOList : (reqType === 'consumable' ? (consumables || []) : effectiveRMList);
+                defaultItemType = reqType === 'bo' ? 'Bought Out' : (reqType === 'consumable' ? 'Consumable' : 'Raw Material');
+
+                const mergedMap = new Map<string, any>();
+                scopedFgs.forEach((fgObj: any) => {
+                    const fgNested = Array.isArray(fgObj?.nestedMaterials) ? fgObj.nestedMaterials : [];
+                    fgNested
+                        .filter((r: any) => classifyNested(r) === targetBucket)
+                        .forEach((r: any) => {
+                            const key = String(r.material || r.materialCode || r.materialName || '').trim().toLowerCase();
+                            if (!key) return;
+                            const reqQty = Number(r.requiredQuantity || r.totalRequired || 0);
+                            if (mergedMap.has(key)) {
+                                const prev = mergedMap.get(key);
+                                prev.totalRequired = (Number(prev.totalRequired) || 0) + reqQty;
+                                prev.requiredQuantity = prev.totalRequired;
+                            } else {
+                                mergedMap.set(key, {
+                                    ...r,
+                                    totalRequired: reqQty || 1,
+                                    requiredQuantity: reqQty || 1
+                                });
+                            }
+                        });
+                });
+                sourceRequirements = Array.from(mergedMap.values());
+            } else if (reqType === 'bo') {
                 sourceRequirements = (Array.isArray(selectedPlan.boRequirements) && selectedPlan.boRequirements.length > 0)
                     ? selectedPlan.boRequirements
                     : (selectedPlan.rmRequirements || []).filter((r: any) => (r.itemType || '').toLowerCase().includes('bo') || (r.category || '').toLowerCase().includes('bought'));
@@ -339,7 +514,7 @@ export default function MaterialRequestModal({
                         secondaryRatio: sRatio,
                         secondaryQuantity: secQty,
                         selectedUnit: defaultUnit,
-                        purpose: `Demand for MRP: ${selectedPlan.mrpNumber}`,
+                        purpose: purposeSuffix,
                         consumable: reqType === 'consumable' ? (mat?._id || r.material) : undefined,
                         component: undefined,
                         fgItem: undefined,
@@ -353,6 +528,10 @@ export default function MaterialRequestModal({
 
     const availableBomCount = useMemo(() => {
         if (!activeSelectedPlan) return 0;
+        if (!isAllFgsSelected && selectedFgObjects.length > 0) {
+            if (formData.type === 'fg') return selectedFgObjects.length;
+            return getMrpBomItems(activeSelectedPlan, formData.type, selectedFgObjects).length;
+        }
         if (formData.type === 'fg') {
             return (activeSelectedPlan.fgItems || []).length;
         }
@@ -366,7 +545,7 @@ export default function MaterialRequestModal({
             return (activeSelectedPlan.consumableRequirements || []).length;
         }
         return (activeSelectedPlan.rmRequirements || []).length;
-    }, [activeSelectedPlan, formData.type]);
+    }, [activeSelectedPlan, isAllFgsSelected, selectedFgObjects, formData.type]);
 
     const mrpRequirementMap = useMemo(() => {
         const map = new Map<string, { reqQty: number; unit: string }>();
@@ -404,14 +583,23 @@ export default function MaterialRequestModal({
     const handleSelectMRPPlan = (planId: string) => {
         const selectedPlan = (mrpPlans || []).find(p => p._id === planId);
         if (!selectedPlan) {
-            setFormData(prev => ({ ...prev, mrpPlan: '', mrpNumber: '' }));
+            setFormData(prev => ({
+                ...prev,
+                mrpPlan: '',
+                mrpNumber: '',
+                targetFgItem: '',
+                targetFgItemName: '',
+                targetFgItemDescription: '',
+                targetFgQuantity: 0
+            }));
             return;
         }
 
+        // If the MRP plan has exactly 1 FG, keep default as All FGs or let user pick any FG cleanly
         setFormData(prev => {
             let updatedItems = prev.items;
             if (autoLoadBom) {
-                const bomItems = getMrpBomItems(selectedPlan, prev.type);
+                const bomItems = getMrpBomItems(selectedPlan, prev.type, null);
                 if (bomItems.length > 0) {
                     updatedItems = bomItems;
                 }
@@ -428,10 +616,73 @@ export default function MaterialRequestModal({
                 ...prev,
                 mrpPlan: selectedPlan._id,
                 mrpNumber: selectedPlan.mrpNumber,
+                targetFgItem: '',
+                targetFgItemName: '',
+                targetFgItemDescription: '',
+                targetFgQuantity: 0,
                 soNumber: prev.soNumber || selectedPlan.customerName || selectedPlan.remarks || '',
                 items: updatedItems
             };
         });
+    };
+
+    const applySelectedFgKeys = (nextKeys: string[]) => {
+        if (!activeSelectedPlan) return;
+        setSelectedFgKeys(nextKeys);
+        const keySet = new Set(nextKeys);
+        const pickedFgs = planFgEntries.filter((e: any) => keySet.has(e.key)).map((e: any) => e.fg);
+        const allSelected = pickedFgs.length === 0 || pickedFgs.length === planFgEntries.length;
+
+        const singleFg = pickedFgs.length === 1 ? pickedFgs[0] : null;
+        const fgId = (!allSelected && singleFg)
+            ? (singleFg.fgItem?._id ? String(singleFg.fgItem._id) : (singleFg.fgItem ? String(singleFg.fgItem) : ''))
+            : '';
+        const fgName = !allSelected
+            ? pickedFgs.map((f: any) => String(f.fgItemName || '').trim()).filter(Boolean).join(', ')
+            : '';
+        const fgDesc = (!allSelected && singleFg) ? String(singleFg.description || '').trim() : '';
+        const fgQty = !allSelected
+            ? pickedFgs.reduce((sum: number, f: any) => sum + (Number(f.quantity) || 0), 0)
+            : 0;
+
+        setFormData(prev => {
+            let updatedItems = prev.items;
+            if (autoLoadBom) {
+                const bomItems = getMrpBomItems(activeSelectedPlan, prev.type, allSelected ? null : pickedFgs);
+                updatedItems = bomItems.length > 0 ? bomItems : [createBlankItem(prev.type, activeSelectedPlan.mrpNumber)];
+            } else if (updatedItems.length === 1 && !updatedItems[0].material) {
+                updatedItems = [{
+                    ...updatedItems[0],
+                    purpose: fgName
+                        ? `Demand for MRP: ${activeSelectedPlan.mrpNumber} | FG: ${fgName}`
+                        : `Demand for MRP: ${activeSelectedPlan.mrpNumber}`
+                }];
+            }
+            return {
+                ...prev,
+                targetFgItem: fgId,
+                targetFgItemName: fgName,
+                targetFgItemDescription: fgDesc,
+                targetFgQuantity: fgQty,
+                items: updatedItems
+            };
+        });
+    };
+
+    const handleToggleFgSelection = (fgKey: string) => {
+        const exists = selectedFgKeys.includes(fgKey);
+        const nextKeys = exists
+            ? selectedFgKeys.filter((k) => k !== fgKey)
+            : [...selectedFgKeys, fgKey];
+        applySelectedFgKeys(nextKeys);
+    };
+
+    const handleToggleAllFgs = () => {
+        if (isAllFgsSelected) {
+            applySelectedFgKeys([]);
+        } else {
+            applySelectedFgKeys(planFgEntries.map((e: any) => e.key));
+        }
     };
 
     const handleToggleAutoLoadBom = (enable: boolean) => {
@@ -833,6 +1084,139 @@ export default function MaterialRequestModal({
                                 <p className="text-[11px] font-semibold text-rose-500">
                                     ⚠️ Please select an active MRP Plan to proceed with this {formData.type.toUpperCase()} request.
                                 </p>
+                            )}
+
+                            {/* Collapsible Multi-Select FG Dropdown (hidden by default, all FGs selected by default) */}
+                            {Boolean(activeSelectedPlan) && planFgEntries.length > 0 && (
+                                <div ref={fgDropdownRef} className="mt-2.5 pt-2.5 border-t border-indigo-200/60 dark:border-indigo-900/60 relative">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsFgDropdownOpen(prev => !prev);
+                                            setFgDropdownSearch('');
+                                        }}
+                                        className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 hover:border-indigo-400 dark:hover:border-indigo-600 transition-all cursor-pointer shadow-2xs"
+                                    >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <Boxes size={14} className="text-purple-600 dark:text-purple-400 shrink-0" />
+                                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                                                {isAllFgsSelected
+                                                    ? `Finished Goods: All Selected (${planFgEntries.length}/${planFgEntries.length})`
+                                                    : selectedFgObjects.length === 0
+                                                        ? `Finished Goods: None Selected (All MRP Used)`
+                                                        : selectedFgObjects.length === 1
+                                                            ? `FG: ${selectedFgObjects[0].fgItemName}`
+                                                            : `Finished Goods: ${selectedFgObjects.length} of ${planFgEntries.length} Selected`}
+                                            </span>
+                                        </div>
+                                        <ChevronDown
+                                            size={15}
+                                            className={`text-slate-500 transition-transform duration-150 shrink-0 ${isFgDropdownOpen ? 'rotate-180' : ''}`}
+                                        />
+                                    </button>
+
+                                    {isFgDropdownOpen && fgDropdownPos && typeof document !== 'undefined' && createPortal(
+                                        <div
+                                            ref={fgDropdownMenuRef}
+                                            style={{
+                                                position: 'fixed',
+                                                top: fgDropdownPos.top,
+                                                left: fgDropdownPos.left,
+                                                width: fgDropdownPos.width,
+                                                transform: fgDropdownPos.openUpward ? 'translateY(-100%)' : undefined,
+                                                zIndex: 9999,
+                                            }}
+                                            className="bg-white dark:bg-slate-900 rounded-2xl border border-indigo-200 dark:border-slate-700 shadow-2xl overflow-hidden flex flex-col"
+                                        >
+                                            <div className="p-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 bg-slate-50/90 dark:bg-slate-800/80 shrink-0">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleToggleAllFgs}
+                                                    className="flex items-center gap-2 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 cursor-pointer"
+                                                >
+                                                    <span className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${
+                                                        isAllFgsSelected
+                                                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                                                            : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600'
+                                                    }`}>
+                                                        {isAllFgsSelected && <Check size={11} />}
+                                                    </span>
+                                                    <span>{isAllFgsSelected ? 'Deselect All' : 'Select All FGs'} ({planFgEntries.length})</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setIsFgDropdownOpen(false)}
+                                                    className="text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white px-2 py-0.5 rounded-lg hover:bg-slate-200/70 dark:hover:bg-slate-700 cursor-pointer"
+                                                >
+                                                    Done
+                                                </button>
+                                            </div>
+
+                                            {planFgEntries.length > 5 && (
+                                                <div className="p-2 border-b border-slate-100 dark:border-slate-800 shrink-0">
+                                                    <div className="relative">
+                                                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                        <input
+                                                            type="text"
+                                                            value={fgDropdownSearch}
+                                                            onChange={(e) => setFgDropdownSearch(e.target.value)}
+                                                            placeholder="Search FG name or description..."
+                                                            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <div
+                                                style={{ maxHeight: Math.max(120, fgDropdownPos.maxHeight - 84) }}
+                                                className="overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800"
+                                            >
+                                                {planFgEntries
+                                                    .filter(({ fg }: any) => {
+                                                        const q = fgDropdownSearch.trim().toLowerCase();
+                                                        if (!q) return true;
+                                                        return (
+                                                            String(fg.fgItemName || '').toLowerCase().includes(q) ||
+                                                            String(fg.description || '').toLowerCase().includes(q)
+                                                        );
+                                                    })
+                                                    .map(({ key, fg }: any) => {
+                                                        const isChecked = selectedFgKeys.includes(key);
+                                                        const fName = fg.fgItemName || 'Finished Good';
+                                                        const fDesc = fg.description || '';
+                                                        const nestedCount = Array.isArray(fg.nestedMaterials) ? fg.nestedMaterials.length : 0;
+                                                        return (
+                                                            <label
+                                                                key={key}
+                                                                className={`flex items-start gap-2.5 px-3 py-2 cursor-pointer transition-colors ${
+                                                                    isChecked
+                                                                        ? 'bg-purple-50/60 dark:bg-purple-950/30'
+                                                                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                                                                }`}
+                                                            >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isChecked}
+                                                                    onChange={() => handleToggleFgSelection(key)}
+                                                                    className="mt-0.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                                                />
+                                                                <div className="min-w-0 flex-1">
+                                                                    <div className="text-xs font-bold text-slate-900 dark:text-white truncate">{fName}</div>
+                                                                    {fDesc && (
+                                                                        <div className="text-[11px] text-slate-500 dark:text-slate-400 italic line-clamp-1">{fDesc}</div>
+                                                                    )}
+                                                                    <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
+                                                                        Qty: {fg.quantity || 0} {fg.unit || 'PCS'}{nestedCount > 0 ? ` • ${nestedCount} BOM items` : ''}
+                                                                    </div>
+                                                                </div>
+                                                            </label>
+                                                        );
+                                                    })}
+                                            </div>
+                                        </div>,
+                                        document.body
+                                    )}
+                                </div>
                             )}
 
                             {/* When an active MRP is selected: Show BOM Available Count & Auto-Load Toggle */}

@@ -169,6 +169,88 @@ export const recordWipScrap = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Consume Shopfloor WIP stock directly against an MRP Plan (or general production)
+ */
+export const consumeWipStock = asyncHandler(async (req, res) => {
+  const companyId = getCompanyId(req);
+  const { userId, userName } = getUserAudit(req);
+  const {
+    materialId,
+    materialName,
+    itemType = "rm", // 'rm', 'bo', 'fg'
+    quantity,
+    unit = "PCS",
+    mrpPlanId,
+    mrpNumber,
+    remarks
+  } = req.body;
+
+  const consumeQty = Number(quantity);
+  if (!consumeQty || consumeQty <= 0) {
+    throw new ApiError(400, "Valid consume quantity greater than 0 is required");
+  }
+
+  if (!materialId && !materialName) {
+    throw new ApiError(400, "Material identification is required");
+  }
+
+  let resolvedMrpPlanId = mrpPlanId && isValidObjectId(String(mrpPlanId)) ? mrpPlanId : undefined;
+  let resolvedMrpNumber = mrpNumber ? String(mrpNumber).trim() : "";
+
+  if (resolvedMrpPlanId && !resolvedMrpNumber) {
+    const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
+    const planDoc = await MRPPlan.findOne({ _id: resolvedMrpPlanId, company: companyId }).select("mrpNumber").lean();
+    if (planDoc?.mrpNumber) resolvedMrpNumber = String(planDoc.mrpNumber).trim();
+  } else if (resolvedMrpNumber && !resolvedMrpPlanId) {
+    const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
+    const planDoc = await MRPPlan.findOne({ company: companyId, mrpNumber: resolvedMrpNumber }).select("_id").lean();
+    if (planDoc?._id) resolvedMrpPlanId = planDoc._id;
+  }
+
+  const docNumber = `WIP-CONS-${Date.now()}`;
+  const normalizedType = String(itemType || "rm").toLowerCase();
+
+  const hasSec = Boolean(req.body.hasSecondaryUnit);
+  const secUnit = req.body.secondaryUnit || "";
+  const convFactor = Number(req.body.conversionFactor) || 1;
+  const secQty = Number(req.body.secondaryQuantity) || (hasSec && convFactor > 0 ? parseFloat((consumeQty * convFactor).toFixed(4)) : 0);
+
+  await recordStockTransaction(req, {
+    itemType: normalizedType === "bo" ? "BoughtOut" : (normalizedType === "fg" ? "Component" : "RawMaterial"),
+    item: materialId && isValidObjectId(String(materialId)) ? materialId : undefined,
+    itemName: materialName || "Consumed Material",
+    unit: unit,
+    movementType: "OUTWARD",
+    transactionCategory: "WIP_CONSUMPTION_OUTWARD",
+    quantity: consumeQty,
+    hasSecondaryUnit: hasSec,
+    secondaryUnit: secUnit,
+    secondaryQuantity: secQty,
+    conversionFactor: convFactor,
+    referenceDocType: "WIPConsumption",
+    referenceDocNumber: docNumber,
+    mrpPlan: resolvedMrpPlanId,
+    mrpNumber: resolvedMrpNumber,
+    recipientOrSource: resolvedMrpNumber ? `MRP Consumption (${resolvedMrpNumber})` : "Shopfloor Production Consumption",
+    purpose: remarks
+      ? (resolvedMrpNumber ? `MRP ${resolvedMrpNumber} - ${remarks}` : remarks)
+      : (resolvedMrpNumber ? `Shopfloor WIP consumed for MRP ${resolvedMrpNumber}` : "Shopfloor WIP consumed in production"),
+    performedBy: userId,
+    performedByName: userName
+  });
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      { docNumber, consumeQty, mrpNumber: resolvedMrpNumber, mrpPlanId: resolvedMrpPlanId },
+      resolvedMrpNumber
+        ? `Consumed ${consumeQty} ${unit} from Shopfloor WIP for MRP ${resolvedMrpNumber}`
+        : `Consumed ${consumeQty} ${unit} from Shopfloor WIP`
+    )
+  );
+});
+
+/**
  * Convert Shopfloor RM / BO WIP into In-house FG Component WIP
  * (Enables cutting, blanking, pre-machining to create a Component in WIP,
  * which can then be dispatched on a WIP-to-WIP Returnable DC)
@@ -874,6 +956,8 @@ export const moveWipToFgInventory = asyncHandler(async (req, res) => {
     newStock,
     referenceDocType: "WIPTransfer",
     referenceDocNumber: docNumber,
+    mrpPlan: linkedPlan?._id || undefined,
+    mrpNumber: linkedPlan?.mrpNumber || (mrpNumber ? String(mrpNumber).trim() : ""),
     recipientOrSource: "Main Store FG Inventory",
     purpose: remarks || `FG transferred from Shopfloor WIP to Main Store Inventory${linkedPlan ? ` (MRP #${linkedPlan.mrpNumber})` : ""}`,
     performedBy: userId,

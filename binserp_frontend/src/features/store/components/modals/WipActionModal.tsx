@@ -1,14 +1,15 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { X, ArrowDownLeft, Trash2, Factory, Layers, ArrowRight } from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import { X, ArrowDownLeft, Trash2, Factory, Layers, ArrowRight, Flame } from "lucide-react";
 import { apiRequest } from "@/src/lib/api";
 
 interface WipActionModalProps {
   isOpen: boolean;
   onClose: () => void;
   wipItem: any;
-  mode: "return" | "scrap" | "convert";
+  mode: "return" | "scrap" | "convert" | "consume";
+  mrpBuckets?: any[];
   onSuccess: (msg: string) => void;
   onError: (msg: string) => void;
 }
@@ -18,12 +19,18 @@ export default function WipActionModal({
   onClose,
   wipItem,
   mode,
+  mrpBuckets = [],
   onSuccess,
   onError,
 }: WipActionModalProps) {
   const [quantity, setQuantity] = useState<string>("");
   const [reason, setReason] = useState<string>("");
   const [loading, setLoading] = useState(false);
+
+  // Consume-for-MRP specific state
+  const [selectedMrpNumber, setSelectedMrpNumber] = useState<string>("");
+  const [selectedMrpPlanId, setSelectedMrpPlanId] = useState<string>("");
+  const [mrpSearch, setMrpSearch] = useState<string>("");
 
   // Conversion specific fields
   const [existingComponents, setExistingComponents] = useState<any[]>([]);
@@ -45,6 +52,54 @@ export default function WipActionModal({
   const conversionFactor = Number(wipItem?.conversionFactor) || 1;
   const [selectedUnit, setSelectedUnit] = useState<string>(unit);
 
+  // Build sorted MRP options: MRPs with active batches for this item first, then all other MRPs
+  const mrpOptions = useMemo(() => {
+    const itemIdStr = String(wipItem?.materialId || wipItem?._id || "");
+    const itemNameLow = String(wipItem?.materialName || wipItem?.name || "").trim().toLowerCase();
+
+    const activeBatchMrps = new Set<string>(
+      (Array.isArray(wipItem?.wipBatches) ? wipItem.wipBatches : [])
+        .filter((b: any) => Number(b.remainingQty || 0) > 0 && b.mrpNumber)
+        .map((b: any) => String(b.mrpNumber).trim().toLowerCase())
+    );
+
+    const list = (Array.isArray(mrpBuckets) ? mrpBuckets : [])
+      .filter((b: any) => b && b.mrpNumber)
+      .map((b: any) => {
+        const mrpKey = String(b.mrpNumber).trim().toLowerCase();
+        const hasItemInBucket = (Array.isArray(b.items) ? b.items : []).some((it: any) => {
+          const sameId = itemIdStr && it.materialId && String(it.materialId) === itemIdStr;
+          const sameName = itemNameLow && it.materialName && String(it.materialName).trim().toLowerCase() === itemNameLow;
+          return (sameId || sameName) && Number(it.pendingQty || 0) > 0;
+        });
+        return {
+          mrpNumber: String(b.mrpNumber).trim(),
+          mrpPlanId: b.mrpPlanId ? String(b.mrpPlanId) : "",
+          productName: b.productName || "Production Order",
+          customerName: b.customerName || "",
+          salesOrderNumber: b.salesOrderNumber || "",
+          status: b.status || "",
+          isMatchingItem: activeBatchMrps.has(mrpKey) || hasItemInBucket,
+        };
+      });
+
+    list.sort((a, b) => {
+      if (a.isMatchingItem && !b.isMatchingItem) return -1;
+      if (!a.isMatchingItem && b.isMatchingItem) return 1;
+      return b.mrpNumber.localeCompare(a.mrpNumber);
+    });
+
+    const q = mrpSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (opt) =>
+        opt.mrpNumber.toLowerCase().includes(q) ||
+        opt.productName.toLowerCase().includes(q) ||
+        opt.customerName.toLowerCase().includes(q) ||
+        opt.salesOrderNumber.toLowerCase().includes(q)
+    );
+  }, [mrpBuckets, wipItem, mrpSearch]);
+
   // Reset form whenever modal opens or item/mode changes
   useEffect(() => {
     if (isOpen && wipItem) {
@@ -62,6 +117,15 @@ export default function WipActionModal({
       setTargetSecondaryUnit("");
       setTargetConversionFactor(1);
       setTargetIsSecondaryActive(false);
+      setMrpSearch("");
+      if (mode === "consume") {
+        const firstMatching = mrpOptions.find((o) => o.isMatchingItem);
+        setSelectedMrpNumber(firstMatching?.mrpNumber || "");
+        setSelectedMrpPlanId(firstMatching?.mrpPlanId || "");
+      } else {
+        setSelectedMrpNumber("");
+        setSelectedMrpPlanId("");
+      }
     }
   }, [isOpen, wipItem, mode]);
 
@@ -135,6 +199,7 @@ export default function WipActionModal({
   const isReturn = mode === "return";
   const isScrap = mode === "scrap";
   const isConvert = mode === "convert";
+  const isConsume = mode === "consume";
 
   const isSecondaryActive = hasDualUnit && selectedUnit === secondaryUnit;
   const effectiveMax = isSecondaryActive ? maxSecondaryQty : maxQty;
@@ -263,6 +328,22 @@ export default function WipActionModal({
           scrapReason: reason.trim() || "Process Scrap",
           remarks: reason.trim() || "Process Scrap"
         };
+      } else if (isConsume) {
+        endpoint = "/api/store/wip/consume";
+        payload = {
+          materialId: resolvedMaterialId,
+          materialName: wipItem.materialName || wipItem.name,
+          itemType: wipItem.itemType || (wipItem.categoryType?.toLowerCase().includes("bought") ? "bo" : wipItem.categoryType?.toLowerCase().includes("finish") ? "fg" : "rm"),
+          quantity: finalPrimaryQty,
+          unit: unit,
+          hasSecondaryUnit: hasDualUnit,
+          secondaryUnit: secondaryUnit,
+          secondaryQuantity: finalSecondaryQty,
+          conversionFactor: conversionFactor,
+          mrpPlanId: selectedMrpPlanId || undefined,
+          mrpNumber: selectedMrpNumber || "",
+          remarks: reason.trim() || (selectedMrpNumber ? `Consumed for MRP ${selectedMrpNumber}` : "Shopfloor WIP consumption")
+        };
       } else if (isConvert) {
         const numTarget = parseFloat(targetQuantity);
         const targetCf = Number(targetConversionFactor) || 1;
@@ -312,7 +393,11 @@ export default function WipActionModal({
 
       onSuccess(
         data.message ||
-          (isConvert
+          (isConsume
+            ? (selectedMrpNumber
+                ? `Successfully consumed ${finalPrimaryQty} ${unit} from Shopfloor WIP for MRP ${selectedMrpNumber}`
+                : `Successfully consumed ${finalPrimaryQty} ${unit} from Shopfloor WIP`)
+            : isConvert
             ? `Successfully converted ${finalPrimaryQty} ${unit} to ${targetQuantity} ${targetUnit} of ${targetComponentName} in Shopfloor WIP`
             : isReturn
             ? "Successfully returned material to Main Store"
@@ -332,7 +417,9 @@ export default function WipActionModal({
       <div className={`bg-white dark:bg-slate-900 w-full ${isConvert ? 'max-w-4xl' : 'max-w-xl'} rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col`}>
         {/* Header */}
         <div className={`px-5 py-4 flex justify-between items-center text-white shrink-0 ${
-          isConvert
+          isConsume
+            ? "bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700"
+            : isConvert
             ? "bg-gradient-to-r from-indigo-700 via-indigo-800 to-purple-800"
             : isReturn 
             ? "bg-gradient-to-r from-teal-700 to-emerald-800" 
@@ -340,18 +427,22 @@ export default function WipActionModal({
         }`}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center backdrop-blur-xs">
-              {isConvert ? <Factory size={22} /> : isReturn ? <ArrowDownLeft size={22} /> : <Trash2 size={22} />}
+              {isConsume ? <Flame size={22} /> : isConvert ? <Factory size={22} /> : isReturn ? <ArrowDownLeft size={22} /> : <Trash2 size={22} />}
             </div>
             <div>
               <h3 className="text-base font-bold">
-                {isConvert 
+                {isConsume
+                  ? "Consume Shopfloor WIP Stock"
+                  : isConvert 
                   ? "Convert WIP Material into FG Component" 
                   : isReturn 
                   ? "Return Material to Main Store" 
                   : "Report Shopfloor Scrap Write-Off"}
               </h3>
               <p className="text-xs text-white/80">
-                {isConvert
+                {isConsume
+                  ? "Deducts available Shopfloor WIP stock against a selected MRP Plan or production"
+                  : isConvert
                   ? "Produces in-house FG Component in Shopfloor WIP (WIP stock only)"
                   : isReturn 
                   ? "Transfers unused shopfloor WIP back to Main Store perpetual inventory" 
@@ -618,7 +709,7 @@ export default function WipActionModal({
               </div>
             </div>
           ) : (
-            /* Standard Layout for Return / Scrap */
+            /* Standard Layout for Consume / Return / Scrap */
             <div className="space-y-4">
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
                 <div className="font-bold text-sm text-slate-900 dark:text-white">
@@ -629,15 +720,92 @@ export default function WipActionModal({
                     {wipItem.materialDescription || wipItem.description || wipItem.descriptions}
                   </div>
                 )}
-                <div className="mt-2 text-xs font-semibold text-slate-500">
-                  Available WIP: <span className="text-slate-900 dark:text-white font-mono font-bold">{maxQty} {unit}</span>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-slate-500">
+                  <span>
+                    Available Shopfloor WIP:{" "}
+                    <span className="text-slate-900 dark:text-white font-mono font-bold">
+                      {maxQty} {unit}
+                    </span>
+                    {hasDualUnit && (
+                      <span className="text-indigo-600 dark:text-indigo-400 font-mono ml-1.5">
+                        ({maxSecondaryQty} {secondaryUnit})
+                      </span>
+                    )}
+                  </span>
+                  {hasDualUnit && (
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedUnit(unit); setQuantity(""); }}
+                        className={`px-2 py-0.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                          !isSecondaryActive
+                            ? "bg-indigo-600 text-white shadow-xs"
+                            : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
+                        }`}
+                      >
+                        {unit}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedUnit(secondaryUnit); setQuantity(""); }}
+                        className={`px-2 py-0.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                          isSecondaryActive
+                            ? "bg-indigo-600 text-white shadow-xs"
+                            : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
+                        }`}
+                      >
+                        {secondaryUnit}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {isConsume && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Target MRP Plan
+                    </label>
+                    {mrpOptions.some((o) => o.isMatchingItem) && (
+                      <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                        Active item MRPs listed first
+                      </span>
+                    )}
+                  </div>
+                  {mrpBuckets.length > 6 && (
+                    <input
+                      type="text"
+                      value={mrpSearch}
+                      onChange={(e) => setMrpSearch(e.target.value)}
+                      placeholder="Filter MRP number, product, or customer..."
+                      className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                    />
+                  )}
+                  <select
+                    value={selectedMrpNumber}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedMrpNumber(val);
+                      const found = mrpOptions.find((o) => o.mrpNumber === val);
+                      setSelectedMrpPlanId(found?.mrpPlanId || "");
+                    }}
+                    className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                  >
+                    <option value="">General Shopfloor (No Specific MRP)</option>
+                    {mrpOptions.map((opt) => (
+                      <option key={opt.mrpNumber} value={opt.mrpNumber}>
+                        {opt.isMatchingItem ? "★ " : ""}{opt.mrpNumber} — {opt.productName}{opt.customerName ? ` (${opt.customerName})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    {isReturn ? "Return Quantity" : "Scrap Quantity"} ({activeUnitLabel}) <span className="text-red-500">*</span>
+                    {isConsume ? "Consume Quantity" : isReturn ? "Return Quantity" : "Scrap Quantity"} ({activeUnitLabel}) <span className="text-red-500">*</span>
                   </label>
                   <button
                     type="button"
@@ -658,6 +826,11 @@ export default function WipActionModal({
                   required
                   className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                 />
+                {hasDualUnit && numInput > 0 && (
+                  <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
+                    Equivalent: {liveConverted} {isSecondaryActive ? unit : secondaryUnit}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -699,7 +872,9 @@ export default function WipActionModal({
               type="submit"
               disabled={loading || maxQty <= 0}
               className={`px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer ${
-                isConvert
+                isConsume
+                  ? "bg-amber-600 hover:bg-amber-700 shadow-amber-600/25"
+                  : isConvert
                   ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/25"
                   : isReturn
                   ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/25"
@@ -708,6 +883,11 @@ export default function WipActionModal({
             >
               {loading ? (
                 <span>Processing...</span>
+              ) : isConsume ? (
+                <>
+                  <Flame size={15} />
+                  <span>Confirm WIP Consumption</span>
+                </>
               ) : isConvert ? (
                 <>
                   <Factory size={15} />

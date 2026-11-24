@@ -142,7 +142,15 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
     }, []);
 
     const poRequiresApproval = isApprovalRequired('outwardPo');
-    const isPoApproved = (po: any) => (po?.status || '').toLowerCase() === 'approved';
+    const isPoApproved = (po: any) => {
+        const s = (po?.status || '').toLowerCase();
+        return (
+            s === 'approved' ||
+            s === 'partially received' ||
+            s === 'completed' ||
+            Boolean(po?.isApproved || po?.approvedByName || po?.approvedAt)
+        );
+    };
     const isPoPdfLocked = (po: any) => poRequiresApproval && !isPoApproved(po);
 
     // Dashboard visibility: Default hidden as requested
@@ -596,6 +604,10 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                     setSelectedPoPreview((prev: any) => ({
                         ...prev,
                         status: newStatus,
+                        isApproved: updatedPO.isApproved ?? prev?.isApproved ?? (newStatus === 'Approved'),
+                        approvedBy: updatedPO.approvedBy ?? prev?.approvedBy,
+                        approvedByName: updatedPO.approvedByName || prev?.approvedByName || (newStatus === 'Approved' ? (currentUser?.name || currentUser?.username || 'You') : undefined),
+                        approvedAt: updatedPO.approvedAt || prev?.approvedAt || (newStatus === 'Approved' ? new Date().toISOString() : undefined),
                         updatedByName: updatedPO.updatedByName || 'You',
                         updatedAt: new Date().toISOString(),
                         history: updatedPO.history || [
@@ -1250,13 +1262,13 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                         </button>
                     </div>
 
-                    {/* ROW 3 (Mobile) / Right Section (Desktop): KPI Toggle, Date Filter Dropdown, Export & Desktop Create Button */}
-                    <div className="flex items-center gap-1.5 sm:gap-2 w-full lg:w-auto max-w-full shrink-0">
+                    {/* ROW 3 (Mobile) / Right Section (Desktop): KPI Toggle, PO Type, Date Filter, Export (Desktop) & Desktop Create Button */}
+                    <div className="flex items-center gap-2 w-full lg:w-auto max-w-full shrink-0">
                         {/* Toggle Top Dashboard / KPI cards */}
                         <button
                             type="button"
                             onClick={() => setShowDashboard(prev => !prev)}
-                            className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border shrink-0 active:scale-95 ${
+                            className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border shrink-0 active:scale-95 ${
                                 showDashboard
                                     ? 'bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800 shadow-2xs'
                                     : 'bg-slate-100 text-slate-700 border-gray-200 hover:bg-slate-200/80 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
@@ -1272,7 +1284,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             <select
                                 value={poTypeFilter}
                                 onChange={(e) => setPoTypeFilter(e.target.value as 'all' | 'standard' | 'jobwork')}
-                                className="w-full appearance-none pl-7 sm:pl-8 pr-6 sm:pr-7 py-2 text-xs font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 truncate"
+                                className="w-full appearance-none pl-8 pr-7 py-2 text-xs font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 truncate"
                                 title="Filter by PO Type (All, Normal PO, Job Work PO)"
                             >
                                 <option value="all">All POs ({poTypeCounts.all})</option>
@@ -1288,7 +1300,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             <select
                                 value={activeDateDropdownValue}
                                 onChange={handleDateFilterDropdownChange}
-                                className="w-full appearance-none pl-7 sm:pl-8 pr-6 sm:pr-7 py-2 text-xs font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20 truncate"
+                                className="w-full appearance-none pl-8 pr-7 py-2 text-xs font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20 truncate"
                             >
                                 <option value="all">📅 All Time</option>
                                 <option value="today">📅 Today</option>
@@ -1304,11 +1316,11 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={13} />
                         </div>
 
-                        {/* Export to Excel */}
+                        {/* Export to Excel (Hidden on mobile phones, unchanged on tablet/desktop) */}
                         <button
                             type="button"
                             onClick={exportPOListToExcel}
-                            className="px-2.5 sm:px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs shrink-0 active:scale-95"
+                            className="hidden md:flex px-2.5 sm:px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all items-center justify-center gap-1.5 cursor-pointer shadow-2xs shrink-0 active:scale-95"
                             title="Export filtered PO list to Excel"
                         >
                             <FileSpreadsheet size={14} className="text-emerald-600 dark:text-emerald-400" />

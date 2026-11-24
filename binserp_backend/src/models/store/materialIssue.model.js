@@ -37,6 +37,22 @@ export const materialIssueSchema = new mongoose.Schema(
     mrpNumber: {
       type: String,
     },
+    targetFgItem: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "FGItem",
+    },
+    targetFgItemName: {
+      type: String,
+      default: "",
+    },
+    targetFgItemDescription: {
+      type: String,
+      default: "",
+    },
+    targetFgQuantity: {
+      type: Number,
+      default: 0,
+    },
     materialRequest: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "MaterialRequest",

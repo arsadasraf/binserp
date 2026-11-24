@@ -82,7 +82,10 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                         {requests.map((request) => {
-                            const isApproved = request.status === 'Approved';
+                            const isApproved =
+                                request.status === 'Approved' ||
+                                request.status === 'Issued' ||
+                                Boolean(request.isApproved || request.approvedByName || request.approvedAt);
                             const isIssueLocked = approvalRequired && !isApproved;
 
                             return (
@@ -119,9 +122,16 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                     </td>
                                 <td className="p-4">
                                     {request.mrpNumber ? (
-                                        <span className="bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono text-xs px-2.5 py-1 rounded-lg font-bold">
-                                            MRP: {request.mrpNumber}
-                                        </span>
+                                        <div className="flex flex-col items-start gap-1">
+                                            <span className="bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono text-xs px-2.5 py-1 rounded-lg font-bold">
+                                                MRP: {request.mrpNumber}
+                                            </span>
+                                            {request.targetFgItemName && (
+                                                <span className="bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-[10px] px-2 py-0.5 rounded-md font-bold max-w-[200px] truncate" title={`Target FG: ${request.targetFgItemName}${request.targetFgItemDescription ? ` — ${request.targetFgItemDescription}` : ''}`}>
+                                                    FG: {request.targetFgItemName}
+                                                </span>
+                                            )}
+                                        </div>
                                     ) : request.soNumber || request.salesOrder?.orderNumber ? (
                                         <span className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-mono text-xs px-2.5 py-1 rounded-lg font-bold">
                                             {request.soNumber || request.salesOrder?.orderNumber}

@@ -38,6 +38,22 @@ export const materialRequestSchema = new mongoose.Schema(
     mrpNumber: {
       type: String,
     },
+    targetFgItem: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "FGItem",
+    },
+    targetFgItemName: {
+      type: String,
+      default: "",
+    },
+    targetFgItemDescription: {
+      type: String,
+      default: "",
+    },
+    targetFgQuantity: {
+      type: Number,
+      default: 0,
+    },
     items: [
       {
         material: {
@@ -109,12 +125,22 @@ export const materialRequestSchema = new mongoose.Schema(
         type: String,
       },
     ],
+    isApproved: {
+      type: Boolean,
+      default: false,
+    },
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
     approvedByName: {
       type: String,
+    },
+    approvedByEmail: {
+      type: String,
+    },
+    approvedAt: {
+      type: Date,
     },
     issuedBy: {
       type: mongoose.Schema.Types.ObjectId,

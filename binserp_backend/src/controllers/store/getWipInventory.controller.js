@@ -102,6 +102,7 @@ export const getWipInventory = async (req, res) => {
           $in: [
             "WIP_RETURN_TO_STORE", 
             "WIP_SCRAP_WRITEOFF", 
+            "WIP_CONSUMPTION_OUTWARD",
             "WIP_RM_CONVERT_OUTWARD", 
             "WIP_COMPONENT_CONVERT_INWARD",
             "WIP_TO_FG_STORE_TRANSFER"
@@ -322,6 +323,9 @@ export const getWipInventory = async (req, res) => {
       }
       const issueDate = issue.date || issue.createdAt;
       const docNo = issue.issueNumber || `ISS-${issue._id.toString().slice(-6)}`;
+      const issueTargetFgItem = issue.targetFgItem ? issue.targetFgItem.toString() : "";
+      const issueTargetFgItemName = (issue.targetFgItemName || "").trim().toLowerCase();
+      const issueTargetFgQty = Number(issue.targetFgQuantity) || 0;
 
       (issue.items || []).forEach((item) => {
         const rawItemType = (item.itemType || item.type || '').toLowerCase();
@@ -356,6 +360,9 @@ export const getWipInventory = async (req, res) => {
           entry.wipBatches.push({
             issueNumber: docNo,
             mrpNumber: mrpNumber ? mrpNumber.trim().toLowerCase() : "",
+            targetFgItem: issueTargetFgItem,
+            targetFgItemName: issueTargetFgItemName,
+            targetFgQuantity: issueTargetFgQty,
             date: new Date(issueDate),
             quantity: qty,
             remainingQty: qty
@@ -469,9 +476,12 @@ export const getWipInventory = async (req, res) => {
       const cat = adj.transactionCategory;
       const isReturn = cat === "WIP_RETURN_TO_STORE";
       const isScrap = cat === "WIP_SCRAP_WRITEOFF";
+      const isConsume = cat === "WIP_CONSUMPTION_OUTWARD";
       const isConvertOutward = cat === "WIP_RM_CONVERT_OUTWARD";
       const isConvertInward = cat === "WIP_COMPONENT_CONVERT_INWARD";
       const isMoveToFgStore = cat === "WIP_TO_FG_STORE_TRANSFER";
+      const adjMrpNum = adj.mrpNumber ? String(adj.mrpNumber).trim() : "";
+      const adjMrpKey = adjMrpNum.toLowerCase();
 
       const rawType = (adj.itemType || "").toLowerCase();
       const targetType = (rawType === "boughtout" || rawType === "bo") 
@@ -517,10 +527,22 @@ export const getWipInventory = async (req, res) => {
             categoryType: entry.categoryType
           });
         } else {
-          // Outward reduction from Shopfloor WIP batches (Return, Scrap, or RM Conversion)
+          // Outward reduction from Shopfloor WIP batches (Return, Scrap, Consumption, or RM Conversion)
           let toDeduct = adjQty;
+          if (isConsume && adjMrpKey) {
+            // First deduct from batches matching the selected MRP Plan (FIFO)
+            for (const b of entry.wipBatches) {
+              if (toDeduct <= 0) break;
+              if (b.mrpNumber !== adjMrpKey || b.remainingQty <= 0) continue;
+              const take = Math.min(b.remainingQty, toDeduct);
+              b.remainingQty -= take;
+              toDeduct -= take;
+            }
+          }
+          // Deduct remaining (or all if general) from Shopfloor WIP batches FIFO
           for (const b of entry.wipBatches) {
             if (toDeduct <= 0) break;
+            if (b.remainingQty <= 0) continue;
             const take = Math.min(b.remainingQty, toDeduct);
             b.remainingQty -= take;
             toDeduct -= take;
@@ -528,6 +550,8 @@ export const getWipInventory = async (req, res) => {
 
           if (isReturn || isMoveToFgStore) {
             entry.totalReturnedQty += adjQty;
+          } else if (isConsume) {
+            entry.totalFgConsumedQty += adjQty;
           }
 
           if (new Date(adjDate) > new Date(entry.lastMovementDate)) {
@@ -539,6 +563,9 @@ export const getWipInventory = async (req, res) => {
           if (isReturn) {
             txType = "WIP Returned to Main Store";
             vendorName = "Main Store";
+          } else if (isConsume) {
+            txType = adjMrpNum ? `Shopfloor WIP Consumed (${adjMrpNum})` : "Shopfloor WIP Consumed";
+            vendorName = adjMrpNum ? `MRP: ${adjMrpNum}` : "Shopfloor Production";
           } else if (isConvertOutward) {
             txType = "WIP Consumed for Component Production";
             vendorName = "In-house Shopfloor Production";
@@ -550,14 +577,14 @@ export const getWipInventory = async (req, res) => {
           const tx = {
             date: adjDate,
             type: txType,
-            docNumber: adj.referenceDocNumber || "TRF",
-            mrpNumber: "",
-            sentQty: adjQty,
-            receivedQty: 0,
+            docNumber: adj.referenceDocNumber || (isConsume ? "WIP-CONS" : "TRF"),
+            mrpNumber: adjMrpNum,
+            sentQty: isConsume ? 0 : adjQty,
+            receivedQty: isConsume ? adjQty : 0,
             unit: adj.unit || entry.unit || "PCS",
-            processType: adj.purpose || (isMoveToFgStore ? "WIP to Main FG Store Transfer" : (isReturn ? "Return to Main Store" : (isConvertOutward ? "Converted to In-house Component" : "Shopfloor Scrap Write-off"))),
+            processType: adj.purpose || (isConsume ? (adjMrpNum ? `Consumed for MRP ${adjMrpNum}` : "Shopfloor WIP Consumption") : (isMoveToFgStore ? "WIP to Main FG Store Transfer" : (isReturn ? "Return to Main Store" : (isConvertOutward ? "Converted to In-house Component" : "Shopfloor Scrap Write-off")))),
             vendorName: vendorName,
-            status: "Completed"
+            status: isConsume ? "Consumed" : "Completed"
           };
           entry.transactions.push(tx);
           allTransactionsLedger.push({
@@ -567,6 +594,35 @@ export const getWipInventory = async (req, res) => {
             itemType: entry.itemType,
             categoryType: entry.categoryType
           });
+
+          // Sync manual WIP consumption into the linked MRP WIP Bucket
+          if (isConsume && adjMrpKey && mrpBucketMap.has(adjMrpKey)) {
+            const bucket = mrpBucketMap.get(adjMrpKey);
+            let matchedBucketItem = null;
+            bucket.itemsInWip.forEach((itemRecord) => {
+              if (matchedBucketItem) return;
+              const sameId = adj.item && itemRecord.materialId && String(itemRecord.materialId) === String(adj.item);
+              const sameName = itemRecord.materialName && entry.materialName && itemRecord.materialName.trim().toLowerCase() === entry.materialName.trim().toLowerCase();
+              if (sameId || sameName) matchedBucketItem = itemRecord;
+            });
+            if (matchedBucketItem) {
+              matchedBucketItem.consumedQty = (matchedBucketItem.consumedQty || 0) + adjQty;
+              matchedBucketItem.pendingQty = Math.max(0, (matchedBucketItem.issuedQty || 0) - matchedBucketItem.consumedQty);
+            }
+            bucket.totalConsumedQty = (bucket.totalConsumedQty || 0) + adjQty;
+            bucket.transactions.push({
+              date: adjDate,
+              type: "WIP Stock Consumed",
+              docNumber: adj.referenceDocNumber || "WIP-CONS",
+              materialName: entry.materialName,
+              materialCode: entry.materialCode,
+              materialDescription: entry.materialDescription || "",
+              itemType: entry.itemType,
+              qty: adjQty,
+              unit: adj.unit || entry.unit || "PCS",
+              status: "Consumed"
+            });
+          }
         }
       }
     });
@@ -899,6 +955,22 @@ export const getWipInventory = async (req, res) => {
     });
 
     // 6. Process FG GRNs & Production Receipts (Multi-Tier WIP Consumption Engine)
+    // Also include non-MRP WIP-to-FG Store transfers (MRP-linked transfers already create an FGGRN)
+    const generalWipToFgTransfers = (wipAdjustments || [])
+      .filter(adj => adj.transactionCategory === "WIP_TO_FG_STORE_TRANSFER" && !adj.mrpNumber && !adj.mrpPlan)
+      .map(adj => ({
+        grnNumber: adj.referenceDocNumber || "WIP-FG-TRF",
+        mrpPlan: undefined,
+        mrpNumber: "",
+        date: adj.date || adj.createdAt,
+        items: [{
+          fgItem: adj.item,
+          itemName: adj.itemName,
+          quantity: Number(adj.quantity) || 0,
+          unit: adj.unit || "PCS"
+        }]
+      }));
+
     const allProductionReceipts = [
       ...allFGGRNs.map(g => ({
         grnNumber: g.grnNumber,
@@ -918,11 +990,15 @@ export const getWipInventory = async (req, res) => {
           quantity: it.acceptedQuantity || it.receivedQuantity || it.quantity,
           unit: it.unit
         }))
-      }))
+      })),
+      ...generalWipToFgTransfers
     ];
 
     // Sort production receipts chronologically so older receipts consume older batches first
     allProductionReceipts.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Track cumulative received FG quantity per (MRP, FG) for Option A proportional -> 100% completion clearing
+    const fgCumulativeReceivedMap = new Map();
 
     allProductionReceipts.forEach(grn => {
       const grnDate = grn.date;
@@ -995,6 +1071,79 @@ export const getWipInventory = async (req, res) => {
           }));
         }
 
+        // 6A. Direct FG-Tagged WIP Consumption (Proportional on partial FG receipt, 100% on FG completion)
+        const fgTrackKey = `${targetMrpKey || 'general'}__${normFgItem || normFgName}`;
+        const prevCumFg = fgCumulativeReceivedMap.get(fgTrackKey) || 0;
+        const newCumFg = prevCumFg + fgQty;
+        fgCumulativeReceivedMap.set(fgTrackKey, newCumFg);
+
+        const plannedFgQtyFromMrp = Number(matchedMrpFg?.quantity) || 0;
+        const directConsumedByEntryId = new Map();
+
+        masterWipMap.forEach((wipEntry) => {
+          let entryDirectConsumed = 0;
+          for (const batch of wipEntry.wipBatches) {
+            if (batch.remainingQty <= 0) continue;
+            if (!batch.targetFgItem && !batch.targetFgItemName) continue;
+
+            const matchesFg =
+              (batch.targetFgItem && normFgItem && batch.targetFgItem === normFgItem) ||
+              (batch.targetFgItemName && normFgName && batch.targetFgItemName === normFgName);
+            if (!matchesFg) continue;
+
+            if (targetMrpKey) {
+              if (batch.mrpNumber !== targetMrpKey) continue;
+            } else {
+              if (batch.mrpNumber) continue;
+              const endOfGrnDay = new Date(grnDate).setHours(23, 59, 59, 999);
+              if (batch.date.getTime() > endOfGrnDay) continue;
+            }
+
+            const effPlannedQty = plannedFgQtyFromMrp || Number(batch.targetFgQuantity) || fgQty;
+            const isFgCompleted = effPlannedQty > 0 ? newCumFg >= effPlannedQty - 0.0001 : true;
+            let take = 0;
+            if (isFgCompleted) {
+              // Full FG quantity completed -> clear 100% of remaining WIP for this FG
+              take = batch.remainingQty;
+            } else {
+              // Partial FG receipt -> consume proportionally
+              const proportional = parseFloat((batch.quantity * (fgQty / effPlannedQty)).toFixed(4));
+              take = Math.min(batch.remainingQty, Math.max(0, proportional));
+            }
+            if (take > 0) {
+              batch.remainingQty = Math.max(0, parseFloat((batch.remainingQty - take).toFixed(4)));
+              entryDirectConsumed += take;
+            }
+          }
+
+          if (entryDirectConsumed > 0) {
+            wipEntry.totalFgConsumedQty += entryDirectConsumed;
+            directConsumedByEntryId.set(wipEntry.id, entryDirectConsumed);
+
+            const tx = {
+              date: grnDate,
+              type: wipEntry.itemType === 'fg' ? "WIP-to-WIP Subassembly Consumed" : "FG GRN Receipt (FG WIP Consumed)",
+              docNumber: grn.grnNumber,
+              mrpNumber: receiptMrpNum,
+              sentQty: 0,
+              receivedQty: entryDirectConsumed,
+              unit: wipEntry.unit,
+              processType: `Consumed into FG: ${fgName}`,
+              vendorName: "In-House Assembly",
+              status: "Consumed"
+            };
+            wipEntry.transactions.push(tx);
+            allTransactionsLedger.push({
+              ...tx,
+              materialName: wipEntry.materialName,
+              materialCode: wipEntry.materialCode,
+              itemType: wipEntry.itemType,
+              categoryType: wipEntry.categoryType
+            });
+          }
+        });
+
+        // 6B. Legacy / Untagged WIP Batch BOM Backflush (preserves 100% backward compatibility)
         if (bomIngredients.length > 0) {
           bomIngredients.forEach(bomMat => {
             const rawMatName = bomMat.materialName || "";
@@ -1014,10 +1163,13 @@ export const getWipInventory = async (req, res) => {
             const rawId = bomMat.material;
             const ingEntry = findWipEntry(rawId, rawMatName, rawMatCode, ingType);
             if (ingEntry) {
-              let needed = consumedRequired;
+              const alreadyDirect = directConsumedByEntryId.get(ingEntry.id) || 0;
+              let needed = Math.max(0, consumedRequired - alreadyDirect);
               for (const batch of ingEntry.wipBatches) {
                 if (needed <= 0) break;
                 if (batch.remainingQty <= 0) continue;
+                // Do not consume batches explicitly reserved/tagged for a specific FG
+                if (batch.targetFgItem || batch.targetFgItemName) continue;
 
                 // Scoped batch consumption:
                 if (targetMrpKey) {
@@ -1035,7 +1187,7 @@ export const getWipInventory = async (req, res) => {
                 needed -= take;
               }
 
-              const consumed = consumedRequired - needed;
+              const consumed = Math.max(0, consumedRequired - alreadyDirect - needed);
               if (consumed > 0) {
                 ingEntry.totalFgConsumedQty += consumed;
 

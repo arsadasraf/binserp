@@ -82,6 +82,7 @@ import {
   searchStoreItems,
   returnWipToStore,
   recordWipScrap,
+  consumeWipStock,
   convertWipMaterialToComponent,
   convertMultipleWipToFg,
   moveWipToFgInventory
@@ -240,6 +241,7 @@ router.delete("/job-work/rate-directory/:id", deleteJobWorkRateDirectoryEntry);
 router.get("/wip/inventory", getWipInventory);
 router.post("/wip/return-to-store", returnWipToStore);
 router.post("/wip/scrap", recordWipScrap);
+router.post("/wip/consume", requirePermission("Store", "wip"), consumeWipStock);
 router.post("/wip/convert-to-component", convertWipMaterialToComponent);
 router.post("/wip/convert-multiple-to-fg", convertMultipleWipToFg);
 router.post("/wip/move-to-fg-inventory", moveWipToFgInventory);

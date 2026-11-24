@@ -84,6 +84,22 @@ export const jobWorkSchema = new mongoose.Schema(
       enum: ["Open", "Partial", "Closed", "Overdue"],
       default: "Open",
     },
+    approvalStatus: {
+      type: String,
+      enum: ["Pending", "Approved", "Rejected"],
+      default: "Pending",
+    },
+    isApproved: {
+      type: Boolean,
+      default: false,
+    },
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    approvedByName: String,
+    approvedByEmail: String,
+    approvedAt: Date,
     billingStatus: {
       type: String,
       enum: ["Unbilled", "Partially Billed", "Fully Billed"],

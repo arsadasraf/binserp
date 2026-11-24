@@ -193,7 +193,9 @@ export function generateSingleMaterialRequestSlipPDF(request: any, companyInfo?:
   const approver = request.approvedByName || request.approvedBy?.name || (request.status === 'Approved' || request.status === 'Issued' ? 'Authorized Approver' : 'Pending Approval');
   const issuer = request.issuedByName || request.issuedBy?.name || (request.status === 'Issued' ? 'Store In-Charge' : 'Pending Issue');
   const typeStr = (request.type || 'rm').toUpperCase();
-  const soOrMrp = request.mrpNumber ? `MRP: ${request.mrpNumber}` : (request.soNumber || request.salesOrder?.orderNumber || 'General Store Request');
+  const soOrMrp = request.mrpNumber
+    ? `MRP: ${request.mrpNumber}${request.targetFgItemName ? ` | FG: ${request.targetFgItemName}` : ''}`
+    : (request.soNumber || request.salesOrder?.orderNumber || 'General Store Request');
 
   const itemsHtml = (request.items || []).map((item: any, idx: number) => {
     const desc = item.materialDescription || item.description || item.specification || item.grade || '';

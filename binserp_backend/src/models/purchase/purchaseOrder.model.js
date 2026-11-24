@@ -186,6 +186,17 @@ export const purchaseOrderSchema = new mongoose.Schema(
       enum: ["Draft", "Released", "Approved", "Partially Received", "Completed", "Cancelled"],
       default: "Released",
     },
+    isApproved: {
+      type: Boolean,
+      default: false,
+    },
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    approvedByName: String,
+    approvedByEmail: String,
+    approvedAt: Date,
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

@@ -41,7 +41,10 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
     if (!isOpen || !currentRequest) return null;
 
     const approvalRequired = isApprovalRequired('materialRequest');
-    const isApproved = currentRequest.status === 'Approved' || currentRequest.status === 'Issued';
+    const isApproved =
+        currentRequest.status === 'Approved' ||
+        currentRequest.status === 'Issued' ||
+        Boolean(currentRequest.isApproved || currentRequest.approvedByName || currentRequest.approvedAt);
     const isPdfLocked = approvalRequired && !isApproved;
     const userCanApprove = canUserApprove('materialRequest', currentUser, userType);
     const approverDisplay = getApproverDisplay('materialRequest');
@@ -78,8 +81,9 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
             setCurrentRequest((prev: any) => ({
                 ...prev,
                 status: 'Approved',
-                approvedByName: currentUser?.name || 'You',
-                approvedAt: new Date().toISOString()
+                isApproved: true,
+                approvedByName: prev?.approvedByName || currentUser?.name || 'You',
+                approvedAt: prev?.approvedAt || new Date().toISOString()
             }));
             showSuccessToast('Material Request approved successfully! PDF generation is now unlocked.');
         } catch (e: any) {
@@ -211,6 +215,11 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request, 
                             <div className="font-bold font-mono text-sm text-indigo-900 dark:text-indigo-200">
                                 {currentRequest.mrpNumber ? `MRP: ${currentRequest.mrpNumber}` : (currentRequest.soNumber || currentRequest.salesOrder?.orderNumber || 'General Store Request')}
                             </div>
+                            {currentRequest.targetFgItemName && (
+                                <div className="mt-1 text-[11px] font-bold text-purple-700 dark:text-purple-300 truncate" title={`${currentRequest.targetFgItemName}${currentRequest.targetFgItemDescription ? ` — ${currentRequest.targetFgItemDescription}` : ''}`}>
+                                    FG: {currentRequest.targetFgItemName}{currentRequest.targetFgQuantity > 0 ? ` (${currentRequest.targetFgQuantity})` : ''}
+                                </div>
+                            )}
                         </div>
                     </div>
 

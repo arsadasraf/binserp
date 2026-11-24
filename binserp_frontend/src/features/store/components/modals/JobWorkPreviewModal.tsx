@@ -67,7 +67,15 @@ export default function JobWorkPreviewModal({
     const vendorEmail = vendorObj?.email || '';
 
     const handleDownloadPDF = () => {
-        if (isApprovalRequired('jobWorkChallan') && (challan as any).approvalStatus !== 'Approved' && (challan as any).status !== 'Approved') {
+        const challanAny = challan as any;
+        const alreadyApproved = Boolean(
+            challanAny.isApproved ||
+            challanAny.approvedByName ||
+            challanAny.approvedAt ||
+            challanAny.approvalStatus === 'Approved' ||
+            challanAny.status === 'Approved'
+        );
+        if (isApprovalRequired('jobWorkChallan') && !alreadyApproved) {
             showErrorDialog('Approval Required', `Job Work Challan ${challan.challanNumber} requires approval before PDF can be generated.`);
             return;
         }

@@ -123,6 +123,7 @@ export const stockTransactionSchema = new mongoose.Schema(
         "WIPConversion",
         "WIPReturn",
         "WIPScrap",
+        "WIPConsumption",
         "WIPAdjustment",
         "WIPTransfer",
         "ReturnInvoice",
@@ -144,6 +145,14 @@ export const stockTransactionSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
     },
     referenceDocNumber: {
+      type: String,
+      default: "",
+    },
+    mrpPlan: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MRPPlan",
+    },
+    mrpNumber: {
       type: String,
       default: "",
     },

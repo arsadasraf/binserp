@@ -33,7 +33,7 @@ export const createMaterialRequest = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    let { requestNumber, department, items, priority, type, salesOrder, soNumber, mrpPlan, mrpNumber, requestedBy } = req.body;
+    let { requestNumber, department, items, priority, type, salesOrder, soNumber, mrpPlan, mrpNumber, targetFgItem, targetFgItemName, targetFgItemDescription, targetFgQuantity, requestedBy } = req.body;
 
     // Deduplicate or auto-generate requestNumber
     if (!requestNumber || typeof requestNumber !== 'string' || !requestNumber.trim()) {
@@ -76,6 +76,10 @@ export const createMaterialRequest = async (req, res) => {
     const finalSalesOrder = (salesOrder && isValidObjectId(salesOrder.toString())) ? salesOrder.toString() : undefined;
     const finalSoNumber = soNumber || (!isValidObjectId(salesOrder?.toString()) && salesOrder ? salesOrder.toString() : undefined);
     const finalMrpPlan = (mrpPlan && isValidObjectId(mrpPlan.toString())) ? mrpPlan.toString() : undefined;
+    const finalTargetFgItem = (targetFgItem && isValidObjectId(targetFgItem.toString())) ? targetFgItem.toString() : undefined;
+    const finalTargetFgItemName = targetFgItemName ? String(targetFgItemName).trim() : "";
+    const finalTargetFgItemDescription = targetFgItemDescription ? String(targetFgItemDescription).trim() : "";
+    const finalTargetFgQuantity = Number(targetFgQuantity) > 0 ? Number(targetFgQuantity) : 0;
 
     // Resolve requestedBy safely (fallback to active user, admin, or company)
     let finalRequestedBy = (requestedBy && isValidObjectId(requestedBy.toString()))
@@ -331,6 +335,10 @@ export const createMaterialRequest = async (req, res) => {
       soNumber: finalSoNumber,
       mrpPlan: finalMrpPlan,
       mrpNumber: mrpNumber || undefined,
+      targetFgItem: finalTargetFgItem,
+      targetFgItemName: finalTargetFgItemName,
+      targetFgItemDescription: finalTargetFgItemDescription,
+      targetFgQuantity: finalTargetFgQuantity,
       items: processedItems,
       priority: priority || "Medium",
       status: "Pending",
